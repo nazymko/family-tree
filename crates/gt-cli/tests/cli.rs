@@ -366,3 +366,17 @@ fn export_of_an_open_project_is_a_clean_conflict_error() {
         "{err}"
     );
 }
+
+#[test]
+fn imports_an_atdb_file_and_searches_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("tree.atdb");
+    drop(gt_import_atdb::fixture::build_family_fixture(&db));
+    let checked = run_ok(gt().arg("check").arg(&db));
+    assert!(checked.contains("persons: 5"), "{checked}");
+    let dir = tmp.path().join("p");
+    let out = run_ok(gt().arg("import").arg(&db).arg("--into").arg(&dir));
+    assert!(out.contains("Imported 5 persons, 2 families"), "{out}");
+    let found = run_ok(gt().arg("search").arg(&dir).arg("Kovalenko"));
+    assert!(found.lines().any(|l| l.starts_with("person")), "{found}");
+}

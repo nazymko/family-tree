@@ -6,6 +6,7 @@
 
 use crate::dto::{DayOrder as WireDayOrder, ProjectInfo};
 use crate::error::{ApiError, ErrorCode};
+use crate::import_format;
 use crate::names::display_name;
 use crate::session::{Session, SessionClock};
 use gt_core::DayOrder;
@@ -14,7 +15,7 @@ use gt_core::living::{LivingRule, compute_living};
 use gt_core::model::Media;
 use gt_core::privacy::{LivingMode, PrivacyPolicy, PrivacySummary, filter};
 use gt_core::tree::Tree;
-use gt_gedcom::{ImportOptions, MissingReason, Repair, import, is_lexically_under};
+use gt_gedcom::{ImportOptions, MissingReason, Repair, is_lexically_under};
 use gt_store::{ChangeSet, Project, Record, RecordKind};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -371,6 +372,26 @@ pub fn import_gedcom_with_opener(
     progress: &dyn Fn(ImportProgress),
     open: &dyn Fn(&Path, SessionClock) -> Result<Session, ApiError>,
 ) -> Result<(Session, ImportReportDto), ApiError> {
+    import_gedcom_with_hooks(req, clock, progress, open, &import_format::convert)
+}
+
+/// The converter step of an import, injectable (tests use a converter that makes scratch files).
+#[doc(hidden)]
+pub type ConvertFn<'a> = &'a dyn Fn(
+    import_format::ImportFormat,
+    &Path,
+    &ImportOptions,
+) -> Result<import_format::Converted, ApiError>;
+
+/// `import_gedcom_with_opener` with the converter injectable too.
+#[doc(hidden)]
+pub fn import_gedcom_with_hooks(
+    req: &ImportRequest,
+    clock: SessionClock,
+    progress: &dyn Fn(ImportProgress),
+    open: &dyn Fn(&Path, SessionClock) -> Result<Session, ApiError>,
+    convert: ConvertFn<'_>,
+) -> Result<(Session, ImportReportDto), ApiError> {
     let emit = |phase, done, total| {
         progress(ImportProgress { phase, done, total });
     };
@@ -386,7 +407,7 @@ pub fn import_gedcom_with_opener(
     }
     let file = PathBuf::from(&req.file);
     emit(ImportPhase::Reading, 0, 1);
-    let bytes = std::fs::read(&file).map_err(|e| io_err("read", &file, &e))?;
+    let format = import_format::detect(&file)?;
     emit(ImportPhase::Reading, 1, 1);
 
     emit(ImportPhase::Parsing, 0, 1);
@@ -398,14 +419,18 @@ pub fn import_gedcom_with_opener(
     let media_roots: Vec<PathBuf> = req.media_roots.iter().map(PathBuf::from).collect();
     let mut allowed = media_roots.clone();
     allowed.push(gedcom_dir.clone());
-    let mut outcome = import(
-        &bytes,
+    let converted = convert(
+        format,
+        &file,
         &ImportOptions {
             day_order: core_day_order(req.day_order),
             media_roots,
             gedcom_dir: Some(gedcom_dir),
         },
-    );
+    )?;
+    allowed.extend(converted.extra_media_roots);
+    let cleanup = converted.cleanup;
+    let mut outcome = converted.outcome;
     emit(ImportPhase::Parsing, 1, 1);
 
     let (today, _) = (clock.0)();
@@ -423,6 +448,8 @@ pub fn import_gedcom_with_opener(
         &mut extra_missing,
         &emit,
     );
+    // Media is copied: the scratch files are no longer needed. Error paths drop the guard too.
+    drop(cleanup);
     if let Err(e) = built.and_then(|()| {
         if dir.exists() {
             // An empty folder is a valid target; make room for the rename.

@@ -9,6 +9,7 @@ pub mod dates;
 pub mod dto;
 pub mod error;
 pub mod family_view;
+pub mod import_format;
 pub mod index;
 pub mod names;
 pub mod ops;
@@ -40,5 +41,6 @@ pub mod transfer;
 pub use transfer::{
     ExportOptions, ExportVersion, GroupMedia, ImportPhase, ImportProgress, ImportReportDto,
     ImportRequest, LivingExport, MentionWarning, MissingMedia, MissingReasonDto, PrivacyPreview,
-    RelinkResult, RepairDto, UnparsedDateDto, import_gedcom, import_gedcom_with_opener,
+    RelinkResult, RepairDto, UnparsedDateDto, import_gedcom, import_gedcom_with_hooks,
+    import_gedcom_with_opener,
 };

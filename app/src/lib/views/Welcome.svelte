@@ -58,7 +58,7 @@
 
     {#if mode === 'home'}
       <div class="actions">
-        <Button variant="primary" onclick={() => (mode = 'import')}>Import a GEDCOM file</Button>
+        <Button variant="primary" onclick={() => (mode = 'import')}>Import a GEDCOM or Древо Жизни file</Button>
         <Button onclick={() => (mode = 'create')}>Create a new tree</Button>
         <Button onclick={openFolder}>Open a tree</Button>
       </div>
@@ -69,7 +69,7 @@
           {#if recents === null}
             <p class="note">&nbsp;</p>
           {:else if recents.length === 0}
-            <p class="note">No trees yet. Import a GEDCOM file to start, or create an empty tree.</p>
+            <p class="note">No trees yet. Import a GEDCOM or Древо Жизни file to start, or create an empty tree.</p>
           {:else}
             <ul class="recent">
               {#each recents as r (r.dir)}

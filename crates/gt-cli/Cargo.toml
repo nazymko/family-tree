@@ -13,9 +13,11 @@ path = "src/main.rs"
 gt-core = { path = "../gt-core" }
 gt-gedcom = { path = "../gt-gedcom" }
 gt-store = { path = "../gt-store" }
+gt-import-atdb = { path = "../gt-import-atdb" }
 clap.workspace = true
 
 [dev-dependencies]
+gt-import-atdb = { path = "../gt-import-atdb", features = ["fixture"] }
 assert_cmd.workspace = true
 tempfile.workspace = true
 

@@ -10,6 +10,7 @@ gt-core = { path = "../gt-core" }
 gt-store = { path = "../gt-store" }
 gt-gedcom = { path = "../gt-gedcom" }
 gt-layout = { path = "../gt-layout" }
+gt-import-atdb = { path = "../gt-import-atdb" }
 serde.workspace = true
 indexmap.workspace = true
 serde_json.workspace = true
@@ -22,6 +23,7 @@ kamadak-exif.workspace = true
 fast_image_resize.workspace = true
 
 [dev-dependencies]
+gt-import-atdb = { path = "../gt-import-atdb", features = ["fixture"] }
 gt-gedcom = { path = "../gt-gedcom", features = ["synthetic"] }
 tempfile.workspace = true
 proptest.workspace = true
