@@ -7,6 +7,7 @@
   import SourceForm, { type SourceValues } from './SourceForm.svelte';
   import { getApi } from '../api/context';
   import { notices } from '../ui/notices.svelte';
+  import { project } from '../state/project.svelte';
   import type { Id, SourceDto } from '../api/api';
 
   let { selectedId = null }: { selectedId?: Id | null } = $props();
@@ -31,6 +32,7 @@
   }
 
   $effect(() => {
+    void project.rev; // undo/redo and edits elsewhere
     void reload(filter);
   });
   $effect(() => {

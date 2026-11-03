@@ -160,4 +160,21 @@ describe('Shell', () => {
     await user.keyboard('{Alt>}{ArrowLeft}{/Alt}');
     expect(nav.route.name).toBe('family');
   });
+
+  it('mod_s_toasts_only_with_open_project_and_no_pending_write', async () => {
+    const { user } = await mountShell();
+    await user.keyboard('{Control>}s{/Control}');
+    expect(toasts.items.map((t) => t.text)).toEqual(['All changes are saved']);
+    toasts.clear();
+    project.save = 'saving';
+    await user.keyboard('{Control>}s{/Control}');
+    expect(toasts.items).toEqual([]);
+    project.save = 'failed';
+    await user.keyboard('{Control>}s{/Control}');
+    expect(toasts.items).toEqual([]);
+    project.save = 'saved';
+    project.info = null;
+    await user.keyboard('{Control>}s{/Control}');
+    expect(toasts.items).toEqual([]);
+  });
 });

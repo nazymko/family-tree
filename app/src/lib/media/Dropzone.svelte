@@ -1,5 +1,6 @@
 <script lang="ts" module>
   export const MEDIA_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'tif', 'tiff', 'gif', 'pdf'];
+  export const NO_PREVIEW = 'Attached, but too large to preview';
   const UNSUPPORTED = 'unsupported type; we attach JPEG, PNG, WebP, TIFF, GIF and PDF files';
   export const fileName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
   /** One line per failed file, e.g. "scan.exe: unsupported type; we attach ...". */
@@ -40,6 +41,7 @@
   const platform = getPlatform();
   let hovering = $state(false);
   let failures = $state<string[]>([]);
+  let warnings = $state<string[]>([]);
   let suggestion = $state<string | null>(null);
   let looked = $state<string | null>(null);
   const name = $derived(targetName ?? looked ?? 'this record');
@@ -65,6 +67,7 @@
   async function attach(paths: string[]) {
     if (paths.length === 0) return;
     failures = [];
+    warnings = [];
     suggestion = null;
     let r: AttachResult;
     try {
@@ -73,7 +76,12 @@
       failures = [e instanceof Error ? e.message : String(e)];
       return;
     }
-    failures = r.failed.map(failureLine);
+    // A file can be in both lists: attached, but its preview could not be made. That is a warning, not a failure.
+    const attachedNames = new Set(r.attached.map((m) => (m.originalName ?? '').toLowerCase()));
+    const isWarning = (f: { path: string; reason: string }) =>
+      /too large to preview/i.test(f.reason) && attachedNames.has(fileName(f.path).toLowerCase());
+    failures = r.failed.filter((f) => !isWarning(f)).map(failureLine);
+    warnings = r.failed.filter(isWarning).map((f) => `${fileName(f.path)}: ${NO_PREVIEW}`);
     const n = r.attached.length;
     if (n > 0) {
       notices.show(undoNotice(api, `Attached ${n} ${n === 1 ? 'file' : 'files'}`, await api.undoState(), onUndone));
@@ -98,6 +106,13 @@
       <p>These files were not attached:</p>
       <ul>
         {#each failures as f (f)}<li>{f}</li>{/each}
+      </ul>
+    </Banner>
+  {/if}
+  {#if warnings.length}
+    <Banner kind="warning">
+      <ul>
+        {#each warnings as w (w)}<li>{w}</li>{/each}
       </ul>
     </Banner>
   {/if}
