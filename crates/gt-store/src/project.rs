@@ -2,7 +2,7 @@ use crate::migrate::{MIGRATIONS, migrate, user_version};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;
 const DB_FILE: &str = "tree.db";
 const SUBDIRS: [&str; 3] = ["media", "thumbs", "backups"];
 
@@ -85,11 +85,16 @@ impl Project {
         for sub in SUBDIRS {
             std::fs::create_dir_all(dir.join(sub))?;
         }
-        Ok(Project {
+        let mut project = Project {
             dir: dir.to_path_buf(),
             conn,
             version,
-        })
+        };
+        if found == 1 {
+            // v1 full-text rows have arbitrary row ids; v2 edits address them by seq.
+            project.rebuild_search()?;
+        }
+        Ok(project)
     }
 
     pub fn schema_version(&self) -> i32 {

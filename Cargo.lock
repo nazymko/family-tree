@@ -352,6 +352,7 @@ dependencies = [
  "gt-core",
  "icu_collator",
  "indexmap",
+ "proptest",
  "rusqlite",
  "serde",
  "serde_json",

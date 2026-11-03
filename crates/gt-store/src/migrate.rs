@@ -4,7 +4,10 @@ use crate::StoreError;
 use rusqlite::Connection;
 
 /// `(name, sql)`; entry `i` takes the schema from version `i` to `i + 1`.
-pub const MIGRATIONS: &[(&str, &str)] = &[("0001_init", include_str!("migrations/0001_init.sql"))];
+pub const MIGRATIONS: &[(&str, &str)] = &[
+    ("0001_init", include_str!("migrations/0001_init.sql")),
+    ("0002_edit", include_str!("migrations/0002_edit.sql")),
+];
 
 pub(crate) fn user_version(conn: &Connection) -> Result<i32, StoreError> {
     Ok(conn.query_row("PRAGMA user_version", [], |r| r.get(0))?)

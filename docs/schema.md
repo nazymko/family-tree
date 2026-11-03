@@ -28,14 +28,14 @@ MyFamily.genetree/
 - **Enumerations** (kind, role, relationship, and so on) are stored as lowercase snake_case text such as `birth` or `civil_union`. A free-form value that is not in the app's list is stored as `other:<text>`.
 - `target_type` / `target_id` pairs are polymorphic references with no database foreign key. `target_type` is one of `person`, `name`, `family`, `child_link`, `event`, `place`, `source`, `repository`, `citation`, `media`, `note`.
 - `pos` is the position of the row inside its parent, to keep the original order.
-- `seq` is the position of a top-level record inside the whole tree. Every top-level record table (`person`, `family`, `event`, `place`, `source`, `repository`, `citation`, `media`, `note`) has `seq INTEGER NOT NULL`; saving writes the in-memory order as `seq` and loading orders by it, so order survives `VACUUM` (row ids do not).
+- `seq` is the position of a top-level record inside the whole tree. Every top-level record table (`person`, `family`, `event`, `place`, `source`, `repository`, `citation`, `media`, `note`) has `seq INTEGER NOT NULL`; saving writes the in-memory order as `seq` and loading orders by it, so order survives `VACUUM` (row ids do not). `seq` is indexed (schema 2): an edit gives a new record `MAX(seq) + 1` and an edited record keeps its `seq`.
 - Foreign keys are enforced (`PRAGMA foreign_keys = ON`) and every foreign key column has an index.
 
 ## Project metadata
 
 ### `meta`
 Key/value settings of the project.
-- `key`: setting name. The keys `app_version` (the app version that created the project) and `created_ms` (creation time) always exist.
+- `key`: setting name. The keys `app_version` (the app version that created the project) and `created_ms` (creation time) always exist. Optional keys: `living_max_age` (years after birth until a person counts as deceased, default 100), `home_person` (UUID of the person the app opens on) and `last_import_id` (id of the import that created the project, cleared by the first edit).
 - `value`: setting value as text.
 
 ### `tree_header`
@@ -220,16 +220,19 @@ Phonetic search keys computed from names (can be rebuilt).
 - `code`: the key.
 
 ### `change_log`
-History of edits, used for undo. Rows get increasing integer ids.
+History of edits, used for undo and the per-record history. Rows get increasing integer ids; one user action writes one row per changed record, all sharing a `group_id`.
 - `id`: increasing sequence number.
 - `ts`: when the change was made (Unix ms).
-- `target_type`, `target_id`: the record that changed.
-- `op`: the operation, such as `insert`, `update` or `delete`.
-- `before_json`: the record as it was before the change, as JSON; null for an insert.
+- `target_type`, `target_id`: the record that changed (`target_type` is the record's table name, such as `person`).
+- `op`: the operation: `create`, `update` or `delete` (rows written by schema 1 may say `insert`).
+- `before_json`: the record as it was before the change, as JSON; null for a create.
+- `group_id`: the UUID shared by every row of one edit; null for rows written before schema 2.
+- `label`: the user-facing name of the edit, such as `Edit name`; null for rows written before schema 2.
+- `after_json`: the record as it is after the change, as JSON; null for a delete.
 
 ## Search
 
-Both tables are rebuilt on every save and can be regenerated; they hold no data of their own.
+Both tables are rebuilt on every save and can be regenerated; they hold no data of their own. Edits rewrite only the rows of the records they touch. A row's `rowid` is `seq * 4 + k` (`k` is 0 for a person, 1 for a place, 2 for a source and 3 for a note), so one record's row can be replaced without scanning.
 
 ### `search_words`
 FTS5 table (`unicode61 remove_diacritics 2`): word and prefix search, accent-insensitive.
