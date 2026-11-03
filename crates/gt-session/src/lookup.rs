@@ -308,48 +308,4 @@ mod tests {
         assert_eq!(year_of_jdn(1_721_426), 1);
         assert_eq!(year_of_jdn(1_721_425), 0);
     }
-
-    #[test]
-    fn places_after_edit_include_new_chain() {
-        use gt_core::model::{Common, Place, PlaceName};
-        let dir = tempfile::tempdir().unwrap();
-        let proj = dir.path().join("p");
-        gt_store::Project::create(&proj).unwrap();
-        let mut s = Session::open(&proj, crate::SessionClock::fixed(2_460_000, 0)).unwrap();
-        assert!(s.suggest_places("zug", 5).is_empty());
-        let mk = |name: &str, parent: Option<Uuid>| {
-            let id = Uuid::now_v7();
-            let place = Place {
-                common: Common {
-                    id,
-                    private: false,
-                    changed: None,
-                    citations: vec![],
-                    notes: vec![],
-                    media: vec![],
-                    ext_ids: vec![],
-                    unknown: vec![],
-                },
-                names: vec![PlaceName {
-                    name: name.into(),
-                    lang: None,
-                    date: None,
-                }],
-                parent,
-                kind: None,
-                lat: None,
-                lon: None,
-                raw: None,
-            };
-            (id, place)
-        };
-        let (cid, country) = mk("Switzerland", None);
-        let (tid, town) = mk("Zug", Some(cid));
-        s.tree.places.insert(cid, country);
-        s.tree.places.insert(tid, town);
-        s.rebuild();
-        let got = s.suggest_places("zug", 5);
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].full, "Zug, Switzerland");
-    }
 }

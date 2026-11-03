@@ -215,14 +215,20 @@ impl Session {
 }
 
 impl Session {
-    /// Stores and applies an already planned change set as the newest undo step (clears redo).
-    pub(crate) fn commit_group(&mut self, cs: ChangeSet) -> Result<(), ApiError> {
+    /// Applies a change set planned outside `apply` (media attach, relink) as a new undo step
+    /// (clears redo).
+    pub(crate) fn apply_planned(&mut self, cs: ChangeSet) -> Result<EditResult, ApiError> {
         self.commit(&cs)?;
-        self.edit.undo.push(cs);
+        self.edit.undo.push(cs.clone());
         if self.edit.undo.len() > MAX_UNDO {
             self.edit.undo.remove(0);
         }
         self.edit.redo.clear();
-        Ok(())
+        Ok(self.result(&cs, cs.label.clone(), None))
+    }
+
+    /// As `apply_planned`, without building the result.
+    pub(crate) fn commit_group(&mut self, cs: ChangeSet) -> Result<(), ApiError> {
+        self.apply_planned(cs).map(|_| ())
     }
 }

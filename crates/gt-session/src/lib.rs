@@ -36,3 +36,9 @@ pub use lookup::parse_date_preview;
 pub mod media;
 pub mod thumbs;
 pub use media::{AttachFailure, AttachResult, ExifSuggestion, MediaSize};
+pub mod transfer;
+pub use transfer::{
+    ExportOptions, ExportVersion, GroupMedia, ImportPhase, ImportProgress, ImportReportDto,
+    ImportRequest, LivingExport, MentionWarning, MissingMedia, MissingReasonDto, PrivacyPreview,
+    RelinkResult, RepairDto, UnparsedDateDto, import_gedcom, import_gedcom_with_opener,
+};

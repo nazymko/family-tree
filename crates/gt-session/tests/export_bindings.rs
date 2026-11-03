@@ -118,6 +118,21 @@ fn export_all(dir: &Path) {
         SourceInput,
         Relation,
         LivingPatch,
+        ImportRequest,
+        ImportPhase,
+        ImportProgress,
+        MissingReasonDto,
+        MissingMedia,
+        RepairDto,
+        UnparsedDateDto,
+        ImportReportDto,
+        ExportVersion,
+        LivingExport,
+        ExportOptions,
+        MentionWarning,
+        GroupMedia,
+        PrivacyPreview,
+        RelinkResult,
     );
     let mut names: Vec<String> = read_dir_files(dir)
         .keys()
