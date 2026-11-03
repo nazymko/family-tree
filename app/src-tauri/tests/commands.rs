@@ -139,7 +139,7 @@ fn every_api_method_has_a_command() {
             "no command {snake}"
         );
     }
-    assert_eq!(COMMAND_NAMES.len(), 34);
+    assert_eq!(COMMAND_NAMES.len(), 35);
 }
 
 #[test]
@@ -433,6 +433,36 @@ fn gtmedia_protocol_serves_thumb_and_404() {
         protocol::respond(&state, &format!("/{id}/thumb")).status(),
         404
     );
+}
+
+#[test]
+fn gtmedia_url_built_by_the_ui_is_served_and_encoded_slash_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let (state, id) = state_with_media(dir.path());
+    // TS: convertFileSrc(id, 'gtmedia') + '/' + size  ->  http://gtmedia.localhost/<id>/thumb
+    // (gtmedia://localhost/<id>/thumb elsewhere); the webview hands the URI path to the handler.
+    for url in [
+        format!("http://gtmedia.localhost/{id}/thumb"),
+        format!("gtmedia://localhost/{id}/thumb"),
+    ] {
+        let path = url.parse::<tauri::http::Uri>().unwrap().path().to_string();
+        assert_eq!(protocol::respond(&state, &path).status(), 200, "{url}");
+    }
+    // The old form: convertFileSrc("<id>/thumb") percent-encodes the slash.
+    let bad = format!("http://gtmedia.localhost/{id}%2Fthumb");
+    let path = bad.parse::<tauri::http::Uri>().unwrap().path().to_string();
+    assert_eq!(protocol::respond(&state, &path).status(), 400, "{bad}");
+}
+
+#[test]
+fn open_media_externally_resolves_only_stored_media() {
+    let dir = tempfile::tempdir().unwrap();
+    let (state, id) = state_with_media(dir.path());
+    let p = state.with_session(|s| s.media_original_path(id)).unwrap();
+    assert!(p.is_file());
+    assert!(p.to_string_lossy().contains("media"));
+    let unknown = state.with_session(|s| s.media_original_path(uuid::Uuid::now_v7()));
+    assert!(unknown.is_err());
 }
 
 #[test]

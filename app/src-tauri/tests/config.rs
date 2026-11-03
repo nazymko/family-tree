@@ -51,8 +51,7 @@ fn capabilities_are_exact() {
             "core:default",
             "dialog:allow-open",
             "dialog:allow-save",
-            "opener:allow-reveal-item-in-dir",
-            "opener:allow-open-path"
+            "opener:allow-reveal-item-in-dir"
         ]
     );
     assert!(

@@ -143,7 +143,11 @@ export class TauriApi implements Api {
     return call('chart_close', { chartId });
   }
   mediaUrl(id: Id, size: 'thumb' | 'preview' | 'original'): string {
-    return convertFileSrc(`${id}/${size}`, 'gtmedia');
+    // Not convertFileSrc(`${id}/${size}`): that percent-encodes the slash and the protocol handler rejects it.
+    return `${convertFileSrc(id, 'gtmedia')}/${size}`;
+  }
+  openMediaExternally(id: Id): Promise<void> {
+    return call('open_media_externally', { id });
   }
   exifSuggestion(media: Id): Promise<ExifSuggestion | null> {
     return call('exif_suggestion', { media });

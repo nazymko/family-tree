@@ -70,6 +70,8 @@ export interface Api {
   chartOutline(chartId: number, parentNode: number | null, limit: number): Promise<OutlineItem[]>;
   chartClose(chartId: number): Promise<void>;
   /** Synchronous: a gtmedia: URL. */
+  /** Opens the media item's original file with the system viewer; Rust resolves the path (no path crosses the IPC). */
+  openMediaExternally(id: Id): Promise<void>;
   mediaUrl(id: Id, size: 'thumb' | 'preview' | 'original'): string;
   exifSuggestion(media: Id): Promise<ExifSuggestion | null>;
   /** add_media_file + Media record + link, one undo step. */
@@ -88,6 +90,5 @@ export interface Platform {
   pickFolder(title: string): Promise<string | null>;
   pickSavePath(opts: { title: string; defaultName: string; extensions: string[] }): Promise<string | null>;
   onFilesDropped(cb: (paths: string[]) => void, onHover?: (over: boolean) => void): () => void;
-  openExternally(path: string): Promise<void>;
   reveal(path: string): Promise<void>;
 }

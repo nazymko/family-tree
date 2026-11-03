@@ -90,10 +90,10 @@ describe('MediaViewer', () => {
 
   it('open_original_and_inline_title_edit', async () => {
     const user = userEvent.setup();
-    const { api, platform } = await setup();
+    const { api } = await setup();
     const spy = vi.spyOn(api, 'apply').mockResolvedValue({ label: 'Edit media', focus: null, touched: [], undo: { canUndo: true, canRedo: false, undoLabel: null, redoLabel: null } });
     await user.click(screen.getByRole('button', { name: 'Open original' }));
-    expect(platform.calls[0].method).toBe('openExternally');
+    expect(api.openedMedia).toEqual(['m0']);
     const title = screen.getByRole('textbox', { name: 'Title' });
     await user.clear(title);
     await user.type(title, 'Garden party');

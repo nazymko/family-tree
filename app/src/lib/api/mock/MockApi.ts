@@ -570,6 +570,13 @@ export class MockApi implements Api {
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   }
 
+  /** Records the call in `openedMedia` so tests can assert it. */
+  readonly openedMedia: Id[] = [];
+
+  async openMediaExternally(id: Id): Promise<void> {
+    this.openedMedia.push(id);
+  }
+
   async exifSuggestion(media: Id): Promise<ExifSuggestion | null> {
     if (!this.db.media.has(media)) throw missing('media item', media);
     const h = hashString(media);

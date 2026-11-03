@@ -1,5 +1,5 @@
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { Platform } from '../api';
 
@@ -50,10 +50,6 @@ export class TauriPlatform implements Platform {
       unlisten?.();
       unlisten = null;
     };
-  }
-
-  openExternally(path: string): Promise<void> {
-    return openPath(path);
   }
 
   reveal(path: string): Promise<void> {

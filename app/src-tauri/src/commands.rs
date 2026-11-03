@@ -16,6 +16,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+use tauri_plugin_opener::OpenerExt;
 use uuid::Uuid;
 
 /// The event `import_gedcom` emits while it works.
@@ -67,6 +68,7 @@ command_list!(
     chart_close,
     exif_suggestion,
     attach_files,
+    open_media_externally,
     preview_export,
     export_gedcom,
     get_settings,
@@ -397,6 +399,9 @@ pub fn last_citation(state: State<'_, AppState>) -> ApiResult<Option<CitationDto
 
 // ------------------------------------------------------------ charts
 
+// NOTE: `chart_open`, `attach_files` and `export_gedcom` hold the session mutex for the whole call
+// (gtmedia thumbnail decoding in `protocol` runs under the same mutex, so it waits for them).
+// This is accepted for now; do not restructure without a measured need.
 #[tauri::command]
 pub async fn chart_open<R: Runtime>(app: AppHandle<R>, req: ChartRequest) -> ApiResult<ChartMeta> {
     blocking(&app, move |s| s.with_session(|se| se.chart_open(&req))).await
@@ -451,6 +456,21 @@ pub async fn attach_files<R: Runtime>(
         s.with_session(|se| se.attach_files(target, &paths))
     })
     .await
+}
+
+/// Opens the original file of a media item with the OS default program. The path is resolved by
+/// the session (under `<project>/media`, lexical check first) and opened from Rust, so the webview
+/// needs no `opener:allow-open-path` permission and never names a path.
+#[tauri::command(async)]
+pub fn open_media_externally<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    id: Uuid,
+) -> ApiResult<()> {
+    let path = state.with_session(|s| s.media_original_path(id))?;
+    app.opener()
+        .open_path(path.to_string_lossy().into_owned(), None::<&str>)
+        .map_err(|e| ApiError::new(ErrorCode::Io, format!("Cannot open the file: {e}")))
 }
 
 // ------------------------------------------------------------ export

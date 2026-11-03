@@ -8,12 +8,11 @@
   import Icon from '../ui/Icon.svelte';
   import Ribbon from '../ui/Ribbon.svelte';
   import Button from '../ui/Button.svelte';
-  import { getApi, getPlatform } from '../api/context';
+  import { getApi } from '../api/context';
   import type { MediaLinkDto, OwnerRef } from '../api/api';
 
   let { items, onOpen }: { items: MediaLinkDto[]; /** Reserved for the owner of the items. */ target?: OwnerRef; onOpen: (i: number) => void } = $props();
   const api = getApi();
-  const platform = getPlatform();
 </script>
 
 <ul class="grid" aria-label="Photos and documents">
@@ -30,7 +29,7 @@
         <div class="face doc">
           <Icon name="file" size="2rem" />
           <span class="name">{mediaLabel(m)}</span>
-          <Button aria-label="Open {mediaLabel(m)}" onclick={() => platform.openExternally(api.mediaUrl(m.id, 'original'))}>Open</Button>
+          <Button aria-label="Open {mediaLabel(m)}" onclick={() => api.openMediaExternally(m.id)}>Open</Button>
         </div>
       {:else}
         <button type="button" class="face photo" aria-label="View {mediaLabel(m)}" onclick={() => onOpen(i)}>

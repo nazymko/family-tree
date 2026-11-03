@@ -35,10 +35,6 @@ export class MockPlatform implements Platform {
     return () => this.dropCallbacks.delete(entry);
   }
 
-  async openExternally(path: string): Promise<void> {
-    this.calls.push({ method: 'openExternally', args: [path] });
-  }
-
   async reveal(path: string): Promise<void> {
     this.calls.push({ method: 'reveal', args: [path] });
   }

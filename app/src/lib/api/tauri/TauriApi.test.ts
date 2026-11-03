@@ -95,9 +95,17 @@ describe('TauriApi', () => {
   });
 
   it('media_url_uses_gtmedia_scheme', () => {
-    const url = new TauriApi().mediaUrl('abc', 'thumb');
-    expect(url).toContain('gtmedia');
-    expect(decodeURIComponent(url)).toContain('abc/thumb');
+    const id = '0190a5c0-0000-7000-8000-000000000001';
+    // beforeEach mocked the Windows platform.
+    expect(new TauriApi().mediaUrl(id, 'thumb')).toBe(`http://gtmedia.localhost/${id}/thumb`);
+    mockConvertFileSrc('linux');
+    expect(new TauriApi().mediaUrl(id, 'original')).toBe(`gtmedia://localhost/${id}/original`);
+    expect(new TauriApi().mediaUrl(id, 'preview')).not.toContain('%2F');
+  });
+
+  it('open_media_externally_sends_only_the_media_id', async () => {
+    await new TauriApi().openMediaExternally('m1');
+    expect(calls).toEqual([{ cmd: 'open_media_externally', args: { id: 'm1' } }]);
   });
 
   it('every_api_method_implemented', () => {
