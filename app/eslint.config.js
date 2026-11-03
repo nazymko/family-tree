@@ -3,12 +3,6 @@ import svelte from 'eslint-plugin-svelte';
 import tseslint from 'typescript-eslint';
 import globals from 'globals';
 
-const a11y = Object.fromEntries(
-  Object.keys(svelte.rules)
-    .filter((r) => r.startsWith('a11y-'))
-    .map((r) => [`svelte/${r}`, 'error']),
-);
-
 export default tseslint.config(
   { ignores: ['dist/**', 'node_modules/**', 'src-tauri/**', 'playwright-report/**', 'test-results/**'] },
   js.configs.recommended,
@@ -21,5 +15,6 @@ export default tseslint.config(
     files: ['**/*.svelte', '**/*.svelte.ts'],
     languageOptions: { parserOptions: { parser: tseslint.parser } },
   },
-  { files: ['**/*.svelte'], rules: { ...a11y } },
+  // svelte/a11y-* checks are compiler warnings in Svelte 5 (a11y_*); valid-compile reports every warning as an error.
+  { files: ['**/*.svelte'], rules: { 'svelte/valid-compile': ['error', { ignoreWarnings: false }] } },
 );

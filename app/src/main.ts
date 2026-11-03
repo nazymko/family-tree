@@ -1,4 +1,7 @@
 import { mount } from 'svelte';
+import './styles/fonts.css';
+import './styles/tokens.css';
+import './styles/base.css';
 
 async function boot() {
   const target = document.getElementById('app')!;
