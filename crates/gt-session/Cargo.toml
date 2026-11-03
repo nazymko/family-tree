@@ -19,6 +19,7 @@ ts-rs.workspace = true
 [dev-dependencies]
 gt-gedcom = { path = "../gt-gedcom", features = ["synthetic"] }
 tempfile.workspace = true
+proptest.workspace = true
 
 [lints]
 workspace = true

@@ -3,6 +3,7 @@ export * from './ApiError';
 export * from './ChildDto';
 export * from './CitationDto';
 export * from './DateDto';
+export * from './DatePreview';
 export * from './DateStatus';
 export * from './DayOrder';
 export * from './ErrorCode';
