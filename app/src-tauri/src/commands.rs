@@ -165,6 +165,8 @@ fn install(state: &AppState, mut session: Session) -> ApiResult<ProjectInfo> {
 }
 
 pub fn open_project_impl(state: &AppState, dir: &str) -> ApiResult<ProjectInfo> {
+    // Release the open project first: its lock would refuse reopening the same tree.
+    close_project_impl(state);
     let session = Session::open(Path::new(dir), (state.clock)())?;
     let keep = AppState::lock(&state.settings).backups_to_keep;
     daily_backup(&session, keep);
@@ -172,6 +174,7 @@ pub fn open_project_impl(state: &AppState, dir: &str) -> ApiResult<ProjectInfo> 
 }
 
 pub fn create_project_impl(state: &AppState, dir: &str, name: &str) -> ApiResult<ProjectInfo> {
+    close_project_impl(state);
     let mut project = Project::create(Path::new(dir))?;
     project.meta_set("project_name", name.trim())?;
     drop(project);
