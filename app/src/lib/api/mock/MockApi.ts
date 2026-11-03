@@ -54,6 +54,7 @@ import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
 import type { Layout } from './mockLayout';
 import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } from './layout';
+import { GROUP_BASE, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
 import { toDateDto, yearOf } from './mockParse';
 import { lifespanText, previewDate } from './mockDate';
 
@@ -77,8 +78,8 @@ interface HistoryRecord {
 }
 
 interface ChartState {
-  kind: 'pedigree' | 'descendants';
-  layout: Layout;
+  kind: ChartRequest['kind'];
+  layout: Layout | RelLayout;
   version: number;
 }
 
@@ -514,10 +515,16 @@ export class MockApi implements Api {
     const generations = Math.max(1, Math.min(req.generations, 20));
     const src: RustLayoutSource = {
       ref: (id) => this.ref(this.person(id)),
+      birth: (id) => this.birthSort(this.person(id)),
       parents: (id) => this.preferredParents(id),
       unions: (id) => this.unionsOf(id),
     };
-    const layout = req.kind === 'pedigree' ? layoutPedigree(req.root, generations, src) : layoutDescendants(req.root, generations, src);
+    const layout =
+      req.kind === 'pedigree'
+        ? layoutPedigree(req.root, generations, src)
+        : req.kind === 'descendants'
+          ? layoutDescendants(req.root, generations, src)
+          : layoutRelatives(req.root, Math.min(generations, 6), req.auntsUncles ?? true, src);
     const chartId = this.nextChart++;
     this.charts.set(chartId, { kind: req.kind, layout, version: this.version });
     return {
@@ -556,8 +563,14 @@ export class MockApi implements Api {
 
   async chartOutline(chartId: number, parentNode: number | null, limit: number): Promise<OutlineItem[]> {
     const c = this.chart(chartId);
+    const lim = Math.max(0, Math.min(limit, MAX_PAGE));
+    if (c.kind === 'relatives') {
+      const rl = c.layout as RelLayout;
+      if (parentNode !== null && parentNode < GROUP_BASE && !rl.nodes[parentNode]) throw missing('chart node', String(parentNode));
+      return relativesOutline(rl, parentNode, lim);
+    }
     if (parentNode !== null && !c.layout.nodes[parentNode]) throw missing('chart node', String(parentNode));
-    return outlineOf(c.kind, c.layout, parentNode, Math.max(0, Math.min(limit, MAX_PAGE)));
+    return outlineOf(c.kind, c.layout, parentNode, lim);
   }
 
   async chartClose(chartId: number): Promise<void> {

@@ -10,17 +10,19 @@ export const MAX_NODES = 4000;
 
 export interface RustLayoutSource {
   ref(id: Id): PersonRef;
+  /** Sortable birth date, null when unknown (orders siblings on the relatives chart). */
+  birth?(id: Id): number | null;
   /** Preferred parents, upper slot first. */
   parents(id: Id): [Id | null, Id | null];
   /** Partnerships in display order: (partner or null, children in birth order). */
   unions(id: Id): { partner: Id | null; children: Id[] }[];
 }
 
-interface N extends ChartNode {
+export interface N extends ChartNode {
   key: Id;
 }
 
-function newNode(id: number, key: Id, src: RustLayoutSource, gen: number): N {
+export function newNode(id: number, key: Id, src: RustLayoutSource, gen: number): N {
   return {
     id,
     key,
@@ -49,7 +51,7 @@ function linkChildren(nodes: N[], parent: number, kids: number[]): void {
   });
 }
 
-function dupEdge(nodes: N[], dup: number, orig: number): ChartEdge {
+export function dupEdge(nodes: N[], dup: number, orig: number): ChartEdge {
   const a = nodes[dup];
   const b = nodes[orig];
   const mx = Math.max(a.x + a.w, b.x + b.w) + M.gapX / 2;
@@ -58,7 +60,7 @@ function dupEdge(nodes: N[], dup: number, orig: number): ChartEdge {
   return { from: dup, to: orig, kind: 'dup', pts: [a.x + a.w, ay, mx, ay, mx, by, b.x + b.w, by] };
 }
 
-function bounds(nodes: N[]): { w: number; h: number } {
+export function bounds(nodes: N[]): { w: number; h: number } {
   let w = 0;
   let h = 0;
   for (const n of nodes) {
@@ -162,7 +164,7 @@ export function layoutPedigree(root: Id, generationsIn: number, src: RustLayoutS
   return { nodes: nodes.map(strip), edges, bounds: bounds(nodes), truncated, kids, labels: nodes.map((n) => n.label) };
 }
 
-function strip(n: N): ChartNode {
+export function strip(n: N): ChartNode {
   const { key, ...rest } = n;
   void key;
   return rest;
@@ -429,7 +431,7 @@ function tidy(units: Unit[], w: number[], gap: number): number[] {
 }
 
 export function outlineOf(
-  kind: 'pedigree' | 'descendants',
+  kind: 'pedigree' | 'descendants' | 'relatives',
   layout: Layout,
   parentNode: number | null,
   limit: number,

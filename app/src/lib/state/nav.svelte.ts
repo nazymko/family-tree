@@ -7,6 +7,7 @@ export type Route =
   | { name: 'people' }
   | { name: 'pedigree' }
   | { name: 'descendants' }
+  | { name: 'relatives' }
   | { name: 'person'; id: Id }
   | { name: 'sources' }
   | { name: 'media' }
