@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 
 use gt_core::date::calendar::{Calendar, first_jdn};
+use gt_gedcom::ImportOptions;
 use gt_import_atdb::fixture::build_family_fixture;
 use gt_session::import_format::{ImportFormat, detect};
 use gt_session::*;
@@ -124,5 +125,75 @@ fn gramps_and_gedzip_files_say_not_supported_yet() {
             e.message
         );
         assert!(!proj.exists());
+    }
+}
+
+mod scratch_cleanup {
+    use super::*;
+    use gt_session::import_format::{Converted, TempDirGuard};
+    use std::cell::RefCell;
+
+    fn ged_file(dir: &Path) -> PathBuf {
+        let f = dir.join("a.ged");
+        std::fs::write(&f, "0 HEAD\n0 @I1@ INDI\n1 NAME A /B/\n0 TRLR\n").unwrap();
+        f
+    }
+
+    /// A converter that makes a scratch folder; it fails after that when `fail` is set.
+    fn run(fail: bool, fail_open: bool) -> (Result<(), ErrorCode>, PathBuf, std::path::PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let f = ged_file(tmp.path());
+        let proj = tmp.path().join("proj");
+        let made: RefCell<PathBuf> = RefCell::new(PathBuf::new());
+        let convert = |_: ImportFormat, p: &Path, o: &ImportOptions| {
+            let guard = TempDirGuard::create("gt-seam-test")?;
+            std::fs::write(guard.path().join("x.jpg"), b"x").unwrap();
+            *made.borrow_mut() = guard.path().to_path_buf();
+            if fail {
+                return Err(ApiError::new(ErrorCode::Invalid, "later step failed"));
+            }
+            let bytes = std::fs::read(p).unwrap();
+            Ok(Converted {
+                outcome: gt_gedcom::import(&bytes, o),
+                extra_media_roots: vec![guard.path().to_path_buf()],
+                cleanup: Some(guard),
+            })
+        };
+        let open = |d: &Path, c: SessionClock| {
+            if fail_open {
+                Err(ApiError::new(ErrorCode::Io, "cannot open"))
+            } else {
+                Session::open(d, c)
+            }
+        };
+        let r =
+            import_gedcom_with_hooks(&request(&f, &proj, &[]), clock(), &|_| {}, &open, &convert)
+                .map(|_| ())
+                .map_err(|e| e.code);
+        let scratch = made.borrow().clone();
+        // keep tmp alive until here
+        drop(tmp);
+        (r, scratch.clone(), scratch)
+    }
+
+    #[test]
+    fn scratch_folder_is_removed_on_success() {
+        let (r, scratch, _) = run(false, false);
+        assert!(r.is_ok());
+        assert!(!scratch.as_os_str().is_empty() && !scratch.exists());
+    }
+
+    #[test]
+    fn scratch_folder_is_removed_when_conversion_fails_after_creating_it() {
+        let (r, scratch, _) = run(true, false);
+        assert_eq!(r, Err(ErrorCode::Invalid));
+        assert!(!scratch.as_os_str().is_empty() && !scratch.exists());
+    }
+
+    #[test]
+    fn scratch_folder_is_removed_when_opening_the_new_project_fails() {
+        let (r, scratch, _) = run(false, true);
+        assert_eq!(r, Err(ErrorCode::Io));
+        assert!(!scratch.as_os_str().is_empty() && !scratch.exists());
     }
 }

@@ -67,7 +67,12 @@ pub fn rows<T>(
     if !table_exists(conn, table) {
         return Ok(Vec::new());
     }
-    let mut st = conn.prepare(sql)?;
-    let out = st.query_map([], f)?.collect::<Result<Vec<_>, _>>()?;
+    let named = |e: rusqlite::Error| AtdbError::Table(table.to_string(), e);
+    let mut st = conn.prepare(sql).map_err(named)?;
+    let out = st
+        .query_map([], f)
+        .map_err(named)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(named)?;
     Ok(out)
 }

@@ -372,6 +372,26 @@ pub fn import_gedcom_with_opener(
     progress: &dyn Fn(ImportProgress),
     open: &dyn Fn(&Path, SessionClock) -> Result<Session, ApiError>,
 ) -> Result<(Session, ImportReportDto), ApiError> {
+    import_gedcom_with_hooks(req, clock, progress, open, &import_format::convert)
+}
+
+/// The converter step of an import, injectable (tests use a converter that makes scratch files).
+#[doc(hidden)]
+pub type ConvertFn<'a> = &'a dyn Fn(
+    import_format::ImportFormat,
+    &Path,
+    &ImportOptions,
+) -> Result<import_format::Converted, ApiError>;
+
+/// `import_gedcom_with_opener` with the converter injectable too.
+#[doc(hidden)]
+pub fn import_gedcom_with_hooks(
+    req: &ImportRequest,
+    clock: SessionClock,
+    progress: &dyn Fn(ImportProgress),
+    open: &dyn Fn(&Path, SessionClock) -> Result<Session, ApiError>,
+    convert: ConvertFn<'_>,
+) -> Result<(Session, ImportReportDto), ApiError> {
     let emit = |phase, done, total| {
         progress(ImportProgress { phase, done, total });
     };
@@ -399,7 +419,7 @@ pub fn import_gedcom_with_opener(
     let media_roots: Vec<PathBuf> = req.media_roots.iter().map(PathBuf::from).collect();
     let mut allowed = media_roots.clone();
     allowed.push(gedcom_dir.clone());
-    let converted = import_format::convert(
+    let converted = convert(
         format,
         &file,
         &ImportOptions {
@@ -428,9 +448,8 @@ pub fn import_gedcom_with_opener(
         &mut extra_missing,
         &emit,
     );
-    if let Some(scratch) = &cleanup {
-        let _ = std::fs::remove_dir_all(scratch);
-    }
+    // Media is copied: the scratch files are no longer needed. Error paths drop the guard too.
+    drop(cleanup);
     if let Err(e) = built.and_then(|()| {
         if dir.exists() {
             // An empty folder is a valid target; make room for the rename.

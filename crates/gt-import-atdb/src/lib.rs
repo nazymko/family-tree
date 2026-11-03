@@ -27,6 +27,8 @@ pub enum AtdbError {
     NotAtdb(String),
     #[error("Cannot read the Древо Жизни database: {0}")]
     Sql(#[from] rusqlite::Error),
+    #[error("Cannot read table {0} of the Древо Жизни database: {1}")]
+    Table(String, rusqlite::Error),
 }
 
 /// True when `path` is a SQLite file that has the Древо Жизни tables (`Persons`, `Events`,

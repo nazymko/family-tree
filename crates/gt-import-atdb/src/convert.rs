@@ -223,6 +223,8 @@ struct Builder {
     place_ids: HashMap<i64, Uuid>,
     event_ids: HashMap<i64, Uuid>,
     families: HashMap<PairKey, Uuid>,
+    /// Children already linked to a family.
+    placed: std::collections::HashSet<Uuid>,
     resolved_media: Vec<(Uuid, PathBuf)>,
 }
 
@@ -258,11 +260,7 @@ impl Builder {
     }
 
     fn add_child(&mut self, fam: Uuid, child: Uuid) {
-        let first_family = !self
-            .tree
-            .families
-            .values()
-            .any(|f| f.children.iter().any(|c| c.person == child));
+        let first_family = self.placed.insert(child);
         if let Some(f) = self.tree.families.get_mut(&fam)
             && !f.children.iter().any(|c| c.person == child)
         {
@@ -329,6 +327,7 @@ pub fn convert(conn: &Connection, opts: &ImportOptions) -> Result<ImportOutcome,
         place_ids: HashMap::new(),
         event_ids: HashMap::new(),
         families: HashMap::new(),
+        placed: Default::default(),
         resolved_media: Vec::new(),
     };
 
@@ -375,6 +374,15 @@ pub fn convert(conn: &Connection, opts: &ImportOptions) -> Result<ImportOutcome,
     people(conn, &mut b, &strs, mainlang.as_deref())?;
     places(conn, &mut b, &strs)?;
     other_values(conn, &mut b)?;
+    // String fields of events, documents and any other table: kept on the record, counted by
+    // table and field id (the values never go into the report).
+    for s in strs
+        .iter()
+        .filter(|s| !matches!(s.table, T_PERSON | T_PLACE | T_SOURCE))
+    {
+        b.unknowns
+            .keep(s.table, s.rec, "field", s.field, s.value.clone());
+    }
     let event_dates = event_dates(conn, &mut b)?;
     let event_places = event_places(conn, &mut b)?;
     events(conn, &mut b, &event_dates, &event_places)?;
@@ -530,9 +538,25 @@ fn places(conn: &Connection, b: &mut Builder, strs: &[Str]) -> Result<(), AtdbEr
         }
         let mut c = common(id);
         c.unknown = b.unknowns.take(T_PLACE, *pid);
-        let parent_id = parent
-            .and_then(|p| b.place_ids.get(&p).copied())
-            .filter(|p| *p != id);
+        let mut parent_id = parent.and_then(|p| b.place_ids.get(&p).copied());
+        if parent.is_some() && parent_id.is_none() {
+            b.unknowns
+                .count("place whose parent is not in the file".into());
+        }
+        // A parent chain that comes back to this place is cut here.
+        let mut up = *parent;
+        for _ in 0..64 {
+            match up {
+                Some(u) if u == *pid => {
+                    parent_id = None;
+                    b.unknowns
+                        .count("place parent loop (parent dropped)".into());
+                    break;
+                }
+                Some(u) => up = parents.get(&u).copied(),
+                None => break,
+            }
+        }
         b.tree.places.insert(
             id,
             Place {
@@ -639,7 +663,11 @@ fn event_places(conn: &Connection, b: &mut Builder) -> Result<HashMap<i64, Uuid>
     for (ev, place) in links {
         match b.place_ids.get(&place) {
             Some(p) => {
-                out.entry(ev).or_insert(*p);
+                if let Some(first) = out.insert(ev, *p) {
+                    out.insert(ev, first);
+                    b.unknowns
+                        .count("second place on an event (the first is kept)".into());
+                }
             }
             None => b
                 .unknowns
@@ -774,6 +802,42 @@ fn events(
                 EventKind::Custom(format!("Event type {n}"))
             }
         };
+        // Known event types: keep every person whose role was not used above (an unknown role, or
+        // a second father / mother / spouse) as a plain participant, and count it.
+        let used: &[(i64, bool)] = match et {
+            ET_BIRTH => &[(ER_CHILD, true), (ER_FATHER, false), (ER_MOTHER, false)],
+            ET_DEATH => &[(ER_DECEASED, true)],
+            ET_MARRIAGE => &[(ER_SPOUSE_A, false), (ER_SPOUSE_B, false)],
+            _ => &[],
+        };
+        if !used.is_empty() {
+            let mut seen: Vec<i64> = Vec::new();
+            for d in ds {
+                let Some(p) = b.person_ids.get(&d.person).copied() else {
+                    continue;
+                };
+                let multi = used.iter().find(|(r, _)| *r == d.role).map(|(_, m)| *m);
+                let handled = match multi {
+                    Some(true) => true,
+                    Some(false) => {
+                        let first = !seen.contains(&d.role);
+                        seen.push(d.role);
+                        first
+                    }
+                    None => false,
+                };
+                if !handled {
+                    b.unknowns.count(format!(
+                        "role {} on event type {et} (kept as a participant)",
+                        d.role
+                    ));
+                    participants.push(Participant {
+                        target: ParticipantRef::Person(p),
+                        role: Role::Other(format!("role {}", d.role)),
+                    });
+                }
+            }
+        }
         if participants.is_empty() {
             b.unknowns.count("event with no people (left out)".into());
             continue;
@@ -914,7 +978,10 @@ fn sources_and_media(
     }
     ged.push_str("0 TRLR\n");
     let sub = gt_gedcom::import(ged.as_bytes(), opts);
-    for (id, m) in sub.tree.media {
+    for (id, mut m) in sub.tree.media {
+        if let Some((did, _)) = media_ids.iter().find(|(_, v)| **v == id) {
+            m.common.unknown.extend(b.unknowns.take(4, *did));
+        }
         b.tree.media.insert(id, m);
     }
     b.resolved_media.extend(sub.resolved_media);
