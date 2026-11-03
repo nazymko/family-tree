@@ -448,14 +448,15 @@
   }
   .head h1 {
     font-size: var(--t-2xl);
-    line-height: var(--t-2xl-lh);
+    line-height: 56px;
   }
   .life {
+    line-height: var(--rule-step);
     color: var(--ink-1);
     font-variant-numeric: tabular-nums;
   }
   .head-actions {
-    padding-block: var(--s-3);
+    padding-block: var(--s-2) var(--s-4);
   }
   section {
     display: grid;

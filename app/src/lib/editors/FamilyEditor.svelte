@@ -320,28 +320,33 @@
                 <strong><bdi dir="auto">{c.person.name}</bdi></strong>
                 <span class="meta">{c.person.lifespan}</span>
               </div>
-              <Select
-                label="Relationship to {parentName(slot1, 1)}"
-                options={RELS}
-                value={c.rel[0]}
-                onchange={(v) => setRel(c, 0, v)}
-              />
-              <Select
-                label="Relationship to {parentName(slot2, 2)}"
-                options={RELS}
-                value={c.rel[1]}
-                onchange={(v) => setRel(c, 1, v)}
-              />
-              <Checkbox
-                label="Preferred parents for this child"
-                checked={c.preferred}
-                onchange={(v) => setPreferred(c, v)}
-              />
-              <Button
-                variant="quiet"
-                aria-label="Remove {c.person.name} from this family"
-                onclick={() => immediate({ type: 'unlinkChild', family: family!, child: c.person.id })}>Remove</Button
-              >
+              <div class="rels">
+                <Select
+                  label="Relationship to {parentName(slot1, 1)}"
+                  options={RELS}
+                  value={c.rel[0]}
+                  onchange={(v) => setRel(c, 0, v)}
+                />
+                <Select
+                  label="Relationship to {parentName(slot2, 2)}"
+                  options={RELS}
+                  value={c.rel[1]}
+                  onchange={(v) => setRel(c, 1, v)}
+                />
+              </div>
+              <div class="foot">
+                <Checkbox
+                  label="Preferred parents for this child"
+                  checked={c.preferred}
+                  onchange={(v) => setPreferred(c, v)}
+                />
+                <Button
+                  variant="quiet"
+                  aria-label="Remove {c.person.name} from this family"
+                  onclick={() => immediate({ type: 'unlinkChild', family: family!, child: c.person.id })}
+                  >Remove</Button
+                >
+              </div>
             </li>
           {/each}
         </ol>
@@ -442,9 +447,8 @@
   }
   .children li {
     display: grid;
-    grid-template-columns: auto 1fr 1fr;
+    grid-template-columns: auto 1fr;
     gap: var(--s-3) var(--s-4);
-    align-items: end;
     padding: var(--s-4);
     border: 1px solid var(--rule);
     border-radius: var(--r-1);
@@ -456,20 +460,27 @@
     outline-offset: 2px;
   }
   .who {
-    grid-column: 2 / 4;
     display: flex;
     gap: var(--s-4);
     align-items: baseline;
   }
   .grip {
-    grid-row: 1;
     color: var(--ink-2);
     cursor: grab;
     letter-spacing: -0.2em;
     user-select: none;
   }
-  .children li :global(.cb),
-  .children li > :global(button) {
-    grid-column: 2 / 4;
+  .rels {
+    grid-column: 1 / 3;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s-4);
+  }
+  .foot {
+    grid-column: 1 / 3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-4);
   }
 </style>
