@@ -1,0 +1,18 @@
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME A /One/
+1 FAMC @F9@
+1 FAMS @F1@
+0 @I1@ INDI
+1 NAME Dup /Licate/
+0 @I2@ INDI
+1 NAME B /Two/
+1 FAMS @F1@
+0 @I3@ INDI
+1 NAME Kid /Three/
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@

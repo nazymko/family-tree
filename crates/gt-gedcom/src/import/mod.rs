@@ -1,8 +1,14 @@
 //! GEDCOM -> `Tree` import. Never fails; problems are repaired and reported.
 
+mod fam;
 mod header;
 mod indi;
+mod media_paths;
+mod note;
+mod obje;
+mod repair;
 pub mod report;
+mod sour;
 
 use crate::idgen::place_id;
 use crate::node::GedNode;
@@ -53,6 +59,9 @@ pub(crate) enum Rec {
     Other,
 }
 
+/// `(order key, family, child index)` for choosing a person's preferred parent link.
+pub(crate) type PrefCand = ((u8, usize), Uuid, usize);
+
 pub(crate) struct Ctx {
     pub tree: Tree,
     pub report: ImportReport,
@@ -64,6 +73,16 @@ pub(crate) struct Ctx {
     pub place_map: HashMap<String, Uuid>,
     pub evid_map: HashMap<String, Uuid>,
     pub resolved_media: Vec<(Uuid, PathBuf)>,
+    pub media_index: Option<HashMap<String, PathBuf>>,
+    pub id_xref: HashMap<Uuid, String>,
+    pub famc: HashMap<(Uuid, Uuid), fam::FamcInfo>,
+    pub famc_order: HashMap<(Uuid, Uuid), usize>,
+    pub famc_count: HashMap<Uuid, usize>,
+    pub famc_by_fam: HashMap<Uuid, Vec<Uuid>>,
+    pub fams: HashSet<(Uuid, Uuid)>,
+    pub fams_by_fam: HashMap<Uuid, Vec<Uuid>>,
+    pub pref_cands: HashMap<Uuid, Vec<PrefCand>>,
+    pub fam_seq: usize,
 }
 
 /// Value of a node, `None` when absent or empty.
@@ -73,6 +92,14 @@ pub(crate) fn val(n: &GedNode) -> Option<&str> {
 
 pub(crate) fn child<'a>(n: &'a GedNode, tag: &str) -> Option<&'a GedNode> {
     n.children.iter().find(|c| c.tag == tag)
+}
+
+pub(crate) fn is_pointer(s: &str) -> bool {
+    let s = s.trim();
+    s.len() >= 3
+        && s.starts_with('@')
+        && s.ends_with('@')
+        && !s.get(1..s.len() - 1).is_some_and(|m| m.contains('@'))
 }
 
 pub(crate) fn pos32(pos: usize) -> u32 {
@@ -249,14 +276,22 @@ pub(crate) fn common_child(ctx: &mut Ctx, c: &GedNode, common: &mut Common) -> b
 
 /// Citations, notes and media links under a structure.
 pub(crate) fn link_child(
-    _ctx: &mut Ctx,
-    _owner: Uuid,
-    _c: &GedNode,
-    _citations: &mut Vec<Uuid>,
-    _notes: &mut Vec<Uuid>,
-    _media: Option<&mut Vec<MediaLink>>,
+    ctx: &mut Ctx,
+    owner: Uuid,
+    c: &GedNode,
+    citations: &mut Vec<Uuid>,
+    notes: &mut Vec<Uuid>,
+    media: Option<&mut Vec<MediaLink>>,
 ) -> bool {
-    false
+    match c.tag.as_str() {
+        "SOUR" => sour::link_citation(ctx, owner, c, citations),
+        "NOTE" | "SNOTE" => note::link_note(ctx, owner, c, notes),
+        "OBJE" => match media {
+            Some(m) => obje::link_media(ctx, owner, c, m),
+            None => false,
+        },
+        _ => false,
+    }
 }
 
 /// Assertion children (`_PREF`, `_PROOF`, `QUAY`).
@@ -425,6 +460,16 @@ pub fn import(bytes: &[u8], opts: &ImportOptions) -> ImportOutcome {
         place_map: HashMap::new(),
         evid_map: HashMap::new(),
         resolved_media: Vec::new(),
+        media_index: None,
+        id_xref: HashMap::new(),
+        famc: HashMap::new(),
+        famc_order: HashMap::new(),
+        famc_count: HashMap::new(),
+        famc_by_fam: HashMap::new(),
+        fams: HashSet::new(),
+        fams_by_fam: HashMap::new(),
+        pref_cands: HashMap::new(),
+        fam_seq: 0,
     };
     ctx.report
         .repairs
@@ -454,6 +499,7 @@ pub fn import(bytes: &[u8], opts: &ImportOptions) -> ImportOutcome {
                 id = new_id();
             } else {
                 ctx.xref_map.insert(x.clone(), id);
+                ctx.id_xref.insert(id, x.clone());
                 ctx.xref_kind.insert(x.clone(), rec_kind(&r.tag));
             }
         }
@@ -465,20 +511,43 @@ pub fn import(bytes: &[u8], opts: &ImportOptions) -> ImportOutcome {
     if let Some(h) = head {
         header::read_head(&mut ctx, h);
     }
-    for (r, id) in tok.records.iter().zip(&ids) {
+    for r in &tok.records {
         if !matches!(r.tag.as_str(), "HEAD" | "TRLR") {
             *ctx.report.counts.entry(r.tag.clone()).or_insert(0) += 1;
         }
+    }
+    let recs: Vec<(&GedNode, Uuid, usize)> = tok
+        .records
+        .iter()
+        .zip(ids.iter().copied())
+        .enumerate()
+        .map(|(i, (r, id))| (r, id, i))
+        .collect();
+    for (r, id, _) in &recs {
         if r.tag == "INDI" {
             indi::read_indi(&mut ctx, r, *id);
         }
     }
-    for r in &tok.records {
-        if !matches!(r.tag.as_str(), "HEAD" | "TRLR" | "INDI") {
-            // Other record types are handled by the family, source, note and media readers.
-            let mut v = std::mem::take(&mut ctx.tree.header.unknown);
-            push_unknown(&mut ctx, &mut v, r, 0);
-            ctx.tree.header.unknown = v;
+    for (r, id, _) in &recs {
+        if r.tag == "FAM" {
+            fam::read_fam(&mut ctx, r, *id);
+        }
+    }
+    repair::finish_preferred_links(&mut ctx);
+    for (r, id, i) in &recs {
+        match r.tag.as_str() {
+            "SOUR" => sour::read_source(&mut ctx, r, *id),
+            "REPO" => sour::read_repository(&mut ctx, r, *id),
+            "OBJE" => obje::read_media_record(&mut ctx, r, *id, *i),
+            "NOTE" | "SNOTE" => note::read_note_record(&mut ctx, r, *id),
+            "HEAD" | "TRLR" | "INDI" | "FAM" => {}
+            "SUBM" if r.xref.as_deref() == Some(header::OWN_SUBM) => {}
+            _ => {
+                // Records we do not model (SUBM, SUBN, vendor records) travel with the header.
+                let mut v = std::mem::take(&mut ctx.tree.header.unknown);
+                push_unknown(&mut ctx, &mut v, r, 0);
+                ctx.tree.header.unknown = v;
+            }
         }
     }
     ImportOutcome {

@@ -42,6 +42,8 @@ pub(crate) fn read_indi(ctx: &mut Ctx, node: &GedNode, id: Uuid) {
                 names.extend(more);
             }
             "SEX" => sex = sex_of(val(c)),
+            "FAMC" => super::fam::note_famc(ctx, id, c),
+            "FAMS" => super::fam::note_fams(ctx, id, c),
             _ if read_event_child(ctx, ParticipantRef::Person(id), c) => {}
             _ => {
                 if !common_child(ctx, c, &mut common) {
