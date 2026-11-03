@@ -1,4 +1,5 @@
 -- Schema v1. Documented in docs/schema.md; keep both in sync.
+-- Every top-level record table (person, family, event, place, source, repository, citation, media, note) also has seq INTEGER NOT NULL: its position in the tree, so load order is stable.
 -- Every row table: id TEXT (uuid v7), private 0/1, changed (unix ms), unknown_json (verbatim unknown GEDCOM subtrees).
 -- A "date" is four columns: <p>_raw, <p>_json, <p>_sort_min, <p>_sort_max.
 
@@ -18,6 +19,7 @@ CREATE TABLE tree_header (
 
 CREATE TABLE person (
     id              TEXT PRIMARY KEY,
+    seq          INTEGER NOT NULL,
     private         INTEGER NOT NULL DEFAULT 0,
     changed         INTEGER,
     unknown_json    TEXT,
@@ -55,6 +57,7 @@ CREATE TABLE name (
 
 CREATE TABLE family (
     id           TEXT PRIMARY KEY,
+    seq          INTEGER NOT NULL,
     private      INTEGER NOT NULL DEFAULT 0,
     changed      INTEGER,
     unknown_json TEXT,
@@ -74,6 +77,7 @@ CREATE TABLE child_link (
     rel1         TEXT NOT NULL DEFAULT 'birth',
     rel2         TEXT NOT NULL DEFAULT 'birth',
     preferred    INTEGER NOT NULL DEFAULT 0,
+    assertion_preferred INTEGER NOT NULL DEFAULT 0,
     proof        TEXT,
     confidence   INTEGER
 );
@@ -82,6 +86,7 @@ CREATE TABLE child_link (
 
 CREATE TABLE place (
     id           TEXT PRIMARY KEY,
+    seq          INTEGER NOT NULL,
     private      INTEGER NOT NULL DEFAULT 0,
     changed      INTEGER,
     unknown_json TEXT,
@@ -111,6 +116,7 @@ CREATE TABLE place_name (
 
 CREATE TABLE event (
     id            TEXT PRIMARY KEY,
+    seq          INTEGER NOT NULL,
     private       INTEGER NOT NULL DEFAULT 0,
     changed       INTEGER,
     unknown_json  TEXT,
@@ -146,6 +152,7 @@ CREATE TABLE participant (
 
 CREATE TABLE source (
     id           TEXT PRIMARY KEY,
+    seq          INTEGER NOT NULL,
     private      INTEGER NOT NULL DEFAULT 0,
     changed      INTEGER,
     unknown_json TEXT,
@@ -158,6 +165,7 @@ CREATE TABLE source (
 
 CREATE TABLE repository (
     id           TEXT PRIMARY KEY,
+    seq          INTEGER NOT NULL,
     private      INTEGER NOT NULL DEFAULT 0,
     changed      INTEGER,
     unknown_json TEXT,
@@ -179,6 +187,7 @@ CREATE TABLE repo_ref (
 
 CREATE TABLE citation (
     id            TEXT PRIMARY KEY,
+    seq          INTEGER NOT NULL,
     private       INTEGER NOT NULL DEFAULT 0,
     changed       INTEGER,
     unknown_json  TEXT,
@@ -199,6 +208,7 @@ CREATE TABLE citation (
 
 CREATE TABLE media (
     id            TEXT PRIMARY KEY,
+    seq          INTEGER NOT NULL,
     private       INTEGER NOT NULL DEFAULT 0,
     changed       INTEGER,
     unknown_json  TEXT,
@@ -216,6 +226,7 @@ CREATE TABLE media (
 
 CREATE TABLE note (
     id           TEXT PRIMARY KEY,
+    seq          INTEGER NOT NULL,
     private      INTEGER NOT NULL DEFAULT 0,
     changed      INTEGER,
     unknown_json TEXT,
@@ -324,3 +335,7 @@ CREATE INDEX idx_ext_id_value ON ext_id(kind, value);
 CREATE INDEX idx_name_phonetic_name ON name_phonetic(name_id);
 CREATE INDEX idx_name_phonetic_code ON name_phonetic(algo, code);
 CREATE INDEX idx_change_log_target ON change_log(target_type, target_id);
+
+-- Full-text search (rebuilt by save_tree) --------------------------------------
+CREATE VIRTUAL TABLE search_words USING fts5(kind UNINDEXED, id UNINDEXED, label, body, tokenize='unicode61 remove_diacritics 2');
+CREATE VIRTUAL TABLE search_trigram USING fts5(kind UNINDEXED, id UNINDEXED, text, tokenize='trigram');
