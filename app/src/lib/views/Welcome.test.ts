@@ -27,7 +27,7 @@ beforeEach(() => {
 describe('Welcome', () => {
   it('welcome_lists_recent_and_actions', async () => {
     setup();
-    for (const name of ['Import a GEDCOM or Древо Жизни file', 'Create a new tree', 'Open a tree']) {
+    for (const name of ['Import a family tree file', 'Create a new tree', 'Open a tree']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
     const link = await screen.findByRole('link', { name: /Schmidt family.*C:\/Genealogy\/Schmidt family/ });
@@ -50,7 +50,7 @@ describe('Welcome', () => {
     api.recentProjects = async () => [];
     setup(api);
     expect(
-      await screen.findByText('No trees yet. Import a GEDCOM or Древо Жизни file to start, or create an empty tree.'),
+      await screen.findByText('No trees yet. Import a GEDCOM, GEDZIP, Gramps or Древо Жизни file to start, or create an empty tree.'),
     ).toBeInTheDocument();
   });
 
@@ -86,7 +86,7 @@ describe('Welcome', () => {
       return base.importGedcom(req);
     };
     const { user } = setup(api);
-    await user.click(screen.getByRole('button', { name: 'Import a GEDCOM or Древо Жизни file' }));
+    await user.click(screen.getByRole('button', { name: 'Import a family tree file' }));
     await user.click(screen.getByRole('button', { name: 'Choose file…' }));
     expect(screen.getByRole('textbox', { name: 'Tree name' })).toHaveValue('Family tree');
     await user.click(screen.getByRole('button', { name: 'Choose folder…' }));
@@ -104,13 +104,13 @@ describe('Welcome', () => {
 
   it('file_picker_offers_gedcom_and_atdb_files', async () => {
     const { user, platform } = setup();
-    await user.click(screen.getByRole('button', { name: 'Import a GEDCOM or Древо Жизни file' }));
-    expect(screen.getByRole('heading', { name: 'Import a GEDCOM or Древо Жизни file' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Import a family tree file' }));
+    expect(screen.getByRole('heading', { name: 'Import a family tree file' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Choose file…' }));
     const call = platform.calls.find((c) => c.method === 'pickFile');
     const opts = call?.args[0] as { title: string; extensions: string[] };
-    expect(opts.title).toBe('Choose a GEDCOM or Древо Жизни file');
-    expect(opts.extensions).toEqual(expect.arrayContaining(['ged', 'gedcom', 'atdb']));
+    expect(opts.title).toBe('Choose a family tree file');
+    expect(opts.extensions).toEqual(expect.arrayContaining(['ged', 'gedcom', 'atdb', 'gramps', 'gdz']));
   });
 
   it('date_order_is_passed_to_import', async () => {
@@ -122,7 +122,7 @@ describe('Welcome', () => {
       return base.importGedcom(req, p);
     };
     const { user } = setup(api);
-    await user.click(screen.getByRole('button', { name: 'Import a GEDCOM or Древо Жизни file' }));
+    await user.click(screen.getByRole('button', { name: 'Import a family tree file' }));
     await user.click(screen.getByRole('button', { name: 'Choose file…' }));
     await user.click(screen.getByRole('button', { name: 'Choose folder…' }));
     expect(screen.getByText('Used only for dates like 03/04/1901')).toBeInTheDocument();

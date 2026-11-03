@@ -1,0 +1,20 @@
+[package]
+name = "gt-import"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Detects which family-tree file the user picked and converts it (GEDCOM, GEDZIP, Gramps XML, Древо Жизни)."
+
+[dependencies]
+gt-gedcom = { path = "../gt-gedcom" }
+gt-import-atdb = { path = "../gt-import-atdb" }
+gt-import-gramps = { path = "../gt-import-gramps" }
+thiserror.workspace = true
+
+[dev-dependencies]
+zip.workspace = true
+flate2.workspace = true
+
+[lints]
+workspace = true

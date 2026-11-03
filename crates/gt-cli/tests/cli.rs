@@ -380,3 +380,41 @@ fn imports_an_atdb_file_and_searches_it() {
     let found = run_ok(gt().arg("search").arg(&dir).arg("Kovalenko"));
     assert!(found.lines().any(|l| l.starts_with("person")), "{found}");
 }
+
+#[test]
+fn imports_a_gedzip_with_its_photo() {
+    use std::io::Write;
+    let tmp = tempfile::tempdir().unwrap();
+    let ged = "0 HEAD\n1 GEDC\n2 VERS 7.0\n0 @I1@ INDI\n1 NAME Ivan /Koval/\n1 OBJE @M1@\n\
+               0 @M1@ OBJE\n1 FILE photos/a.jpg\n2 FORM image/jpeg\n0 TRLR\n";
+    let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, data) in [
+        ("gedcom.ged", ged.as_bytes()),
+        ("photos/a.jpg", &b"jpeg"[..]),
+    ] {
+        w.start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        w.write_all(data).unwrap();
+    }
+    let gdz = tmp.path().join("family.gdz");
+    std::fs::write(&gdz, w.finish().unwrap().into_inner()).unwrap();
+    let dir = tmp.path().join("p");
+    let out = run_ok(gt().arg("import").arg(&gdz).arg("--into").arg(&dir));
+    assert!(out.contains("Media files copied: 1; not found: 0"), "{out}");
+    let files = walk(&dir.join("media"));
+    assert_eq!(files.len(), 1, "{files:?}");
+    assert_eq!(std::fs::read(&files[0]).unwrap(), b"jpeg");
+}
+
+#[test]
+fn a_damaged_gedzip_is_a_user_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let gdz = tmp.path().join("broken.gdz");
+    std::fs::write(&gdz, b"PK\x03\x04 truncated").unwrap();
+    let out = gt().arg("check").arg(&gdz).assert().code(1);
+    let err = String::from_utf8_lossy(&out.get_output().stderr).into_owned();
+    assert!(
+        err.contains("could not be imported as a GEDZIP file"),
+        "{err}"
+    );
+}

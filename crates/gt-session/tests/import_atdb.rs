@@ -106,11 +106,80 @@ fn another_sqlite_file_is_refused_and_leaves_nothing() {
 }
 
 #[test]
-fn gramps_and_gedzip_files_say_not_supported_yet() {
+fn imports_a_gedzip_with_its_photo_and_leaves_no_scratch_folder() {
+    use std::io::Write;
     let tmp = tempfile::tempdir().unwrap();
-    for (name, bytes) in [
-        ("a.gramps", &[0x1f_u8, 0x8b, 8, 0][..]),
-        ("a.gdz", &b"PK\x03\x04"[..]),
+    let ged = "0 HEAD
+1 GEDC
+2 VERS 7.0
+0 @I1@ INDI
+1 NAME Ivan /Koval/
+1 OBJE @M1@
+               0 @M1@ OBJE
+1 FILE %D1%84%D0%BE%D1%82%D0%BE/a.jpg
+2 FORM image/jpeg
+0 TRLR
+";
+    let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, data) in [
+        ("gedcom.ged", ged.as_bytes()),
+        ("фото/a.jpg", &b"jpeg bytes"[..]),
+    ] {
+        w.start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        w.write_all(data).unwrap();
+    }
+    let f = tmp.path().join("family.gdz");
+    std::fs::write(&f, w.finish().unwrap().into_inner()).unwrap();
+    let proj = tmp.path().join("proj");
+    let (s, r) = import_gedcom(&request(&f, &proj, &[]), clock(), &|_| {}).unwrap();
+    assert_eq!(r.project.person_count, 1);
+    assert!(r.missing_media.is_empty(), "{:?}", r.missing_media);
+    let m = s.tree().media.values().next().unwrap();
+    assert_eq!(std::fs::read(proj.join(&m.path)).unwrap(), b"jpeg bytes");
+    let leftovers = std::fs::read_dir(std::env::temp_dir())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with(&format!("gene-tree-gedzip-{}-", std::process::id()))
+        })
+        .count();
+    assert_eq!(leftovers, 0);
+}
+
+#[test]
+fn imports_a_gzipped_gramps_file() {
+    use std::io::Write;
+    let tmp = tempfile::tempdir().unwrap();
+    let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<database xmlns="http://gramps-project.org/xml/1.7.1/">
+  <header><created date="2026-01-01" version="5.2.0"/></header>
+  <people>
+    <person handle="_p1" id="I0001"><gender>F</gender>
+      <name type="Birth Name"><first>Olena</first><surname>Koval</surname></name>
+    </person>
+  </people>
+</database>"#;
+    let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    enc.write_all(xml.as_bytes()).unwrap();
+    let f = tmp.path().join("family.gramps");
+    std::fs::write(&f, enc.finish().unwrap()).unwrap();
+    let proj = tmp.path().join("proj");
+    let (s, r) = import_gedcom(&request(&f, &proj, &[]), clock(), &|_| {}).unwrap();
+    assert_eq!(r.project.person_count, 1);
+    assert_eq!(r.version, None);
+    assert!(!r.text.contains("GEDCOM version"), "{}", r.text);
+    assert_eq!(s.tree().persons.len(), 1);
+}
+
+#[test]
+fn a_damaged_gramps_or_gedzip_file_is_refused_and_leaves_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    for (name, bytes, says) in [
+        ("a.gramps", &[0x1f_u8, 0x8b, 8, 0][..], "Gramps"),
+        ("a.gdz", &b"PK"[..], "GEDZIP"),
     ] {
         let f = tmp.path().join(name);
         std::fs::write(&f, bytes).unwrap();
@@ -119,11 +188,7 @@ fn gramps_and_gedzip_files_say_not_supported_yet() {
             .err()
             .unwrap();
         assert_eq!(e.code, ErrorCode::Invalid);
-        assert!(
-            e.message.contains("cannot be imported yet"),
-            "{}",
-            e.message
-        );
+        assert!(e.message.contains(says), "{}", e.message);
         assert!(!proj.exists());
     }
 }

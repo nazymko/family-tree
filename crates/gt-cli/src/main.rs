@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use gt_core::DayOrder;
 use gt_core::GedcomVersion;
 use gt_core::privacy::{LivingMode, PrivacyPolicy, filter};
-use gt_gedcom::{ExportOptions, ImportOptions, export, import};
+use gt_gedcom::{ExportOptions, ImportOptions, export};
 use gt_store::{BackupReason, LocationWarning, Project, StoreError, check_location};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -117,10 +117,6 @@ fn user(msg: impl Into<String>) -> CliError {
     CliError::User(msg.into())
 }
 
-fn read_file(path: &Path) -> Result<Vec<u8>, CliError> {
-    std::fs::read(path).map_err(|e| user(format!("cannot read {}: {e}", path.display())))
-}
-
 /// Julian day number of today (UTC). The only clock read in the program.
 fn today_jdn() -> i32 {
     let secs = std::time::SystemTime::now()
@@ -168,7 +164,7 @@ fn main() -> ExitCode {
 fn run(cmd: Cmd) -> Result<(), CliError> {
     match cmd {
         Cmd::Check { file, mdy } => {
-            let out = convert_file(&file, mdy, Vec::new())?;
+            let out = convert_file(&file, mdy, Vec::new())?.outcome;
             print!("{}", out.report.to_text());
             Ok(())
         }
@@ -212,17 +208,16 @@ fn run(cmd: Cmd) -> Result<(), CliError> {
 /// Reads `file` with the converter for its format: a Древо Жизни `.atdb` database (found by its
 /// SQLite header and tables), else GEDCOM. This is the CLI's counterpart of the format seam in
 /// `gt_session::import_format`; a new format adds one branch here.
+/// Detects the format (GEDCOM, GEDZIP, Gramps XML, Древо Жизни) and converts the file. Keep the
+/// result's `cleanup` alive until media has been copied (GEDZIP media lives in a scratch folder).
 fn convert_file(
     file: &Path,
     mdy: bool,
     media_roots: Vec<PathBuf>,
-) -> Result<gt_gedcom::ImportOutcome, CliError> {
+) -> Result<gt_import::Converted, CliError> {
     let opts = import_options(file, mdy, media_roots);
-    if gt_import_atdb::is_atdb(file) {
-        return gt_import_atdb::import_atdb(file, &opts).map_err(|e| user(e.to_string()));
-    }
-    let bytes = read_file(file)?;
-    Ok(import(&bytes, &opts))
+    let format = gt_import::detect(file).map_err(|e| user(e.message))?;
+    gt_import::convert(format, file, &opts).map_err(|e| user(e.message))
 }
 
 fn import_options(file: &Path, mdy: bool, media_roots: Vec<PathBuf>) -> ImportOptions {
@@ -275,7 +270,9 @@ fn build_project(
     media_roots: Vec<PathBuf>,
 ) -> Result<gt_gedcom::ImportOutcome, CliError> {
     let mut project = Project::create(tmp)?;
-    let mut outcome = convert_file(file, mdy, media_roots)?;
+    let converted = convert_file(file, mdy, media_roots)?;
+    let _scratch = converted.cleanup; // removed when this function returns, after the copy
+    let mut outcome = converted.outcome;
     for (id, src) in &outcome.resolved_media {
         let (rel, sha) = project.add_media_file(src)?;
         if let Some(m) = outcome.tree.media.get_mut(id) {

@@ -64,7 +64,7 @@ export async function text(): Promise<string> {
 export async function importSynthetic(name: string): Promise<string> {
   const parent = slash(path.join(work(), 'OneDrive', 'trees'));
   fs.mkdirSync(parent, { recursive: true });
-  await click('Import a GEDCOM or Древо Жизни file');
+  await click('Import a family tree file');
   await pushDialog(slash(ged()));
   await click('Choose file…');
   await pushDialog(parent);

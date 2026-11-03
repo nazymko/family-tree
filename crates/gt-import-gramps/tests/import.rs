@@ -259,8 +259,12 @@ fn gzip_and_plain_give_the_same_tree() {
     let b = import_gramps(FIXTURE.as_bytes(), &ImportOptions::default()).expect("plain");
     assert!(is_gzip(&gz(FIXTURE)) && !is_gzip(FIXTURE.as_bytes()));
     assert_eq!(a.tree, b.tree);
-    assert_eq!(a.report.version.as_deref(), Some("1.7.1"));
-    assert_eq!(a.report.producer.as_deref(), Some("Gramps 5.2.0"));
+    // The GEDCOM version field stays empty; the XML format version is part of the producer.
+    assert_eq!(a.report.version, None);
+    assert_eq!(
+        a.report.producer.as_deref(),
+        Some("Gramps 5.2.0 (XML format 1.7.1)")
+    );
     assert_eq!(a.report.counts.get("person"), Some(&4));
 }
 

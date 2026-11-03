@@ -87,17 +87,26 @@ pub fn import_gramps(bytes: &[u8], opts: &ImportOptions) -> Result<ImportOutcome
         return Err(GrampsError::NotGramps(root.tag_name().name().to_string()));
     }
     let mut ctx = records::Ctx::new(&doc, opts);
+    // `report.version` is the GEDCOM version (the app shows "GEDCOM <v>"); the Gramps XML format
+    // version goes in the producer line instead.
+    let xml_version = root
+        .tag_name()
+        .namespace()
+        .and_then(|ns| ns.trim_end_matches('/').rsplit('/').next())
+        .map(str::to_string);
     ctx.report = ImportReport {
         encoding: "UTF-8".to_string(),
-        version: root
-            .tag_name()
-            .namespace()
-            .and_then(|ns| ns.trim_end_matches('/').rsplit('/').next())
-            .map(str::to_string),
         ..ImportReport::default()
     };
     ctx.run(root);
-    let (tree, report, resolved_media): (Tree, ImportReport, _) = ctx.finish();
+    let (tree, mut report, resolved_media): (Tree, ImportReport, _) = ctx.finish();
+    if let Some(v) = xml_version {
+        let p = report
+            .producer
+            .take()
+            .unwrap_or_else(|| "Gramps".to_string());
+        report.producer = Some(format!("{p} (XML format {v})"));
+    }
     Ok(ImportOutcome {
         tree,
         report,

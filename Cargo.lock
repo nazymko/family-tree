@@ -1719,9 +1719,11 @@ dependencies = [
  "clap",
  "gt-core",
  "gt-gedcom",
+ "gt-import",
  "gt-import-atdb",
  "gt-store",
  "tempfile",
+ "zip",
 ]
 
 [[package]]
@@ -1749,6 +1751,18 @@ dependencies = [
  "thiserror 2.0.21",
  "unicode-normalization",
  "uuid",
+ "zip",
+]
+
+[[package]]
+name = "gt-import"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "gt-gedcom",
+ "gt-import-atdb",
+ "gt-import-gramps",
+ "thiserror 2.0.21",
  "zip",
 ]
 
@@ -1790,8 +1804,10 @@ name = "gt-session"
 version = "0.1.0"
 dependencies = [
  "fast_image_resize",
+ "flate2",
  "gt-core",
  "gt-gedcom",
+ "gt-import",
  "gt-import-atdb",
  "gt-layout",
  "gt-store",
@@ -1807,6 +1823,7 @@ dependencies = [
  "ts-rs",
  "unicode-normalization",
  "uuid",
+ "zip",
 ]
 
 [[package]]

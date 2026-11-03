@@ -26,8 +26,7 @@
     indexing: 'Building the search index',
   };
 
-  // GEDCOM and Древо Жизни work today; the backend answers "not supported yet" for .gramps and .gdz
-  // until those converters are wired in, so picking one gives a plain message, not a crash.
+  // The backend detects the format from the file itself; the filter only narrows the picker.
   const IMPORT_EXTENSIONS = ['ged', 'gedcom', 'atdb', 'gramps', 'gdz'];
 
   let file = $state<string | null>(null);
@@ -50,7 +49,7 @@
   }
 
   async function chooseFile() {
-    const f = await platform.pickFile({ title: 'Choose a GEDCOM or Древо Жизни file', extensions: IMPORT_EXTENSIONS });
+    const f = await platform.pickFile({ title: 'Choose a family tree file', extensions: IMPORT_EXTENSIONS });
     if (!f) return;
     file = f;
     if (!name.trim()) name = baseName(f);
@@ -105,16 +104,16 @@
 </script>
 
 <form class="wiz" onsubmit={start} aria-labelledby="wiz-title">
-  <h2 id="wiz-title">{mode === 'import' ? 'Import a GEDCOM or Древо Жизни file' : 'Create a new tree'}</h2>
+  <h2 id="wiz-title">{mode === 'import' ? 'Import a family tree file' : 'Create a new tree'}</h2>
 
   {#if error}<Banner kind="error">{error}</Banner>{/if}
 
   {#if mode === 'import'}
     <div class="pick">
-      <span class="k" id="file-k">GEDCOM or Древо Жизни file</span>
+      <span class="k" id="file-k">Family tree file</span>
       <Button onclick={chooseFile} disabled={busy} aria-describedby="file-k">Choose file…</Button>
       <bdi dir="auto" class="v">{file ?? 'No file chosen'}</bdi>
-      <p class="hint">GEDCOM (.ged) or Древо Жизни (.atdb). Gramps and GEDZIP files are not supported yet.</p>
+      <p class="hint">GEDCOM (.ged), GEDZIP (.gdz), Gramps (.gramps) or Древо Жизни (.atdb).</p>
     </div>
   {/if}
 
