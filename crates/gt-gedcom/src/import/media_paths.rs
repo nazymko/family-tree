@@ -1,8 +1,10 @@
 //! Locating media files named by `FILE` against the user's media roots.
 
-use super::Ctx;
+use super::report::{ImportReport, MissingMedia, MissingReason};
+use super::{Ctx, ImportOptions};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
+use uuid::Uuid;
 
 const MAX_DEPTH: usize = 12;
 const MAX_ENTRIES: usize = 500_000;
@@ -72,7 +74,7 @@ pub(crate) fn file_url_to_path(url: &str) -> Option<String> {
     Some(percent_decode(&path))
 }
 
-fn percent_decode(s: &str) -> String {
+pub(crate) fn percent_decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -147,16 +149,16 @@ pub fn is_lexically_under(candidate: &Path, roots: &[PathBuf]) -> bool {
     matches!(lexical_check(candidate, roots), Lexical::Under(_))
 }
 
-fn canonical_roots(ctx: &mut Ctx, roots: &[PathBuf]) -> Vec<PathBuf> {
-    ctx.canon_roots
+fn canonical_roots(canon: &mut Option<Vec<PathBuf>>, roots: &[PathBuf]) -> Vec<PathBuf> {
+    canon
         .get_or_insert_with(|| roots.iter().filter_map(|r| r.canonicalize().ok()).collect())
         .clone()
 }
 
 /// After the lexical check: the file must exist and, with symlinks resolved, still be under a
 /// canonical root.
-fn confirm(ctx: &mut Ctx, roots: &[PathBuf], cand: &Path) -> bool {
-    let canon_roots = canonical_roots(ctx, roots);
+fn confirm(canon: &mut Option<Vec<PathBuf>>, roots: &[PathBuf], cand: &Path) -> bool {
+    let canon_roots = canonical_roots(canon, roots);
     cand.canonicalize()
         .is_ok_and(|c| c.is_file() && canon_roots.iter().any(|r| c.starts_with(r)))
 }
@@ -166,13 +168,24 @@ fn confirm(ctx: &mut Ctx, roots: &[PathBuf], cand: &Path) -> bool {
 /// in arbitrary local files nor name a network share); a relative path is tried against each of
 /// those; last, a unique basename match under the media roots.
 pub(crate) fn locate(ctx: &mut Ctx, norm: &str) -> Located {
+    locate_in(&ctx.opts, &mut ctx.canon_roots, &mut ctx.media_index, norm)
+}
+
+type MediaIndex = Option<HashMap<String, Vec<PathBuf>>>;
+
+fn locate_in(
+    opts: &ImportOptions,
+    canon: &mut Option<Vec<PathBuf>>,
+    media_index: &mut MediaIndex,
+    norm: &str,
+) -> Located {
     let p = Path::new(norm);
-    let mut allowed: Vec<PathBuf> = ctx.opts.media_roots.clone();
-    allowed.extend(ctx.opts.gedcom_dir.clone());
+    let mut allowed: Vec<PathBuf> = opts.media_roots.clone();
+    allowed.extend(opts.gedcom_dir.clone());
     let absolute = p.is_absolute() || norm.starts_with("//");
     if absolute {
         if let Lexical::Under(c) = lexical_check(p, &allowed)
-            && confirm(ctx, &allowed, &c)
+            && confirm(canon, &allowed, &c)
         {
             return Located::Found(c);
         }
@@ -183,15 +196,15 @@ pub(crate) fn locate(ctx: &mut Ctx, norm: &str) -> Located {
         for root in &allowed {
             let cand = root.join(p);
             if matches!(lexical_check(&cand, &allowed), Lexical::Under(_))
-                && confirm(ctx, &allowed, &cand)
+                && confirm(canon, &allowed, &cand)
             {
                 return Located::Found(cand);
             }
         }
     }
-    if !ctx.opts.media_roots.is_empty() {
-        let roots = ctx.opts.media_roots.clone();
-        let idx = ctx.media_index.get_or_insert_with(|| index_roots(&roots));
+    if !opts.media_roots.is_empty() {
+        let roots = opts.media_roots.clone();
+        let idx = media_index.get_or_insert_with(|| index_roots(&roots));
         match idx.get(&basename(norm).to_lowercase()).map(Vec::as_slice) {
             Some([one]) => return Located::Found(one.clone()),
             Some(many) if many.len() > 1 => return Located::Ambiguous(many.to_vec()),
@@ -202,6 +215,71 @@ pub(crate) fn locate(ctx: &mut Ctx, norm: &str) -> Located {
         Located::OutsideRoots
     } else {
         Located::NotFound
+    }
+}
+
+/// Media path resolution for importers other than GEDCOM: the same rules (lexical check against
+/// the media roots and the source file's folder, then a unique basename match under the roots).
+pub struct MediaLocator {
+    opts: ImportOptions,
+    canon: Option<Vec<PathBuf>>,
+    index: MediaIndex,
+}
+
+impl MediaLocator {
+    pub fn new(opts: &ImportOptions) -> Self {
+        Self {
+            opts: opts.clone(),
+            canon: None,
+            index: None,
+        }
+    }
+
+    /// Locate the file named by `raw_path` for media `id`. A found file is pushed to `resolved`;
+    /// URLs and misses are recorded in `report`. Returns the file's original name when found.
+    pub fn resolve(
+        &mut self,
+        id: Uuid,
+        raw_path: &str,
+        report: &mut ImportReport,
+        resolved: &mut Vec<(Uuid, PathBuf)>,
+    ) -> Option<String> {
+        let path = normalize(raw_path);
+        let local = match file_url_to_path(&path) {
+            Some(p) => p,
+            None if is_url(&path) => {
+                report.media_urls.push(path.chars().take(100).collect());
+                return None;
+            }
+            None => path.clone(),
+        };
+        let miss = |reason, candidates| MissingMedia {
+            path: path.clone(),
+            reason,
+            candidates,
+        };
+        match locate_in(&self.opts, &mut self.canon, &mut self.index, &local) {
+            Located::Found(found) => {
+                resolved.push((id, found));
+                file_name(&local)
+            }
+            Located::OutsideRoots => {
+                report
+                    .missing_media
+                    .push(miss(MissingReason::OutsideRoots, vec![]));
+                None
+            }
+            Located::Ambiguous(c) => {
+                report.missing_media.push(miss(MissingReason::Ambiguous, c));
+                None
+            }
+            Located::NotFound => {
+                report
+                    .missing_media
+                    .push(miss(MissingReason::NotFound, vec![]));
+                None
+            }
+        }
     }
 }
 
