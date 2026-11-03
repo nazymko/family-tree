@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 pub const SCHEMA_VERSION: i32 = 2;
 const DB_FILE: &str = "tree.db";
+const LOCK_FILE: &str = ".gene-tree.lock";
 const SUBDIRS: [&str; 3] = ["media", "thumbs", "backups"];
 
 #[derive(Debug, thiserror::Error)]
@@ -20,6 +21,8 @@ pub enum StoreError {
     Corrupt(String),
     #[error("a project already exists at {0}")]
     AlreadyExists(PathBuf),
+    #[error("This tree is open in another Gene Tree window.")]
+    Locked(PathBuf),
 }
 
 /// An open project folder (`tree.db`, `media/`, `thumbs/`, `backups/`).
@@ -28,6 +31,22 @@ pub struct Project {
     pub dir: PathBuf,
     pub(crate) conn: Connection,
     version: i32,
+    /// Holds the exclusive OS lock for as long as the project is open; released on drop.
+    _lock: std::fs::File,
+}
+
+/// Takes the exclusive lock file in `dir`. A second holder gets `StoreError::Locked`.
+fn acquire_lock(dir: &Path) -> Result<std::fs::File, StoreError> {
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(LOCK_FILE))?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(std::fs::TryLockError::WouldBlock) => Err(StoreError::Locked(dir.to_path_buf())),
+        Err(std::fs::TryLockError::Error(e)) => Err(StoreError::Io(e)),
+    }
 }
 
 fn setup(conn: &Connection) -> Result<(), StoreError> {
@@ -48,6 +67,7 @@ impl Project {
         for sub in SUBDIRS {
             std::fs::create_dir_all(dir.join(sub))?;
         }
+        let lock = acquire_lock(dir)?;
         let mut conn = Connection::open(&db)?;
         setup(&conn)?;
         let version = migrate(&mut conn, MIGRATIONS)?;
@@ -67,6 +87,7 @@ impl Project {
             dir: dir.to_path_buf(),
             conn,
             version,
+            _lock: lock,
         })
     }
 
@@ -75,6 +96,7 @@ impl Project {
         if !db.is_file() {
             return Err(StoreError::NotAProject(dir.to_path_buf()));
         }
+        let lock = acquire_lock(dir)?;
         let mut conn = Connection::open(&db)?;
         // Check the version before touching anything else (WAL setup writes).
         let found = user_version(&conn)?;
@@ -93,6 +115,7 @@ impl Project {
             dir: dir.to_path_buf(),
             conn,
             version,
+            _lock: lock,
         };
         // v1 full-text rows have arbitrary row ids; v2 edits address them by seq. The key is
         // written by the rebuild itself, so an interrupted upgrade is redone on the next open.
