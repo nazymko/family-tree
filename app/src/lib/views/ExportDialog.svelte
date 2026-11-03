@@ -145,7 +145,7 @@
             <h4>Notes that may name hidden people</h4>
             <ul>
               {#each preview.mentionWarnings as w, i (i)}
-                <li>{w.noteExcerpt} mentions <bdi dir="auto">{w.hiddenPerson}</bdi></li>
+                <li>“{w.noteExcerpt}” mentions <bdi dir="auto">{w.hiddenPerson}</bdi></li>
               {/each}
             </ul>
           {/if}
@@ -185,6 +185,9 @@
   .export {
     display: grid;
     gap: var(--s-6);
+    max-height: calc(100vh - 13rem);
+    overflow: auto;
+    padding-inline-end: var(--s-2);
   }
   .options {
     display: grid;

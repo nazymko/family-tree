@@ -192,9 +192,12 @@
   .viewer {
     display: grid;
     gap: var(--s-4);
+    max-height: calc(100vh - 11rem);
+    overflow: auto;
   }
   .stage {
-    height: min(52vh, 28rem);
+    height: min(40vh, 22rem);
+    flex: none;
     overflow: hidden;
     display: grid;
     place-items: center;

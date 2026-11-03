@@ -143,6 +143,9 @@
   .form {
     display: grid;
     gap: var(--s-5);
+    max-height: calc(100vh - 13rem);
+    overflow: auto;
+    padding: var(--s-2);
   }
   summary {
     cursor: pointer;

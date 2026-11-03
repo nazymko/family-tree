@@ -36,6 +36,10 @@
   $effect(() => {
     if (selectedId) selected = selectedId;
   });
+  // Show a source's details straight away instead of an empty pane.
+  $effect(() => {
+    if (!selected && list.length) selected = list[0].id;
+  });
 
   const clean = (v: SourceValues) => ({
     title: v.title.trim(),

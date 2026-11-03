@@ -22,9 +22,8 @@
   .slot {
     position: fixed;
     inset-block-end: var(--s-5);
-    inset-inline-start: 50%;
-    transform: translateX(-50%);
+    inset-inline-start: var(--s-5);
     z-index: 200;
-    max-width: min(32rem, calc(100vw - 2rem));
+    max-width: min(28rem, calc(100vw - 2rem));
   }
 </style>
