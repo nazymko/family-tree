@@ -4,61 +4,62 @@
   import Select from '../ui/Select.svelte';
   import Button from '../ui/Button.svelte';
   import type { PersonQuery } from '../api/types';
+  import { t, type MessageKey } from '../i18n';
 
   let { query = $bindable() }: { query: PersonQuery } = $props();
 
-  const LIVING: { value: PersonQuery['living']; label: string }[] = [
-    { value: 'any', label: 'Any' },
-    { value: 'living', label: 'Living' },
-    { value: 'deceased', label: 'Deceased' },
+  const LIVING: { value: PersonQuery['living']; label: MessageKey }[] = [
+    { value: 'any', label: 'people.any' },
+    { value: 'living', label: 'people.living' },
+    { value: 'deceased', label: 'people.deceased' },
   ];
 </script>
 
 <div class="bar">
   <div class="text">
     <TextField
-      label="Filter by name"
-      placeholder="Type to filter"
+      label={t('people.filterByName')}
+      placeholder={t('people.typeToFilter')}
       autocomplete="off"
       data-filter-input
       bind:value={query.text}
     />
   </div>
 
-  <div class="grp" role="group" aria-label="Living status">
-    <span class="gl" aria-hidden="true">Status</span>
+  <div class="grp" role="group" aria-label={t('people.livingStatus')}>
+    <span class="gl" aria-hidden="true">{t('people.status')}</span>
     <div class="seg">
       {#each LIVING as o (o.value)}
         <button type="button" aria-pressed={query.living === o.value} onclick={() => (query.living = o.value)}>
-          {o.label}
+          {t(o.label)}
         </button>
       {/each}
     </div>
   </div>
 
   <div class="checks">
-    <Checkbox label="No source" bind:checked={query.noSource} />
-    <Checkbox label="No birth date" bind:checked={query.noBirthDate} />
-    <Checkbox label="Private only" bind:checked={query.privateOnly} />
+    <Checkbox label={t('people.noSource')} bind:checked={query.noSource} />
+    <Checkbox label={t('people.noBirthDate')} bind:checked={query.noBirthDate} />
+    <Checkbox label={t('people.privateOnly')} bind:checked={query.privateOnly} />
   </div>
 
   <div class="sort">
     <Select
-      label="Sort by"
+      label={t('people.sortBy')}
       bind:value={query.sort}
       options={[
-        { value: 'surname', label: 'Surname' },
-        { value: 'given', label: 'Given name' },
-        { value: 'birth', label: 'Birth' },
-        { value: 'changed', label: 'Recently changed' },
+        { value: 'surname', label: t('people.surname') },
+        { value: 'given', label: t('people.givenName') },
+        { value: 'birth', label: t('people.birth') },
+        { value: 'changed', label: t('people.recentlyChanged') },
       ]}
     />
     <Button
-      aria-label="Sort direction: {query.desc ? 'descending' : 'ascending'}"
+      aria-label={t('people.sortDirection', { direction: query.desc ? t('people.descending') : t('people.ascending') })}
       aria-pressed={query.desc}
       onclick={() => (query.desc = !query.desc)}
     >
-      {query.desc ? 'Z to A' : 'A to Z'}
+      {query.desc ? t('people.zToA') : t('people.aToZ')}
     </Button>
   </div>
 </div>

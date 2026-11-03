@@ -54,7 +54,7 @@ describe('People', () => {
     const page = await raw.listPersons(BASE, 0, 5);
     await waitFor(() => expect(rows().length).toBeGreaterThan(5));
     for (let i = 0; i < 5; i++) expect(rows()[i]).toHaveTextContent(page.items[i].name);
-    expect(await screen.findByText('5000')).toBeInTheDocument();
+    expect(await screen.findByText('5,000')).toBeInTheDocument();
   });
 
   it('filter_text_debounced_single_call', async () => {

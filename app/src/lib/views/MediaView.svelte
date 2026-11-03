@@ -6,6 +6,7 @@
   import { getApi } from '../api/context';
   import { project } from '../state/project.svelte';
   import type { Id, MediaLinkDto, OwnerRef } from '../api/api';
+  import { t } from '../i18n';
 
   let {
     personId,
@@ -38,12 +39,12 @@
 </script>
 
 <section class="media">
-  <h1>Media</h1>
+  <h1>{t('nav.media')}</h1>
   {#if loaded}
     <Dropzone {target} targetName={name} onAttached={() => load()} onUndone={() => load()} {onSuggestEvent} />
     {#if items.length === 0}
-      <EmptyState title="Nothing attached">
-        No photos or documents for <bdi dir="auto">{name}</bdi>. Drop files here to attach them.
+      <EmptyState title={t('mediaView.nothingAttached')}>
+        {t('mediaView.noneBefore')}<bdi dir="auto">{name}</bdi>{t('mediaView.noneAfter')}
       </EmptyState>
     {:else}
       <MediaGrid {items} {target} onOpen={(i) => (open = i)} />
