@@ -17,12 +17,15 @@
     anchor,
     relation,
     family,
+    newParentSet,
     onDone,
     onCancel,
   }: {
     anchor: PersonRef;
     relation: Relation;
     family?: Id;
+    /** Father/mother: start a new set of parents instead of filling the existing one. */
+    newParentSet?: boolean;
     onDone: (r: EditResult) => void;
     onCancel: () => void;
   } = $props();
@@ -87,6 +90,7 @@
         birthPlaceText: opt(birthPlace),
       },
       ...(fam ? { family: fam } : {}),
+      ...(newParentSet ? { newParentSet: true } : {}),
     };
     try {
       const r = await api.apply(cmd);

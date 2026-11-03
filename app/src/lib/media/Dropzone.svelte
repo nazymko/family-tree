@@ -68,7 +68,7 @@
     suggestion = null;
     let r: AttachResult;
     try {
-      r = await api.attachFiles(target, paths);
+      r = await api.attachFiles(target, paths, { silent: true });
     } catch (e) {
       failures = [e instanceof Error ? e.message : String(e)];
       return;

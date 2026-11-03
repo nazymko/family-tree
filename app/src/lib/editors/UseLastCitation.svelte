@@ -20,7 +20,7 @@
     if (!last || busy) return;
     busy = true;
     try {
-      const r = await api.apply({ type: 'addCitation', target, citation: { reuseLast: true } });
+      const r = await api.apply({ type: 'addCitation', target, citation: { reuseLast: true } }, { silent: true });
       notices.show(undoNotice(api, 'Citation added', r.undo));
       onDone(r);
     } catch (e) {

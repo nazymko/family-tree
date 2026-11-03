@@ -8,6 +8,7 @@
     ribbon = false,
     ribbonTitle = 'Home person',
     as = 'div',
+    flipKey,
   }: {
     /** The title block: plain paper, no ruling. */
     children: Snippet;
@@ -16,10 +17,12 @@
     ribbon?: boolean;
     ribbonTitle?: string;
     as?: 'div' | 'section' | 'article';
+    /** Identifies the card for the family view's FLIP move between focus people. */
+    flipKey?: string;
   } = $props();
 </script>
 
-<svelte:element this={as} class="index-card">
+<svelte:element this={as} class="index-card" data-flip-key={flipKey}>
   {#if ribbon}
     <span class="tab"><Ribbon title={ribbonTitle} size="1.75rem" /></span>
   {/if}

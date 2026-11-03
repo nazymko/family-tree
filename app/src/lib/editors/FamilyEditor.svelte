@@ -22,7 +22,7 @@
   }: {
     /** Edit this family; omit to create one. */
     family?: Id;
-    /** A person in the family (a partner or a child). Needed in edit mode: there is no Api call that reads a family by id. */
+    /** Optional fallback: a person in the family, used only if the Api cannot read a family by id. */
     anchor?: Id;
     /** Create mode: pre-fill the first partner slot. */
     seedPartner?: Id;
@@ -75,8 +75,24 @@
 
   async function readFamily() {
     if (!family) return null;
-    const start = anchor ?? seedPartner;
-    if (!start) throw { code: 'invalid', message: 'This family cannot be opened without a person who belongs to it.' };
+    try {
+      const f = await api.getFamily(family);
+      return {
+        first: f.partners[0],
+        second: f.partners[1],
+        kind: f.kind,
+        events: f.events,
+        rows: f.children.map((c) => ({ person: c.person, rel: c.rel, preferred: c.preferred }) satisfies ChildRow),
+      };
+    } catch (e) {
+      // Fallback for an Api without getFamily: find the family through a person who belongs to it.
+      const start = anchor ?? seedPartner;
+      if (!start || (e as { code?: string }).code === 'not_found') throw e;
+      return readViaAnchor(start);
+    }
+  }
+
+  async function readViaAnchor(start: Id) {
     const a = await api.getPerson(start);
     let own = a.partnerships.find((p) => p.familyId === family);
     let first: PersonRef | null = null;

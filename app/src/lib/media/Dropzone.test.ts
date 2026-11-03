@@ -30,7 +30,7 @@ describe('Dropzone', () => {
     await act(() => platform.simulateDrop(paths));
     await waitFor(() => expect(onAttached).toHaveBeenCalled());
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith(target, paths);
+    expect(spy).toHaveBeenCalledWith(target, paths, { silent: true });
     expect(notices.current?.message).toBe('Attached 3 files');
     expect(notices.current?.actionLabel).toBe('Undo');
   });

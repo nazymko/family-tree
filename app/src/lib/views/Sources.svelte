@@ -53,7 +53,7 @@
     if (!selected) return;
     error = '';
     try {
-      await api.apply({ type: 'saveSource', source: { id: selected, ...clean(v) } });
+      await api.apply({ type: 'saveSource', source: { id: selected, ...clean(v) } }, { silent: true });
       notices.show({ message: 'Source saved' });
       await reload(filter);
     } catch (e) {
@@ -64,7 +64,7 @@
   async function create(v: SourceValues) {
     error = '';
     try {
-      const r = await api.apply({ type: 'saveSource', source: clean(v) });
+      const r = await api.apply({ type: 'saveSource', source: clean(v) }, { silent: true });
       creating = false;
       notices.show({ message: 'Source added' });
       selected = r.touched[0] ?? null;

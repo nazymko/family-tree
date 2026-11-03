@@ -48,7 +48,7 @@ describe('CitationEditor', () => {
     await user.click(btn);
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith({ type: 'addCitation', target, citation: { reuseLast: true } });
+    expect(spy).toHaveBeenCalledWith({ type: 'addCitation', target, citation: { reuseLast: true } }, { silent: true });
     expect(notices.current?.message).toBe('Citation added');
   });
 

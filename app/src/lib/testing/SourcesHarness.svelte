@@ -30,6 +30,7 @@
   const target = $derived<OwnerRef>({ kind: 'person', id: home });
 
   onMount(async () => {
+    notices.forward = false;
     await settings.load(api);
     home = settings.value.homePerson!;
     const t: OwnerRef = { kind: 'person', id: home };

@@ -3,7 +3,6 @@
   import Icon from '../ui/Icon.svelte';
   import IconButton from '../ui/IconButton.svelte';
   import Kbd from '../ui/Kbd.svelte';
-  import Dialog from '../ui/Dialog.svelte';
   import Button from '../ui/Button.svelte';
   import Ribbon from '../ui/Ribbon.svelte';
   import SearchPalette from '../ui/SearchPalette.svelte';
@@ -11,11 +10,19 @@
   import ShortcutSheet from './ShortcutSheet.svelte';
   import NewPersonDialog from './NewPersonDialog.svelte';
   import RoutePlaceholder from './RoutePlaceholder.svelte';
+  import PersonEditor from './PersonEditor.svelte';
+  import Sources from './Sources.svelte';
+  import MediaView from './MediaView.svelte';
+  import Settings from './Settings.svelte';
+  import ExportDialog from './ExportDialog.svelte';
+  import QuickAdd from '../editors/QuickAdd.svelte';
+  import CitationList from '../editors/CitationList.svelte';
+  import MediaGrid from '../media/MediaGrid.svelte';
   import People from './People.svelte';
   import FamilyView from './FamilyView.svelte';
   import type { IconName } from '../ui/icons';
   import { getApi } from '../api/context';
-  import type { Id, SearchHitDto } from '../api/types';
+  import type { Id, PersonDetail, PersonRef, SearchHitDto } from '../api/types';
   import { nav, type Route } from '../state/nav.svelte';
   import { project } from '../state/project.svelte';
   import { settings } from '../state/settings.svelte';
@@ -88,6 +95,8 @@
     { id: 'n3', keys: 'Mod+3', label: 'Pedigree', run: () => go('pedigree') },
     { id: 'n4', keys: 'Mod+4', label: 'Descendants', run: () => go('descendants') },
     { id: 'n5', keys: 'Mod+5', label: 'Sources', run: () => go('sources') },
+    { id: 'n6', keys: 'Mod+6', label: 'Media', run: () => go('media') },
+    { id: 'export', keys: 'Mod+Shift+E', label: 'Export GEDCOM', run: () => (exportOpen = true) },
     { id: 'settings', keys: 'Mod+,', label: 'Settings', run: () => go('settings') },
     { id: 'save', keys: 'Mod+S', label: 'Save', run: () => toasts.push({ text: 'All changes are saved' }) },
     { id: 'help', keys: '?', label: 'Keyboard shortcuts', run: () => (sheetOpen = true) },
@@ -108,6 +117,34 @@
     }
   }
 
+  // Quick add with an anchor person (the "+" menu on the family view) opens the editors lane's QuickAdd.
+  let quickAnchor = $state<PersonRef | null>(null);
+  const quickWanted = $derived(ui.add.open && ui.add.relation && ui.add.anchor ? ui.add : null);
+  $effect(() => {
+    const want = quickWanted;
+    if (!want?.anchor) {
+      quickAnchor = null;
+      return;
+    }
+    let live = true;
+    api
+      .getPerson(want.anchor)
+      .then((d) => {
+        if (live) quickAnchor = d.ref;
+      })
+      .catch(() => {
+        if (live) ui.closeAdd();
+      });
+    return () => {
+      live = false;
+    };
+  });
+
+  function openMedia(id: Id) {
+    nav.focus(id);
+    nav.go({ name: 'media' });
+  }
+
   function added(id: Id | null) {
     ui.closeAdd();
     if (id) {
@@ -119,6 +156,19 @@
   const current = $derived(nav.route.name);
   const saveText = $derived(project.save === 'saving' ? 'Saving…' : project.save === 'failed' ? 'Not saved' : 'Saved');
 </script>
+
+{#snippet mediaSection(d: PersonDetail)}
+  {#if d.media.length > 0}
+    <MediaGrid items={d.media} target={{ kind: 'person', id: d.ref.id }} onOpen={() => openMedia(d.ref.id)} />
+  {:else}
+    <p class="sec-empty">Nothing attached.</p>
+  {/if}
+  <p><Button onclick={() => openMedia(d.ref.id)}>Open media</Button></p>
+{/snippet}
+
+{#snippet sourcesSection(d: PersonDetail)}
+  <CitationList target={{ kind: 'person', id: d.ref.id }} citations={d.citations} onChanged={() => {}} />
+{/snippet}
 
 <div class="shell">
   <aside class="side">
@@ -213,13 +263,19 @@
         {:else if nav.route.name === 'descendants'}
           <RoutePlaceholder title="Descendants" note="The descendant chart is wired in when its task merges." />
         {:else if nav.route.name === 'person'}
-          <RoutePlaceholder title="Edit person" note="The person editor is wired in when its task merges." />
+          {#key nav.route.id}
+            <PersonEditor id={nav.route.id} {mediaSection} {sourcesSection} />
+          {/key}
         {:else if nav.route.name === 'sources'}
-          <RoutePlaceholder title="Sources" note="Sources are wired in when their task merges." />
+          <Sources />
         {:else if nav.route.name === 'media'}
-          <RoutePlaceholder title="Media" note="The media library is wired in when its task merges." />
+          {#if nav.focusPerson ?? homeId}
+            <MediaView personId={(nav.focusPerson ?? homeId)!} />
+          {:else}
+            <RoutePlaceholder title="Media" note="Choose a person first." />
+          {/if}
         {:else if nav.route.name === 'settings'}
-          <RoutePlaceholder title="Settings" note="Settings are wired in when their task merges." />
+          <Settings />
         {/if}
       </div>
     </main>
@@ -228,20 +284,26 @@
 
 <SearchPalette open={searchOpen} onclose={() => (searchOpen = false)} onpick={picked} />
 <ShortcutSheet open={sheetOpen} onclose={() => (sheetOpen = false)} {shortcuts} />
+{#if quickWanted && quickAnchor && quickWanted.relation}
+  <QuickAdd
+    anchor={quickAnchor}
+    relation={quickWanted.relation}
+    newParentSet={quickWanted.newParentSet}
+    onDone={() => ui.closeAdd()}
+    onCancel={() => ui.closeAdd()}
+  />
+{/if}
 <NewPersonDialog
-  open={ui.add.open}
+  open={ui.add.open && !quickWanted}
   relation={ui.add.relation}
   anchor={ui.add.anchor}
   newParentSet={ui.add.newParentSet}
   onclose={() => ui.closeAdd()}
   ondone={added}
 />
-<Dialog open={exportOpen} title="Export GEDCOM" onclose={() => (exportOpen = false)}>
-  <p>The export dialog is wired in when its task merges.</p>
-  {#snippet footer()}
-    <Button onclick={() => (exportOpen = false)}>Close</Button>
-  {/snippet}
-</Dialog>
+{#if exportOpen}
+  <ExportDialog onClose={() => (exportOpen = false)} />
+{/if}
 <ToastHost />
 
 <style>
@@ -281,6 +343,10 @@
     padding: 0;
     display: grid;
     gap: var(--s-1);
+  }
+  .sec-empty {
+    color: var(--ink-1);
+    margin: 0 0 var(--s-3);
   }
   .gap {
     margin-top: var(--s-5);

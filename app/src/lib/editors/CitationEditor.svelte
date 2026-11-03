@@ -95,14 +95,14 @@
           type: 'updateCitation',
           id: citation.id,
           citation: { ...body, source: 'id' in source ? source.id : undefined },
-        });
+        }, { silent: true });
         notices.show(undoNotice(api, 'Citation saved', r.undo));
       } else {
         r = await api.apply({
           type: 'addCitation',
           target,
           citation: { ...body, source: 'id' in source ? source.id : { title: source.title } },
-        });
+        }, { silent: true });
         notices.show(undoNotice(api, 'Citation added', r.undo));
       }
       onDone(r);

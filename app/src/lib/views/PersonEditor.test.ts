@@ -5,6 +5,10 @@ import PersonEditor from './PersonEditor.svelte';
 import { findPerson, newApi, renderWithApi } from '../editors/testing/helpers';
 import { settings } from '../state/settings.svelte';
 import type { MockApi } from '../api/mock/MockApi';
+import { observeApi } from '../state/observe';
+import { toasts } from '../state/toast.svelte';
+
+const toastTexts = () => toasts.items.map((t) => t.text);
 
 let api: MockApi;
 let id: string;
@@ -16,7 +20,8 @@ beforeEach(async () => {
 });
 
 async function open() {
-  renderWithApi(api, PersonEditor, { id });
+  toasts.clear();
+  renderWithApi(observeApi(api), PersonEditor, { id });
   await screen.findByRole('heading', { level: 2, name: 'Names' });
 }
 
@@ -27,9 +32,10 @@ describe('PersonEditor', () => {
     await open();
     await user.selectOptions(screen.getByRole('combobox', { name: 'Sex' }), 'female');
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    expect(spy).toHaveBeenCalledWith({ type: 'updatePerson', id, sex: 'female' });
-    expect(await screen.findByText('Sex saved')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
+    expect(spy).toHaveBeenCalledWith({ type: 'updatePerson', id, sex: 'female' }, undefined);
+    // The shell's toaster (observeApi) is the only one: exactly one toast, with Undo.
+    await waitFor(() => expect(toasts.items).toHaveLength(1));
+    expect(toasts.items[0].action?.label).toBe('Undo');
   });
 
   it('living_override_options_show_computed', async () => {
@@ -55,7 +61,7 @@ describe('PersonEditor', () => {
     expect(cmd.type).toBe('saveName');
     expect(cmd.person).toBe(id);
     expect(cmd.name).toMatchObject({ kind: 'married', prefix: 'Dr', surnames: ['Müller', 'Schmidt'] });
-    expect(await screen.findByText('Name saved')).toBeInTheDocument();
+    await waitFor(() => expect(toastTexts()).toEqual(['Name saved']));
   });
 
   it('discard_prompt_only_when_dirty', async () => {
@@ -139,7 +145,7 @@ describe('PersonEditor', () => {
     await user.type(within(dlg).getByRole('textbox', { name: 'Date' }), '1901');
     await user.click(within(dlg).getByRole('button', { name: 'Save event' }));
     await waitFor(() => expect(spy).toHaveBeenCalled());
-    expect(await screen.findByText('Event saved')).toBeInTheDocument();
+    await waitFor(() => expect(toastTexts()).toEqual(['Event saved']));
   });
 
   it('deleting_an_event_toasts_deleted_not_saved', async () => {
@@ -147,7 +153,6 @@ describe('PersonEditor', () => {
     await open();
     await user.click(screen.getAllByRole('button', { name: /^Edit (Birth|Death|Occupation|.+)$/ }).find((b) => b.getAttribute('aria-label')?.match(/^Edit [A-Z]/) && !/name|note|family/i.test(b.getAttribute('aria-label')!))!);
     await user.click(screen.getByRole('button', { name: 'Delete event' }));
-    expect(await screen.findByText('Event deleted')).toBeInTheDocument();
-    expect(screen.queryByText('Event saved')).toBeNull();
+    await waitFor(() => expect(toastTexts()).toEqual(['Event deleted']));
   });
 });

@@ -1,6 +1,7 @@
 import type { Api, EditResult } from '../api/api';
 import { project } from './project.svelte';
 import { toasts } from './toast.svelte';
+import { undoIfMine } from './ownUndo';
 import { undoState } from './undo.svelte';
 
 const PAST: Record<string, string> = {
@@ -56,11 +57,11 @@ export function observeApi(inner: Api): Api {
     return {
       label: 'Undo',
       run: () => {
-        if (mine !== seq) {
-          toasts.push({ text: 'That change is no longer the latest one, so it cannot be undone from here.', kind: 'warn' });
-          return;
-        }
-        void wrapped.undo!();
+        void undoIfMine(
+          wrapped as Api,
+          () => mine === seq,
+          () => toasts.push({ text: 'That change is no longer the latest one, so it cannot be undone from here.', kind: 'warn' }),
+        );
       },
     };
   }
@@ -87,10 +88,10 @@ export function observeApi(inner: Api): Api {
       if (r) toasts.push({ text: `Redone: ${r.label.replace(/^Redo: /, '')}` });
       return r;
     },
-    async attachFiles(target, paths) {
-      const r = await tracked(() => inner.attachFiles(target, paths));
+    async attachFiles(target, paths, opts) {
+      const r = await tracked(() => inner.attachFiles(target, paths, opts));
       await undoState.refresh(inner);
-      if (r.attached.length > 0) {
+      if (r.attached.length > 0 && !opts?.silent) {
         const mine = supersede();
         const n = r.attached.length;
         toasts.push({ text: `${n} ${n === 1 ? 'file' : 'files'} attached`, action: undoAction(mine) });

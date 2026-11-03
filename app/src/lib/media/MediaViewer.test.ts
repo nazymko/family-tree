@@ -73,7 +73,7 @@ describe('MediaViewer', () => {
     const spy = vi.spyOn(api, 'apply').mockResolvedValue({ label: 'Set primary media', focus: null, touched: [], undo: { canUndo: true, canRedo: false, undoLabel: null, redoLabel: null } });
     stage.focus();
     await user.keyboard('p');
-    await waitFor(() => expect(spy).toHaveBeenCalledWith({ type: 'setPrimaryMedia', person: personId, media: 'm1' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ type: 'setPrimaryMedia', person: personId, media: 'm1' }, { silent: true }));
   });
 
   it('viewer_focus_trapped_and_esc_closes', async () => {

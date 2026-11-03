@@ -180,6 +180,15 @@ export interface FamilyViewDto {
   partnerships: PartnershipDto[];
   siblings: PersonRef[];
 }
+/** One family (union) read by id: both partner slots, union type and events, children with their per-parent relationship. */
+export interface FamilyDto {
+  id: Id;
+  partners: [PersonRef | null, PersonRef | null];
+  kind: UnionKindId;
+  summary: string | null;
+  events: EventDto[];
+  children: (ChildDto & { preferred: boolean })[];
+}
 export interface PersonDetail {
   ref: PersonRef;
   sex: SexKind;

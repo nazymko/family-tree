@@ -13,6 +13,7 @@
   import { project } from '../state/project.svelte';
   import { settings } from '../state/settings.svelte';
   import { ui, type AddRelation } from '../state/ui.svelte';
+  import FamilyEditor from '../editors/FamilyEditor.svelte';
   import { flipMove, snapshotRects } from './flip';
 
   let { onQuickAdd }: { onQuickAdd?: (relation: AddRelation, opts?: { newParentSet?: boolean }) => void } = $props();
@@ -24,6 +25,8 @@
   let error = $state('');
   let root = $state<HTMLElement>();
   let selectedUnion = $state<string | null>(null);
+  /** The family editor dialog: a family id to edit, 'new' to start one with the focus person. */
+  let familyDialog = $state<string | null>(null);
   let token = 0;
 
   const homeId = $derived(project.info?.homePerson ?? settings.value.homePerson ?? null);
@@ -115,6 +118,7 @@
       items.push({ label: 'Add mother', onselect: () => add('mother'), disabled: !!primary?.parents[1], title: primary?.parents[1] ? 'A mother is already recorded' : undefined });
     }
     items.push({ label: 'Add partner', onselect: () => add('partner') });
+    items.push({ label: 'Add family…', onselect: () => (familyDialog = 'new'), title: 'Record a partnership with an existing person' });
     items.push({ label: 'Add child', onselect: () => add('child') });
     items.push({
       label: 'Add sibling',
@@ -288,6 +292,7 @@
                 <div class="missing"><span>Partner not recorded</span></div>
               {/if}
               {#if partnerSummary(union)}<p class="usum">{partnerSummary(union)}</p>{/if}
+              <div class="uacts"><Button variant="quiet" onclick={() => (familyDialog = union!.familyId)}>Edit family</Button></div>
             </div>
           {/if}
         {/if}
@@ -343,6 +348,16 @@
     {/if}
   {/if}
 </div>
+
+{#if familyDialog && view}
+  <FamilyEditor
+    family={familyDialog === 'new' ? undefined : familyDialog}
+    anchor={view.focus.id}
+    seedPartner={familyDialog === 'new' ? view.focus.id : undefined}
+    onDone={() => (familyDialog = null)}
+    onCancel={() => (familyDialog = null)}
+  />
+{/if}
 
 <style>
   .family {

@@ -74,7 +74,7 @@ describe('FamilyView', () => {
     ]);
     await screen.findByRole('heading', { level: 1, name: 'Karl Schmidt' });
     expect(within(region('Parents')).getAllByRole('button')).toHaveLength(2);
-    expect(within(region('Partners')).getAllByRole('button')).toHaveLength(1);
+    expect(within(region('Partners')).getAllByRole('button')).toHaveLength(2); // the partner card + Edit family
     expect(within(region('Children')).getAllByRole('listitem')).toHaveLength(3);
     expect(within(region('Children')).getAllByRole('button')).toHaveLength(3);
   });

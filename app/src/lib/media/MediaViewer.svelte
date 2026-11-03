@@ -68,7 +68,7 @@
     if (!m || !m.resolved || isPdf(m) || target?.kind !== 'person') return;
     error = '';
     try {
-      await api.apply({ type: 'setPrimaryMedia', person: target.id, media: m.id });
+      await api.apply({ type: 'setPrimaryMedia', person: target.id, media: m.id }, { silent: true });
       primaryIds = new Set([...primaryIds, m.id]);
       notices.show({ message: 'Primary photo set' });
       onChanged?.();

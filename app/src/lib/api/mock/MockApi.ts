@@ -15,6 +15,7 @@ import type {
   EventInput,
   ExifSuggestion,
   ExportOptions,
+  FamilyDto,
   FamilyViewDto,
   HistoryEntry,
   Id,
@@ -294,6 +295,26 @@ export class MockApi implements Api {
       parentSets,
       partnerships: this.partnerships(id),
       siblings: sibs.map((s) => this.ref(s)),
+    });
+  }
+
+  async getFamily(id: Id): Promise<FamilyDto> {
+    const f = this.db.families.get(id);
+    if (!f) throw missing('family', id);
+    const pr = (pid: Id | null): PersonRef | null => {
+      const p = pid ? this.db.persons.get(pid) : undefined;
+      return p ? this.ref(p) : null;
+    };
+    return structuredClone({
+      id: f.id,
+      partners: [pr(f.partner1), pr(f.partner2)] as [PersonRef | null, PersonRef | null],
+      kind: f.kind,
+      summary: this.unionSummary(f),
+      events: f.events,
+      children: f.children.flatMap((c) => {
+        const cp = this.db.persons.get(c.person);
+        return cp ? [{ person: this.ref(cp), rel: c.rel, birth: this.birth(cp)?.date?.display ?? '', preferred: c.preferred }] : [];
+      }),
     });
   }
 

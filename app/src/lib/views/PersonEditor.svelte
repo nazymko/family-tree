@@ -12,6 +12,7 @@
   } from '../api/types';
   import { getApi } from '../api/context';
   import { nav } from '../state/nav.svelte';
+  import { project } from '../state/project.svelte';
   import { settings } from '../state/settings.svelte';
   import { undoState } from '../state/undo.svelte';
   import IndexCard from '../ui/IndexCard.svelte';
@@ -21,7 +22,6 @@
   import TextField from '../ui/TextField.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
   import Banner from '../ui/Banner.svelte';
-  import Toast from '../ui/Toast.svelte';
   import Dialog from '../ui/Dialog.svelte';
   import NameEditor from '../editors/NameEditor.svelte';
   import NoteEditor from '../editors/NoteEditor.svelte';
@@ -50,7 +50,6 @@
   let history = $state<HistoryEntry[]>([]);
   let loadError = $state('');
   let error = $state('');
-  let toast = $state<{ message: string } | null>(null);
 
   let sex = $state('unknown');
   let sexText = $state('');
@@ -89,12 +88,13 @@
 
   $effect(() => {
     void id;
+    void project.rev; // reload after any change made elsewhere (citations, media, families)
     void load();
   });
 
-  async function afterEdit(r: EditResult, message: string) {
+  /** The shell's toaster (observeApi) reports the change and offers Undo; this only refreshes the page. */
+  async function afterEdit(r: EditResult) {
     undoState.ingest(r);
-    toast = { message };
     await load();
   }
 
@@ -102,28 +102,17 @@
     error = '';
     try {
       const r = await api.apply({ type: 'updatePerson', id, ...patch });
-      await afterEdit(r, `${field} saved`);
+      await afterEdit(r);
     } catch (e) {
       error = errMessage(e);
       await load();
     }
   }
 
-  async function undo() {
-    try {
-      const r = await api.undo();
-      undoState.ingest(r);
-      toast = null;
-      await load();
-    } catch (e) {
-      error = errMessage(e);
-    }
-  }
-
-  async function remove(label: string, cmd: Parameters<typeof api.apply>[0]) {
+  async function remove(cmd: Parameters<typeof api.apply>[0]) {
     error = '';
     try {
-      await afterEdit(await api.apply(cmd), label);
+      await afterEdit(await api.apply(cmd));
     } catch (e) {
       error = errMessage(e);
     }
@@ -181,12 +170,9 @@
     dialog = null;
   }
   /** "Event saved" or "Event deleted", from what the edit actually did. */
-  function verb(r: EditResult, noun: string): string {
-    return /^delete/i.test(r.label) ? `${noun} deleted` : `${noun} saved`;
-  }
-  async function saved(r: EditResult, message: string) {
+  async function saved(r: EditResult) {
     dialog = null;
-    await afterEdit(r, message);
+    await afterEdit(r);
   }
   /** An immediate change inside an open dialog: refresh quietly, the dialog shows the result. */
   async function quiet(r: EditResult) {
@@ -253,7 +239,7 @@
               variant="quiet"
               disabled={detail.names.length < 2}
               aria-label="Delete name {n.display}"
-              onclick={() => remove('Name deleted', { type: 'deleteName', person: id, name: n.id })}>Delete</Button
+              onclick={() => remove({ type: 'deleteName', person: id, name: n.id })}>Delete</Button
             >
           </li>
         {/each}
@@ -373,7 +359,7 @@
             <Button
               variant="quiet"
               aria-label="Delete {n.kind} note"
-              onclick={() => remove('Note deleted', { type: 'deleteNote', target: { kind: 'person', id }, note: n.id })}
+              onclick={() => remove({ type: 'deleteNote', target: { kind: 'person', id }, note: n.id })}
               >Delete</Button
             >
           </div>
@@ -414,20 +400,14 @@
   {/if}
 </div>
 
-{#if toast}
-  <div class="toast">
-    <Toast message={toast.message} actionLabel="Undo" onaction={undo} ondismiss={() => (toast = null)} />
-  </div>
-{/if}
-
 {#if detail && dialog?.kind === 'name'}
-  <NameEditor person={id} name={dialog.name} onCancel={closeDialog} onSaved={(r) => saved(r, verb(r, 'Name'))} />
+  <NameEditor person={id} name={dialog.name} onCancel={closeDialog} onSaved={(r) => saved(r)} />
 {:else if detail && dialog?.kind === 'event'}
   <EventEditor
     owner={{ kind: 'person', id }}
     event={dialog.event}
     onCancel={closeDialog}
-    onSaved={(r) => saved(r, verb(r, 'Event'))}
+    onSaved={(r) => saved(r)}
   />
 {:else if detail && dialog?.kind === 'family'}
   <FamilyEditor
@@ -436,21 +416,21 @@
     seedPartner={id}
     onCancel={closeDialog}
     onChanged={quiet}
-    onDone={(r) => saved(r, verb(r, 'Family'))}
+    onDone={(r) => saved(r)}
   />
 {:else if detail && dialog?.kind === 'note'}
   <NoteEditor
     target={{ kind: 'person', id }}
     note={dialog.note}
     onCancel={closeDialog}
-    onSaved={(r) => saved(r, verb(r, 'Note'))}
+    onSaved={(r) => saved(r)}
   />
 {:else if detail && dialog?.kind === 'quick'}
   <QuickAdd
     anchor={detail.ref}
     relation={dialog.relation}
     onCancel={closeDialog}
-    onDone={(r) => saved(r, `${dialog && dialog.kind === 'quick' ? dialog.relation[0].toUpperCase() + dialog.relation.slice(1) : 'Person'} added`)}
+    onDone={(r) => saved(r)}
   />
 {:else if detail && dialog?.kind === 'delete'}
   <Dialog open={true} title="Delete {detail.ref.name}?" onclose={closeDialog}>
@@ -578,13 +558,6 @@
   }
   summary h2 {
     display: inline;
-  }
-  .toast {
-    position: fixed;
-    inset-block-end: var(--s-6);
-    inset-inline-start: 50%;
-    transform: translateX(-50%);
-    z-index: 200;
   }
   .danger-zone {
     padding-bottom: var(--s-8);
