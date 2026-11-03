@@ -1,6 +1,8 @@
 //! Gene Tree desktop shell.
 
 pub mod commands;
+#[cfg(debug_assertions)]
+pub mod e2e_hooks;
 pub mod protocol;
 pub mod settings_file;
 pub mod state;
@@ -37,6 +39,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
+            #[cfg(debug_assertions)]
+            let dir = e2e_hooks::config_dir_override().unwrap_or(dir);
             app.manage(AppState::new(dir));
             Ok(())
         });
@@ -45,12 +49,13 @@ pub fn run() {
     #[cfg(any(debug_assertions, feature = "spike"))]
     let builder = {
         let spike = spike::handler();
-        builder.invoke_handler(move |inv| {
-            if inv.message.command() == "spike_report" {
-                spike(inv)
-            } else {
-                main(inv)
-            }
+        #[cfg(debug_assertions)]
+        let hooks = e2e_hooks::handler();
+        builder.invoke_handler(move |inv| match inv.message.command() {
+            "spike_report" => spike(inv),
+            #[cfg(debug_assertions)]
+            "e2e_hooks" => hooks(inv),
+            _ => main(inv),
         })
     };
     #[cfg(not(any(debug_assertions, feature = "spike")))]
