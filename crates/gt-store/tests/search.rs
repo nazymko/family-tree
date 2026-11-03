@@ -147,3 +147,51 @@ fn collation_orders_accents() {
 
 #[allow(dead_code)]
 fn unused(_: Event) {}
+
+#[test]
+fn unparsable_word_query_still_runs_trigram_and_phonetic() {
+    let (_t, p, ids) = project_with(&[("A", "Smith")]);
+    // Unbalanced parentheses and operators break FTS5 syntax only if they reach it unquoted;
+    // the phonetic tier must still find the person.
+    let hits = p.search("Smyth", 5).unwrap();
+    assert_eq!(hits[0].id, ids[0]);
+    for q in ["Smith )", "Smith AND", "NEAR(", "Smith ^"] {
+        assert!(p.search(q, 5).is_ok(), "{q}");
+    }
+}
+
+#[test]
+fn marriage_place_is_searchable_on_both_spouses() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut p = Project::create(&tmp.path().join("t.genetree")).unwrap();
+    let mut tree = Tree::new();
+    let a = add_person(&mut tree, person("Anna", "Alpha"));
+    let b = add_person(&mut tree, person("Boris", "Beta"));
+    let pl = place("Gretna Green");
+    let pl_id = pl.common.id;
+    tree.places.insert(pl_id, pl);
+    let fam = Family {
+        common: common(id()),
+        partner1: Some(a),
+        partner2: Some(b),
+        kind: UnionKind::Married,
+        children: vec![],
+    };
+    let fid = fam.common.id;
+    tree.families.insert(fid, fam);
+    let mut marr = event(EventKind::Marriage, a, "1850", Some(pl_id));
+    marr.participants = vec![Participant {
+        target: ParticipantRef::Family(fid),
+        role: Role::Principal,
+    }];
+    tree.events.insert(marr.common.id, marr);
+    p.save_tree(&tree, TODAY).unwrap();
+    let ids: Vec<_> = p
+        .search("gretna", 10)
+        .unwrap()
+        .into_iter()
+        .filter(|h| h.kind == HitKind::Person)
+        .map(|h| h.id)
+        .collect();
+    assert!(ids.contains(&a) && ids.contains(&b), "{ids:?}");
+}

@@ -92,11 +92,14 @@ impl Project {
             .to_str()
             .ok_or_else(|| corrupt("backup path is not valid UTF-8"))?;
         self.conn.execute("VACUUM INTO ?1", [target])?;
-        self.prune_backups(keep)?;
+        // The backup exists; failing to tidy old ones must not turn that into an error.
+        if let Err(e) = self.prune_backups(keep.max(1), &path) {
+            eprintln!("gt-store: could not prune old backups: {e}");
+        }
         Ok(path)
     }
 
-    fn prune_backups(&self, keep: usize) -> Result<(), StoreError> {
+    fn prune_backups(&self, keep: usize, newest: &std::path::Path) -> Result<(), StoreError> {
         let dir = self.dir.join("backups");
         let mut files: Vec<((String, u32), PathBuf)> = std::fs::read_dir(&dir)?
             .filter_map(Result::ok)
@@ -108,7 +111,9 @@ impl Project {
         files.sort();
         let excess = files.len().saturating_sub(keep);
         for (_, path) in files.into_iter().take(excess) {
-            std::fs::remove_file(path)?;
+            if path != newest {
+                std::fs::remove_file(path)?;
+            }
         }
         Ok(())
     }
