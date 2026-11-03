@@ -3,6 +3,7 @@
 
 pub mod date;
 pub mod ids;
+pub mod living;
 pub mod model;
 pub mod phonetic;
 pub mod raw;

@@ -107,3 +107,21 @@ proptest! {
         }
     }
 }
+
+#[test]
+#[allow(clippy::unwrap_used)]
+fn gregorian_ymd_and_minus_years() {
+    use gt_core::date::calendar::{gregorian_minus_years, gregorian_ymd};
+    assert_eq!(gregorian_ymd(2451545), (2000, 1, 1));
+    assert_eq!(gregorian_ymd(2299161), (1582, 10, 15));
+    let today = first_jdn(Gregorian, 2026, Some(11), Some(3)).unwrap();
+    assert_eq!(
+        gregorian_minus_years(today, 100),
+        first_jdn(Gregorian, 1926, Some(11), Some(3)).unwrap()
+    );
+    let leap = first_jdn(Gregorian, 2024, Some(2), Some(29)).unwrap();
+    assert_eq!(
+        gregorian_minus_years(leap, 1),
+        first_jdn(Gregorian, 2023, Some(2), Some(28)).unwrap()
+    );
+}
