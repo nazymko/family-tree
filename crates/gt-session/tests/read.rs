@@ -297,28 +297,30 @@ fn letters_offsets_point_at_first_row_of_letter() {
 }
 
 #[test]
-fn non_latin_goes_to_other_scripts() {
+fn cased_alphabets_get_their_own_letters_and_the_rest_other_scripts() {
     let (_d, s) = open_ged(&ged(&[
         indi(1, "A /Adams/", ""),
         indi(2, "B /Иванов/", ""),
         indi(3, "C /李/", ""),
         indi(4, "D /Zoe/", ""),
+        indi(5, "E /Йосипенко/", ""),
+        indi(6, "F /їжак/", ""),
     ]));
     let page = s.list_persons(&query(), 0, 50);
-    let letters: Vec<(String, u32)> = page
+    let letters: Vec<String> = page
         .letters
         .unwrap()
         .into_iter()
-        .map(|l| (l.letter, l.offset))
+        .map(|l| l.letter)
         .collect();
-    assert_eq!(
-        letters,
-        [
-            ("A".into(), 0),
-            ("Z".into(), 1),
-            ("Other scripts".into(), 2)
-        ]
-    );
+    // Й and Ї are letters of their own (not И and І with marks); lower-case input is shown upper-case.
+    for l in ["A", "Z", "И", "Й", "Ї", "Other scripts"] {
+        assert!(
+            letters.contains(&l.to_string()),
+            "{l} missing from {letters:?}"
+        );
+    }
+    assert_eq!(letters.len(), 6, "{letters:?}");
 }
 
 #[test]

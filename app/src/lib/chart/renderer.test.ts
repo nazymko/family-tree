@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeFakeContext } from '../../test-setup';
 import type { ChartEdge, ChartNode, ChartWindow } from '../api/types';
-import { draw, lodFor, type Theme } from './renderer';
+import { draw, lodFor, nameLines, type Theme } from './renderer';
 
 const theme: Theme = { paper: '#fff', rule: '#ccc', ink: '#000', ink2: '#666', ribbon: '#f00', wash: '#fee', font: 'sans-serif', serif: 'serif' };
 const view = { w: 800, h: 600, dpr: 2 };
@@ -88,5 +88,34 @@ describe('renderer', () => {
     const ctx = makeFakeContext();
     draw(ctx, { nodes: [node(0, { moreUp: true })], edges: [] }, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });
     expect(ops(ctx, 'arc')).toHaveLength(1);
+  });
+});
+
+describe('nameLines', () => {
+  // One unit per character keeps the arithmetic obvious.
+  const m = (s: string) => s.length;
+
+  it('keeps a name that fits on one line', () => {
+    expect(nameLines(m, 'Ivan Koval', 20, true)).toEqual(['Ivan Koval']);
+  });
+
+  it('wraps a long name onto two lines when there are no dates', () => {
+    expect(nameLines(m, 'Ivan Petrovych Koval', 15, false)).toEqual(['Ivan Petrovych', 'Koval']);
+  });
+
+  it('drops the patronymic before cutting when dates take the second line', () => {
+    expect(nameLines(m, 'Ivan Petrovych Koval', 15, true)).toEqual(['Ivan Koval']);
+  });
+
+  it('cuts with an ellipsis when even the short form does not fit', () => {
+    const [line] = nameLines(m, 'Ivan Petrovych Kovalenko-Shevchenko', 12, true);
+    expect(line.endsWith('…')).toBe(true);
+    expect(line.length).toBeLessThanOrEqual(12);
+  });
+
+  it('cuts each wrapped line that is still too long', () => {
+    const lines = nameLines(m, 'Oleksandrivna Kovalenko-Shevchenko', 14, false);
+    expect(lines).toHaveLength(2);
+    for (const l of lines) expect(l.length).toBeLessThanOrEqual(14);
   });
 });

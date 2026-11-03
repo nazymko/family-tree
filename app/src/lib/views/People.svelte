@@ -124,15 +124,26 @@
     query = { ...DEFAULT, sort: query.sort, desc: query.desc };
   }
 
-  const LETTERS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i));
-  const letterMap = $derived.by(() => {
+  const LATIN = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i));
+  // The rail lists the letters the tree actually uses. Latin trees keep the full A-Z (absent letters disabled) so the
+  // rail does not jump around; letters of other cased alphabets (Cyrillic, Greek...) are added as they appear, in list
+  // order. Everything else (CJK, Hebrew, digits, "?") shares the "Other" button.
+  const rail = $derived.by(() => {
+    const present = first?.letters ?? [];
     const m: Record<string, number> = {};
+    const extra: string[] = [];
     let other: number | null = null;
-    for (const l of first?.letters ?? []) {
-      if (/^[A-Z]$/.test(l.letter)) m[l.letter] = l.offset;
-      else if (other === null || l.offset < other) other = l.offset;
+    for (const l of present) {
+      const cased = [...l.letter].length === 1 && l.letter.toLowerCase() !== l.letter.toUpperCase();
+      if (!cased) {
+        if (other === null || l.offset < other) other = l.offset;
+      } else if (m[l.letter] === undefined) {
+        m[l.letter] = l.offset;
+        if (!/^[A-Z]$/.test(l.letter)) extra.push(l.letter);
+      }
     }
-    return { m, other };
+    const hasLatin = present.some((l) => /^[A-Z]$/.test(l.letter));
+    return { letters: [...(hasLatin ? LATIN : []), ...extra], m, other };
   });
 
   onMount(() =>
@@ -202,8 +213,8 @@
       </div>
       {#if canRail}
         <nav class="rail" aria-label="Jump to letter">
-          {#each LETTERS as l (l)}
-            <button type="button" disabled={letterMap.m[l] === undefined} onclick={() => jump(letterMap.m[l])}>
+          {#each rail.letters as l (l)}
+            <button type="button" disabled={rail.m[l] === undefined} onclick={() => jump(rail.m[l])}>
               {l}
             </button>
           {/each}
@@ -212,8 +223,8 @@
             class="other"
             aria-label="Other scripts"
             title="Other scripts"
-            disabled={letterMap.other === null}
-            onclick={() => letterMap.other !== null && jump(letterMap.other)}
+            disabled={rail.other === null}
+            onclick={() => rail.other !== null && jump(rail.other)}
           >
             Other
           </button>

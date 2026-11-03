@@ -73,6 +73,37 @@ function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): string 
   return text.slice(0, lo) + '…';
 }
 
+/**
+ * The name lines of a box. A name that fits stays one line. Without a second line (no dates) a long name wraps onto
+ * two lines at a word break. With dates, the middle words (a patronymic or middle name) are dropped before cutting
+ * with "…", so "Given Patronymic Surname" reads "Given Surname".
+ */
+export function nameLines(measure: (s: string) => number, name: string, maxW: number, hasSub: boolean): string[] {
+  const cut = (t: string) => {
+    if (measure(t) <= maxW) return t;
+    let lo = 0;
+    let hi = t.length;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (measure(t.slice(0, mid) + '…') <= maxW) lo = mid;
+      else hi = mid - 1;
+    }
+    return t.slice(0, lo) + '…';
+  };
+  if (measure(name) <= maxW) return [name];
+  const words = name.split(/\s+/).filter(Boolean);
+  if (!hasSub && words.length > 1) {
+    let i = 1;
+    while (i < words.length - 1 && measure(words.slice(0, i + 1).join(' ')) <= maxW) i++;
+    return [cut(words.slice(0, i).join(' ')), cut(words.slice(i).join(' '))];
+  }
+  if (words.length >= 3) {
+    const short = `${words[0]} ${words[words.length - 1]}`;
+    if (measure(short) <= maxW) return [short];
+  }
+  return [cut(name)];
+}
+
 function drawHandle(ctx: CanvasRenderingContext2D, n: ChartNode, kind: 'pedigree' | 'descendants', theme: Theme, zoom: number) {
   const h = handlePos(n, kind);
   ctx.beginPath();
@@ -200,10 +231,11 @@ export function draw(
       ctx.textAlign = 'left';
       ctx.fillStyle = isDup ? theme.ink2 : theme.ink;
       ctx.font = `600 13px ${theme.serif}`;
-      ctx.fillText(fit(ctx, n.person?.name ?? '', maxW), left, n.y + 23);
+      const sub = isDup ? 'also shown elsewhere' : (n.person?.lifespan ?? '');
+      const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '');
+      lines.forEach((line, i) => ctx.fillText(line, left, n.y + 23 + i * 18));
       ctx.fillStyle = theme.ink2;
       ctx.font = `11px ${theme.font}`;
-      const sub = isDup ? 'also shown elsewhere' : (n.person?.lifespan ?? '');
       if (sub) ctx.fillText(fit(ctx, sub, n.w - 20), n.x + 10, n.y + 43);
       if (n.ahnen !== null) {
         ctx.font = `10px ${theme.font}`;

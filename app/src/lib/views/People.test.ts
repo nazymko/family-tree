@@ -130,6 +130,31 @@ describe('People', () => {
     expect(other).toBeEnabled();
   });
 
+  it('cyrillic_tree_rail_shows_its_own_letters', async () => {
+    const raw = new MockApi(fixtureTree(80));
+    const api = observeApi(raw);
+    const real = api.listPersons.bind(api);
+    api.listPersons = async (q, offset, limit) => ({
+      ...(await real(q, offset, limit)),
+      letters: [
+        { letter: 'В', offset: 0 },
+        { letter: 'Г', offset: 3 },
+        { letter: 'К', offset: 9 },
+        { letter: '?', offset: 40 },
+      ],
+    });
+    project.open(await raw.openProject('C:/x'));
+    nav.reset();
+    nav.go({ name: 'people' });
+    render(People, { context: apiContext(api, new MockPlatform()) });
+    const bar = await screen.findByRole('navigation', { name: 'Jump to letter' });
+    const labels = within(bar)
+      .getAllByRole('button')
+      .map((b) => b.textContent?.trim());
+    expect(labels).toEqual(['В', 'Г', 'К', 'Other']);
+    expect(within(bar).getByRole('button', { name: 'К' })).toBeEnabled();
+  });
+
   it('empty_filter_result_text', async () => {
     const { user } = await setup();
     await user.type(screen.getByLabelText('Filter by name'), 'Zzzqxj');

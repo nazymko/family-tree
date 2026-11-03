@@ -228,6 +228,9 @@ pub fn fold(s: &str) -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LetterClass {
     Latin(char),
+    /// First letter of another alphabet with upper/lower case (Cyrillic, Greek, Armenian, Georgian...), kept as
+    /// written: Ukrainian Й, Ї and Ґ are letters of their own, not И, І and Г with marks.
+    Cased(char),
     OtherScripts,
     NoSurname,
 }
@@ -251,15 +254,22 @@ impl LetterClass {
         let latin = upper.is_ascii_uppercase()
             || (matches!(upper as u32, 0xC0..=0x24F | 0x1E00..=0x1EFF) && upper.is_alphabetic());
         if latin {
-            LetterClass::Latin(upper)
-        } else {
-            LetterClass::OtherScripts
+            return LetterClass::Latin(upper);
+        }
+        let mut up = first.to_uppercase();
+        match (up.next(), up.next()) {
+            (Some(u), None)
+                if first.is_alphabetic() && first.to_lowercase().ne(first.to_uppercase()) =>
+            {
+                LetterClass::Cased(u)
+            }
+            _ => LetterClass::OtherScripts,
         }
     }
 
     pub fn label(self) -> String {
         match self {
-            LetterClass::Latin(c) => c.to_string(),
+            LetterClass::Latin(c) | LetterClass::Cased(c) => c.to_string(),
             LetterClass::OtherScripts => "Other scripts".to_string(),
             LetterClass::NoSurname => "No surname".to_string(),
         }
