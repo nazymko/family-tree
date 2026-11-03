@@ -1,0 +1,28 @@
+0 HEAD
+1 SOUR ANCESTRY
+2 VERS 2024.1
+2 NAME Ancestry.com Family Trees
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Anna /Mueller/
+2 GIVN Anna
+2 SURN Mueller
+2 _MARNM Anna /Schmidt/
+1 _MTTAG Y
+1 _UID ABC123
+1 SEX F
+1 BIRT
+2 DATE ABT 1850
+2 PLAC Berlin, Brandenburg, Germany
+3 MAP
+4 LATI N52.5
+4 LONG E13.4
+0 @I2@ INDI
+1 NAME Karl /Schmidt/
+1 SEX M
+1 DEAT Y
+2 DATE 3 MAR 1901
+0 TRLR

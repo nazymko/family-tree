@@ -1,0 +1,25 @@
+0 HEAD
+1 GEDC
+2 VERS 7.0
+0 @I1@ INDI
+1 NAME Pa /Family/
+1 SEX M
+1 FAMS @F1@
+1 SNOTE @N1@
+0 @I2@ INDI
+1 NAME Ma /Family/
+1 SEX F
+1 FAMS @F1@
+0 @I3@ INDI
+1 NAME Kid /Family/
+1 FAMC @F1@
+2 PEDI ADOPTED
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@
+1 MARR
+2 DATE 1 JAN 1900
+0 @N1@ SNOTE Shared note line one
+1 CONT line two
+0 TRLR

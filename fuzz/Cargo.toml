@@ -1,0 +1,37 @@
+[package]
+name = "gt-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+gt-core = { path = "../crates/gt-core" }
+gt-gedcom = { path = "../crates/gt-gedcom" }
+
+# Not a member of the main workspace (needs nightly + a sanitizer).
+[workspace]
+
+[[bin]]
+name = "tokenize"
+path = "fuzz_targets/tokenize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import"
+path = "fuzz_targets/import.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "date"
+path = "fuzz_targets/date.rs"
+test = false
+doc = false
+bench = false

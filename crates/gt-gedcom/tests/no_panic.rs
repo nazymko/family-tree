@@ -1,0 +1,204 @@
+#![allow(clippy::unwrap_used)]
+//! Stable-toolchain stand-in for the cargo-fuzz targets: untrusted input must never panic.
+//! `PROPTEST_CASES=100000 cargo test -p gt-gedcom --test no_panic --release` runs it much longer.
+
+use gt_core::date::{DayOrder, GedcomVersion, GenDate};
+use gt_gedcom::{ExportOptions, ImportOptions, export, import, tokenize};
+use proptest::prelude::*;
+
+const SEEDS: [&[u8]; 4] = [
+    include_bytes!("../../../tests/fixtures/gedcom/basic551.ged"),
+    include_bytes!("../../../tests/fixtures/gedcom/family7.ged"),
+    include_bytes!("../../../tests/fixtures/gedcom/broken.ged"),
+    include_bytes!("../../../tests/fixtures/gedcom/ansel.ged"),
+];
+
+fn cases() -> u32 {
+    std::env::var("PROPTEST_CASES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(256)
+}
+
+fn config() -> ProptestConfig {
+    ProptestConfig {
+        cases: cases(),
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    }
+}
+
+/// import, then export in both versions, then import the export again.
+fn pipeline(bytes: &[u8]) {
+    let out = import(bytes, &ImportOptions::default());
+    let _ = out.report.to_text();
+    for version in [GedcomVersion::V551, GedcomVersion::V70] {
+        let exported = export(&out.tree, &ExportOptions { version });
+        let again = import(&exported, &ImportOptions::default());
+        let _ = again.report.to_text();
+    }
+}
+
+fn mutate(seed: &[u8], ops: &[(u8, usize, u8)]) -> Vec<u8> {
+    let mut v = seed.to_vec();
+    for &(kind, pos, byte) in ops {
+        if v.is_empty() {
+            v.push(byte);
+            continue;
+        }
+        let p = pos % v.len();
+        match kind % 5 {
+            0 => v[p] = byte,
+            1 => v.insert(p, byte),
+            2 => {
+                v.remove(p);
+            }
+            3 => v.truncate(p),
+            _ => {
+                let end = (p + 1 + byte as usize).min(v.len());
+                let chunk: Vec<u8> = v[p..end].to_vec();
+                v.splice(p..p, chunk);
+            }
+        }
+    }
+    v
+}
+
+fn lit(items: &[&str]) -> impl Strategy<Value = String> + use<> {
+    proptest::sample::select(items.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+}
+
+fn value() -> impl Strategy<Value = String> {
+    prop_oneof![
+        4 => lit(&[
+            "", "@I1@", "@F1@", "@N1@", "@VOID@", "@@", "@", "Anna /Mueller/", "//", "/",
+            "ABT 1850", "BET 1 JAN 1900 AND 3 MAR 1901", "Y", "M", "7.0", "5.5.1", "UTF-8",
+            "ANSEL", "../../etc/passwd", "C:\\x\\y.jpg", "file:///C:/a%20b.jpg",
+            "https://example.com/a.jpg", "0.5 0.5 2 -1", "N52.5",
+            "0123456789abcdef0123456789abcdef", "018f3a52-7c3e-7b4f-8a2d-1c2d3e4f5a6b",
+        ]),
+        1 => "\\PC{0,40}",
+        1 => "[ -~]{0,300}",
+    ]
+}
+
+fn tag() -> impl Strategy<Value = String> {
+    prop_oneof![
+        8 => lit(&[
+            "HEAD", "INDI", "FAM", "NAME", "GIVN", "SURN", "SEX", "BIRT", "DEAT", "MARR",
+            "DATE", "PHRASE", "PLAC", "MAP", "LATI", "LONG", "HUSB", "WIFE", "CHIL", "FAMC",
+            "FAMS", "PEDI", "NOTE", "SNOTE", "CONT", "CONC", "SOUR", "REPO", "OBJE", "FILE",
+            "FORM", "ASSO", "ROLE", "EVEN", "FACT", "TYPE", "NO", "_NO", "_GTID", "_EVID",
+            "_PREF", "_PROOF", "_REGION", "_FREL", "_MREL", "SCHMA", "TAG", "GEDC", "VERS",
+            "CHAR", "CHAN", "RESN", "TRLR", "SUBM", "SUBN", "ADOP", "BAPM", "DIV", "OCCU",
+            "TITL", "PAGE", "QUAY", "DATA", "TEXT", "EVEN", "TIME", "_MARNM",
+        ]),
+        1 => "[A-Z_]{1,8}",
+    ]
+}
+
+fn level() -> impl Strategy<Value = String> {
+    prop_oneof![
+        16 => (0u8..5).prop_map(|l| l.to_string()),
+        1 => lit(&["99999999999999999999", "-1", "x", ""]),
+    ]
+}
+
+fn line() -> impl Strategy<Value = String> {
+    (
+        level(),
+        proptest::option::of(prop_oneof![
+            3 => lit(&["@I1@", "@F1@", "@N1@", "@I2@", "@S1@"]),
+            1 => "@[A-Z0-9]{1,5}@",
+        ]),
+        tag(),
+        value(),
+    )
+        .prop_map(|(l, x, t, v)| match x {
+            Some(x) => format!("{l} {x} {t} {v}"),
+            None => format!("{l} {t} {v}"),
+        })
+}
+
+fn document() -> impl Strategy<Value = Vec<u8>> {
+    (
+        lit(&["\n", "\r\n", "\r"]),
+        any::<bool>(),
+        lit(&["5.5.1", "7.0", "5.5"]),
+        proptest::collection::vec(line(), 0..120),
+    )
+        .prop_map(|(eol, bom, vers, lines)| {
+            let mut s = String::new();
+            if bom {
+                s.push('\u{feff}');
+            }
+            s.push_str(&format!("0 HEAD{eol}1 GEDC{eol}2 VERS {vers}{eol}"));
+            for l in lines {
+                s.push_str(&l);
+                s.push_str(&eol);
+            }
+            s.push_str(&format!("0 TRLR{eol}"));
+            s.into_bytes()
+        })
+}
+
+fn date_text() -> impl Strategy<Value = String> {
+    let tok = prop_oneof![
+        6 => lit(&[
+            "ABT", "BEF", "AFT", "BET", "AND", "FROM", "TO", "CAL", "EST", "INT", "@#DJULIAN@",
+            "@#DHEBREW@", "@#DFRENCH R@", "@#DUNKNOWN@", "JAN", "FEB", "TSH", "ADR", "VEND",
+            "COMP", "B.C.", "BCE", "1850/51", "0", "00", "31", "32", "1", "12", "1900",
+            "99999", "2147483647", "-5", "99999999999999999999", "/", "(phrase)", "-", ".",
+        ]),
+        1 => "\\PC{1,6}",
+    ];
+    proptest::collection::vec(tok, 0..10).prop_map(|v| v.join(" "))
+}
+
+fn exercise_date(s: &str) {
+    for order in [DayOrder::Dmy, DayOrder::Mdy] {
+        let d = GenDate::parse(s, order);
+        let _ = d.display();
+        let _ = d.sort_key();
+        let _ = d.to_gedcom(GedcomVersion::V551);
+        let _ = d.to_gedcom(GedcomVersion::V70);
+    }
+}
+
+proptest! {
+    #![proptest_config(config())]
+
+    #[test]
+    fn tokenize_arbitrary_bytes(bytes in proptest::collection::vec(any::<u8>(), 0..2048)) {
+        let _ = tokenize(&bytes);
+    }
+
+    #[test]
+    fn pipeline_arbitrary_bytes(bytes in proptest::collection::vec(any::<u8>(), 0..2048)) {
+        pipeline(&bytes);
+    }
+
+    #[test]
+    fn pipeline_structured_documents(doc in document()) {
+        let _ = tokenize(&doc);
+        pipeline(&doc);
+    }
+
+    #[test]
+    fn pipeline_mutated_fixtures(
+        seed in 0usize..SEEDS.len(),
+        ops in proptest::collection::vec((any::<u8>(), any::<usize>(), any::<u8>()), 1..24),
+    ) {
+        pipeline(&mutate(SEEDS[seed], &ops));
+    }
+
+    #[test]
+    fn date_parse_arbitrary_text(s in "\\PC{0,60}") {
+        exercise_date(&s);
+    }
+
+    #[test]
+    fn date_parse_token_soup(s in date_text()) {
+        exercise_date(&s);
+    }
+}
