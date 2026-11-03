@@ -89,7 +89,7 @@
     display: flex;
     flex-direction: column;
     width: min(40rem, 100%);
-    max-height: 100%;
+    max-height: calc(100dvh - 2 * var(--s-6));
     background: var(--paper-1);
     color: var(--ink-0);
     border: 1px solid var(--rule);
