@@ -203,7 +203,7 @@ proptest! {
     }
 }
 
-// Deterministic edge cases: each must return (Ok or Err/report) without panicking.
+// Deterministic edge cases: each must import without panicking and yield the expected tree.
 
 fn utf16(text: &str, big_endian: bool) -> Vec<u8> {
     let mut out = if big_endian {
@@ -221,62 +221,137 @@ fn utf16(text: &str, big_endian: bool) -> Vec<u8> {
     out
 }
 
-const SMALL: &str =
-    "0 HEAD\r\n1 GEDC\r\n2 VERS 5.5.1\r\n0 @I1@ INDI\r\n1 NAME Anna /Müller 王/\r\n0 TRLR\r\n";
+const SMALL: &str = "0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Anna /Müller 王/
+0 TRLR
+";
 
-#[test]
-fn utf16le_with_bom_does_not_panic() {
-    let bytes = utf16(SMALL, false);
-    let _ = tokenize(&bytes);
-    pipeline(&bytes);
+fn only_name(out: &gt_gedcom::ImportOutcome) -> &gt_core::model::Name {
+    assert_eq!(out.tree.persons.len(), 1);
+    let p = out.tree.persons.values().next().unwrap();
+    assert_eq!(p.names.len(), 1);
+    &p.names[0]
+}
+
+fn assert_small_decodes(bytes: &[u8]) {
+    let out = import(bytes, &ImportOptions::default());
+    let n = only_name(&out);
+    assert_eq!(n.given.as_deref(), Some("Anna"));
+    assert_eq!(n.surnames, vec!["Müller 王".to_string()]);
+    pipeline(bytes);
 }
 
 #[test]
-fn utf16be_with_bom_does_not_panic() {
-    let bytes = utf16(SMALL, true);
-    let _ = tokenize(&bytes);
-    pipeline(&bytes);
+fn utf16le_with_bom_decodes_names() {
+    assert_small_decodes(&utf16(SMALL, false));
+}
+
+#[test]
+fn utf16be_with_bom_decodes_names() {
+    assert_small_decodes(&utf16(SMALL, true));
 }
 
 #[test]
 fn utf16_odd_length_does_not_panic() {
     let mut bytes = utf16(SMALL, false);
     bytes.push(0x41);
+    let out = import(&bytes, &ImportOptions::default());
+    assert_eq!(out.tree.persons.len(), 1);
     pipeline(&bytes);
 }
 
 #[test]
-fn deep_level_chain_does_not_panic() {
-    let mut s = String::from("0 HEAD\n1 GEDC\n2 VERS 5.5.1\n0 @I1@ INDI\n");
-    for level in 1..200 {
-        s.push_str(&format!("{level} NOTE n{level}\n"));
+fn deep_level_chain_is_imported() {
+    let mut s = String::from(
+        "0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Anna /Mueller/
+",
+    );
+    for level in 2..200 {
+        s.push_str(&format!(
+            "{level} _DEEP n{level}
+"
+        ));
     }
-    s.push_str("0 TRLR\n");
+    s.push_str(
+        "0 TRLR
+",
+    );
+    let out = import(s.as_bytes(), &ImportOptions::default());
+    assert_eq!(only_name(&out).given.as_deref(), Some("Anna"));
     pipeline(s.as_bytes());
+
+    // Levels 0..199 in one chain: only one level-0 record, no person, no panic.
     let mut chain = String::new();
     for level in 0..200 {
-        chain.push_str(&format!("{level} TAG x\n"));
+        chain.push_str(&format!(
+            "{level} TAG x
+"
+        ));
     }
+    let out = import(chain.as_bytes(), &ImportOptions::default());
+    assert!(out.tree.persons.is_empty());
+    let tokens = tokenize(chain.as_bytes());
+    assert_eq!(tokens.records.len(), 1);
     pipeline(chain.as_bytes());
 }
 
 #[test]
-fn hundred_thousand_lines_does_not_panic() {
-    let mut s = String::from("0 HEAD\n1 GEDC\n2 VERS 5.5.1\n");
+fn hundred_thousand_lines_import_all_persons() {
+    let mut s = String::from(
+        "0 HEAD
+1 GEDC
+2 VERS 5.5.1
+",
+    );
     for i in 0..100_000 {
-        s.push_str(&format!("0 @I{i}@ INDI\n"));
+        s.push_str(&format!(
+            "0 @I{i}@ INDI
+"
+        ));
     }
-    s.push_str("0 TRLR\n");
+    s.push_str(
+        "0 TRLR
+",
+    );
+    let out = import(s.as_bytes(), &ImportOptions::default());
+    assert_eq!(out.tree.persons.len(), 100_000);
     pipeline(s.as_bytes());
 }
 
 #[test]
-fn single_one_megabyte_line_does_not_panic() {
-    let mut s = String::from("0 HEAD\n1 GEDC\n2 VERS 5.5.1\n0 @I1@ INDI\n1 NOTE ");
+fn single_one_megabyte_line_is_kept_whole() {
+    let mut s = String::from(
+        "0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NOTE ",
+    );
     s.push_str(&"x".repeat(1024 * 1024));
-    s.push_str("\n0 TRLR\n");
+    s.push_str(
+        "
+0 TRLR
+",
+    );
+    let out = import(s.as_bytes(), &ImportOptions::default());
+    assert_eq!(out.tree.persons.len(), 1);
+    assert_eq!(out.tree.notes.len(), 1);
+    assert_eq!(
+        out.tree.notes.values().next().unwrap().text.len(),
+        1024 * 1024
+    );
     pipeline(s.as_bytes());
+
     let mut t = String::from("0 ");
     t.push_str(&"A".repeat(1024 * 1024));
+    let out = import(t.as_bytes(), &ImportOptions::default());
+    assert!(out.tree.persons.is_empty());
     pipeline(t.as_bytes());
 }
