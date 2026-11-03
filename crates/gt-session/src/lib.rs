@@ -15,6 +15,7 @@ pub mod names;
 pub mod ops;
 pub mod person_detail;
 pub mod query;
+pub mod relation;
 pub mod session;
 pub mod settings;
 pub mod undo;
