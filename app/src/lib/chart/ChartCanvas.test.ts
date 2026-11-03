@@ -212,6 +212,23 @@ describe('ChartCanvas', () => {
     expect((root.y - cam.y) * cam.zoom).toBeGreaterThanOrEqual(0);
   });
 
+  it('wide_descendants_initial_camera_has_focus_and_a_child_or_hint', async () => {
+    const s = await setup({ kind: 'descendants' });
+    const cam = lastCamera(s.ctx)!;
+    const nodes = await allNodes(s.api as MockApi, (await s.openSpy.mock.results[0].value).chartId);
+    const root = nodes.find((n) => n.id === 0) ?? nodes[0];
+    const inView = (n: ChartNode) => {
+      const x = (n.x - cam.x) * cam.zoom;
+      const y = (n.y - cam.y) * cam.zoom;
+      return x + n.w * cam.zoom > 0 && x < 800 && y + n.h * cam.zoom > 0 && y < 600;
+    };
+    expect(cam.zoom).toBeGreaterThanOrEqual(0.55 - 1e-9);
+    expect(inView(root)).toBe(true);
+    const childY = Math.min(...nodes.filter((n) => n.y > root.y).map((n) => n.y));
+    const kids = nodes.filter((n) => n.y === childY);
+    expect(kids.some(inView) || document.querySelector('.hint') !== null).toBe(true);
+  });
+
   it('frames_after_the_observer_reports_a_size_following_open', async () => {
     const s = await setup();
     const cam = lastCamera(s.ctx)!;

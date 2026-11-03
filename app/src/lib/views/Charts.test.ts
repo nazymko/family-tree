@@ -74,7 +74,7 @@ describe('chart views', () => {
     nav.focus(await richestRoot(api, fx, 'descendants'));
     const spy = vi.spyOn(api, 'chartOpen');
     mount(api, Descendants);
-    await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.objectContaining({ kind: 'descendants', generations: 4 })));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.objectContaining({ kind: 'descendants', generations: 3 })));
     const select = await screen.findByLabelText('Generations');
     await fireEvent.change(select, { target: { value: '6' } });
     await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.objectContaining({ kind: 'descendants', generations: 6 })));

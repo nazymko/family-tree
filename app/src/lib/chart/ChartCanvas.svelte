@@ -59,6 +59,9 @@
   // The camera is only framed once a real size is known and until the user moves it.
   let sized = false;
   let userMoved = false;
+  let childrenRect: Rect | null = null;
+  let childCount = 0;
+  let hint = $state('');
   let rootRect: Rect | null = null;
   let dpr = 1;
   let dirty = false;
@@ -90,6 +93,7 @@
 
   function setCam(c: Camera): void {
     userMoved = true;
+    hint = '';
     cam = c;
     cache?.need(viewRect(cam, size), cam.zoom);
     invalidate();
@@ -104,7 +108,24 @@
   function place(): void {
     if (!sized || !meta || !rootRect) return;
     const f = fit(meta.bounds, size);
-    if (f.zoom >= 0.55) cam = f;
+    hint = '';
+    if (kind === 'descendants' && childrenRect) {
+      // Couple plus its children row, never below the card LOD.
+      const u: Rect = {
+        x: Math.min(rootRect.x, childrenRect.x),
+        y: rootRect.y,
+        w: Math.max(rootRect.x + rootRect.w, childrenRect.x + childrenRect.w) - Math.min(rootRect.x, childrenRect.x),
+        h: childrenRect.y + childrenRect.h - rootRect.y,
+      };
+      const m = 24;
+      const z = Math.min(1, (size.w - 2 * m) / u.w, (size.h - 2 * m) / u.h);
+      if (z >= 0.55) cam = { zoom: z, x: u.x + u.w / 2 - size.w / z / 2, y: u.y + u.h / 2 - size.h / z / 2 };
+      else {
+        cam = { zoom: 0.55, x: rootRect.x + rootRect.w / 2 - size.w / 0.55 / 2, y: rootRect.y - 40 / 0.55 };
+        hint = `${childCount} ${childCount === 1 ? 'child' : 'children'}, wider than the window: drag or press F to fit all`;
+      }
+    } else if (f.zoom >= 0.55 && kind === 'pedigree') cam = f;
+    else if (kind === 'descendants' && f.zoom >= 0.55) cam = f;
     else if (kind === 'pedigree') cam = { zoom: 1, x: rootRect.x - 40, y: rootRect.y + rootRect.h / 2 - size.h / 2 };
     else cam = { zoom: 1, x: rootRect.x + rootRect.w / 2 - size.w / 2, y: rootRect.y - rootRect.h };
     cache?.need(viewRect(cam, size), cam.zoom);
@@ -205,6 +226,25 @@
       const x1 = Math.max(...couple.map((n) => n.x + n.w));
       rootRect = { x: x0, y: rn!.y, w: x1 - x0, h: rn!.h };
     } else rootRect = null;
+    childrenRect = null;
+    childCount = 0;
+    if (kind === 'descendants' && rn && rootRect) {
+      try {
+        const band = await api.chartWindow(m.chartId, { x: -1, y: rn.y + rn.h + 1, w: Math.max(1, m.bounds.w + 2), h: 400 }, 1);
+        if (seq !== openSeq) return;
+        const ys = band.nodes.map((n) => n.y);
+        const rowY = ys.length ? Math.min(...ys) : null;
+        const row = band.nodes.filter((n) => n.y === rowY);
+        if (row.length) {
+          const x0 = Math.min(...row.map((n) => n.x));
+          childrenRect = { x: x0, y: row[0].y, w: Math.max(...row.map((n) => n.x + n.w)) - x0, h: row[0].h };
+          childCount = row.length;
+        }
+      } catch (e) {
+        if (isStale(e) && seq === openSeq) void open();
+        return;
+      }
+    }
     userMoved = false;
     pendingAnnounce = true;
     place();
@@ -548,7 +588,7 @@
       }
     } else if (e.key === '+' || e.key === '=') zoomBy(1.25);
     else if (e.key === '-') zoomBy(0.8);
-    else if (e.key === '0') fitAll();
+    else if (e.key === '0' || e.key === 'f' || e.key === 'F') fitAll();
   }
 
   function zoomBy(f: number): void {
@@ -597,6 +637,9 @@
         <div id="{uid}-sel" role="option" aria-selected="true">{selNode.label}</div>
       {/if}
     </div>
+    {#if hint}
+      <p class="hint">{hint}</p>
+    {/if}
     <p id="{uid}-help" class="sr-only">Use arrow keys to move between people, Enter to centre, E to edit.</p>
     <div class="sr-only" role="status" aria-live="polite">{announcement}</div>
     {#if errorText}
@@ -624,6 +667,19 @@
   }
   .gens {
     margin-inline-start: auto;
+  }
+  .hint {
+    position: absolute;
+    top: var(--s-2);
+    left: var(--s-2);
+    margin: 0;
+    padding: var(--s-1) var(--s-3);
+    background: var(--paper-1, var(--paper-0));
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    font-size: 0.875rem;
+    color: var(--ink-2);
+    pointer-events: none;
   }
   .stage {
     position: relative;

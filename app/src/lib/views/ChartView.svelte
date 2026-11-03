@@ -1,3 +1,8 @@
+<script module lang="ts">
+  // The settings store has no per-chart field, so the choice lives for the session.
+  const chosenGenerations = $state<Record<string, number>>({});
+</script>
+
 <script lang="ts">
   import { getApi } from '../api/context';
   import type { ChartMeta, Id } from '../api/types';
@@ -25,8 +30,7 @@
   }
 
   let mode = $state<string>(initialMode());
-  let generations = $state(4);
-  let home = $state<Id | null>(null);
+    let home = $state<Id | null>(null);
   let meta = $state<ChartMeta | null>(null);
   let rootName = $state('');
   let settingsLoaded = $state(false);
@@ -49,6 +53,8 @@
   });
 
   const root = $derived(nav.focusPerson ?? home);
+  const genKey = $derived(`${kind}:${root ?? ''}`);
+  const generations = $derived(chosenGenerations[genKey] ?? (kind === 'descendants' ? 3 : 4));
 
   async function opened(m: ChartMeta): Promise<void> {
     meta = m;
@@ -109,7 +115,7 @@
         hidden={mode !== 'chart'}
         onRecentre={recentre}
         onOpenPerson={openPerson}
-        onGenerations={(n) => (generations = n)}
+        onGenerations={(n) => (chosenGenerations[genKey] = n)}
         onOpened={opened}
         selectId={selectedNode}
         onSelect={(id) => (selectedNode = id)}
