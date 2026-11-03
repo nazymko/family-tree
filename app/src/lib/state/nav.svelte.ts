@@ -10,6 +10,7 @@ export type Route =
   | { name: 'person'; id: Id }
   | { name: 'sources' }
   | { name: 'media' }
+  | { name: 'trace' }
   | { name: 'settings' };
 
 function same(a: Route, b: Route): boolean {

@@ -12,7 +12,7 @@
   const platform = getPlatform();
 
   let recents = $state<RecentProject[] | null>(null);
-  let mode = $state<'home' | 'import' | 'create'>('home');
+  let mode = $state<'home' | 'import' | 'create' | 'trace'>('home');
   let error = $state('');
 
   onMount(() => {
@@ -60,6 +60,7 @@
       <div class="actions">
         <Button variant="primary" onclick={() => (mode = 'import')}>Import a family tree file</Button>
         <Button onclick={() => (mode = 'create')}>Create a new tree</Button>
+        <Button onclick={() => (mode = 'trace')}>Trace a tree picture…</Button>
         <Button onclick={openFolder}>Open a tree</Button>
       </div>
 
@@ -103,7 +104,7 @@
         </div>
       </section>
     {:else}
-      <ImportWizard {mode} oncancel={() => (mode = 'home')} />
+      <ImportWizard mode={mode === 'import' ? 'import' : 'create'} thenTrace={mode === 'trace'} oncancel={() => (mode = 'home')} />
     {/if}
   </div>
 </main>
