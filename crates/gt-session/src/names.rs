@@ -36,6 +36,8 @@ pub fn surname_of(n: &Name) -> String {
 /// Text for one name. `full` adds the prefix ("Dr.") and suffix ("Jr.") used in the name editor.
 pub fn compose(n: &Name, order: NameOrder, full: bool) -> String {
     let given = n.given.as_deref().map(str::trim).unwrap_or("");
+    // East Slavic names read "given patronymic surname" (Іван Петрович Коваль).
+    let patronymic = n.patronymic.as_deref().map(str::trim).unwrap_or("");
     let surname = surname_of(n);
     let (prefix, suffix) = if full {
         (n.prefix.as_deref(), n.suffix.as_deref())
@@ -43,9 +45,15 @@ pub fn compose(n: &Name, order: NameOrder, full: bool) -> String {
         (None, None)
     };
     let text = match order {
-        NameOrder::GivenFirst => join(&[prefix, Some(given), Some(&surname), suffix]),
+        NameOrder::GivenFirst => join(&[
+            prefix,
+            Some(given),
+            Some(patronymic),
+            Some(&surname),
+            suffix,
+        ]),
         NameOrder::SurnameFirst => {
-            let rest = join(&[prefix, Some(given), suffix]);
+            let rest = join(&[prefix, Some(given), Some(patronymic), suffix]);
             match (surname.is_empty(), rest.is_empty()) {
                 (false, false) => format!("{surname}, {rest}"),
                 (false, true) => surname,
@@ -56,7 +64,7 @@ pub fn compose(n: &Name, order: NameOrder, full: bool) -> String {
     if !text.is_empty() {
         return text;
     }
-    [&n.raw, &n.nickname, &n.patronymic]
+    [&n.raw, &n.nickname]
         .into_iter()
         .flatten()
         .map(|s| s.replace('/', " "))
@@ -125,4 +133,56 @@ pub fn lifespan(tree: &Tree, p: &Person) -> String {
     let birth = pick_event(tree.events_of(id).map(|(e, _)| e), id, &BIRTH_KINDS);
     let death = pick_event(tree.events_of(id).map(|(e, _)| e), id, &DEATH_KINDS);
     lifespan_text(&side_of(birth), &side_of(death))
+}
+
+#[cfg(test)]
+mod patronymic_tests {
+    use super::*;
+    use gt_core::model::{Assertion, NameKind};
+
+    fn name(given: Option<&str>, patronymic: &str, surname: Option<&str>) -> Name {
+        Name {
+            id: uuid::Uuid::nil(),
+            kind: NameKind::Birth,
+            assertion: Assertion {
+                preferred: true,
+                proof: None,
+                confidence: None,
+            },
+            private: false,
+            prefix: None,
+            given: given.map(Into::into),
+            call: None,
+            surname_prefix: None,
+            surnames: surname.map(|s| vec![s.to_string()]).unwrap_or_default(),
+            patronymic: Some(patronymic.into()),
+            suffix: None,
+            nickname: None,
+            lang: None,
+            date: None,
+            raw: None,
+            citations: vec![],
+            notes: vec![],
+            unknown: vec![],
+        }
+    }
+
+    #[test]
+    fn patronymic_sits_between_given_name_and_surname() {
+        let n = name(Some("Ivan"), "Petrovych", Some("Koval"));
+        assert_eq!(
+            compose(&n, NameOrder::GivenFirst, false),
+            "Ivan Petrovych Koval"
+        );
+        assert_eq!(
+            compose(&n, NameOrder::SurnameFirst, false),
+            "Koval, Ivan Petrovych"
+        );
+    }
+
+    #[test]
+    fn patronymic_alone_still_names_the_person() {
+        let n = name(None, "Petrovych", None);
+        assert_eq!(compose(&n, NameOrder::GivenFirst, false), "Petrovych");
+    }
 }
