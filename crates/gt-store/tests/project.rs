@@ -4,7 +4,7 @@ use gt_store::{Project, SCHEMA_VERSION, StoreError};
 use rusqlite::Connection;
 
 fn table_names(c: &Connection) -> Vec<String> {
-    c.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+    c.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT GLOB 'search_*_[a-z]*'")
         .unwrap()
         .query_map([], |r| r.get(0))
         .unwrap()

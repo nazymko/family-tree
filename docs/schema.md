@@ -28,6 +28,7 @@ MyFamily.genetree/
 - **Enumerations** (kind, role, relationship, and so on) are stored as lowercase snake_case text such as `birth` or `civil_union`. A free-form value that is not in the app's list is stored as `other:<text>`.
 - `target_type` / `target_id` pairs are polymorphic references with no database foreign key. `target_type` is one of `person`, `name`, `family`, `child_link`, `event`, `place`, `source`, `repository`, `citation`, `media`, `note`.
 - `pos` is the position of the row inside its parent, to keep the original order.
+- `seq` is the position of a top-level record inside the whole tree. Every top-level record table (`person`, `family`, `event`, `place`, `source`, `repository`, `citation`, `media`, `note`) has `seq INTEGER NOT NULL`; saving writes the in-memory order as `seq` and loading orders by it, so order survives `VACUUM` (row ids do not).
 - Foreign keys are enforced (`PRAGMA foreign_keys = ON`) and every foreign key column has an index.
 
 ## Project metadata
@@ -85,6 +86,7 @@ Links a child to a family and says how the child is related to each partner.
 - `rel1`: relationship to partner 1 (`birth`, `adopted`, `step`, `foster`, `guardian`, `sealed`, `unknown`, `other:<text>`).
 - `rel2`: relationship to partner 2, same values.
 - `preferred`: `1` if this is the child's preferred family.
+- `assertion_preferred`: `1` if this link is the preferred assertion among competing ones (distinct from `preferred`).
 - `proof`: `proven`, `disproven`, or null.
 - `confidence`: confidence number, or null.
 
@@ -224,3 +226,20 @@ History of edits, used for undo. Rows get increasing integer ids.
 - `target_type`, `target_id`: the record that changed.
 - `op`: the operation, such as `insert`, `update` or `delete`.
 - `before_json`: the record as it was before the change, as JSON; null for an insert.
+
+## Search
+
+Both tables are rebuilt on every save and can be regenerated; they hold no data of their own.
+
+### `search_words`
+FTS5 table (`unicode61 remove_diacritics 2`): word and prefix search, accent-insensitive.
+- `kind`: `person`, `place`, `source` or `note` (not indexed).
+- `id`: the record's UUID (not indexed).
+- `label`: the display name or title.
+- `body`: all other searchable text (every name variant and the places of a person's events, a source's author and text, and so on).
+
+### `search_trigram`
+FTS5 table (`trigram`): substring search, needed for Chinese, Japanese and Korean text that has no spaces.
+- `kind`, `id`: as above.
+- `text`: the label, a newline, then the body.
+

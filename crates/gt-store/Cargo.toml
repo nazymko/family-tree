@@ -10,6 +10,10 @@ gt-core = { path = "../gt-core" }
 rusqlite.workspace = true
 thiserror.workspace = true
 serde_json.workspace = true
+serde.workspace = true
+indexmap.workspace = true
+icu_collator.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

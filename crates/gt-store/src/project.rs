@@ -16,6 +16,8 @@ pub enum StoreError {
     NotAProject(PathBuf),
     #[error("project schema {found} is newer than supported {supported}")]
     NewerSchema { found: i32, supported: i32 },
+    #[error("corrupt project data: {0}")]
+    Corrupt(String),
     #[error("a project already exists at {0}")]
     AlreadyExists(PathBuf),
 }
@@ -24,7 +26,7 @@ pub enum StoreError {
 #[derive(Debug)]
 pub struct Project {
     pub dir: PathBuf,
-    conn: Connection,
+    pub(crate) conn: Connection,
     version: i32,
 }
 
@@ -32,6 +34,7 @@ fn setup(conn: &Connection) -> Result<(), StoreError> {
     let _mode: String = conn.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
     conn.pragma_update(None, "foreign_keys", true)?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
+    crate::collation::register(conn)?;
     Ok(())
 }
 
