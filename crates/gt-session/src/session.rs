@@ -45,6 +45,8 @@ pub struct Session {
     pub(crate) living_computed: HashMap<Uuid, bool>,
     pub(crate) settings: Settings,
     pub(crate) clock: SessionClock,
+    /// Undo and redo stacks and the last citation (see `undo.rs`).
+    pub(crate) edit: crate::undo::EditState,
 }
 
 impl Session {
@@ -61,6 +63,7 @@ impl Session {
             living_computed: HashMap::new(),
             settings,
             clock,
+            edit: Default::default(),
         };
         s.rebuild();
         Ok(s)

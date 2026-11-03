@@ -10,6 +10,7 @@ gt-core = { path = "../gt-core" }
 gt-store = { path = "../gt-store" }
 gt-gedcom = { path = "../gt-gedcom" }
 serde.workspace = true
+indexmap.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
@@ -19,6 +20,7 @@ ts-rs.workspace = true
 [dev-dependencies]
 gt-gedcom = { path = "../gt-gedcom", features = ["synthetic"] }
 tempfile.workspace = true
+rusqlite.workspace = true
 
 [lints]
 workspace = true

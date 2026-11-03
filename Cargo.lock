@@ -1706,6 +1706,8 @@ dependencies = [
  "gt-core",
  "gt-gedcom",
  "gt-store",
+ "indexmap 2.14.2",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
