@@ -76,3 +76,18 @@ describe('OutlineMirror', () => {
     await waitFor(() => expect(document.activeElement).toBe(second));
   });
 });
+
+describe('OutlineMirror selection', () => {
+  it('aria_selected_follows_selected_prop_and_focus_reports_select', async () => {
+    const { api, fx } = makeApi();
+    const root = await richestRoot(api, fx, 'pedigree');
+    const meta = await api.chartOpen({ kind: 'pedigree', root, generations: 5 });
+    const onSelect = vi.fn();
+    render(Host, { props: { api, view: OutlineMirror, props: { chartId: meta.chartId, onPick: vi.fn(), onSelect, selected: null } } });
+    const items = await screen.findAllByRole('treeitem');
+    expect(items.some((i) => i.getAttribute('aria-selected') === 'true')).toBe(false);
+    items[0].focus();
+    expect(onSelect).toHaveBeenCalled();
+    expect(onSelect.mock.calls[0][0]).toEqual(expect.any(Number));
+  });
+});

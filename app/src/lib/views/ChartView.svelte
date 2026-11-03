@@ -30,6 +30,7 @@
   let meta = $state<ChartMeta | null>(null);
   let rootName = $state('');
   let settingsLoaded = $state(false);
+  let selectedNode = $state<number | null>(null);
 
   $effect(() => {
     void api
@@ -110,10 +111,18 @@
         onOpenPerson={openPerson}
         onGenerations={(n) => (generations = n)}
         onOpened={opened}
+        selectId={selectedNode}
+        onSelect={(id) => (selectedNode = id)}
       />
       {#if mode === 'outline' && meta}
         <div class="outline">
-          <OutlineMirror chartId={meta.chartId} label="{title} outline" onPick={recentre} />
+          <OutlineMirror
+            chartId={meta.chartId}
+            label="{title} outline"
+            selected={selectedNode}
+            onSelect={(id) => (selectedNode = id)}
+            onPick={recentre}
+          />
         </div>
       {/if}
     </div>

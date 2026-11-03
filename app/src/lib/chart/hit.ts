@@ -19,11 +19,16 @@ export function handlePos(n: ChartNode, kind: 'pedigree' | 'descendants'): { x: 
   return kind === 'pedigree' ? { x: n.x + n.w, y: n.y + n.h / 2 } : { x: n.x + n.w / 2, y: n.y + n.h };
 }
 
-export function hitHandle(win: ChartWindow, kind: 'pedigree' | 'descendants', wx: number, wy: number): ChartNode | null {
+/** Screen radius (px) a handle must be hittable at, converted to world units. */
+export const HANDLE_HIT_PX = 8;
+
+export function hitHandle(win: ChartWindow, kind: 'pedigree' | 'descendants', wx: number, wy: number, zoom = 1): ChartNode | null {
+  if (zoom < 0.25) return null; // dots LOD draws no handles
+  const r = Math.max(HANDLE_R, HANDLE_HIT_PX / zoom);
   for (const n of win.nodes) {
     if (!(kind === 'pedigree' ? n.moreUp : n.moreDown)) continue;
     const h = handlePos(n, kind);
-    if ((wx - h.x) ** 2 + (wy - h.y) ** 2 <= HANDLE_R * HANDLE_R) return n;
+    if ((wx - h.x) ** 2 + (wy - h.y) ** 2 <= r * r) return n;
   }
   return null;
 }

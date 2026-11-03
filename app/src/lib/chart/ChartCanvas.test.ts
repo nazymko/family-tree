@@ -165,7 +165,7 @@ describe('ChartCanvas', () => {
     const s = await setup();
     const opt = screen.getByRole('option');
     expect(s.canvas.getAttribute('aria-activedescendant')).toBe(opt.id);
-    expect(s.canvas.getAttribute('aria-label')).toMatch(/^Pedigree chart of .+\. Use arrow keys to move between people, Enter to centre, E to edit\.$/);
+    expect(s.canvas.getAttribute('aria-label')).toBe('Pedigree chart');
     expect(s.canvas).toHaveAttribute('tabindex', '0');
   });
 
@@ -198,6 +198,31 @@ describe('ChartCanvas', () => {
     expect(selectedLabel()).toBe(orig.label);
   });
 
+  it('descendants_couple_centred_with_children_row_visible', async () => {
+    const s = await setup({ kind: 'descendants' });
+    const cam = lastCamera(s.ctx)!;
+    const id = (await s.openSpy.mock.results[0].value).chartId;
+    const nodes = await allNodes(s.api as MockApi, id);
+    const root = nodes.find((n) => n.id === 0) ?? nodes[0];
+    const row = nodes.filter((n) => n.y === root.y);
+    const cx = (Math.min(...row.map((n) => n.x)) + Math.max(...row.map((n) => n.x + n.w))) / 2;
+    expect((cx - cam.x) * cam.zoom).toBeCloseTo(400, -1);
+    const childY = Math.min(...nodes.filter((n) => n.y > root.y).map((n) => n.y), Infinity);
+    if (Number.isFinite(childY)) expect((childY + 56 - cam.y) * cam.zoom).toBeLessThan(600);
+    expect((root.y - cam.y) * cam.zoom).toBeGreaterThanOrEqual(0);
+  });
+
+  it('frames_after_the_observer_reports_a_size_following_open', async () => {
+    const s = await setup();
+    const cam = lastCamera(s.ctx)!;
+    // The default 800x600 box is only known after open() resolved; the root must sit inside it.
+    const nodes = await allNodes(s.api as MockApi, (await s.openSpy.mock.results[0].value).chartId);
+    const r = nodes[0];
+    const sx = (r.x - cam.x) * cam.zoom;
+    expect(sx).toBeGreaterThanOrEqual(-1);
+    expect(sx).toBeLessThan(800);
+  });
+
   it('resize_updates_backing_store_size', async () => {
     let cb: ResizeObserverCallback = () => {};
     vi.stubGlobal(
@@ -206,7 +231,9 @@ describe('ChartCanvas', () => {
         constructor(c: ResizeObserverCallback) {
           cb = c;
         }
-        observe() {}
+        observe() {
+          queueMicrotask(() => cb([{ contentRect: { width: 800, height: 600 } } as ResizeObserverEntry], {} as ResizeObserver));
+        }
         disconnect() {}
         unobserve() {}
       },

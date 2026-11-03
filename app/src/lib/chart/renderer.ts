@@ -76,7 +76,7 @@ function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): string 
 function drawHandle(ctx: CanvasRenderingContext2D, n: ChartNode, kind: 'pedigree' | 'descendants', theme: Theme, zoom: number) {
   const h = handlePos(n, kind);
   ctx.beginPath();
-  ctx.arc(h.x, h.y, HANDLE_R, 0, Math.PI * 2);
+  ctx.arc(h.x, h.y, Math.max(HANDLE_R, 6 / zoom), 0, Math.PI * 2);
   ctx.fillStyle = theme.paper;
   ctx.fill();
   ctx.strokeStyle = theme.ribbon;

@@ -19,6 +19,8 @@
     onOpenPerson,
     onGenerations,
     onOpened,
+    onSelect,
+    selectId = null,
     hidden = false,
   }: {
     kind: 'pedigree' | 'descendants';
@@ -30,6 +32,10 @@
     onGenerations?: (n: number) => void;
     /** Called with the chart meta each time a chart is (re)opened. */
     onOpened?: (meta: ChartMeta) => void;
+    /** Called whenever the selected node changes (also from the keyboard). */
+    onSelect?: (nodeId: number) => void;
+    /** Selection driven from outside (the outline); the canvas scrolls to it. */
+    selectId?: number | null;
     /** Keeps the chart open but not drawn (the outline view is showing). */
     hidden?: boolean;
   } = $props();
@@ -50,6 +56,10 @@
   let cache: WindowCache | null = null;
   let cam: Camera = { x: 0, y: 0, zoom: 1 };
   let size = { w: 800, h: 600 };
+  // The camera is only framed once a real size is known and until the user moves it.
+  let sized = false;
+  let userMoved = false;
+  let rootRect: Rect | null = null;
   let dpr = 1;
   let dirty = false;
   let rafId = 0;
@@ -60,7 +70,6 @@
   let pendingAnnounce = false;
 
   const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const personName = $derived(selNode?.person?.name ?? '');
   const kindLabel = $derived(kind === 'pedigree' ? 'Pedigree' : 'Descendant');
 
   function invalidate(): void {
@@ -80,6 +89,7 @@
   }
 
   function setCam(c: Camera): void {
+    userMoved = true;
     cam = c;
     cache?.need(viewRect(cam, size), cam.zoom);
     invalidate();
@@ -90,14 +100,34 @@
     activeTween = tween(cam, target, TWEEN_MS, setCam, reduced());
   }
 
+  /** Initial framing: pedigree root at the left, descendants root couple centred one row below the top. */
+  function place(): void {
+    if (!sized || !meta || !rootRect) return;
+    const f = fit(meta.bounds, size);
+    if (f.zoom >= 0.55) cam = f;
+    else if (kind === 'pedigree') cam = { zoom: 1, x: rootRect.x - 40, y: rootRect.y + rootRect.h / 2 - size.h / 2 };
+    else cam = { zoom: 1, x: rootRect.x + rootRect.w / 2 - size.w / 2, y: rootRect.y - rootRect.h };
+    cache?.need(viewRect(cam, size), cam.zoom);
+    invalidate();
+  }
+
+  function applySize(): void {
+    if (!canvas) return;
+    dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(size.w * dpr);
+    canvas.height = Math.round(size.h * dpr);
+  }
+
   function resize(w: number, h: number): void {
     if (w <= 0 || h <= 0 || !canvas) return;
     size = { w, h };
-    dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-    cache?.need(viewRect(cam, size), cam.zoom);
-    invalidate();
+    sized = true;
+    applySize();
+    if (!userMoved && rootRect) place();
+    else {
+      cache?.need(viewRect(cam, size), cam.zoom);
+      invalidate();
+    }
   }
 
   function closeChart(): void {
@@ -116,6 +146,7 @@
     const seq = ++openSeq;
     closeChart();
     errorText = '';
+    rootRect = null;
     selected = null;
     selNode = null;
     let m: ChartMeta;
@@ -166,12 +197,17 @@
     const rn = first.nodes.find((n) => n.id === m.rootNode) ?? first.nodes[0] ?? null;
     selected = rn?.id ?? null;
     selNode = rn;
-    const f = fit(m.bounds, size);
-    if (f.zoom >= 0.55 || !rn) cam = f;
-    else if (kind === 'pedigree') cam = { zoom: 1, x: rn.x - 40, y: rn.y + rn.h / 2 - size.h / 2 };
-    else cam = { zoom: 1, x: rn.x + rn.w / 2 - size.w / 2, y: rn.y - 40 };
+    if (rn) onSelect?.(rn.id);
+    // Descendants: the root couple is the root card plus its partners (same row, same depth).
+    const couple = kind === 'descendants' && rn ? first.nodes.filter((n) => n.y === rn.y) : rn ? [rn] : [];
+    if (couple.length) {
+      const x0 = Math.min(...couple.map((n) => n.x));
+      const x1 = Math.max(...couple.map((n) => n.x + n.w));
+      rootRect = { x: x0, y: rn!.y, w: x1 - x0, h: rn!.h };
+    } else rootRect = null;
+    userMoved = false;
     pendingAnnounce = true;
-    c.need(viewRect(cam, size), cam.zoom);
+    place();
     onOpened?.(m);
   }
 
@@ -197,6 +233,21 @@
         if (meta) void open();
       });
     }
+  });
+
+  // Selection made in the outline.
+  $effect(() => {
+    const id = selectId;
+    untrack(() => {
+      if (id === null || id === selected || !cache?.current()) return;
+      const cur = cache.current()!;
+      const n = cur.win.nodes.find((x) => x.id === id);
+      if (n) {
+        select(n);
+        ensureVisible(n);
+      } else if (selNode) goTo(id, selNode);
+      else void revealFar(id);
+    });
   });
 
   $effect(() => {
@@ -230,7 +281,21 @@
     mq?.addEventListener?.('change', onScheme);
     const mo = new MutationObserver(onScheme);
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    // Moving the window to a screen with another pixel ratio changes the backing-store size.
+    let dprMq: MediaQueryList | null = null;
+    const onDpr = () => {
+      applySize();
+      invalidate();
+      watchDpr();
+    };
+    function watchDpr() {
+      dprMq?.removeEventListener?.('change', onDpr);
+      dprMq = typeof matchMedia === 'function' ? matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`) : null;
+      dprMq?.addEventListener?.('change', onDpr);
+    }
+    watchDpr();
     return () => {
+      dprMq?.removeEventListener?.('change', onDpr);
       ro.disconnect();
       mq?.removeEventListener?.('change', onScheme);
       mo.disconnect();
@@ -273,6 +338,7 @@
   function select(n: ChartNode): void {
     selected = n.id;
     selNode = n;
+    onSelect?.(n.id);
     announce();
     invalidate();
   }
@@ -320,11 +386,34 @@
       return;
     }
     const rect = rectFromEdge(cur.win, id, from);
-    if (!rect) return;
+    if (!rect) {
+      void revealFar(id);
+      return;
+    }
     selected = id;
+    onSelect?.(id);
     pendingAnnounce = true;
     animateTo(centerOn(cam, rect, size));
     invalidate();
+  }
+
+  /** The node is neither cached nor linked by a cached edge (selected from the outline): ask for the whole chart once. */
+  async function revealFar(id: number): Promise<void> {
+    const m = meta;
+    const seq = openSeq;
+    if (!m) return;
+    try {
+      const all = await api.chartWindow(m.chartId, { x: 0, y: 0, w: m.bounds.w, h: m.bounds.h }, 0.2);
+      const n = all.nodes.find((x) => x.id === id);
+      if (!n || seq !== openSeq) return;
+      selected = id;
+      selNode = n;
+      onSelect?.(id);
+      pendingAnnounce = true;
+      animateTo(centerOn(cam, n, size));
+    } catch {
+      // The selection stays where it was.
+    }
   }
 
   function jumpToOriginal(n: ChartNode): void {
@@ -338,6 +427,7 @@
       const rect = rectFromEdge(cur.win, n.dupOf, n);
       if (!rect) return;
       selected = n.dupOf;
+      onSelect?.(n.dupOf);
       pendingAnnounce = true;
       animateTo(centerOn(cam, rect, size));
       invalidate();
@@ -407,7 +497,7 @@
     const cur = cache?.current();
     if (!cur) return;
     const w = toWorld(e);
-    const handle = hitHandle(cur.win, kind, w.x, w.y);
+    const handle = hitHandle(cur.win, kind, w.x, w.y, cam.zoom);
     if (handle?.person) {
       onRecentre(handle.person.id);
       return;
@@ -491,7 +581,8 @@
     <canvas
       bind:this={canvas}
       role="application"
-      aria-label="{kindLabel} chart of {personName}. Use arrow keys to move between people, Enter to centre, E to edit."
+      aria-label="{kindLabel} chart"
+      aria-describedby="{uid}-help"
       aria-activedescendant={selected !== null ? `${uid}-sel` : undefined}
       tabindex="0"
       {onpointerdown}
@@ -506,7 +597,8 @@
         <div id="{uid}-sel" role="option" aria-selected="true">{selNode.label}</div>
       {/if}
     </div>
-    <div class="sr-only" role="status">{announcement}</div>
+    <p id="{uid}-help" class="sr-only">Use arrow keys to move between people, Enter to centre, E to edit.</p>
+    <div class="sr-only" role="status" aria-live="polite">{announcement}</div>
     {#if errorText}
       <p class="err" role="alert">{errorText}</p>
     {/if}

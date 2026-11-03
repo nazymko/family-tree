@@ -12,6 +12,13 @@ describe('hit', () => {
     expect(hitTest(win, n.x + n.w + 10, n.y + n.h + 10)).toBeNull();
   });
 
+  it('handle_ignored_at_dots_lod_and_grows_when_zoomed_out', () => {
+    const n = { ...win.nodes[0], moreUp: true };
+    const py = n.y + n.h / 2;
+    expect(hitHandle({ nodes: [n], edges: [] }, 'pedigree', n.x + n.w + 4, py, 0.2)).toBeNull();
+    expect(hitHandle({ nodes: [n], edges: [] }, 'pedigree', n.x + n.w + 12, py, 0.5)?.id).toBe(n.id);
+  });
+
   it('neighbor_follows_nav_links', () => {
     expect(neighbor(win, 0, 'child')).toBe(1);
     expect(neighbor(win, 1, 'parent')).toBe(0);

@@ -3,7 +3,20 @@
   import { getApi } from '../api/context';
   import type { Id, OutlineItem } from '../api/types';
 
-  let { chartId, onPick, label = 'Chart outline' }: { chartId: number; onPick: (personId: Id) => void; label?: string } = $props();
+  let {
+    chartId,
+    onPick,
+    label = 'Chart outline',
+    selected = null,
+    onSelect,
+  }: {
+    chartId: number;
+    onPick: (personId: Id) => void;
+    label?: string;
+    /** Selected chart node, shared with the canvas. Roving focus is tracked separately. */
+    selected?: number | null;
+    onSelect?: (nodeId: number) => void;
+  } = $props();
 
   const api = getApi();
   const uid = $props.id();
@@ -126,10 +139,13 @@
       role="treeitem"
       aria-level={level}
       aria-expanded={it.hasChildren ? !!open[it.nodeId] : undefined}
-      aria-selected={focusId === it.nodeId}
+      aria-selected={selected === it.nodeId}
       tabindex={focusId === it.nodeId ? 0 : -1}
       onkeydown={(e) => onkeydown(e, it)}
-      onfocus={() => (focusId = it.nodeId)}
+      onfocus={() => {
+        focusId = it.nodeId;
+        if (selected !== it.nodeId) onSelect?.(it.nodeId);
+      }}
     >
       <div class="row">
         {#if it.hasChildren}
@@ -155,6 +171,9 @@
       {#if open[it.nodeId] && kids[it.nodeId]?.length}
         <ul role="group">
           {@render branch(kids[it.nodeId], level + 1)}
+          {#if kids[it.nodeId].length >= LIMIT}
+            <li role="none" class="more">More people are not shown here. Centre the chart on this person to see them.</li>
+          {/if}
         </ul>
       {/if}
     </li>
@@ -221,6 +240,11 @@
     margin-inline-end: var(--s-3);
   }
   .life {
+    color: var(--ink-2);
+    font-size: 0.875rem;
+  }
+  .more {
+    margin: var(--s-2) 0 var(--s-2) var(--s-6);
     color: var(--ink-2);
     font-size: 0.875rem;
   }
