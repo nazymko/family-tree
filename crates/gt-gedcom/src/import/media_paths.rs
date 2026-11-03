@@ -101,34 +101,84 @@ pub(crate) enum Located {
     NotFound,
 }
 
-fn under_roots(p: &Path, roots: &[PathBuf]) -> bool {
-    let Ok(canon) = p.canonicalize() else {
-        return false;
-    };
-    roots
-        .iter()
-        .filter_map(|r| r.canonicalize().ok())
-        .any(|r| canon.starts_with(r))
+/// Resolve `.` and reject `..` without touching the filesystem.
+fn lexical_normalize(p: &Path) -> Option<PathBuf> {
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => return None,
+            other => out.push(other.as_os_str()),
+        }
+    }
+    Some(out)
 }
 
-/// Find the file. An absolute path is used only when it lies under the GEDCOM's own directory or
-/// a media root (an untrusted file must not pull in arbitrary local files); a relative path is
-/// tried against each of those; last, a unique basename match under the media roots.
+/// What the purely lexical check says about an absolute candidate.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Lexical {
+    /// Component-wise under one of the roots (normalised path).
+    Under(PathBuf),
+    /// Not under any root (this includes UNC paths that are not under a UNC root).
+    Outside,
+}
+
+/// Decide, with no filesystem access, whether an absolute candidate lies under one of `roots`.
+/// UNC and verbatim-UNC candidates qualify only when lexically under a root (so only for a UNC
+/// root): nothing here may make Windows contact a network share named by an untrusted file.
+pub(crate) fn lexical_check(cand: &Path, roots: &[PathBuf]) -> Lexical {
+    let Some(c) = lexical_normalize(cand) else {
+        return Lexical::Outside;
+    };
+    let under = roots
+        .iter()
+        .filter_map(|r| lexical_normalize(r))
+        .any(|r| !r.as_os_str().is_empty() && c.starts_with(&r));
+    if under {
+        Lexical::Under(c)
+    } else {
+        Lexical::Outside
+    }
+}
+
+fn canonical_roots(ctx: &mut Ctx, roots: &[PathBuf]) -> Vec<PathBuf> {
+    ctx.canon_roots
+        .get_or_insert_with(|| roots.iter().filter_map(|r| r.canonicalize().ok()).collect())
+        .clone()
+}
+
+/// After the lexical check: the file must exist and, with symlinks resolved, still be under a
+/// canonical root.
+fn confirm(ctx: &mut Ctx, roots: &[PathBuf], cand: &Path) -> bool {
+    let canon_roots = canonical_roots(ctx, roots);
+    cand.canonicalize()
+        .is_ok_and(|c| c.is_file() && canon_roots.iter().any(|r| c.starts_with(r)))
+}
+
+/// Find the file. No filesystem call is made on a candidate before it passes a lexical check
+/// against the media roots and the GEDCOM's own directory (an untrusted file must neither pull
+/// in arbitrary local files nor name a network share); a relative path is tried against each of
+/// those; last, a unique basename match under the media roots.
 pub(crate) fn locate(ctx: &mut Ctx, norm: &str) -> Located {
     let p = Path::new(norm);
     let mut allowed: Vec<PathBuf> = ctx.opts.media_roots.clone();
     allowed.extend(ctx.opts.gedcom_dir.clone());
-    let absolute = p.is_absolute();
-    if absolute && p.is_file() && under_roots(p, &allowed) {
-        return Located::Found(p.to_path_buf());
-    }
-    let rel_ok = !absolute
-        && p.components()
-            .all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
-    if rel_ok {
+    let absolute = p.is_absolute() || norm.starts_with("//");
+    if absolute {
+        if let Lexical::Under(c) = lexical_check(p, &allowed)
+            && confirm(ctx, &allowed, &c)
+        {
+            return Located::Found(c);
+        }
+    } else if p
+        .components()
+        .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
+    {
         for root in &allowed {
             let cand = root.join(p);
-            if cand.is_file() {
+            if matches!(lexical_check(&cand, &allowed), Lexical::Under(_))
+                && confirm(ctx, &allowed, &cand)
+            {
                 return Located::Found(cand);
             }
         }
@@ -142,7 +192,7 @@ pub(crate) fn locate(ctx: &mut Ctx, norm: &str) -> Located {
             _ => {}
         }
     }
-    if absolute && p.is_file() {
+    if absolute {
         Located::OutsideRoots
     } else {
         Located::NotFound
@@ -152,4 +202,35 @@ pub(crate) fn locate(ctx: &mut Ctx, norm: &str) -> Located {
 pub(crate) fn file_name(norm: &str) -> Option<String> {
     let b = basename(norm);
     (!b.is_empty()).then(|| b.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lexical_check_never_needs_the_filesystem() {
+        let roots = vec![PathBuf::from("/media/pics")];
+        assert_eq!(
+            lexical_check(Path::new("//attacker/share/x.jpg"), &roots),
+            Lexical::Outside
+        );
+        assert_eq!(
+            lexical_check(Path::new("/media/pics/../etc/x"), &roots),
+            Lexical::Outside
+        );
+        assert!(matches!(
+            lexical_check(Path::new("/media/pics/./a/x.jpg"), &roots),
+            Lexical::Under(_)
+        ));
+        let unc = vec![PathBuf::from("//nas/photos")];
+        assert!(matches!(
+            lexical_check(Path::new("//nas/photos/a.jpg"), &unc),
+            Lexical::Under(_)
+        ));
+        assert_eq!(
+            lexical_check(Path::new("//other/photos/a.jpg"), &unc),
+            Lexical::Outside
+        );
+    }
 }

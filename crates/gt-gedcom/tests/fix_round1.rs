@@ -177,3 +177,38 @@ fn at_escaping_is_version_specific() {
         );
     }
 }
+
+#[test]
+fn unc_and_file_host_paths_are_outside_roots_without_fs_access() {
+    let root = tempfile::tempdir().unwrap();
+    for f in [
+        "//203.0.113.1/share/x.jpg",
+        "file://203.0.113.1/share/x.jpg",
+        "//?/UNC/203.0.113.1/share/x.jpg",
+    ] {
+        let o = import(
+            obje(f).as_bytes(),
+            &opts(vec![root.path().to_path_buf()], None),
+        );
+        assert!(o.resolved_media.is_empty(), "{f}");
+        assert_eq!(
+            o.report.missing_media[0].reason,
+            MissingReason::OutsideRoots,
+            "{f}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_inside_root_pointing_outside_is_rejected() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("s.jpg"), b"x").unwrap();
+    std::os::unix::fs::symlink(outside.path(), root.path().join("link")).unwrap();
+    let o = import(
+        obje("link/s.jpg").as_bytes(),
+        &opts(vec![root.path().to_path_buf()], None),
+    );
+    assert!(o.resolved_media.is_empty());
+}

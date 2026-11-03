@@ -162,7 +162,14 @@ fn missing_media_reported() {
     let o = imp("0 HEAD\n0 @O1@ OBJE\n1 FILE C:\\Users\\x\\photo.jpg\n0 TRLR\n");
     assert_eq!(o.report.missing_media.len(), 1);
     assert_eq!(o.report.missing_media[0].path, "C:/Users/x/photo.jpg");
-    assert_eq!(o.report.missing_media[0].reason, MissingReason::NotFound);
+    assert_eq!(
+        o.report.missing_media[0].reason,
+        if cfg!(windows) {
+            MissingReason::OutsideRoots
+        } else {
+            MissingReason::NotFound
+        }
+    );
     assert_eq!(
         o.tree.media.values().next().unwrap().path,
         "C:/Users/x/photo.jpg"
