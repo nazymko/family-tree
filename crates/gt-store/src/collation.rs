@@ -13,3 +13,16 @@ pub(crate) fn register(conn: &Connection) -> Result<(), crate::StoreError> {
     conn.create_collation(COLLATION_NAME, move |a, b| collator.compare(a, b))?;
     Ok(())
 }
+
+thread_local! {
+    static COLLATOR: Option<icu_collator::CollatorBorrowed<'static>> =
+        Collator::try_new(CollatorPreferences::default(), CollatorOptions::default()).ok();
+}
+
+/// Compares two strings with the same ICU root collator the database uses.
+pub fn collate(a: &str, b: &str) -> std::cmp::Ordering {
+    COLLATOR.with(|c| match c {
+        Some(c) => c.compare(a, b),
+        None => a.cmp(b),
+    })
+}

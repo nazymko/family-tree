@@ -25,6 +25,7 @@ tempfile = "3.27"
 proptest = "1.12"
 unicode-normalization = "0.1"
 ged_io = "0.17"
+ts-rs = { version = "12.0.1", features = ["uuid-impl"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
