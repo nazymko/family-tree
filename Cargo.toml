@@ -29,6 +29,7 @@ ts-rs = { version = "12.0.1", features = ["uuid-impl"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "tiff"] }
 kamadak-exif = "0.6"
 fast_image_resize = "6.1"
+zip = { version = "9.3", default-features = false, features = ["deflate"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
