@@ -129,6 +129,7 @@ impl Session {
     /// rebuild the index.
     pub fn set_settings(&mut self, patch: SettingsPatch) -> Result<&Settings, ApiError> {
         let mut rebuild = false;
+        let mut living_rule_changed = false;
         if let Some(v) = patch.day_order {
             self.settings.day_order = v;
         }
@@ -151,7 +152,8 @@ impl Session {
             }
             self.project
                 .meta_set(settings::KEY_LIVING_MAX_AGE, &v.to_string())?;
-            rebuild |= v != self.settings.living_max_age;
+            living_rule_changed = v != self.settings.living_max_age;
+            rebuild |= living_rule_changed;
             self.settings.living_max_age = v;
         }
         if let Some(home) = patch.home_person {
@@ -168,6 +170,10 @@ impl Session {
         }
         if rebuild {
             self.rebuild();
+        }
+        if living_rule_changed {
+            // The stored flag follows the new rule for the whole tree.
+            self.project.set_living_cached_all(&self.living)?;
         }
         Ok(&self.settings)
     }
@@ -219,6 +225,10 @@ impl Session {
 
     pub fn family_view(&self, id: Uuid) -> Result<FamilyViewDto, ApiError> {
         crate::family_view::family_view(self, id)
+    }
+
+    pub fn get_family(&self, id: Uuid) -> Result<crate::dto::FamilyDto, ApiError> {
+        crate::family_view::family(self, id)
     }
 
     /// Full-text search; `limit` is clamped to 50.

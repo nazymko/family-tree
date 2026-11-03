@@ -1693,11 +1693,19 @@ dependencies = [
 name = "gt-app"
 version = "0.1.0"
 dependencies = [
+ "gt-core",
+ "gt-gedcom",
+ "gt-session",
+ "gt-store",
+ "image",
+ "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "tempfile",
+ "uuid",
 ]
 
 [[package]]

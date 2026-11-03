@@ -468,3 +468,37 @@ pub struct OutlineItem {
     pub label: String,
     pub has_children: bool,
 }
+
+/// A child in a `FamilyDto`: the child plus whether this family is the child's preferred one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FamilyChildDto {
+    #[serde(flatten)]
+    pub child: ChildDto,
+    pub preferred: bool,
+}
+
+/// One family (union) read by id (`Api.getFamily`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FamilyDto {
+    pub id: Uuid,
+    pub partners: (Option<PersonRef>, Option<PersonRef>),
+    pub kind: UnionKindId,
+    pub summary: Option<String>,
+    pub events: Vec<EventDto>,
+    pub children: Vec<FamilyChildDto>,
+}
+
+/// One entry of the recent-projects list (`Api.recentProjects`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentProject {
+    pub dir: String,
+    pub name: String,
+    /// Unix milliseconds of the last open.
+    #[ts(type = "number")]
+    pub opened_at: i64,
+    #[serde(default)]
+    pub missing: bool,
+}
