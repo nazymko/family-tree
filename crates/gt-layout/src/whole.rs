@@ -1088,7 +1088,7 @@ mod tests {
     #[test]
     fn row_solver_keeps_order_and_gaps() {
         let x = solve_row(&[10.0, 10.0, 10.0], &[5.0, 5.0], &[0.0, 0.0, 0.0]);
-        assert_eq!(x, vec![-10.0, 5.0, 20.0]);
+        assert_eq!(x, vec![-15.0, 0.0, 15.0]);
         let x = solve_row(&[10.0, 10.0], &[5.0], &[100.0, 0.0]);
         assert!(x[1] >= x[0] + 15.0 - 1e-9);
     }
