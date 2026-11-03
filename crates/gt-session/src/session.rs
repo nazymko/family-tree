@@ -47,6 +47,8 @@ pub struct Session {
     pub(crate) clock: SessionClock,
     pub(crate) place_index: crate::lookup::PlaceIndex,
     pub(crate) charts: crate::chart::Charts,
+    /// Undo and redo stacks and the last citation (see `undo.rs`).
+    pub(crate) edit: crate::undo::EditState,
 }
 
 impl Session {
@@ -65,6 +67,7 @@ impl Session {
             clock,
             place_index: Default::default(),
             charts: crate::chart::Charts::default(),
+            edit: Default::default(),
         };
         s.rebuild();
         Ok(s)
