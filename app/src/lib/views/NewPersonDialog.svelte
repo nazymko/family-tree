@@ -1,7 +1,3 @@
-<script lang="ts" module>
-  export type Relation = 'father' | 'mother' | 'partner' | 'child' | 'sibling';
-</script>
-
 <script lang="ts">
   import Dialog from '../ui/Dialog.svelte';
   import Button from '../ui/Button.svelte';
@@ -9,6 +5,7 @@
   import Select from '../ui/Select.svelte';
   import { getApi } from '../api/context';
   import type { Id, SexKind } from '../api/types';
+  import type { AddRelation as Relation } from '../state/ui.svelte';
 
   let {
     open,

@@ -55,7 +55,8 @@ describe('Shell', () => {
     await user.keyboard('{Control>}k{/Control}');
     const box = screen.getByRole('combobox', { name: 'Search the tree' });
     await user.type(box, 'Schmidt');
-    const options = await screen.findAllByRole('option');
+    const results = await screen.findByRole('listbox', { name: 'Search results' });
+    const options = await within(results).findAllByRole('option');
     expect(options.length).toBeGreaterThan(0);
     await user.keyboard('{ArrowDown}{Enter}');
     expect(nav.route.name).toBe('family');

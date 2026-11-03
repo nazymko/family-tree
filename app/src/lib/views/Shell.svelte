@@ -9,8 +9,9 @@
   import SearchPalette from '../ui/SearchPalette.svelte';
   import ToastHost from '../ui/ToastHost.svelte';
   import ShortcutSheet from './ShortcutSheet.svelte';
-  import NewPersonDialog, { type Relation } from './NewPersonDialog.svelte';
+  import NewPersonDialog from './NewPersonDialog.svelte';
   import RoutePlaceholder from './RoutePlaceholder.svelte';
+  import People from './People.svelte';
   import type { IconName } from '../ui/icons';
   import { getApi } from '../api/context';
   import type { Id, SearchHitDto } from '../api/types';
@@ -18,6 +19,7 @@
   import { project } from '../state/project.svelte';
   import { settings } from '../state/settings.svelte';
   import { toasts } from '../state/toast.svelte';
+  import { ui } from '../state/ui.svelte';
   import { undoState } from '../state/undo.svelte';
   import { currentPlatform, formatKeys, registerShortcuts, type Shortcut } from '../state/shortcuts';
 
@@ -36,7 +38,6 @@
   let searchOpen = $state(false);
   let sheetOpen = $state(false);
   let exportOpen = $state(false);
-  let add = $state<{ open: boolean; relation?: Relation; anchor?: Id }>({ open: false });
 
   const homeId = $derived(project.info?.homePerson ?? settings.value.homePerson ?? null);
   const modLabel = $derived(formatKeys('Mod+K', currentPlatform()));
@@ -62,7 +63,7 @@
     { id: 'undo', keys: 'Mod+Z', label: 'Undo', run: () => void undo() },
     { id: 'redo', keys: 'Mod+Shift+Z', label: 'Redo', run: () => void redo() },
     { id: 'redo-y', keys: 'Mod+Y', label: 'Redo', run: () => void redo() },
-    { id: 'new', keys: 'Mod+N', label: 'New person', run: () => (add = { open: true }) },
+    { id: 'new', keys: 'Mod+N', label: 'New person', run: () => ui.requestAdd() },
     {
       id: 'edit',
       keys: 'Mod+E',
@@ -107,7 +108,7 @@
   }
 
   function added(id: Id | null) {
-    add = { open: false };
+    ui.closeAdd();
     if (id) {
       nav.focus(id);
       nav.go({ name: 'family' });
@@ -205,7 +206,7 @@
         {#if nav.route.name === 'family'}
           <RoutePlaceholder title="Family" />
         {:else if nav.route.name === 'people'}
-          <RoutePlaceholder title="People" />
+          <People />
         {:else if nav.route.name === 'pedigree'}
           <RoutePlaceholder title="Pedigree" note="The pedigree chart is wired in when its task merges." />
         {:else if nav.route.name === 'descendants'}
@@ -227,10 +228,10 @@
 <SearchPalette open={searchOpen} onclose={() => (searchOpen = false)} onpick={picked} />
 <ShortcutSheet open={sheetOpen} onclose={() => (sheetOpen = false)} {shortcuts} />
 <NewPersonDialog
-  open={add.open}
-  relation={add.relation}
-  anchor={add.anchor}
-  onclose={() => (add = { open: false })}
+  open={ui.add.open}
+  relation={ui.add.relation}
+  anchor={ui.add.anchor}
+  onclose={() => ui.closeAdd()}
   ondone={added}
 />
 <Dialog open={exportOpen} title="Export GEDCOM" onclose={() => (exportOpen = false)}>
