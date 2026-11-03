@@ -16,8 +16,8 @@ pub use encoding::{DetectedEncoding, decode_payload, detect, to_line_bytes};
 pub use export::{ExportOptions, export};
 pub use gt_core::date::GedcomVersion;
 pub use import::{
-    ImportOptions, ImportOutcome, ImportReport, MissingMedia, MissingReason, Repair, import,
-    is_lexically_under,
+    ImportOptions, ImportOutcome, ImportReport, MediaLocator, MissingMedia, MissingReason, Repair,
+    import, is_lexically_under,
 };
 pub use node::{GedNode, TokenIssue, Tokenized};
 pub use tokenizer::tokenize;
