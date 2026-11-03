@@ -74,6 +74,22 @@ fn close_top(stack: &mut Vec<Pending>, records: &mut Vec<Pending>) {
     }
 }
 
+/// GEDCOM 7.0: only a `@@` at the start of a line value stands for `@` (also after a CONT).
+fn unescape_leading(v: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(v.len());
+    let mut line_start = true;
+    let mut i = 0;
+    while let Some(&b) = v.get(i) {
+        out.push(b);
+        if line_start && b == b'@' && v.get(i + 1) == Some(&b'@') {
+            i += 1;
+        }
+        line_start = b == b'\n';
+        i += 1;
+    }
+    out
+}
+
 fn unescape_at(v: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(v.len());
     let mut i = 0;
@@ -95,15 +111,26 @@ fn raw_is_pointer(v: &[u8]) -> bool {
         && v.get(1..v.len() - 1).is_some_and(|m| !m.contains(&b'@'))
 }
 
-fn finish(p: Pending, enc: &DetectedEncoding) -> GedNode {
+fn finish(p: Pending, enc: &DetectedEncoding, v70: bool) -> GedNode {
     GedNode {
         line: p.line,
         level: p.level,
         xref: p.xref,
         tag: p.tag,
         ptr: p.value.as_deref().is_some_and(raw_is_pointer),
-        value: p.value.map(|v| decode_payload(&unescape_at(&v), enc)),
-        children: p.children.into_iter().map(|c| finish(c, enc)).collect(),
+        value: p.value.map(|v| {
+            let un = if v70 {
+                unescape_leading(&v)
+            } else {
+                unescape_at(&v)
+            };
+            decode_payload(&un, enc)
+        }),
+        children: p
+            .children
+            .into_iter()
+            .map(|c| finish(c, enc, v70))
+            .collect(),
     }
 }
 
@@ -168,11 +195,27 @@ pub fn tokenize(bytes: &[u8]) -> Tokenized {
     while !stack.is_empty() {
         close_top(&mut stack, &mut records);
     }
+    // `@` escaping differs: 7.0 doubles only a leading `@`, 5.5.1 every `@`.
+    let v70 = records
+        .iter()
+        .find(|r| r.tag.eq_ignore_ascii_case("HEAD"))
+        .and_then(|h| {
+            h.children
+                .iter()
+                .find(|c| c.tag.eq_ignore_ascii_case("GEDC"))
+        })
+        .and_then(|g| {
+            g.children
+                .iter()
+                .find(|c| c.tag.eq_ignore_ascii_case("VERS"))
+        })
+        .and_then(|v| v.value.as_deref())
+        .is_some_and(|v| v.trim_ascii_start().first() == Some(&b'7'));
     Tokenized {
         encoding,
         records: records
             .into_iter()
-            .map(|r| finish(r, &payload_enc))
+            .map(|r| finish(r, &payload_enc, v70))
             .collect(),
         issues,
     }

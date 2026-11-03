@@ -153,3 +153,27 @@ fn ambiguous_basename_is_reported_with_candidates() {
     assert_eq!(m.reason, MissingReason::Ambiguous);
     assert_eq!(m.candidates.len(), 2);
 }
+
+#[test]
+fn at_escaping_is_version_specific() {
+    let src = "0 HEAD\n0 @I1@ INDI\n1 OCCU @@N1@\n1 EMAIL a@@b.com\n1 NOTE @@N1@\n2 CONT @@x@@y\n0 TRLR\n";
+    let a = imp(src);
+    assert!(a.tree.notes.values().any(|n| n.text == "@N1@\n@x@y"));
+    for v in BOTH {
+        let out = export(&a.tree, &ExportOptions { version: v });
+        let text = String::from_utf8(out.clone()).unwrap();
+        if v == GedcomVersion::V70 {
+            assert!(text.contains("a@b.com"), "{text}");
+            assert!(!text.contains("a@@b.com"), "{text}");
+            assert!(text.contains("@@N1@") && text.contains("@@x@y"), "{text}");
+        } else {
+            assert!(text.contains("a@@b.com"), "{text}");
+        }
+        let b = import(&out, &opts(vec![], None));
+        assert_eq!(
+            a.tree.normalized_for_compare(),
+            b.tree.normalized_for_compare(),
+            "{v:?}"
+        );
+    }
+}

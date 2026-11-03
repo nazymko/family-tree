@@ -15,9 +15,23 @@ pub fn write(nodes: &[GedNode], v70: bool) -> Vec<u8> {
 }
 
 /// Pointer values are written raw; every `@` in text is doubled, whatever the text looks like.
-fn escape(v: &str, ptr: bool) -> String {
+///
+/// 5.5.1 doubles every `@`; 7.0 doubles only a `@` that starts a line value (first line or a
+/// CONT line), so `a@b.com` stays as is.
+fn escape(v: &str, ptr: bool, v70: bool) -> String {
     if ptr {
         v.to_string()
+    } else if v70 {
+        v.split('\n')
+            .map(|l| {
+                if l.starts_with('@') {
+                    format!("@{l}")
+                } else {
+                    l.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     } else {
         v.replace('@', "@@")
     }
@@ -90,7 +104,7 @@ fn write_node(out: &mut String, n: &GedNode, level: usize, v70: bool, eol: &str)
     let value = n
         .value
         .as_deref()
-        .map(|v| escape(v, n.ptr))
+        .map(|v| escape(v, n.ptr, v70))
         .unwrap_or_default();
     let mut lines = value.split('\n');
     let first = lines.next().unwrap_or("");

@@ -36,6 +36,8 @@ fn xrefs<'a, T: 'a>(
         .collect()
 }
 
+/// Raw nodes carry no pointer flag and their tags are unknown, so pointer vs text is decided by
+/// the value's shape (`@X@` is a pointer); that is the best that can be done.
 fn raw_to_ged(r: &RawNode) -> GedNode {
     GedNode {
         line: 0,
