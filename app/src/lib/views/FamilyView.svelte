@@ -492,6 +492,9 @@
     font-weight: 600;
   }
   .osum,
+  .uacts {
+    margin-inline-start: calc(-1 * var(--s-3));
+  }
   .usum {
     color: var(--ink-1);
     font-size: var(--t-sm);
