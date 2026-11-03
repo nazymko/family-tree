@@ -1380,6 +1380,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ged_io"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4c52d91a78332ce0dfb60e2f53227ecdb58f99afe624c8e69506dc225a39caf"
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1544,9 +1550,13 @@ name = "gt-gedcom"
 version = "0.1.0"
 dependencies = [
  "encoding_rs",
+ "ged_io",
  "gt-core",
+ "gt-gedcom",
  "proptest",
+ "tempfile",
  "unicode-normalization",
+ "uuid",
 ]
 
 [[package]]
