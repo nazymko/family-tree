@@ -80,6 +80,7 @@
     position: fixed;
     inset: 0;
     z-index: 100;
+    grid-template-rows: minmax(0, 1fr);
     display: grid;
     place-items: center;
     padding: var(--s-6);

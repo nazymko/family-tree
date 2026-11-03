@@ -287,6 +287,7 @@ export interface ExportOptions {
 export interface PrivacyPreview {
   options: ExportOptions;
   defaultVersion: '5.5.1' | '7.0';
+  /** People written under their own name. Does NOT include placeholders: people in the file = exportedPersons + placeholderPersons. */
   exportedPersons: number;
   placeholderPersons: number;
   hiddenPersons: number;
