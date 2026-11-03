@@ -32,3 +32,7 @@ pub use settings::SettingsPatch;
 
 pub mod lookup;
 pub use lookup::parse_date_preview;
+
+pub mod media;
+pub mod thumbs;
+pub use media::{AttachFailure, AttachResult, ExifSuggestion, MediaSize};

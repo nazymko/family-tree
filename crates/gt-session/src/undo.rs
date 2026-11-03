@@ -38,7 +38,7 @@ fn core_order(o: WireDayOrder) -> DayOrder {
 }
 
 impl Session {
-    fn day_order(&self) -> DayOrder {
+    pub(crate) fn day_order(&self) -> DayOrder {
         core_order(self.settings.day_order)
     }
 
@@ -211,5 +211,18 @@ impl Session {
             families: gone(RecordKind::Family),
             events: gone(RecordKind::Event),
         })
+    }
+}
+
+impl Session {
+    /// Stores and applies an already planned change set as the newest undo step (clears redo).
+    pub(crate) fn commit_group(&mut self, cs: ChangeSet) -> Result<(), ApiError> {
+        self.commit(&cs)?;
+        self.edit.undo.push(cs);
+        if self.edit.undo.len() > MAX_UNDO {
+            self.edit.undo.remove(0);
+        }
+        self.edit.redo.clear();
+        Ok(())
     }
 }

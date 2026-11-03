@@ -4,7 +4,11 @@ use super::cite::with_owner;
 use super::{Planner, invalid, parse_date, text};
 use crate::command::OwnerRef;
 use crate::error::ApiError;
+use gt_core::date::DayOrder;
 use gt_core::model::*;
+use gt_core::tree::Tree;
+use gt_store::ChangeSet;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 pub(super) fn attach_media(
@@ -97,4 +101,52 @@ pub(super) fn update_media(
     m.common.changed = Some(p.now);
     p.put(m);
     Ok(None)
+}
+
+/// Links new media records to `target` in one change set. Content already stored as a media
+/// record (same sha256) is reused rather than duplicated. Per input, the linked media id, or
+/// `None` when that content is already attached to the target.
+pub(crate) fn plan_attach(
+    tree: &Tree,
+    target: OwnerRef,
+    staged: Vec<Media>,
+    now: i64,
+    order: DayOrder,
+) -> Result<(ChangeSet, Vec<Option<Uuid>>), ApiError> {
+    let mut p = Planner::new(tree, now, order);
+    let mut by_sha: HashMap<String, Uuid> = tree
+        .media
+        .values()
+        .filter_map(|m| Some((m.sha256.clone()?, m.common.id)))
+        .collect();
+    let mut fresh: Vec<Media> = Vec::new();
+    let (outcomes, _) = with_owner(&mut p, target, |f| {
+        let links = f
+            .media
+            .as_mut()
+            .ok_or_else(|| invalid("Media cannot be attached to this record."))?;
+        let mut out = Vec::with_capacity(staged.len());
+        for m in &staged {
+            let sha = m.sha256.clone().unwrap_or_default();
+            let id = *by_sha.entry(sha).or_insert_with(|| {
+                fresh.push(m.clone());
+                m.common.id
+            });
+            if links.iter().any(|l| l.media == id) {
+                out.push(None);
+            } else {
+                links.push(MediaLink {
+                    media: id,
+                    region: None,
+                    primary: links.is_empty(),
+                });
+                out.push(Some(id));
+            }
+        }
+        Ok(out)
+    })?;
+    for m in fresh {
+        p.put(m);
+    }
+    Ok((p.finish("Attach media".into()), outcomes))
 }

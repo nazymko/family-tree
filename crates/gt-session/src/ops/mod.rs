@@ -6,6 +6,7 @@ mod delete;
 mod event;
 mod family;
 mod media;
+pub(crate) use media::plan_attach;
 mod person;
 pub mod places;
 mod quick_add;
