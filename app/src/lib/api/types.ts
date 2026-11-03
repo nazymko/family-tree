@@ -230,6 +230,12 @@ export interface ImportRequest {
   mediaRoots: string[];
   dayOrder: DayOrder;
 }
+export interface MissingMedia {
+  path: string;
+  reason: 'notFound' | 'outsideRoots' | 'ambiguous';
+  /** Files that could be the one meant (reason 'ambiguous'). */
+  candidates: string[];
+}
 export interface ImportReportDto {
   project: ProjectInfo;
   encoding: string;
@@ -239,7 +245,9 @@ export interface ImportReportDto {
   repairs: { kind: string; line: number | null; detail: string }[];
   unmappedTags: Record<string, number>;
   unparsedDates: { line: number; text: string }[];
-  missingMedia: string[];
+  missingMedia: MissingMedia[];
+  /** Photos that are web links; they are kept as links, not copied. */
+  mediaUrls: string[];
   truncated: boolean;
   text: string;
 }

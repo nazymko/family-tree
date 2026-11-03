@@ -52,7 +52,8 @@ export interface Api {
   getPerson(id: Id): Promise<PersonDetail>;
   getFamilyView(id: Id): Promise<FamilyViewDto>;
   search(query: string, limit: number): Promise<SearchHitDto[]>;
-  apply(cmd: EditCommand): Promise<EditResult>;
+  /** `silent`: the caller shows its own confirmation, so the shell must not raise a toast. */
+  apply(cmd: EditCommand, opts?: { silent?: boolean }): Promise<EditResult>;
   undo(): Promise<EditResult | null>;
   redo(): Promise<EditResult | null>;
   undoState(): Promise<UndoState>;

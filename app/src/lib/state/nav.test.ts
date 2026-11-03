@@ -57,4 +57,16 @@ describe('nav', () => {
     expect(nav.focusPerson).toBe('z');
     expect(nav.route).toEqual({ name: 'family' });
   });
+
+  it('visit_pushes_history_and_back_restores_person', () => {
+    nav.go({ name: 'family' });
+    nav.focus('a');
+    nav.visit('b');
+    expect(nav.focusPerson).toBe('b');
+    nav.visit('b');
+    nav.back();
+    expect(nav.focusPerson).toBe('a');
+    nav.forward();
+    expect(nav.focusPerson).toBe('b');
+  });
 });

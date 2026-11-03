@@ -24,6 +24,8 @@ class NavState {
   /** Visited routes, oldest first; `index` points at the current one. */
   history = $state<Route[]>([{ name: 'welcome' }]);
   index = $state(0);
+  /** The focus person at each history entry, so Back and Forward restore who was in view. */
+  foci = $state<(Id | null)[]>([null]);
 
   canBack = $derived(this.index > 0);
   canForward = $derived(this.index < this.history.length - 1);
@@ -34,6 +36,7 @@ class NavState {
       return;
     }
     this.history = [...this.history.slice(0, this.index + 1), r];
+    this.foci = [...this.foci.slice(0, this.index + 1), this.focusPerson];
     this.index = this.history.length - 1;
     this.#enter(r);
   }
@@ -41,17 +44,29 @@ class NavState {
   back(): void {
     if (this.index === 0) return;
     this.index -= 1;
+    this.focusPerson = this.foci[this.index] ?? this.focusPerson;
     this.#enter(this.history[this.index]);
   }
 
   forward(): void {
     if (this.index >= this.history.length - 1) return;
     this.index += 1;
+    this.focusPerson = this.foci[this.index] ?? this.focusPerson;
     this.#enter(this.history[this.index]);
   }
 
   /** Re-centre on a person without changing the route (family view clicks). */
   focus(id: Id | null): void {
+    this.focusPerson = id;
+    this.foci[this.index] = id;
+  }
+
+  /** Re-centre on another person AND add a history entry, so Back returns to the previous person. */
+  visit(id: Id): void {
+    if (id === this.focusPerson) return;
+    this.history = [...this.history.slice(0, this.index + 1), this.route];
+    this.foci = [...this.foci.slice(0, this.index + 1), id];
+    this.index = this.history.length - 1;
     this.focusPerson = id;
   }
 
@@ -59,12 +74,14 @@ class NavState {
     this.route = { name: 'welcome' };
     this.focusPerson = null;
     this.history = [{ name: 'welcome' }];
+    this.foci = [null];
     this.index = 0;
   }
 
   #enter(r: Route): void {
     this.route = r;
     if (r.name === 'person') this.focusPerson = r.id;
+    this.foci[this.index] = this.focusPerson;
   }
 }
 

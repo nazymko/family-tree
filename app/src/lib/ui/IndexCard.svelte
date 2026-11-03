@@ -7,10 +7,11 @@
     ribbon = false,
     ribbonTitle = 'Home person',
     as = 'div',
-  }: { children: Snippet; ribbon?: boolean; ribbonTitle?: string; as?: 'div' | 'section' | 'article' } = $props();
+    flipKey,
+  }: { children: Snippet; ribbon?: boolean; ribbonTitle?: string; as?: 'div' | 'section' | 'article'; flipKey?: string } = $props();
 </script>
 
-<svelte:element this={as} class="index-card">
+<svelte:element this={as} class="index-card" data-flip-key={flipKey}>
   {#if ribbon}
     <span class="tab"><Ribbon title={ribbonTitle} size="1.75rem" /></span>
   {/if}

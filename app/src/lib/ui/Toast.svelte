@@ -8,11 +8,18 @@
     actionLabel,
     onaction,
     ondismiss,
-  }: { message: string; actionLabel?: string; onaction?: () => void; ondismiss?: () => void } = $props();
+    kind = 'ok',
+  }: {
+    message: string;
+    actionLabel?: string;
+    onaction?: () => void;
+    ondismiss?: () => void;
+    kind?: 'ok' | 'warn' | 'error';
+  } = $props();
 </script>
 
-<div class="toast" role="status">
-  <Icon name="check-circle" />
+<div class="toast {kind}" role="status">
+  <Icon name={kind === 'ok' ? 'check-circle' : kind === 'warn' ? 'warning' : 'error'} />
   <span class="msg">{message}</span>
   {#if actionLabel}
     <Button variant="quiet" onclick={() => onaction?.()}>{actionLabel}</Button>
@@ -37,6 +44,11 @@
   .toast :global(.icon) {
     color: var(--verdigris);
     filter: brightness(1.5);
+  }
+  .toast.warn :global(.icon),
+  .toast.error :global(.icon) {
+    color: var(--foxing-wash);
+    filter: none;
   }
   .msg {
     flex: 1;
