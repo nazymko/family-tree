@@ -202,3 +202,81 @@ proptest! {
         exercise_date(&s);
     }
 }
+
+// Deterministic edge cases: each must return (Ok or Err/report) without panicking.
+
+fn utf16(text: &str, big_endian: bool) -> Vec<u8> {
+    let mut out = if big_endian {
+        vec![0xFE, 0xFF]
+    } else {
+        vec![0xFF, 0xFE]
+    };
+    for u in text.encode_utf16() {
+        out.extend_from_slice(&if big_endian {
+            u.to_be_bytes()
+        } else {
+            u.to_le_bytes()
+        });
+    }
+    out
+}
+
+const SMALL: &str =
+    "0 HEAD\r\n1 GEDC\r\n2 VERS 5.5.1\r\n0 @I1@ INDI\r\n1 NAME Anna /Müller 王/\r\n0 TRLR\r\n";
+
+#[test]
+fn utf16le_with_bom_does_not_panic() {
+    let bytes = utf16(SMALL, false);
+    let _ = tokenize(&bytes);
+    pipeline(&bytes);
+}
+
+#[test]
+fn utf16be_with_bom_does_not_panic() {
+    let bytes = utf16(SMALL, true);
+    let _ = tokenize(&bytes);
+    pipeline(&bytes);
+}
+
+#[test]
+fn utf16_odd_length_does_not_panic() {
+    let mut bytes = utf16(SMALL, false);
+    bytes.push(0x41);
+    pipeline(&bytes);
+}
+
+#[test]
+fn deep_level_chain_does_not_panic() {
+    let mut s = String::from("0 HEAD\n1 GEDC\n2 VERS 5.5.1\n0 @I1@ INDI\n");
+    for level in 1..200 {
+        s.push_str(&format!("{level} NOTE n{level}\n"));
+    }
+    s.push_str("0 TRLR\n");
+    pipeline(s.as_bytes());
+    let mut chain = String::new();
+    for level in 0..200 {
+        chain.push_str(&format!("{level} TAG x\n"));
+    }
+    pipeline(chain.as_bytes());
+}
+
+#[test]
+fn hundred_thousand_lines_does_not_panic() {
+    let mut s = String::from("0 HEAD\n1 GEDC\n2 VERS 5.5.1\n");
+    for i in 0..100_000 {
+        s.push_str(&format!("0 @I{i}@ INDI\n"));
+    }
+    s.push_str("0 TRLR\n");
+    pipeline(s.as_bytes());
+}
+
+#[test]
+fn single_one_megabyte_line_does_not_panic() {
+    let mut s = String::from("0 HEAD\n1 GEDC\n2 VERS 5.5.1\n0 @I1@ INDI\n1 NOTE ");
+    s.push_str(&"x".repeat(1024 * 1024));
+    s.push_str("\n0 TRLR\n");
+    pipeline(s.as_bytes());
+    let mut t = String::from("0 ");
+    t.push_str(&"A".repeat(1024 * 1024));
+    pipeline(t.as_bytes());
+}

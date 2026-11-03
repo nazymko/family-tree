@@ -48,7 +48,14 @@ fn import_then_search() {
 
 fn export_text(dir: &Path, extra: &[&str]) -> String {
     let out = dir.parent().unwrap().join("out.ged");
-    run_ok(gt().arg("export").arg(dir).arg("-o").arg(&out).args(extra));
+    run_ok(
+        gt().arg("export")
+            .arg(dir)
+            .arg("-o")
+            .arg(&out)
+            .arg("--force")
+            .args(extra),
+    );
     String::from_utf8(std::fs::read(out).unwrap()).unwrap()
 }
 
@@ -174,4 +181,142 @@ fn import_writes_report_file() {
             .arg(&rep),
     );
     assert!(std::fs::read_to_string(rep).unwrap().contains("ANCESTRY"));
+}
+
+fn stderr_of(cmd: &mut Command, code: i32) -> String {
+    let out = cmd.assert().code(code).get_output().clone();
+    String::from_utf8(out.stderr).unwrap()
+}
+
+#[test]
+fn export_refuses_to_overwrite_without_force() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("p");
+    import_into(&repo_fixture("basic551.ged"), &dir);
+    let out = tmp.path().join("o.ged");
+    std::fs::write(&out, "precious").unwrap();
+    let err = stderr_of(gt().arg("export").arg(&dir).arg("-o").arg(&out), 1);
+    assert_eq!(err.trim_end().lines().count(), 1, "{err}");
+    assert!(err.contains("pass --force to overwrite"), "{err}");
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "precious");
+    run_ok(
+        gt().arg("export")
+            .arg(&dir)
+            .arg("-o")
+            .arg(&out)
+            .arg("--force"),
+    );
+    assert!(std::fs::read_to_string(&out).unwrap().contains("HEAD"));
+}
+
+#[test]
+fn import_report_refuses_to_overwrite_without_force() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("p");
+    let rep = tmp.path().join("r.txt");
+    std::fs::write(&rep, "precious").unwrap();
+    let err = stderr_of(
+        gt().arg("import")
+            .arg(repo_fixture("basic551.ged"))
+            .arg("--into")
+            .arg(&dir)
+            .arg("--report")
+            .arg(&rep),
+        1,
+    );
+    assert!(err.contains("pass --force to overwrite"), "{err}");
+    assert!(!dir.exists());
+    assert_eq!(std::fs::read_to_string(&rep).unwrap(), "precious");
+}
+
+#[test]
+fn failed_report_write_leaves_no_project() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("p");
+    let rep = tmp.path().join("no-such-dir").join("r.txt");
+    gt().arg("import")
+        .arg(repo_fixture("basic551.ged"))
+        .arg("--into")
+        .arg(&dir)
+        .arg("--report")
+        .arg(&rep)
+        .assert()
+        .code(1);
+    assert!(!dir.exists());
+    let leftovers: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+#[test]
+fn failed_media_copy_leaves_no_target_and_retry_succeeds() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    std::fs::create_dir(&src).unwrap();
+    std::fs::copy(local_fixture("media.ged"), src.join("media.ged")).unwrap();
+    let photo = src.join("photo.jpg");
+    std::fs::copy(local_fixture("photo.jpg"), &photo).unwrap();
+    let dir = tmp.path().join("p");
+
+    // Make the photo unreadable: an exclusive handle on Windows, mode 000 elsewhere.
+    #[cfg(windows)]
+    let guard = {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&photo)
+            .unwrap()
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&photo, std::fs::Permissions::from_mode(0o000)).unwrap();
+    }
+    let status = gt()
+        .arg("import")
+        .arg(src.join("media.ged"))
+        .arg("--into")
+        .arg(&dir)
+        .output()
+        .unwrap();
+    #[cfg(windows)]
+    drop(guard);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&photo, std::fs::Permissions::from_mode(0o644)).unwrap();
+        if status.status.success() {
+            return; // running as root: permissions do not block the copy
+        }
+    }
+    assert_eq!(status.status.code(), Some(1), "{status:?}");
+    assert!(!dir.exists(), "target must not exist after a failed import");
+    let names: Vec<_> = std::fs::read_dir(tmp.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(names.len(), 1, "partial dir left behind: {names:?}");
+
+    run_ok(
+        gt().arg("import")
+            .arg(src.join("media.ged"))
+            .arg("--into")
+            .arg(&dir),
+    );
+    assert_eq!(walk(&dir.join("media")).len(), 1);
+}
+
+#[test]
+fn round_trip_on_path_with_spaces_and_non_ascii() {
+    let tmp = tempfile::tempdir().unwrap();
+    let base = tmp.path().join("Familie Müller 王");
+    std::fs::create_dir(&base).unwrap();
+    let dir = base.join("mein Projekt");
+    import_into(&repo_fixture("basic551.ged"), &dir);
+    let out = base.join("Ausgabe Müller.ged");
+    run_ok(gt().arg("export").arg(&dir).arg("-o").arg(&out));
+    let text = std::fs::read_to_string(&out).unwrap();
+    assert!(text.contains("Mueller"), "{text}");
+    let hit = run_ok(gt().arg("search").arg(&dir).arg("muller"));
+    assert!(hit.contains("Mueller"), "{hit}");
 }

@@ -45,6 +45,9 @@ enum Cmd {
         /// Also write the full import report to this file.
         #[arg(long)]
         report: Option<PathBuf>,
+        /// Overwrite the --report file if it exists.
+        #[arg(long)]
+        force: bool,
     },
     /// Export a project to a GEDCOM file, applying the privacy filter.
     Export {
@@ -58,6 +61,9 @@ enum Cmd {
         living: LivingArg,
         #[arg(long)]
         include_private: bool,
+        /// Overwrite the output file if it exists.
+        #[arg(long)]
+        force: bool,
     },
     /// Search a project.
     Search {
@@ -172,14 +178,16 @@ fn run(cmd: Cmd) -> Result<(), CliError> {
             mdy,
             media_root,
             report,
-        } => cmd_import(&file, &into, mdy, media_root, report.as_deref()),
+            force,
+        } => cmd_import(&file, &into, mdy, media_root, report.as_deref(), force),
         Cmd::Export {
             dir,
             output,
             gedcom,
             living,
             include_private,
-        } => cmd_export(&dir, &output, gedcom, living, include_private),
+            force,
+        } => cmd_export(&dir, &output, gedcom, living, include_private, force),
         Cmd::Search { dir, query, limit } => {
             let project = Project::open(&dir)?;
             for hit in project.search(&query, limit)? {
@@ -225,16 +233,34 @@ fn describe(w: LocationWarning) -> String {
     }
 }
 
-fn cmd_import(
+/// Refuses to overwrite an existing output file unless `force` is set.
+fn check_overwrite(path: &Path, force: bool) -> Result<(), CliError> {
+    if !force && path.exists() {
+        return Err(user(format!(
+            "{} exists; pass --force to overwrite",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+/// Sibling scratch folder `<target>.partial-<pid>` that the import is built in.
+fn partial_dir(into: &Path) -> PathBuf {
+    let mut name = into.as_os_str().to_os_string();
+    name.push(format!(".partial-{}", std::process::id()));
+    PathBuf::from(name)
+}
+
+/// Builds the project in `tmp` and returns the import outcome. The project is closed on return.
+fn build_project(
+    tmp: &Path,
+    bytes: &[u8],
     file: &Path,
-    into: &Path,
     mdy: bool,
     media_roots: Vec<PathBuf>,
-    report_path: Option<&Path>,
-) -> Result<(), CliError> {
-    let bytes = read_file(file)?;
-    let mut project = Project::create(into)?;
-    let mut outcome = import(&bytes, &import_options(file, mdy, media_roots));
+) -> Result<gt_gedcom::ImportOutcome, CliError> {
+    let mut project = Project::create(tmp)?;
+    let mut outcome = import(bytes, &import_options(file, mdy, media_roots));
     for (id, src) in &outcome.resolved_media {
         let (rel, sha) = project.add_media_file(src)?;
         if let Some(m) = outcome.tree.media.get_mut(id) {
@@ -244,18 +270,53 @@ fn cmd_import(
     }
     project.save_tree(&outcome.tree, today_jdn())?;
     if let Some(v) = &outcome.report.version {
-        project
-            .conn()
-            .execute(
-                "INSERT OR REPLACE INTO meta(key, value) VALUES (?1, ?2)",
-                (META_GEDCOM_VERSION, v),
-            )
-            .map_err(StoreError::from)?;
+        project.meta_set(META_GEDCOM_VERSION, v)?;
     }
-    let text = outcome.report.to_text();
+    Ok(outcome)
+}
+
+fn cmd_import(
+    file: &Path,
+    into: &Path,
+    mdy: bool,
+    media_roots: Vec<PathBuf>,
+    report_path: Option<&Path>,
+    force: bool,
+) -> Result<(), CliError> {
     if let Some(p) = report_path {
-        std::fs::write(p, &text).map_err(|e| user(format!("cannot write {}: {e}", p.display())))?;
+        check_overwrite(p, force)?;
     }
+    let bytes = read_file(file)?;
+    if into.join("project.db").exists() || into.exists() && !is_empty_dir(into) {
+        return Err(StoreError::AlreadyExists(into.to_path_buf()).into());
+    }
+    let tmp = partial_dir(into);
+    if tmp.exists() {
+        // Leftover of an earlier run with the same pid.
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+    // The report is written before the rename: if it fails, nothing is left behind and the
+    // user sees one error, instead of a saved project plus a failing exit code.
+    let result = build_project(&tmp, &bytes, file, mdy, media_roots).and_then(|outcome| {
+        let text = outcome.report.to_text();
+        if let Some(p) = report_path {
+            std::fs::write(p, &text)
+                .map_err(|e| user(format!("cannot write {}: {e}", p.display())))?;
+        }
+        if into.exists() {
+            // An empty folder is allowed as a target; make room for the rename.
+            std::fs::remove_dir(into).map_err(StoreError::from)?;
+        }
+        std::fs::rename(&tmp, into).map_err(StoreError::from)?;
+        Ok((outcome, text))
+    });
+    let (outcome, text) = match result {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return Err(e);
+        }
+    };
     let t = &outcome.tree;
     println!(
         "Imported {} persons, {} families, {} events, {} places, {} sources, {} media, {} notes into {}",
@@ -280,6 +341,10 @@ fn cmd_import(
     Ok(())
 }
 
+fn is_empty_dir(p: &Path) -> bool {
+    std::fs::read_dir(p).is_ok_and(|mut d| d.next().is_none())
+}
+
 fn version_from_text(s: &str) -> Option<GedcomVersion> {
     let s = s.trim();
     if s.starts_with('7') {
@@ -294,14 +359,7 @@ fn version_from_text(s: &str) -> Option<GedcomVersion> {
 /// The version recorded at import, else `tree_header.source_version` when it names a GEDCOM
 /// version, else 5.5.1. (The header field normally holds the producer's software version.)
 fn default_version(project: &Project, header_version: Option<&str>) -> GedcomVersion {
-    let stored: Option<String> = project
-        .conn()
-        .query_row(
-            "SELECT value FROM meta WHERE key = ?1",
-            [META_GEDCOM_VERSION],
-            |r| r.get(0),
-        )
-        .ok();
+    let stored: Option<String> = project.meta_get(META_GEDCOM_VERSION).ok().flatten();
     stored
         .as_deref()
         .and_then(version_from_text)
@@ -315,7 +373,9 @@ fn cmd_export(
     gedcom: Option<GedArg>,
     living: LivingArg,
     include_private: bool,
+    force: bool,
 ) -> Result<(), CliError> {
+    check_overwrite(output, force)?;
     let project = Project::open(dir)?;
     let tree = project.load_tree()?;
     let version = match gedcom {
