@@ -3,6 +3,7 @@
   import Button from '../ui/Button.svelte';
   import { getApi } from '../api/context';
   import { notices } from '../ui/notices.svelte';
+  import { undoNotice } from '../ui/undoable';
   import type { CitationDto, EditResult, OwnerRef } from '../api/api';
 
   let { target, onDone, onError }: { target: OwnerRef; onDone: (r: EditResult) => void; onError?: (m: string) => void } = $props();
@@ -20,7 +21,7 @@
     busy = true;
     try {
       const r = await api.apply({ type: 'addCitation', target, citation: { reuseLast: true } });
-      notices.show({ message: 'Citation added' });
+      notices.show(undoNotice(api, 'Citation added', r.undo));
       onDone(r);
     } catch (e) {
       onError?.(e instanceof Error ? e.message : String(e));

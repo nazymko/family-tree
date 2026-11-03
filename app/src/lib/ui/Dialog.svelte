@@ -80,6 +80,7 @@
     position: fixed;
     inset: 0;
     z-index: 100;
+    grid-template-rows: minmax(0, 1fr);
     display: grid;
     place-items: center;
     padding: var(--s-6);
@@ -90,6 +91,7 @@
     flex-direction: column;
     width: min(40rem, 100%);
     max-height: 100%;
+    min-height: 0;
     background: var(--paper-1);
     color: var(--ink-0);
     border: 1px solid var(--rule);

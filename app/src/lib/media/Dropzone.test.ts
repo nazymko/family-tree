@@ -84,6 +84,22 @@ describe('Dropzone', () => {
   });
 });
 
+describe('Undo toast', () => {
+  it('undo_only_its_own_command', async () => {
+    const { api, target } = await emptyPerson();
+    const { platform } = renderWith(Dropzone, { target, targetName: 'Zofia', onAttached: vi.fn() }, { api });
+    await act(() => platform.simulateDrop(['C:/p/a.jpg']));
+    await waitFor(() => expect(notices.current?.actionLabel).toBe('Undo'));
+    const n = notices.current!;
+    expect(n.actionValid?.()).toBe(true);
+    await api.apply({ type: 'updatePerson', id: target.id, sex: 'male' });
+    const undo = vi.spyOn(api, 'undo');
+    n.onaction!();
+    await waitFor(() => expect(notices.current?.message).toMatch(/no longer the latest/));
+    expect(undo).not.toHaveBeenCalled();
+  });
+});
+
 describe('MediaView attach flow', () => {
   it('partial_failure_reported_per_file', async () => {
     const { api, id } = await emptyPerson();

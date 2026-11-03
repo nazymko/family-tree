@@ -16,6 +16,7 @@
   import Banner from '../ui/Banner.svelte';
   import { getApi, getPlatform } from '../api/context';
   import { notices } from '../ui/notices.svelte';
+  import { undoNotice } from '../ui/undoable';
   import type { AttachResult, OwnerRef } from '../api/api';
 
   let {
@@ -75,11 +76,7 @@
     failures = r.failed.map(failureLine);
     const n = r.attached.length;
     if (n > 0) {
-      notices.show({
-        message: `Attached ${n} ${n === 1 ? 'file' : 'files'}`,
-        actionLabel: 'Undo',
-        onaction: () => void api.undo().then(() => onUndone?.()),
-      });
+      notices.show(undoNotice(api, `Attached ${n} ${n === 1 ? 'file' : 'files'}`, await api.undoState(), onUndone));
       if (n === 1 && r.attached[0].mime?.startsWith('image/')) {
         const ex = await api.exifSuggestion(r.attached[0].id).catch(() => null);
         suggestion = ex?.date ?? null;

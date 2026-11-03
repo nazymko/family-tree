@@ -8,7 +8,7 @@
   <div class="slot">
     <Toast
       message={n.message}
-      actionLabel={n.actionLabel}
+      actionLabel={n.actionValid && !n.actionValid() ? undefined : n.actionLabel}
       onaction={() => {
         n.onaction?.();
         notices.dismiss();

@@ -10,6 +10,7 @@
   import UseLastCitation from './UseLastCitation.svelte';
   import { getApi } from '../api/context';
   import { notices } from '../ui/notices.svelte';
+  import { undoNotice } from '../ui/undoable';
   import type { CitationDto, CitationInput, EditResult, OwnerRef } from '../api/api';
 
   let {
@@ -95,14 +96,14 @@
           id: citation.id,
           citation: { ...body, source: 'id' in source ? source.id : undefined },
         });
-        notices.show({ message: 'Citation saved' });
+        notices.show(undoNotice(api, 'Citation saved', r.undo));
       } else {
         r = await api.apply({
           type: 'addCitation',
           target,
           citation: { ...body, source: 'id' in source ? source.id : { title: source.title } },
         });
-        notices.show({ message: 'Citation added' });
+        notices.show(undoNotice(api, 'Citation added', r.undo));
       }
       onDone(r);
     } catch (e) {
@@ -143,9 +144,6 @@
   .form {
     display: grid;
     gap: var(--s-5);
-    max-height: calc(100vh - 13rem);
-    overflow: auto;
-    padding: var(--s-2);
   }
   summary {
     cursor: pointer;

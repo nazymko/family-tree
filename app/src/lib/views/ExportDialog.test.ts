@@ -81,13 +81,13 @@ describe('ExportDialog', () => {
     const second = pending.shift()!; // exclude
     second.go();
     await waitFor(() => expect(exportBtn()).toBeEnabled());
-    const shownAsLiving = stat('Shown as Living');
+    const shownAsLiving = stat("Shown as 'Living'");
     const leftOut = stat('Left out');
     expect(shownAsLiving).toBe(0);
     expect(leftOut).toBeGreaterThan(0);
     first.go(); // the older answer arrives late
     await new Promise((r) => setTimeout(r, 20));
-    expect(stat('Shown as Living')).toBe(0);
+    expect(stat("Shown as 'Living'")).toBe(0);
     expect(stat('Left out')).toBe(leftOut);
     expect(exportBtn()).toBeEnabled();
   });
@@ -98,8 +98,8 @@ describe('ExportDialog', () => {
     expect(p.placeholderPersons).toBeGreaterThanOrEqual(1);
     renderWith(ExportDialog, { onClose: vi.fn() }, { api });
     await waitFor(() => expect(exportBtn()).toBeEnabled());
-    expect(stat('Shown as Living')).toBe(p.placeholderPersons);
-    expect(stat('People exported')).toBe(p.exportedPersons);
+    expect(stat("Shown as 'Living'")).toBe(p.placeholderPersons);
+    expect(stat('Named')).toBe(p.exportedPersons);
   });
 
   it('include_all_shows_warning', async () => {

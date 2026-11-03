@@ -65,7 +65,7 @@
   }
 
   async function setPrimary() {
-    if (!m || target?.kind !== 'person') return;
+    if (!m || !m.resolved || isPdf(m) || target?.kind !== 'person') return;
     error = '';
     try {
       await api.apply({ type: 'setPrimaryMedia', person: target.id, media: m.id });
@@ -139,17 +139,18 @@
   }
 </script>
 
+<svelte:window {onkeydown} />
+
 <Dialog open title={m ? mediaLabel({ ...m, title: title || m.title }) : 'Photo'} onclose={onClose}>
   {#if m}
     <div class="viewer">
       {#if error}<Banner kind="error">{error}</Banner>{/if}
-      <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div
         class="stage"
         role="group"
         aria-label="Preview, {at + 1} of {items.length}. Plus and minus zoom, zero fits, arrow keys move, P sets primary."
         tabindex="0"
-        {onkeydown}
         {onwheel}
         {onpointerdown}
         {onpointermove}
@@ -175,7 +176,7 @@
         {#if primary}<span>Primary photo</span>{/if}
         <Button disabled={at === 0} onclick={() => go(at - 1)}>Previous</Button>
         <Button disabled={at >= items.length - 1} onclick={() => go(at + 1)}>Next</Button>
-        {#if target?.kind === 'person' && !isPdf(m)}
+        {#if target?.kind === 'person' && m.resolved && !isPdf(m)}
           <Button onclick={setPrimary}>Set as primary photo</Button>
         {/if}
         <Button onclick={() => platform.openExternally(api.mediaUrl(m.id, 'original'))}>Open original</Button>
@@ -192,8 +193,6 @@
   .viewer {
     display: grid;
     gap: var(--s-4);
-    max-height: calc(100vh - 11rem);
-    overflow: auto;
   }
   .stage {
     height: min(40vh, 22rem);

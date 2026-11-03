@@ -134,13 +134,25 @@
       {#if previewError}
         <Banner kind="error">{previewError}</Banner>
       {:else if preview}
-        <div class="body" class:stale={loading || !inSync}>
+        {#if loading || !inSync}
+          <div class="body skeleton" aria-hidden="true">
+            <div class="bar"></div>
+            <div class="bar short"></div>
+          </div>
+          <p class="hint">Updating the preview…</p>
+        {:else}
+        <div class="body">
           <dl>
-            <div><dt>People exported</dt><dd>{preview.exportedPersons}</dd></div>
-            <div><dt>Shown as Living</dt><dd>{preview.placeholderPersons}</dd></div>
+            <div><dt>People in the file</dt><dd>{preview.exportedPersons + preview.placeholderPersons}</dd></div>
+            <div><dt>Named</dt><dd>{preview.exportedPersons}</dd></div>
+            <div><dt>Shown as 'Living'</dt><dd>{preview.placeholderPersons}</dd></div>
             <div><dt>Left out</dt><dd>{leftOut}</dd></div>
-            <div><dt>Records removed</dt><dd>{preview.removedRecords}</dd></div>
+            <div>
+              <dt>Other records removed</dt>
+              <dd>{preview.removedRecords}</dd>
+            </div>
           </dl>
+          <p class="hint">Other records removed: private items, and events and notes of couples with a living partner</p>
           {#if preview.mentionWarnings.length}
             <h4>Notes that may name hidden people</h4>
             <ul>
@@ -164,6 +176,7 @@
             </ul>
           {/if}
         </div>
+        {/if}
       {:else}
         <p class="hint">Checking what would be shared…</p>
       {/if}
@@ -185,9 +198,6 @@
   .export {
     display: grid;
     gap: var(--s-6);
-    max-height: calc(100vh - 13rem);
-    overflow: auto;
-    padding-inline-end: var(--s-2);
   }
   .options {
     display: grid;
@@ -213,12 +223,18 @@
     display: grid;
     gap: var(--s-3);
   }
-  .body.stale {
+  .skeleton .bar {
+    height: 2.5rem;
+    background: var(--rule);
     opacity: 0.4;
+    border-radius: var(--r-1);
+  }
+  .skeleton .bar.short {
+    width: 60%;
   }
   dl {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
     gap: var(--s-4);
     margin: 0;
   }

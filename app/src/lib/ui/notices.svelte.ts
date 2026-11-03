@@ -3,6 +3,8 @@ export interface Notice {
   message: string;
   actionLabel?: string;
   onaction?: () => void;
+  /** When it returns false the action is hidden (e.g. the change is no longer the latest one). */
+  actionValid?: () => boolean;
 }
 
 class Notices {

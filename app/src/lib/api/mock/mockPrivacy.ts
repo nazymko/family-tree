@@ -96,8 +96,15 @@ export function computePrivacyCounts(db: Db, opts: ExportOptions, maxAge: number
   const hiddenPersons = [...hidden].map((id) => db.persons.get(id)).filter((p): p is PersonRec => !!p);
   const hiddenNames = hiddenPersons.map((p) => ({ p, names: fullName(p) }));
   const mentionWarnings: PrivacyPreview['mentionWarnings'] = [];
-  for (const p of kept) {
-    const notes = [...p.notes, ...keptEvents(p).flatMap((e) => e.notes)];
+  // Every surviving note, as Rust scans the filtered tree: kept persons' notes, kept events' notes, and notes of
+  // families (and their events) that have no hidden partner. Rust drops private notes with their records; the mock
+  // has no private flag on notes, so a note on a dropped record is simply not reached.
+  const notes = kept.flatMap((p) => [...p.notes, ...keptEvents(p).flatMap((e) => e.notes)]);
+  for (const f of db.families.values()) {
+    if ([f.partner1, f.partner2].some((x) => x && hidden.has(x))) continue;
+    notes.push(...f.notes, ...f.events.filter((e) => !(dropPrivate && e.private)).flatMap((e) => e.notes));
+  }
+  {
     for (const n of notes) {
       const low = n.text.toLowerCase();
       for (const h of hiddenNames) {

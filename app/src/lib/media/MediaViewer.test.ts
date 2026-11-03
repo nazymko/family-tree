@@ -100,4 +100,14 @@ describe('MediaViewer', () => {
     await user.tab();
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ type: 'updateMedia', id: 'm0', title: 'Garden party' }));
   });
+
+  it('keys_work_after_clicking_next', async () => {
+    const user = userEvent.setup();
+    await setup(3, 0);
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await user.keyboard('+');
+    expect(screen.getByText('Zoom 200%')).toBeInTheDocument();
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByText('3 of 3')).toBeInTheDocument();
+  });
 });
