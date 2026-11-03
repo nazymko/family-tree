@@ -658,3 +658,26 @@ fn note_and_place_hits_carry_the_owning_person() {
     let hit = places.iter().find(|h| h.kind == HitKindDto::Place).unwrap();
     assert_eq!(hit.person.as_ref().unwrap().id, anna_id);
 }
+
+#[test]
+fn bad_home_person_leaves_living_max_age_unchanged() {
+    let (_d, mut s) = open_ged(&ged(&[indi(1, "Anna /Berg/", "")]));
+    let before = s.settings().living_max_age;
+    let err = s
+        .set_settings(SettingsPatch {
+            living_max_age: Some(before + 5),
+            home_person: Some(Some(Uuid::now_v7())),
+            ..SettingsPatch::default()
+        })
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound);
+    assert_eq!(s.settings().living_max_age, before);
+    let dir = s.info().dir.clone();
+    s.close();
+    let s = Session::open(
+        std::path::Path::new(&dir),
+        SessionClock::fixed(today(), NOW_MS),
+    )
+    .unwrap();
+    assert_eq!(s.settings().living_max_age, before);
+}

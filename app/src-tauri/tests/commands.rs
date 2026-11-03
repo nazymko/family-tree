@@ -534,7 +534,11 @@ fn open_media_externally_refuses_files_that_are_not_images_or_pdfs() {
     std::fs::write(&path, b"MZ\x90\x00\x03\x00\x00\x00 not a picture").unwrap();
     let err = commands::checked_original_path(&state, id).unwrap_err();
     assert_eq!(err.code, ErrorCode::Invalid);
-    assert!(err.message.contains("only open photos and PDF"), "{}", err.message);
+    assert!(
+        err.message.contains("only open photos and PDF"),
+        "{}",
+        err.message
+    );
     // A PDF is allowed even when the extension is something else.
     std::fs::write(&path, b"%PDF-1.7\n%%EOF").unwrap();
     assert!(commands::checked_original_path(&state, id).is_ok());
