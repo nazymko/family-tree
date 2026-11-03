@@ -50,3 +50,46 @@ export function editDoneText(label: string): string {
   const keys = EDIT_KEYS[label];
   return keys ? t(keys[1]) : t('edit.doneFallback', { label: editLabel(label) });
 }
+
+const EVENT_KINDS = new Set([
+  'birth',
+  'christening',
+  'baptism',
+  'death',
+  'burial',
+  'cremation',
+  'adoption',
+  'marriage',
+  'marriage_banns',
+  'marriage_contract',
+  'marriage_license',
+  'marriage_settlement',
+  'engagement',
+  'divorce',
+  'divorce_filed',
+  'annulment',
+  'separation',
+  'census',
+  'residence',
+  'occupation',
+  'education',
+  'religion',
+  'nationality',
+  'title',
+  'emigration',
+  'immigration',
+  'naturalization',
+  'probate',
+  'will',
+  'graduation',
+  'retirement',
+  'military',
+  'physical_description',
+]);
+
+/** The display name of an event kind ("birth", "custom:Pilgrimage"); `fallback` is the label the backend sent. */
+export function eventKindLabel(kind: string, fallback?: string): string {
+  if (EVENT_KINDS.has(kind)) return t(`eventKind.${kind}` as MessageKey);
+  if (kind.startsWith('custom:')) return kind.slice(7);
+  return fallback || kind;
+}

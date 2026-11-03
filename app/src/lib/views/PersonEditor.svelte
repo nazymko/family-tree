@@ -29,6 +29,8 @@
   import EventEditor from '../editors/EventEditor.svelte';
   import FamilyEditor from '../editors/FamilyEditor.svelte';
   import { errMessage } from '../editors/errors';
+  import { t, plural, currentLocale, type MessageKey } from '../i18n';
+  import { editLabel, eventKindLabel } from '../i18n/backend';
 
   let {
     id,
@@ -133,29 +135,29 @@
     detail ? detail.events.filter((e) => e.participants.every((p) => p.person.id === id)).length : 0,
   );
 
-  const SEXES = [
-    ['male', 'Male'],
-    ['female', 'Female'],
-    ['intersex', 'Intersex'],
-    ['unknown', 'Unknown'],
-    ['other', 'Other'],
-  ].map(([value, label]) => ({ value, label }));
+  const SEXES = $derived(
+    (['male', 'female', 'intersex', 'unknown', 'other'] as const).map((value) => ({ value, label: t(`sexOption.${value}`) })),
+  );
 
   const livingOptions = $derived([
-    { value: '', label: `Computed (${detail?.livingComputed ? 'living' : 'deceased'})` },
-    { value: 'living', label: 'Treat as living' },
-    { value: 'deceased', label: 'Treat as deceased' },
+    { value: '', label: detail?.livingComputed ? t('person.computedLiving') : t('person.computedDeceased') },
+    { value: 'living', label: t('person.treatLiving') },
+    { value: 'deceased', label: t('person.treatDeceased') },
   ]);
 
   const consequence = $derived(
-    `This removes ${detail?.ref.name ?? ''} from ${familyCount} ${familyCount === 1 ? 'family' : 'families'} and deletes ${soleEvents} ${soleEvents === 1 ? 'event' : 'events'} only they took part in.`,
+    t('person.consequence', {
+      name: detail?.ref.name ?? '',
+      families: plural('person.familiesFrom', familyCount),
+      events: plural('person.eventsOnly', soleEvents),
+    }),
   );
 
   const cardLines = $derived(
     detail
       ? (['birth', 'death'] as const).flatMap((k) => {
           const e = detail!.events.find((x) => x.kind === k);
-          return e ? [{ label: k === 'birth' ? 'Born' : 'Died', text: eventLine(e) || 'No date or place' }] : [];
+          return e ? [{ label: k === 'birth' ? t('person.born') : t('person.died'), text: eventLine(e) || t('person.noDateOrPlace') }] : [];
         })
       : [],
   );
@@ -163,6 +165,7 @@
   function eventLine(e: EventDto): string {
     return [e.date?.display, e.place?.full].filter(Boolean).join(', ');
   }
+  const nameKind = (k: string) => t(`nameKind.${k}` as MessageKey);
   function open(p: PersonRef) {
     nav.go({ name: 'person', id: p.id });
   }
@@ -192,7 +195,7 @@
     }
   }
   function when(ts: number): string {
-    return new Date(ts).toLocaleString();
+    return new Date(ts).toLocaleString(currentLocale());
   }
 </script>
 
@@ -200,17 +203,17 @@
   {#if loadError}
     <Banner kind="error">{loadError}</Banner>
   {:else if !detail}
-    <p class="loading">Loading person</p>
+    <p class="loading">{t('person.loading')}</p>
   {:else}
     <div class="card">
     <IndexCard as="section" ribbon={isHome}>
       <div class="head">
         <h1><bdi dir="auto">{detail.ref.name}</bdi></h1>
-        <p class="life">{detail.ref.lifespan || 'No dates recorded'}</p>
+        <p class="life">{detail.ref.lifespan || t('person.noDates')}</p>
         <div class="head-actions">
           <Button onclick={toggleHome} aria-pressed={isHome}>
-            <Ribbon title="Home person" size="1rem" />
-            {isHome ? 'Home person' : 'Make home person'}
+            <Ribbon size="1rem" />
+            {isHome ? t('common.homePerson') : t('person.makeHome')}
           </Button>
         </div>
       </div>
@@ -226,20 +229,20 @@
 
     <section aria-labelledby="h-names">
       <div class="sec-head">
-        <h2 id="h-names">Names</h2>
-        <Button onclick={() => (dialog = { kind: 'name' })}>Add name</Button>
+        <h2 id="h-names">{t('person.names')}</h2>
+        <Button onclick={() => (dialog = { kind: 'name' })}>{t('editor.addName')}</Button>
       </div>
       <ul class="rows">
         {#each detail.names as n (n.id)}
           <li>
             <span class="grow"><bdi dir="auto">{n.display}</bdi></span>
-            <span class="meta">{n.kind}{n.preferred ? ', preferred' : ''}</span>
-            <Button onclick={() => (dialog = { kind: 'name', name: n })} aria-label="Edit name {n.display}">Edit</Button>
+            <span class="meta">{n.preferred ? t('person.preferredSuffix', { kind: nameKind(n.kind) }) : nameKind(n.kind)}</span>
+            <Button onclick={() => (dialog = { kind: 'name', name: n })} aria-label={t('person.editNameNamed', { name: n.display })}>{t('common.edit')}</Button>
             <Button
               variant="quiet"
               disabled={detail.names.length < 2}
-              aria-label="Delete name {n.display}"
-              onclick={() => remove({ type: 'deleteName', person: id, name: n.id })}>Delete</Button
+              aria-label={t('person.deleteNameNamed', { name: n.display })}
+              onclick={() => remove({ type: 'deleteName', person: id, name: n.id })}>{t('common.delete')}</Button
             >
           </li>
         {/each}
@@ -247,30 +250,30 @@
     </section>
 
     <section aria-labelledby="h-basics">
-      <h2 id="h-basics">Basics</h2>
+      <h2 id="h-basics">{t('person.basics')}</h2>
       <div class="grid">
         <Select
-          label="Sex"
+          label={t('newPerson.sex')}
           options={SEXES}
           bind:value={sex}
           onchange={(v) => commit('Sex', { sex: v as PersonDetail['sex'] })}
         />
         {#if sex === 'other'}
           <TextField
-            label="Describe sex"
+            label={t('person.describeSex')}
             bind:value={sexText}
             onchange={() => commit('Sex', { sex: 'other', sexText })}
           />
         {/if}
         <Select
-          label="Living status"
+          label={t('person.livingStatus')}
           options={livingOptions}
           bind:value={living}
           onchange={(v) => commit('Living status', { livingOverride: v === '' ? null : (v as 'living' | 'deceased') })}
         />
         <Checkbox
-          label="Private"
-          hint="Private people are left out of exports unless you include them"
+          label={t('common.private')}
+          hint={t('person.privateHint')}
           bind:checked={isPrivate}
           onchange={(c) => commit('Privacy', { private: c })}
         />
@@ -279,18 +282,18 @@
 
     <section aria-labelledby="h-events">
       <div class="sec-head">
-        <h2 id="h-events">Events and facts</h2>
-        <Button onclick={() => (dialog = { kind: 'event' })}>Add event</Button>
+        <h2 id="h-events">{t('person.events')}</h2>
+        <Button onclick={() => (dialog = { kind: 'event' })}>{t('editor.addEvent')}</Button>
       </div>
       {#if detail.events.length === 0}
-        <p class="empty">No events or facts recorded yet.</p>
+        <p class="empty">{t('person.noEvents')}</p>
       {:else}
         <ul class="rows">
           {#each detail.events as e (e.id)}
             <li>
-              <span class="kind">{e.label}</span>
-              <span class="grow">{eventLine(e) || 'No date or place'}</span>
-              <Button onclick={() => (dialog = { kind: 'event', event: e })} aria-label="Edit {e.label}">Edit</Button>
+              <span class="kind">{eventKindLabel(e.kind, e.label)}</span>
+              <span class="grow">{eventLine(e) || t('person.noDateOrPlace')}</span>
+              <Button onclick={() => (dialog = { kind: 'event', event: e })} aria-label={t('person.editNamed', { label: eventKindLabel(e.kind, e.label) })}>{t('common.edit')}</Button>
             </li>
           {/each}
         </ul>
@@ -298,8 +301,8 @@
     </section>
 
     <section aria-labelledby="h-rel">
-      <h2 id="h-rel">Relationships</h2>
-      <h3>Parents</h3>
+      <h2 id="h-rel">{t('person.relationships')}</h2>
+      <h3>{t('family.parents')}</h3>
       {#each detail.parentSets as s (s.familyId)}
         <p class="line">
           {#each s.parents as p, i (i)}
@@ -307,25 +310,25 @@
           {/each}
         </p>
       {:else}
-        <p class="empty">No parents recorded.</p>
+        <p class="empty">{t('person.noParents')}</p>
       {/each}
       <div class="btns">
-        <Button onclick={() => (dialog = { kind: 'quick', relation: 'father' })}>Add father</Button>
-        <Button onclick={() => (dialog = { kind: 'quick', relation: 'mother' })}>Add mother</Button>
-        <Button onclick={() => (dialog = { kind: 'quick', relation: 'sibling' })}>Add sibling</Button>
+        <Button onclick={() => (dialog = { kind: 'quick', relation: 'father' })}>{t('edit.addFather')}</Button>
+        <Button onclick={() => (dialog = { kind: 'quick', relation: 'mother' })}>{t('edit.addMother')}</Button>
+        <Button onclick={() => (dialog = { kind: 'quick', relation: 'sibling' })}>{t('edit.addSibling')}</Button>
       </div>
-      <h3>Partners and children</h3>
+      <h3>{t('person.partnersAndChildren')}</h3>
       {#each detail.partnerships as ps (ps.familyId)}
         <div class="partnership">
           <p class="line">
             {#if ps.partner}
               <Button variant="quiet" onclick={() => open(ps.partner!)}><bdi dir="auto">{ps.partner.name}</bdi></Button>
             {:else}
-              <span>Unknown partner</span>
+              <span>{t('person.unknownPartner')}</span>
             {/if}
             {#if ps.summary}<span class="meta">{ps.summary}</span>{/if}
-            <Button onclick={() => (dialog = { kind: 'family', family: ps.familyId })} aria-label="Edit family with {ps.partner?.name ?? 'unknown partner'}"
-              >Edit family</Button
+            <Button onclick={() => (dialog = { kind: 'family', family: ps.familyId })} aria-label={t('person.editFamilyWith', { name: ps.partner?.name ?? t('person.unknownPartnerLower') })}
+              >{t('family.editFamily')}</Button
             >
           </p>
           {#each ps.children as c (c.person.id)}
@@ -336,58 +339,58 @@
           {/each}
         </div>
       {:else}
-        <p class="empty">No partners or children recorded.</p>
+        <p class="empty">{t('person.noPartners')}</p>
       {/each}
       <div class="btns">
-        <Button onclick={() => (dialog = { kind: 'quick', relation: 'partner' })}>Add partner</Button>
-        <Button onclick={() => (dialog = { kind: 'quick', relation: 'child' })}>Add child</Button>
-        <Button onclick={() => (dialog = { kind: 'family' })}>Add family</Button>
+        <Button onclick={() => (dialog = { kind: 'quick', relation: 'partner' })}>{t('edit.addPartner')}</Button>
+        <Button onclick={() => (dialog = { kind: 'quick', relation: 'child' })}>{t('edit.addChild')}</Button>
+        <Button onclick={() => (dialog = { kind: 'family' })}>{t('person.addFamily')}</Button>
       </div>
     </section>
 
     <section aria-labelledby="h-notes">
       <div class="sec-head">
-        <h2 id="h-notes">Notes</h2>
-        <Button onclick={() => (dialog = { kind: 'note' })}>Add note</Button>
+        <h2 id="h-notes">{t('person.notes')}</h2>
+        <Button onclick={() => (dialog = { kind: 'note' })}>{t('editor.addNote')}</Button>
       </div>
       {#each detail.notes as n (n.id)}
         <article class="note">
-          <p class="note-kind">{n.kind}</p>
+          <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
           <p class="note-text">{n.text}</p>
           <div class="btns">
-            <Button onclick={() => (dialog = { kind: 'note', note: n })} aria-label="Edit {n.kind} note">Edit</Button>
+            <Button onclick={() => (dialog = { kind: 'note', note: n })} aria-label={t('person.editNote', { kind: t(`noteKind.${n.kind}`) })}>{t('common.edit')}</Button>
             <Button
               variant="quiet"
-              aria-label="Delete {n.kind} note"
+              aria-label={t('person.deleteNote', { kind: t(`noteKind.${n.kind}`) })}
               onclick={() => remove({ type: 'deleteNote', target: { kind: 'person', id }, note: n.id })}
-              >Delete</Button
+              >{t('common.delete')}</Button
             >
           </div>
         </article>
       {:else}
-        <p class="empty">No notes yet.</p>
+        <p class="empty">{t('person.noNotes')}</p>
       {/each}
     </section>
 
     <section aria-labelledby="h-media">
-      <h2 id="h-media">Media</h2>
-      {#if mediaSection}{@render mediaSection(detail)}{:else}<p class="empty">{detail.media.length} attached.</p>{/if}
+      <h2 id="h-media">{t('nav.media')}</h2>
+      {#if mediaSection}{@render mediaSection(detail)}{:else}<p class="empty">{t('person.attachedCount', { n: detail.media.length })}</p>{/if}
     </section>
 
     <section aria-labelledby="h-sources">
-      <h2 id="h-sources">Sources</h2>
-      {#if sourcesSection}{@render sourcesSection(detail)}{:else}<p class="empty">{detail.citations.length} cited.</p>{/if}
+      <h2 id="h-sources">{t('sources.title')}</h2>
+      {#if sourcesSection}{@render sourcesSection(detail)}{:else}<p class="empty">{t('person.citedCount', { n: detail.citations.length })}</p>{/if}
     </section>
 
     <section aria-labelledby="h-history">
       <details>
-        <summary><h2 id="h-history">History</h2></summary>
+        <summary><h2 id="h-history">{t('person.history')}</h2></summary>
         {#if history.length === 0}
-          <p class="empty">No changes recorded yet.</p>
+          <p class="empty">{t('person.noHistory')}</p>
         {:else}
           <ul class="rows">
             {#each history as h, i (i)}
-              <li><span class="grow">{h.label}</span><span class="meta">{when(h.ts)}</span></li>
+              <li><span class="grow">{editLabel(h.label)}</span><span class="meta">{when(h.ts)}</span></li>
             {/each}
           </ul>
         {/if}
@@ -395,7 +398,7 @@
     </section>
 
     <div class="danger-zone">
-      <Button variant="danger" onclick={() => (dialog = { kind: 'delete' })}>Delete person</Button>
+      <Button variant="danger" onclick={() => (dialog = { kind: 'delete' })}>{t('people.deleteTitle')}</Button>
     </div>
   {/if}
 </div>
@@ -433,12 +436,12 @@
     onDone={(r) => saved(r)}
   />
 {:else if detail && dialog?.kind === 'delete'}
-  <Dialog open={true} title="Delete {detail.ref.name}?" onclose={closeDialog}>
+  <Dialog open={true} title={t('person.deleteTitle', { name: detail.ref.name })} onclose={closeDialog}>
     <p>{consequence}</p>
-    <p>You can undo this straight afterwards.</p>
+    <p>{t('person.undoAfter')}</p>
     {#snippet footer()}
-      <Button onclick={closeDialog}>Keep person</Button>
-      <Button variant="danger" onclick={confirmDelete}>Delete person</Button>
+      <Button onclick={closeDialog}>{t('person.keepPerson')}</Button>
+      <Button variant="danger" onclick={confirmDelete}>{t('people.deleteTitle')}</Button>
     {/snippet}
   </Dialog>
 {/if}

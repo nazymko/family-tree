@@ -5,6 +5,7 @@
   import Select from '../ui/Select.svelte';
   import EditorDialog from './EditorDialog.svelte';
   import { errMessage } from './errors';
+  import { t } from '../i18n';
 
   let {
     target,
@@ -14,14 +15,12 @@
   }: { target: OwnerRef; note?: NoteDto; onSaved: (r: EditResult) => void; onCancel: () => void } = $props();
 
   const api = getApi();
-  const KINDS = [
-    ['general', 'General'],
-    ['story', 'Story'],
-    ['research', 'Research'],
-    ['transcription', 'Transcription'],
-    ['conclusion', 'Conclusion'],
-    ['other', 'Other'],
-  ].map(([value, label]) => ({ value, label }));
+  const KINDS = $derived(
+    (['general', 'story', 'research', 'transcription', 'conclusion', 'other'] as const).map((value) => ({
+      value,
+      label: t(`noteKind.${value}`),
+    })),
+  );
 
   // svelte-ignore state_referenced_locally
   const init = { kind: note?.kind ?? 'general', text: note?.text ?? '' };
@@ -51,8 +50,8 @@
 </script>
 
 <EditorDialog
-  title={note ? 'Edit note' : 'Add note'}
-  saveLabel="Save note"
+  title={note ? t('edit.editNote') : t('editor.addNote')}
+  saveLabel={t('edit.saveNote')}
   {dirty}
   {saving}
   {error}
@@ -60,10 +59,10 @@
   onsave={save}
   oncancel={onCancel}
 >
-  <Select label="Kind of note" options={KINDS} bind:value={kind} />
+  <Select label={t('editor.kindOfNote')} options={KINDS} bind:value={kind} />
   <TextArea
-    label="Note"
-    hint="Markdown is kept as you write it. Link to a person with genetree://person/ followed by their id."
+    label={t('editor.note')}
+    hint={t('editor.noteHint')}
     ruled
     rows={10}
     bind:value={text}
