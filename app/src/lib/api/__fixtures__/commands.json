@@ -1,0 +1,222 @@
+[
+  {
+    "type": "createPerson",
+    "draft": {
+      "given": "Anna",
+      "surnames": [
+        "Schmidt"
+      ],
+      "sex": "female",
+      "birthDateRaw": "3 Apr 1850",
+      "birthPlaceText": "Hamburg, Germany"
+    }
+  },
+  {
+    "type": "updatePerson",
+    "id": "018f3a6e-0000-7000-8000-000000000001",
+    "sex": "other",
+    "sexText": "non-binary",
+    "livingOverride": null,
+    "private": true
+  },
+  {
+    "type": "deletePerson",
+    "id": "018f3a6e-0000-7000-8000-000000000001"
+  },
+  {
+    "type": "saveName",
+    "person": "018f3a6e-0000-7000-8000-000000000001",
+    "name": {
+      "kind": "married",
+      "preferred": true,
+      "private": false,
+      "given": "Anna",
+      "surnames": [
+        "Meyer"
+      ],
+      "dateRaw": "1875"
+    }
+  },
+  {
+    "type": "deleteName",
+    "person": "018f3a6e-0000-7000-8000-000000000001",
+    "name": "018f3a6e-0000-7000-8000-000000000002"
+  },
+  {
+    "type": "saveEvent",
+    "owner": {
+      "kind": "person",
+      "id": "018f3a6e-0000-7000-8000-000000000001"
+    },
+    "event": {
+      "kind": "custom:apprenticeship",
+      "dateRaw": "between 1865 and 1868",
+      "placeText": "Berlin, Brandenburg, Germany",
+      "negative": false,
+      "private": false,
+      "preferred": false,
+      "participants": [
+        {
+          "person": "018f3a6e-0000-7000-8000-000000000001",
+          "role": "principal"
+        }
+      ]
+    }
+  },
+  {
+    "type": "deleteEvent",
+    "owner": {
+      "kind": "family",
+      "id": "018f3a6e-0000-7000-8000-000000000003"
+    },
+    "event": "018f3a6e-0000-7000-8000-000000000004"
+  },
+  {
+    "type": "quickAdd",
+    "anchor": "018f3a6e-0000-7000-8000-000000000001",
+    "relation": "father",
+    "draft": {
+      "surnames": [
+        "Schmidt"
+      ],
+      "sex": "male"
+    },
+    "family": "018f3a6e-0000-7000-8000-000000000003",
+    "newParentSet": true
+  },
+  {
+    "type": "saveFamily",
+    "id": "018f3a6e-0000-7000-8000-000000000003",
+    "partner1": "018f3a6e-0000-7000-8000-000000000001",
+    "partner2": null,
+    "kind": "civil_union"
+  },
+  {
+    "type": "deleteFamily",
+    "id": "018f3a6e-0000-7000-8000-000000000003"
+  },
+  {
+    "type": "linkChild",
+    "family": "018f3a6e-0000-7000-8000-000000000003",
+    "child": "018f3a6e-0000-7000-8000-000000000005",
+    "rel": [
+      "birth",
+      "adopted"
+    ],
+    "preferred": true
+  },
+  {
+    "type": "updateChildLink",
+    "family": "018f3a6e-0000-7000-8000-000000000003",
+    "child": "018f3a6e-0000-7000-8000-000000000005",
+    "rel": [
+      "foster",
+      "foster"
+    ],
+    "preferred": false
+  },
+  {
+    "type": "unlinkChild",
+    "family": "018f3a6e-0000-7000-8000-000000000003",
+    "child": "018f3a6e-0000-7000-8000-000000000005"
+  },
+  {
+    "type": "reorderChildren",
+    "family": "018f3a6e-0000-7000-8000-000000000003",
+    "order": [
+      "018f3a6e-0000-7000-8000-000000000006",
+      "018f3a6e-0000-7000-8000-000000000005"
+    ]
+  },
+  {
+    "type": "saveNote",
+    "target": {
+      "kind": "person",
+      "id": "018f3a6e-0000-7000-8000-000000000001"
+    },
+    "note": {
+      "kind": "story",
+      "text": "Moved to Hamburg in spring."
+    }
+  },
+  {
+    "type": "deleteNote",
+    "target": {
+      "kind": "event",
+      "id": "018f3a6e-0000-7000-8000-000000000004"
+    },
+    "note": "018f3a6e-0000-7000-8000-000000000007"
+  },
+  {
+    "type": "saveSource",
+    "source": {
+      "title": "Parish register of St Michael",
+      "abbreviation": "PRSM"
+    }
+  },
+  {
+    "type": "addCitation",
+    "target": {
+      "kind": "event",
+      "id": "018f3a6e-0000-7000-8000-000000000004"
+    },
+    "citation": {
+      "source": {
+        "title": "Census 1880"
+      },
+      "page": "p. 12",
+      "quality": 2,
+      "evidence": {
+        "original": true,
+        "primaryInfo": true,
+        "direct": false
+      }
+    }
+  },
+  {
+    "type": "updateCitation",
+    "id": "018f3a6e-0000-7000-8000-000000000008",
+    "citation": {
+      "page": "p. 13",
+      "quality": 3
+    }
+  },
+  {
+    "type": "removeCitation",
+    "target": {
+      "kind": "name",
+      "id": "018f3a6e-0000-7000-8000-000000000002"
+    },
+    "citation": "018f3a6e-0000-7000-8000-000000000008"
+  },
+  {
+    "type": "attachMedia",
+    "target": {
+      "kind": "person",
+      "id": "018f3a6e-0000-7000-8000-000000000001"
+    },
+    "media": [
+      "018f3a6e-0000-7000-8000-000000000009"
+    ]
+  },
+  {
+    "type": "detachMedia",
+    "target": {
+      "kind": "person",
+      "id": "018f3a6e-0000-7000-8000-000000000001"
+    },
+    "media": "018f3a6e-0000-7000-8000-000000000009"
+  },
+  {
+    "type": "setPrimaryMedia",
+    "person": "018f3a6e-0000-7000-8000-000000000001",
+    "media": "018f3a6e-0000-7000-8000-000000000009"
+  },
+  {
+    "type": "updateMedia",
+    "id": "018f3a6e-0000-7000-8000-000000000009",
+    "title": "Wedding photograph",
+    "description": "Outside the church",
+    "dateRaw": "abt 1878"
+  }
+]
