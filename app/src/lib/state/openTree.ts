@@ -3,6 +3,7 @@ import type { ProjectInfo } from '../api/types';
 import { nav } from './nav.svelte';
 import { project } from './project.svelte';
 import { undoState } from './undo.svelte';
+import { settings } from './settings.svelte';
 
 const BY_SURNAME = {
   sort: 'surname',
@@ -19,6 +20,12 @@ export async function enterProject(api: Api, info: ProjectInfo): Promise<void> {
   project.open(info);
   nav.reset();
   undoState.reset();
+  // Settings belong to the tree (living threshold, home person): reload them for the tree that is now open.
+  try {
+    info = { ...info, homePerson: (await settings.load(api)).homePerson };
+  } catch {
+    /* keep the values already shown; Settings reloads on demand */
+  }
   if (info.personCount === 0) {
     nav.focus(null);
     nav.go({ name: 'people' });
@@ -33,6 +40,19 @@ export async function enterProject(api: Api, info: ProjectInfo): Promise<void> {
   nav.focus(id);
   nav.go({ name: 'family' });
   startHistoryHere();
+}
+
+/** Leaves the open tree: releases it in the backend and returns to Welcome. */
+export async function closeTree(api: Api): Promise<void> {
+  await api.closeProject();
+  project.close();
+  nav.reset();
+  undoState.reset();
+  try {
+    await settings.load(api);
+  } catch {
+    /* app-level settings reload on the next open */
+  }
 }
 
 /** Back must not return to the welcome screen of a project that is already open. */

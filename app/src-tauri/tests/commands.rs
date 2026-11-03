@@ -521,3 +521,24 @@ fn get_family_reads_a_union_and_refuses_unknown_ids() {
     let err = invoke(&w, "get_family", json!({"id": uuid::Uuid::now_v7()})).unwrap_err();
     assert_eq!(err["code"], "not_found");
 }
+
+#[test]
+fn open_media_externally_refuses_files_that_are_not_images_or_pdfs() {
+    let dir = tempfile::tempdir().unwrap();
+    let (state, id) = state_with_media(dir.path());
+    // A genuine picture passes whatever its name says.
+    let path = commands::checked_original_path(&state, id).unwrap();
+    assert!(path.is_file());
+    // The stored file is replaced by a Windows executable (what a hostile GEDCOM could bring in),
+    // keeping a harmless-looking name: the content decides, not the extension.
+    std::fs::write(&path, b"MZ\x90\x00\x03\x00\x00\x00 not a picture").unwrap();
+    let err = commands::checked_original_path(&state, id).unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid);
+    assert!(err.message.contains("only open photos and PDF"), "{}", err.message);
+    // A PDF is allowed even when the extension is something else.
+    std::fs::write(&path, b"%PDF-1.7\n%%EOF").unwrap();
+    assert!(commands::checked_original_path(&state, id).is_ok());
+    // Unknown ids still fail as not found.
+    let e = commands::checked_original_path(&state, uuid::Uuid::now_v7()).unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound);
+}

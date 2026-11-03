@@ -458,6 +458,37 @@ pub async fn attach_files<R: Runtime>(
     .await
 }
 
+/// The original file of a media item, but only when its CONTENT is an image or a PDF. The type is
+/// sniffed from magic bytes by the session; the file name and the stored MIME are never trusted,
+/// because an imported GEDCOM can name any file (`.lnk`, `.hta`, `.exe`) as a "photo".
+pub fn checked_original_path(state: &AppState, id: Uuid) -> ApiResult<PathBuf> {
+    state.with_session(|s| {
+        let path = s.media_original_path(id)?;
+        let refused = || {
+            ApiError::new(
+                ErrorCode::Invalid,
+                "Gene Tree will only open photos and PDF documents. This file is some other kind of file, so it was not opened.",
+            )
+        };
+        match s.media_bytes(id, gt_session::MediaSize::Original) {
+            Ok((_, mime)) if SAFE_OPEN_TYPES.contains(&mime.as_str()) => Ok(path),
+            Ok(_) => Err(refused()),
+            Err(e) if e.code == ErrorCode::Invalid => Err(refused()),
+            Err(e) => Err(e),
+        }
+    })
+}
+
+/// Content types that may be handed to the operating system's default program.
+const SAFE_OPEN_TYPES: &[&str] = &[
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "image/tiff",
+    "application/pdf",
+];
+
 /// Opens the original file of a media item with the OS default program. The path is resolved by
 /// the session (under `<project>/media`, lexical check first) and opened from Rust, so the webview
 /// needs no `opener:allow-open-path` permission and never names a path.
@@ -467,7 +498,7 @@ pub fn open_media_externally<R: Runtime>(
     state: State<'_, AppState>,
     id: Uuid,
 ) -> ApiResult<()> {
-    let path = state.with_session(|s| s.media_original_path(id))?;
+    let path = checked_original_path(&state, id)?;
     app.opener()
         .open_path(path.to_string_lossy().into_owned(), None::<&str>)
         .map_err(|e| ApiError::new(ErrorCode::Io, format!("Cannot open the file: {e}")))

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import Welcome from './Welcome.svelte';
@@ -32,6 +32,17 @@ describe('Welcome', () => {
     }
     const link = await screen.findByRole('link', { name: /Schmidt family.*C:\/Genealogy\/Schmidt family/ });
     expect(link).toBeInTheDocument();
+  });
+
+  it('opening_a_tree_that_is_open_elsewhere_shows_the_conflict_message_plainly', async () => {
+    const api = new MockApi(fixtureTree(80));
+    const msg = 'This tree is open in another Gene Tree window.';
+    vi.spyOn(api, 'openProject').mockRejectedValue(Object.assign(new Error(msg), { code: 'conflict' }));
+    const { platform, user } = setup(api);
+    platform.next = { folder: 'C:/Trees/Busy' };
+    await user.click(screen.getByRole('button', { name: /Open a tree/ }));
+    expect(await screen.findByText(msg)).toBeInTheDocument();
+    expect(project.info).toBeNull();
   });
 
   it('welcome_empty_state', async () => {

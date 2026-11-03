@@ -5,6 +5,7 @@ import MediaGrid from './MediaGrid.svelte';
 import { renderWith } from '../testing/renderWith';
 import { MockApi } from '../api/mock/MockApi';
 import { fixtureTree } from '../api/mock/fixtures';
+import { notices } from '../ui/notices.svelte';
 import type { MediaDto, MediaLinkDto } from '../api/api';
 
 const media = (id: string, over: Partial<MediaDto> = {}): MediaDto => ({
@@ -44,6 +45,16 @@ describe('MediaGrid', () => {
     expect(screen.queryByRole('img')).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Open will.pdf' }));
     expect(api.openedMedia).toEqual(['d1']);
+  });
+
+  it('refused_open_shows_a_plain_message', async () => {
+    const user = userEvent.setup();
+    const api = new MockApi(fixtureTree(30));
+    vi.spyOn(api, 'openMediaExternally').mockRejectedValue(new Error('Gene Tree will only open photos and PDF documents. This file is some other kind of file, so it was not opened.'));
+    const items = [link(media('d2', { mime: 'application/pdf', originalName: 'baptism.pdf' }))];
+    renderWith(MediaGrid, { items, onOpen: vi.fn() }, { api });
+    await user.click(screen.getByRole('button', { name: 'Open baptism.pdf' }));
+    await vi.waitFor(() => expect(notices.current?.message).toMatch(/only open photos and PDF documents/));
   });
 
   it('missing_file_tile_text', () => {
