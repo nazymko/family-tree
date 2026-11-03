@@ -11,7 +11,6 @@ use crate::error::ApiError;
 use crate::ops::{apply_to_tree_tracked, plan_with};
 use crate::session::Session;
 use gt_core::date::DayOrder;
-use gt_core::living::{LivingRule, compute_living};
 use gt_core::model::Citation;
 use gt_store::{ChangeOp, ChangeSet, RecordKind};
 use std::collections::HashMap;
@@ -46,12 +45,9 @@ impl Session {
     /// Living flags are recomputed for the whole tree and the changed ones are stored with it.
     fn commit(&mut self, cs: &ChangeSet) -> Result<(), ApiError> {
         apply_to_tree_tracked(&mut self.tree, cs, &mut self.edit.removed_at);
-        let (today, _) = (self.clock.0)();
-        let rule = LivingRule {
-            max_age_years: self.settings.living_max_age,
-        };
-        let fresh = compute_living(&self.tree, &rule, today);
-        let changed: Vec<(Uuid, bool)> = fresh
+        // One pass over the tree gives both maps; the flags that differ are stored with the edit.
+        let (effective, computed) = self.living_maps();
+        let changed: Vec<(Uuid, bool)> = effective
             .iter()
             .filter(|(id, v)| self.living.get(id) != Some(v))
             .map(|(id, v)| (*id, *v))
@@ -61,8 +57,8 @@ impl Session {
             return Err(e.into());
         }
         // Links, living flags, the person index and everything else derived from the tree
-        // (and the revision counter) are refreshed in one place.
-        self.rebuild();
+        // (and the revision counter) follow the change set.
+        self.refresh_after(cs, effective, computed, &changed);
         Ok(())
     }
 
