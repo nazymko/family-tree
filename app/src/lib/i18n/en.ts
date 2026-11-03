@@ -112,6 +112,7 @@ export const en = {
     notLatest: 'That change is no longer the latest one, so it cannot be undone from here.',
     notSaved: 'The change was not saved. Check the details and try again.',
     editNote: 'Edit note',
+    useTopBar: 'Use Undo in the top bar.',
   },
   sex: {
     male: 'Male',
@@ -578,6 +579,7 @@ export const en = {
     deleteTitle: 'Delete this family?',
     childrenKept: 'Children are kept. They stay in the tree and are only unlinked from this family.',
     keepFamily: 'Keep family',
+    gone: 'This family no longer exists.',
   },
   citation: {
     untitled: 'Untitled source',

@@ -111,7 +111,7 @@
         }
       }
     }
-    if (!own) throw { code: 'not_found', message: 'This family no longer exists.' };
+    if (!own) throw { code: 'not_found', message: t('famEd.gone') };
     const rows = await Promise.all(
       own.children.map(async (c) => {
         const d = await api.getPerson(c.person.id);
