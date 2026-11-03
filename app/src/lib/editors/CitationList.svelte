@@ -1,0 +1,94 @@
+<script lang="ts">
+  import Button from '../ui/Button.svelte';
+  import Banner from '../ui/Banner.svelte';
+  import CitationEditor from './CitationEditor.svelte';
+  import { getApi } from '../api/context';
+  import type { CitationDto, EditCommand, EditResult, OwnerRef } from '../api/api';
+
+  let { target, citations, onChanged }: { target: OwnerRef; citations: CitationDto[]; onChanged: (r: EditResult) => void } = $props();
+  const api = getApi();
+  let editing = $state<{ citation?: CitationDto; focusPage: boolean } | null>(null);
+  let error = $state('');
+
+  const label = (c: CitationDto) => `${c.source?.title ?? 'Untitled source'}${c.page ? `, ${c.page}` : ''}`;
+
+  async function run(cmd: EditCommand) {
+    error = '';
+    try {
+      return await api.apply(cmd);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+      return null;
+    }
+  }
+
+  async function clone(c: CitationDto) {
+    const r = await run({ type: 'addCitation', target, citation: { cloneOf: c.id } });
+    if (!r) return;
+    onChanged(r);
+    const id = r.touched[r.touched.length - 1] ?? c.id;
+    editing = { citation: { ...c, id }, focusPage: true };
+  }
+
+  async function remove(c: CitationDto) {
+    const r = await run({ type: 'removeCitation', target, citation: c.id });
+    if (r) onChanged(r);
+  }
+</script>
+
+<div class="list">
+  {#if error}<Banner kind="error">{error}</Banner>{/if}
+  {#if citations.length === 0}
+    <p class="none">No citations yet.</p>
+  {:else}
+    <ul>
+      {#each citations as c (c.id)}
+        <li>
+          <span class="t">{label(c)}</span>
+          <Button aria-label="Edit citation {label(c)}" onclick={() => (editing = { citation: c, focusPage: false })}>Edit</Button>
+          <Button aria-label="Clone citation {label(c)}" onclick={() => clone(c)}>Clone</Button>
+          <Button variant="danger" aria-label="Remove citation {label(c)}" onclick={() => remove(c)}>Remove</Button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+  <div><Button onclick={() => (editing = { focusPage: false })}>Add citation</Button></div>
+</div>
+
+{#if editing}
+  <CitationEditor
+    {target}
+    citation={editing.citation}
+    focusPage={editing.focusPage}
+    onCancel={() => (editing = null)}
+    onDone={(r) => {
+      editing = null;
+      onChanged(r);
+    }}
+  />
+{/if}
+
+<style>
+  .list {
+    display: grid;
+    gap: var(--s-3);
+  }
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  li {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    min-height: var(--row-h);
+    border-bottom: 1px solid var(--rule);
+  }
+  .t {
+    flex: 1;
+  }
+  .none {
+    color: var(--ink-1);
+  }
+</style>
