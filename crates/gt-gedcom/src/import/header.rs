@@ -22,7 +22,7 @@ pub(crate) fn detect_version(head: Option<&GedNode>) -> (GedcomVersion, Option<S
 pub(crate) const OWN_SUBM: &str = "@GTSUBM@";
 
 pub(crate) fn read_head(ctx: &mut Ctx, head: &GedNode) {
-    for (pos, c) in head.children.iter().enumerate() {
+    for c in &head.children {
         match c.tag.as_str() {
             "SOUR" => {
                 let producer = val(c).map(str::to_string);
@@ -49,7 +49,9 @@ pub(crate) fn read_head(ctx: &mut Ctx, head: &GedNode) {
             "SUBM" if val(c) == Some(OWN_SUBM) => {}
             _ => {
                 let mut v = std::mem::take(&mut ctx.tree.header.unknown);
-                push_unknown(ctx, &mut v, c, pos);
+                // Position among the unknown children only: the known ones differ per version.
+                let upos = v.len();
+                push_unknown(ctx, &mut v, c, upos, 0);
                 ctx.tree.header.unknown = v;
             }
         }

@@ -29,7 +29,7 @@ fn read_note_node(ctx: &mut Ctx, node: &GedNode, id: Uuid, shared: bool) -> Note
         }
         let mut common = std::mem::replace(&mut n.common, new_common(id));
         if !common_child(ctx, c, &mut common) {
-            push_unknown(ctx, &mut common.unknown, c, pos);
+            push_unknown(ctx, &mut common.unknown, c, pos, node.children.len());
         }
         n.common = common;
     }

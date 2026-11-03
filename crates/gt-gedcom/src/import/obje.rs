@@ -74,7 +74,7 @@ fn read_media_node(ctx: &mut Ctx, node: &GedNode, id: Uuid, inline: bool) -> Opt
             _ => {
                 let mut common = std::mem::replace(&mut m.common, new_common(id));
                 if !common_child(ctx, c, &mut common) {
-                    push_unknown(ctx, &mut common.unknown, c, pos);
+                    push_unknown(ctx, &mut common.unknown, c, pos, node.children.len());
                 }
                 m.common = common;
             }
@@ -92,7 +92,7 @@ fn read_media_node(ctx: &mut Ctx, node: &GedNode, id: Uuid, inline: bool) -> Opt
     Some(m)
 }
 
-pub(crate) fn read_media_record(ctx: &mut Ctx, node: &GedNode, id: Uuid, pos: usize) {
+pub(crate) fn read_media_record(ctx: &mut Ctx, node: &GedNode, id: Uuid) {
     match read_media_node(ctx, node, id, false) {
         Some(m) => {
             ctx.tree.media.insert(id, m);
@@ -100,7 +100,7 @@ pub(crate) fn read_media_record(ctx: &mut Ctx, node: &GedNode, id: Uuid, pos: us
         None => {
             // No FILE: keep the whole record verbatim.
             let mut v = std::mem::take(&mut ctx.tree.header.unknown);
-            push_unknown(ctx, &mut v, node, pos);
+            push_unknown(ctx, &mut v, node, usize::MAX, 0);
             ctx.tree.header.unknown = v;
         }
     }

@@ -96,7 +96,7 @@ pub(crate) fn link_citation(
             _ => {
                 let mut common = std::mem::replace(&mut cit.common, new_common(id));
                 if !common_child(ctx, k, &mut common) {
-                    push_unknown(ctx, &mut common.unknown, k, pos);
+                    push_unknown(ctx, &mut common.unknown, k, pos, c.children.len());
                 }
                 cit.common = common;
             }
@@ -129,7 +129,7 @@ pub(crate) fn read_source(ctx: &mut Ctx, node: &GedNode, id: Uuid) {
             _ => {
                 let mut common = std::mem::replace(&mut s.common, new_common(id));
                 if !common_child(ctx, c, &mut common) {
-                    push_unknown(ctx, &mut common.unknown, c, pos);
+                    push_unknown(ctx, &mut common.unknown, c, pos, node.children.len());
                 }
                 s.common = common;
             }
@@ -156,7 +156,7 @@ pub(crate) fn read_repository(ctx: &mut Ctx, node: &GedNode, id: Uuid) {
             _ => {
                 let mut common = std::mem::replace(&mut r.common, new_common(id));
                 if !common_child(ctx, c, &mut common) {
-                    push_unknown(ctx, &mut common.unknown, c, pos);
+                    push_unknown(ctx, &mut common.unknown, c, pos, node.children.len());
                 }
                 r.common = common;
             }

@@ -64,12 +64,19 @@ pub(crate) fn note_famc(ctx: &mut Ctx, indi: Uuid, c: &GedNode) {
                     continue;
                 }
                 let mut notes = Vec::new();
-                if link_child(ctx, indi, k, &mut info.citations, &mut notes, None) {
+                if link_child(
+                    ctx,
+                    crate::idgen::pair_id(indi, fam),
+                    k,
+                    &mut info.citations,
+                    &mut notes,
+                    None,
+                ) {
                     if !notes.is_empty() {
                         super::count_dropped(ctx, "FAMC.NOTE");
                     }
                 } else {
-                    push_unknown(ctx, &mut info.unknown, k, pos);
+                    push_unknown(ctx, &mut info.unknown, k, pos, c.children.len());
                 }
             }
         }
@@ -127,7 +134,7 @@ pub(crate) fn read_fam(ctx: &mut Ctx, node: &GedNode, id: Uuid) {
                 if read_event_child(ctx, ParticipantRef::Family(id), c) {
                     married |= c.tag == "MARR";
                 } else if !common_child(ctx, c, &mut common) {
-                    push_unknown(ctx, &mut common.unknown, c, pos);
+                    push_unknown(ctx, &mut common.unknown, c, pos, node.children.len());
                 }
             }
         }

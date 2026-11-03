@@ -47,7 +47,7 @@ pub(crate) fn read_indi(ctx: &mut Ctx, node: &GedNode, id: Uuid) {
             _ if read_event_child(ctx, ParticipantRef::Person(id), c) => {}
             _ => {
                 if !common_child(ctx, c, &mut common) {
-                    push_unknown(ctx, &mut common.unknown, c, pos);
+                    push_unknown(ctx, &mut common.unknown, c, pos, node.children.len());
                 }
             }
         }
@@ -234,7 +234,7 @@ fn read_name(ctx: &mut Ctx, person: Uuid, idx: usize, node: &GedNode, first: boo
                 n.citations = cit;
                 n.notes = notes;
                 if !done {
-                    push_unknown(ctx, &mut n.unknown, c, pos);
+                    push_unknown(ctx, &mut n.unknown, c, pos, node.children.len());
                 }
             }
         }
@@ -342,6 +342,7 @@ pub(crate) fn read_event(
             "CAUS" if ev.cause.is_none() && v.is_some() => ev.cause = v,
             "TYPE" if custom => {}
             "_EVID" => {}
+            "NOTE" if date_phrase_note(&mut ev, c) => {}
             "ASSO" => {
                 if let Some(p) = read_asso(ctx, c) {
                     add_participant(&mut ev.participants, p);
@@ -349,11 +350,33 @@ pub(crate) fn read_event(
             }
             _ => {
                 if !assertion_child(&mut ev.assertion, c) && !common_child(ctx, c, &mut common) {
-                    push_unknown(ctx, &mut common.unknown, c, pos);
+                    push_unknown(ctx, &mut common.unknown, c, pos, node.children.len());
                 }
             }
         }
     }
     ev.common = common;
     ctx.tree.events.insert(id, ev);
+}
+
+/// The exporter's `NOTE Date phrase: ...` carries a date phrase 5.5.1 cannot hold; put it back.
+fn date_phrase_note(ev: &mut Event, c: &GedNode) -> bool {
+    use gt_core::date::DateValue;
+    let Some(phrase) = val(c).and_then(|v| v.strip_prefix(super::DATE_PHRASE_NOTE)) else {
+        return false;
+    };
+    match &mut ev.date {
+        Some(g)
+            if g.phrase.is_none()
+                && !matches!(
+                    g.value,
+                    DateValue::Unparsed | DateValue::PhraseOnly | DateValue::Interpreted(_)
+                ) =>
+        {
+            g.phrase = Some(phrase.to_string());
+            g.raw = super::canonical_date_text(g);
+            true
+        }
+        _ => false,
+    }
 }

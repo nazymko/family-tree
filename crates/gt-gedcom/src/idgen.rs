@@ -42,3 +42,11 @@ pub(crate) fn place_id(chain: &str) -> Uuid {
     v.extend_from_slice(chain.as_bytes());
     det_id(&v)
 }
+
+/// Owner id for structures hanging off an INDI-to-FAM link (`FAMC`).
+pub(crate) fn pair_id(a: Uuid, b: Uuid) -> Uuid {
+    let mut v = b"famc:".to_vec();
+    v.extend_from_slice(a.as_bytes());
+    v.extend_from_slice(b.as_bytes());
+    det_id(&v)
+}

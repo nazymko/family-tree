@@ -23,6 +23,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use uuid::Uuid;
 
+pub(crate) use indi::compose_name;
 pub use report::{ImportReport, Repair};
 
 #[derive(Debug, Clone)]
@@ -128,9 +129,35 @@ pub(crate) fn new_assertion() -> Assertion {
 }
 
 /// Keep a node nobody understands, and count it.
-pub(crate) fn push_unknown(ctx: &mut Ctx, into: &mut Vec<RawNode>, c: &GedNode, pos: usize) {
+/// `RawNode::pos` of an unknown node that follows every known sibling.
+pub(crate) const TAIL_POS: u32 = u32::MAX - 1;
+
+pub(crate) fn push_unknown(
+    ctx: &mut Ctx,
+    into: &mut Vec<RawNode>,
+    c: &GedNode,
+    pos: usize,
+    siblings: usize,
+) {
     count_dropped(ctx, &c.tag);
-    into.push(c.to_raw(pos32(pos)));
+    // `pos` counts the known siblings that precede the node (earlier unknown siblings are in
+    // `into`), so it stays stable when the exporter emits unknown nodes among its own children.
+    // A node after which no known sibling follows is anchored to the tail (`TAIL_POS`).
+    let known_before = if pos == usize::MAX {
+        pos
+    } else {
+        pos.saturating_sub(into.len())
+    };
+    let tail = pos != usize::MAX && pos + 1 == siblings;
+    if tail {
+        // The run of unknown nodes at the very end (same known count) is anchored to the tail.
+        let k = pos32(known_before);
+        for u in into.iter_mut().rev().take_while(|u| u.pos == k) {
+            u.pos = TAIL_POS;
+        }
+    }
+    let at = if tail { TAIL_POS } else { pos32(known_before) };
+    into.push(c.to_raw(at));
 }
 
 /// Count a node that was not mapped (also used for nodes that had no place to be kept).
@@ -181,6 +208,20 @@ pub(crate) fn read_date(ctx: &mut Ctx, node: &GedNode) -> Option<GenDate> {
             }
         }
     };
+    // Normal forms, so that export and re-import agree:
+    // - a phrase next to an exact date is an interpreted date;
+    // - a phrase that is not itself a date is kept as unparsed text.
+    match g.value.clone() {
+        DateValue::Exact(d) if g.phrase.is_some() => g.value = DateValue::Interpreted(d),
+        DateValue::PhraseOnly => {
+            let p = g.phrase.clone()?;
+            let alt = GenDate::parse(&p, order);
+            if matches!(alt.value, DateValue::Unparsed) {
+                g = alt;
+            }
+        }
+        _ => {}
+    }
     if matches!(g.value, DateValue::Unparsed) {
         ctx.report.unparsed_dates.push((node.line, g.raw.clone()));
     } else {
@@ -188,6 +229,9 @@ pub(crate) fn read_date(ctx: &mut Ctx, node: &GedNode) -> Option<GenDate> {
     }
     Some(g)
 }
+
+/// Prefix of the note the 5.5.1 exporter writes for a date phrase it cannot express.
+pub const DATE_PHRASE_NOTE: &str = "Date phrase: ";
 
 /// The 5.5.1 text for a date, with any phrase the format would drop appended in parentheses.
 pub fn canonical_date_text(g: &GenDate) -> String {
@@ -376,7 +420,7 @@ pub(crate) fn place_from_text(ctx: &mut Ctx, text: &str, node: &GedNode) -> Uuid
             continue;
         }
         if !common_child(ctx, c, &mut common) {
-            push_unknown(ctx, &mut common.unknown, c, pos);
+            push_unknown(ctx, &mut common.unknown, c, pos, node.children.len());
         }
     }
     if let Some(p) = ctx.tree.places.get_mut(&leaf) {
@@ -534,18 +578,18 @@ pub fn import(bytes: &[u8], opts: &ImportOptions) -> ImportOutcome {
         }
     }
     repair::finish_preferred_links(&mut ctx);
-    for (r, id, i) in &recs {
+    for (r, id, _) in &recs {
         match r.tag.as_str() {
             "SOUR" => sour::read_source(&mut ctx, r, *id),
             "REPO" => sour::read_repository(&mut ctx, r, *id),
-            "OBJE" => obje::read_media_record(&mut ctx, r, *id, *i),
+            "OBJE" => obje::read_media_record(&mut ctx, r, *id),
             "NOTE" | "SNOTE" => note::read_note_record(&mut ctx, r, *id),
             "HEAD" | "TRLR" | "INDI" | "FAM" => {}
             "SUBM" if r.xref.as_deref() == Some(header::OWN_SUBM) => {}
             _ => {
                 // Records we do not model (SUBM, SUBN, vendor records) travel with the header.
                 let mut v = std::mem::take(&mut ctx.tree.header.unknown);
-                push_unknown(&mut ctx, &mut v, r, 0);
+                push_unknown(&mut ctx, &mut v, r, usize::MAX, 0);
                 ctx.tree.header.unknown = v;
             }
         }
