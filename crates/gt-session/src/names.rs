@@ -36,7 +36,7 @@ pub fn surname_of(n: &Name) -> String {
 /// Text for one name. `full` adds the prefix ("Dr.") and suffix ("Jr.") used in the name editor.
 pub fn compose(n: &Name, order: NameOrder, full: bool) -> String {
     let given = n.given.as_deref().map(str::trim).unwrap_or("");
-    // East Slavic names read "given patronymic surname" (Іван Петрович Коваль).
+    // East Slavic names read "given patronymic surname" (Ivan Petrovych Koval).
     let patronymic = n.patronymic.as_deref().map(str::trim).unwrap_or("");
     let surname = surname_of(n);
     let (prefix, suffix) = if full {
