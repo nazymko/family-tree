@@ -105,4 +105,19 @@ describe('EventEditor', () => {
     await waitFor(() => expect(spy).toHaveBeenCalled());
     expect(lastEvent(spy).id).toBe(ev.id);
   });
+
+  it('clearing_the_place_sends_empty_place_text_and_the_mock_clears_it', async () => {
+    const user = userEvent.setup();
+    const d = await findPerson(api, (x) => x.events.some((e) => e.place !== null));
+    const ev = d.events.find((e) => e.place !== null)!;
+    const spy = vi.spyOn(api, 'apply');
+    const onSaved = vi.fn();
+    renderWithApi(api, EventEditor, { owner: { kind: 'person', id: d.ref.id }, event: ev, onSaved, onCancel: vi.fn() });
+    await user.clear(screen.getByRole('combobox', { name: 'Place' }));
+    await user.click(screen.getByRole('button', { name: 'Save event' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(lastEvent(spy).placeText).toBe('');
+    const after = (await api.getPerson(d.ref.id)).events.find((e) => e.id === ev.id)!;
+    expect(after.place).toBeNull();
+  });
 });

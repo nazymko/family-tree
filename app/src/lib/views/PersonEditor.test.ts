@@ -141,4 +141,13 @@ describe('PersonEditor', () => {
     await waitFor(() => expect(spy).toHaveBeenCalled());
     expect(await screen.findByText('Event saved')).toBeInTheDocument();
   });
+
+  it('deleting_an_event_toasts_deleted_not_saved', async () => {
+    const user = userEvent.setup();
+    await open();
+    await user.click(screen.getAllByRole('button', { name: /^Edit (Birth|Death|Occupation|.+)$/ }).find((b) => b.getAttribute('aria-label')?.match(/^Edit [A-Z]/) && !/name|note|family/i.test(b.getAttribute('aria-label')!))!);
+    await user.click(screen.getByRole('button', { name: 'Delete event' }));
+    expect(await screen.findByText('Event deleted')).toBeInTheDocument();
+    expect(screen.queryByText('Event saved')).toBeNull();
+  });
 });

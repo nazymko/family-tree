@@ -9,7 +9,13 @@ export type SexKind = 'male' | 'female' | 'intersex' | 'unknown' | 'other';
 export interface PersonRef {
   id: Id;
   name: string;
-  lifespan: string; // "1850-1921", "b. 1850", ""
+  /**
+   * The STATED years with a qualifier, never the range bounds of the parsed date: about/est/calc "c. 1968",
+   * before "bef. 1968", after "aft. 1968", between/from..to the first stated year with "c.". Both years:
+   * "c. 1968 – 2021" (en dash with spaces). Birth only: "b. 1850". Unknown birth with a death: "? – 2021".
+   * Empty when neither is known.
+   */
+  lifespan: string;
   sex: SexKind;
   living: boolean;
   private: boolean;

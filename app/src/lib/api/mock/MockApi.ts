@@ -52,7 +52,7 @@ import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
 import { layoutDescendants, layoutPedigree, outlineOf, type Layout, type LayoutSource } from './mockLayout';
 import { toDateDto, yearOf } from './mockParse';
-import { previewDate } from './mockDate';
+import { lifespanText, previewDate } from './mockDate';
 
 export { MockApiError } from './model';
 
@@ -113,6 +113,11 @@ const LABELS: Record<EditCommand['type'], string> = {
 
 const missing = (what: string, id: Id) => new MockApiError('not_found', `No ${what} with id "${id}" in this project.`);
 const invalid = (message: string) => new MockApiError('invalid', message);
+
+/** An unnamed person is valid in genealogy; show it as Unknown. */
+function unnamedOk(n: NameDto): NameDto {
+  return n.display ? n : { ...n, display: 'Unknown' };
+}
 
 export class MockApi implements Api {
   private db: Db;
@@ -700,12 +705,7 @@ export class MockApi implements Api {
   }
 
   private lifespan(p: PersonRec): string {
-    const b = yearOf(this.birth(p)?.date ?? null);
-    const d = yearOf(this.death(p)?.date ?? null);
-    if (b !== null && d !== null) return `${b}-${d}`;
-    if (b !== null) return `b. ${b}`;
-    if (d !== null) return `d. ${d}`;
-    return '';
+    return lifespanText(this.birth(p)?.date ?? null, this.death(p)?.date ?? null);
   }
 
   private ref(p: PersonRec): PersonRef {
@@ -895,7 +895,6 @@ export class MockApi implements Api {
     const id = this.ids.next();
     const given = draft.given?.trim() || undefined;
     const surnames = draft.surnames.map((s) => s.trim()).filter(Boolean);
-    if (!given && surnames.length === 0) throw invalid('Enter a given name or a surname.');
     const events: EventDto[] = [];
     if (draft.birthDateRaw?.trim() || draft.birthPlaceText?.trim()) {
       events.push(
@@ -913,7 +912,7 @@ export class MockApi implements Api {
       sexText: null,
       livingOverride: null,
       private: false,
-      names: [makeName(this.ids.next(), { kind: 'birth', preferred: true, private: false, given, surnames })],
+      names: [unnamedOk(makeName(this.ids.next(), { kind: 'birth', preferred: true, private: false, given, surnames }))],
       events,
       notes: [],
       media: [],

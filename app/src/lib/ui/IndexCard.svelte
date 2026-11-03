@@ -20,15 +20,20 @@
 <style>
   .index-card {
     position: relative;
-    padding: 0 var(--s-6) var(--s-2);
+    padding: var(--s-3) var(--s-6) var(--s-2);
     border: 1px solid var(--rule);
     border-radius: var(--r-1);
     background-color: var(--paper-1);
     background-image:
       linear-gradient(to right, transparent 3rem, var(--ribbon-wash) 3rem 3.0625rem, transparent 3.0625rem),
       repeating-linear-gradient(to bottom, transparent 0 27px, var(--rule) 27px 28px);
-    background-position: 0 0, 0 var(--s-3);
+    background-position: 0 0, 0 var(--s-3); /* ruling starts at the top padding */
     line-height: var(--rule-step);
+  }
+  /* A heading taller than one rule would be crossed by the ruling: give it paper. */
+  .index-card :global(h1),
+  .index-card :global(h2) {
+    background: var(--paper-1);
   }
   .tab {
     position: absolute;

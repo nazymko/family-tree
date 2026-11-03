@@ -89,7 +89,7 @@
     custom: k0.custom,
     date: event?.date?.raw ?? '',
     placeId: event?.place?.id as Id | undefined,
-    placeText: event?.place ? '' : '',
+    placeText: '',
     description: event?.description ?? '',
     age: event?.age ?? '',
     cause: event?.cause ?? '',
@@ -130,6 +130,7 @@
     if (date) input.dateRaw = date;
     if (f.placeId !== undefined) input.placeId = f.placeId;
     else if (opt(f.placeText)) input.placeText = opt(f.placeText);
+    else if (event?.place) input.placeText = ''; // the place was cleared
     const description = opt(f.description);
     if (description) input.description = description;
     const age = opt(f.age);

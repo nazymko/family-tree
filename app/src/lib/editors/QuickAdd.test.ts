@@ -77,17 +77,22 @@ describe('QuickAdd', () => {
 
   it('empty_name_allowed_but_warns', async () => {
     const user = userEvent.setup();
-    const spy = vi.spyOn(api, 'apply').mockResolvedValue({
-      label: 'Add partner',
-      focus: null,
-      touched: [],
-      undo: { canUndo: true, canRedo: false, undoLabel: null, redoLabel: null },
-    });
+    const before = (await api.getPerson(single.ref.id)).partnerships.length;
     const { onDone } = show(single, 'partner');
     expect(screen.getByText('No name entered: saved as Unknown')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Add partner' }));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
-    expect(spy).toHaveBeenCalledTimes(1);
+    const r = onDone.mock.calls[0][0] as { focus: string };
+    expect((await api.getPerson(r.focus)).ref.name).toBe('Unknown');
+    expect((await api.getPerson(single.ref.id)).partnerships.length).toBe(before + 1);
+  });
+
+  it('surname_only_is_dirty_and_esc_asks', async () => {
+    const user = userEvent.setup();
+    show(single, 'mother');
+    await user.type(screen.getByRole('textbox', { name: 'Surname(s)' }), 'Neumann');
+    await user.keyboard('{Escape}');
+    expect(screen.getByText('Discard changes?')).toBeInTheDocument();
   });
 
   it('cancel_does_not_call_api', async () => {

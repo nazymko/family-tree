@@ -189,8 +189,18 @@
 
   const rowId = (id: Id) => `${uid}-child-${id}`;
 
+  let reordering = false;
   async function moveTo(from: number, to: number, keepFocus: Id | null) {
-    if (to < 0 || to >= children.length || from === to) return;
+    if (reordering || to < 0 || to >= children.length || from === to) return;
+    reordering = true;
+    try {
+      await doMove(from, to, keepFocus);
+    } finally {
+      reordering = false;
+    }
+  }
+
+  async function doMove(from: number, to: number, keepFocus: Id | null) {
     const next = [...children];
     const [m] = next.splice(from, 1);
     next.splice(to, 0, m);
@@ -204,6 +214,7 @@
 
   function onRowKey(e: KeyboardEvent, i: number) {
     if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    if ((e.target as HTMLElement).closest('select, input, textarea')) return; // keep the control's own keys
     e.preventDefault();
     void moveTo(i, i + (e.key === 'ArrowUp' ? -1 : 1), children[i].person.id);
   }

@@ -67,18 +67,22 @@
     | { kind: 'delete' }
   >(null);
 
+  let loadSeq = 0;
   async function load() {
+    const mine = ++loadSeq;
     try {
       const d = await api.getPerson(id);
+      const h = await api.history(id, 20);
+      if (mine !== loadSeq) return; // a newer load is in flight
       detail = d;
       sex = d.sex;
       sexText = d.sexText ?? '';
       living = d.livingOverride ?? '';
       isPrivate = d.private;
-      history = await api.history(id, 20);
+      history = h;
       loadError = '';
     } catch (e) {
-      loadError = errMessage(e);
+      if (mine === loadSeq) loadError = errMessage(e);
     }
     if (!settings.loaded) void settings.load(api).catch(() => {});
   }
@@ -167,9 +171,18 @@
   function closeDialog() {
     dialog = null;
   }
+  /** "Event saved" or "Event deleted", from what the edit actually did. */
+  function verb(r: EditResult, noun: string): string {
+    return /^delete/i.test(r.label) ? `${noun} deleted` : `${noun} saved`;
+  }
   async function saved(r: EditResult, message: string) {
     dialog = null;
     await afterEdit(r, message);
+  }
+  /** An immediate change inside an open dialog: refresh quietly, the dialog shows the result. */
+  async function quiet(r: EditResult) {
+    undoState.ingest(r);
+    await load();
   }
   async function confirmDelete() {
     try {
@@ -194,6 +207,7 @@
   {:else if !detail}
     <p class="loading">Loading person</p>
   {:else}
+    <div class="card">
     <IndexCard as="section" ribbon={isHome}>
       <div class="head">
         <h1><bdi dir="auto">{detail.ref.name}</bdi></h1>
@@ -206,6 +220,7 @@
         </div>
       </div>
     </IndexCard>
+    </div>
 
     {#if error}<Banner kind="error">{error}</Banner>{/if}
 
@@ -392,13 +407,13 @@
 {/if}
 
 {#if detail && dialog?.kind === 'name'}
-  <NameEditor person={id} name={dialog.name} onCancel={closeDialog} onSaved={(r) => saved(r, 'Name saved')} />
+  <NameEditor person={id} name={dialog.name} onCancel={closeDialog} onSaved={(r) => saved(r, verb(r, 'Name'))} />
 {:else if detail && dialog?.kind === 'event'}
   <EventEditor
     owner={{ kind: 'person', id }}
     event={dialog.event}
     onCancel={closeDialog}
-    onSaved={(r) => saved(r, 'Event saved')}
+    onSaved={(r) => saved(r, verb(r, 'Event'))}
   />
 {:else if detail && dialog?.kind === 'family'}
   <FamilyEditor
@@ -406,15 +421,15 @@
     anchor={id}
     seedPartner={id}
     onCancel={closeDialog}
-    onChanged={(r) => afterEdit(r, 'Family saved')}
-    onDone={(r) => saved(r, 'Family saved')}
+    onChanged={quiet}
+    onDone={(r) => saved(r, verb(r, 'Family'))}
   />
 {:else if detail && dialog?.kind === 'note'}
   <NoteEditor
     target={{ kind: 'person', id }}
     note={dialog.note}
     onCancel={closeDialog}
-    onSaved={(r) => saved(r, 'Note saved')}
+    onSaved={(r) => saved(r, verb(r, 'Note'))}
   />
 {:else if detail && dialog?.kind === 'quick'}
   <QuickAdd
@@ -441,10 +456,12 @@
     max-width: 70rem;
     padding: var(--s-6);
   }
+  .card {
+    max-width: var(--measure);
+  }
   .head {
     display: grid;
     gap: 0;
-    padding-top: var(--s-4);
   }
   .head h1 {
     font-size: var(--t-2xl);
@@ -452,11 +469,15 @@
   }
   .life {
     line-height: var(--rule-step);
+    padding-inline-start: calc(3rem + var(--s-3)); /* right of the card margin rule */
     color: var(--ink-1);
     font-variant-numeric: tabular-nums;
   }
   .head-actions {
-    padding-block: var(--s-2) var(--s-4);
+    display: flex;
+    align-items: center;
+    min-height: 56px;
+    background: var(--paper-1);
   }
   section {
     display: grid;

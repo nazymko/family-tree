@@ -46,19 +46,24 @@
   let openAfter = $state(false);
   let chosenFamily = $state('');
   let detail = $state<PersonDetail | null>(null);
-  let touchedSurname = false;
+  let touchedSurname = $state(false);
   let saving = $state(false);
   let error = $state('');
 
   const prefillSurname = rel === 'child' || rel === 'sibling' || rel === 'father';
   $effect(() => {
-    void api.getPerson(anchor.id).then((d) => {
-      detail = d;
-      if (prefillSurname && !touchedSurname && !surnames) {
-        const n = d.names.find((x) => x.preferred) ?? d.names[0];
-        surnames = (n?.surnames ?? []).join(', ');
-      }
-    });
+    void api
+      .getPerson(anchor.id)
+      .then((d) => {
+        detail = d;
+        if (prefillSurname && !touchedSurname && !surnames) {
+          const n = d.names.find((x) => x.preferred) ?? d.names[0];
+          surnames = (n?.surnames ?? []).join(', ');
+        }
+      })
+      .catch(() => {
+        // The prefill is a convenience: without it the user types the surname.
+      });
   });
 
   const choices = $derived(rel === 'child' && !family && detail && detail.partnerships.length > 1 ? detail.partnerships : []);
