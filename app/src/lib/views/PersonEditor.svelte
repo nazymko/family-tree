@@ -27,6 +27,7 @@
   import NoteEditor from '../editors/NoteEditor.svelte';
   import QuickAdd from '../editors/QuickAdd.svelte';
   import EventEditor from '../editors/EventEditor.svelte';
+  import FamilyEditor from '../editors/FamilyEditor.svelte';
   import { errMessage } from '../editors/errors';
 
   let {
@@ -61,6 +62,7 @@
     | { kind: 'name'; name?: NameDto }
     | { kind: 'note'; note?: NoteDto }
     | { kind: 'event'; event?: EventDto }
+    | { kind: 'family'; family?: Id }
     | { kind: 'quick'; relation: 'father' | 'mother' | 'partner' | 'child' | 'sibling' }
     | { kind: 'delete' }
   >(null);
@@ -307,6 +309,9 @@
               <span>Unknown partner</span>
             {/if}
             {#if ps.summary}<span class="meta">{ps.summary}</span>{/if}
+            <Button onclick={() => (dialog = { kind: 'family', family: ps.familyId })} aria-label="Edit family with {ps.partner?.name ?? 'unknown partner'}"
+              >Edit family</Button
+            >
           </p>
           {#each ps.children as c (c.person.id)}
             <p class="line child">
@@ -321,6 +326,7 @@
       <div class="btns">
         <Button onclick={() => (dialog = { kind: 'quick', relation: 'partner' })}>Add partner</Button>
         <Button onclick={() => (dialog = { kind: 'quick', relation: 'child' })}>Add child</Button>
+        <Button onclick={() => (dialog = { kind: 'family' })}>Add family</Button>
       </div>
     </section>
 
@@ -393,6 +399,15 @@
     event={dialog.event}
     onCancel={closeDialog}
     onSaved={(r) => saved(r, 'Event saved')}
+  />
+{:else if detail && dialog?.kind === 'family'}
+  <FamilyEditor
+    family={dialog.family}
+    anchor={id}
+    seedPartner={id}
+    onCancel={closeDialog}
+    onChanged={(r) => afterEdit(r, 'Family saved')}
+    onDone={(r) => saved(r, 'Family saved')}
   />
 {:else if detail && dialog?.kind === 'note'}
   <NoteEditor
