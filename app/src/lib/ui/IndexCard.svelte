@@ -6,7 +6,7 @@
     children,
     body,
     ribbon = false,
-    ribbonTitle = 'Home person',
+    ribbonTitle,
     as = 'div',
     flipKey,
   }: {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import Toast from './Toast.svelte';
   import { toasts } from '../state/toast.svelte';
+  import { t } from '../i18n';
 
   const LIFETIME = 6000;
 
@@ -40,7 +41,7 @@
   }
 </script>
 
-<div class="region" role="region" aria-label="Notifications" aria-live="polite">
+<div class="region" role="region" aria-label={t('ui.notifications')} aria-live="polite">
   {#each toasts.items as t (t.id)}
     <div class="slot" use:autoDismiss={{ id: t.id, keep: t.kind === 'error' }}>
       <Toast

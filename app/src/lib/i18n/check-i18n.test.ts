@@ -37,7 +37,8 @@ describe('check-i18n: the Ukrainian catalogue matches the English one', () => {
   });
 
   it('gives_every_plural_the_forms_ukrainian_needs', () => {
-    const plurals = new Set(base.filter(([p]) => p.endsWith('.other')).map(([p]) => p.slice(0, -'.other'.length)));
+    const names = new Set(base.map(([p]) => p));
+    const plurals = [...names].filter((p) => p.endsWith('.other') && names.has(p.slice(0, -'.other'.length) + '.one')).map((p) => p.slice(0, -'.other'.length));
     for (const p of plurals) {
       for (const form of ['one', 'few', 'many', 'other']) expect(other.get(`${p}.${form}`) ?? '', `${p}.${form}`).not.toBe('');
     }

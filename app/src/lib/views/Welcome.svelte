@@ -7,6 +7,7 @@
   import { getApi, getPlatform } from '../api/context';
   import type { RecentProject } from '../api/types';
   import { enterProject } from '../state/openTree';
+  import { t, currentLocale } from '../i18n';
 
   const api = getApi();
   const platform = getPlatform();
@@ -32,7 +33,7 @@
   }
 
   async function openFolder() {
-    const dir = await platform.pickFolder('Open a tree');
+    const dir = await platform.pickFolder(t('welcome.openTree'));
     if (dir) await open(dir);
   }
 
@@ -42,7 +43,7 @@
   }
 
   function when(ms: number): string {
-    return new Date(ms).toLocaleDateString(undefined, { dateStyle: 'medium' });
+    return new Date(ms).toLocaleDateString(currentLocale(), { dateStyle: 'medium' });
   }
 </script>
 
@@ -51,25 +52,25 @@
     <header class="hero">
       <Ribbon title="Gene Tree" size="2rem" />
       <h1>Gene Tree</h1>
-      <p class="lede">Your family history, kept on your own computer.</p>
+      <p class="lede">{t('welcome.lede')}</p>
     </header>
 
     {#if error}<Banner kind="error">{error}</Banner>{/if}
 
     {#if mode === 'home'}
       <div class="actions">
-        <Button variant="primary" onclick={() => (mode = 'import')}>Import a family tree file</Button>
-        <Button onclick={() => (mode = 'create')}>Create a new tree</Button>
-        <Button onclick={openFolder}>Open a tree</Button>
+        <Button variant="primary" onclick={() => (mode = 'import')}>{t('welcome.importFile')}</Button>
+        <Button onclick={() => (mode = 'create')}>{t('welcome.createTree')}</Button>
+        <Button onclick={openFolder}>{t('welcome.openTree')}</Button>
       </div>
 
       <section aria-labelledby="recent-h">
         <div class="ledger">
-          <h2 id="recent-h" class="rh">Recent trees</h2>
+          <h2 id="recent-h" class="rh">{t('welcome.recent')}</h2>
           {#if recents === null}
             <p class="note">&nbsp;</p>
           {:else if recents.length === 0}
-            <p class="note">No trees yet. Import a GEDCOM, GEDZIP, Gramps or Древо Жизни file to start, or create an empty tree.</p>
+            <p class="note">{t('welcome.noneYet')}</p>
           {:else}
             <ul class="recent">
               {#each recents as r (r.dir)}
@@ -77,9 +78,9 @@
                   {#if r.missing}
                     <div class="gone">
                       <span class="rname">{r.name}</span>
-                      <Banner kind="warning">This folder is not there any more</Banner>
-                      <Button variant="quiet" onclick={() => remove(r.dir)} aria-label="Remove {r.name} from the list">
-                        Remove
+                      <Banner kind="warning">{t('welcome.folderGone')}</Banner>
+                      <Button variant="quiet" onclick={() => remove(r.dir)} aria-label={t('welcome.removeNamed', { name: r.name })}>
+                        {t('common.remove')}
                       </Button>
                     </div>
                   {:else}
@@ -93,7 +94,7 @@
                     >
                       <span class="rname">{r.name}</span>
                       <bdi dir="auto" class="rdir">{r.dir}</bdi>
-                      <span class="rwhen tnum">Opened {when(r.openedAt)}</span>
+                      <span class="rwhen tnum">{t('welcome.opened', { date: when(r.openedAt) })}</span>
                     </a>
                   {/if}
                 </li>

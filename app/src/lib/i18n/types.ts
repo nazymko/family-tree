@@ -10,7 +10,7 @@ export interface Plural {
  * The shape of a catalogue, derived from the English one: every leaf is a string, or a Plural when the
  * English entry has an `other` form. Another language must have exactly the same keys.
  */
-export type Widen<T> = T extends string ? string : T extends { other: string } ? Plural : { [K in keyof T]: Widen<T[K]> };
+export type Widen<T> = T extends string ? string : T extends { one: string; other: string } ? Plural : { [K in keyof T]: Widen<T[K]> };
 
 type Join<P extends string, K extends string> = P extends '' ? K : `${P}.${K}`;
 
@@ -20,7 +20,7 @@ export type LeafPaths<T, L, P extends string = ''> = {
     ? string extends L
       ? Join<P, K>
       : never
-    : T[K] extends { other: string }
+    : T[K] extends { one: string; other: string }
       ? Plural extends L
         ? Join<P, K>
         : never

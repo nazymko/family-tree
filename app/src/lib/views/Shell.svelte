@@ -33,17 +33,19 @@
   import { undoState } from '../state/undo.svelte';
   import { closeTree } from '../state/openTree';
   import { currentPlatform, formatKeys, registerShortcuts, type Shortcut } from '../state/shortcuts';
+  import { t, plural, type MessageKey } from '../i18n';
+  import { editLabel } from '../i18n/backend';
 
   const api = getApi();
 
   type NavName = 'family' | 'people' | 'pedigree' | 'descendants' | 'sources' | 'media' | 'settings';
-  const ITEMS: { name: NavName; label: string; icon: IconName }[] = [
-    { name: 'family', label: 'Family', icon: 'family' },
-    { name: 'people', label: 'People', icon: 'people' },
-    { name: 'pedigree', label: 'Pedigree', icon: 'pedigree' },
-    { name: 'descendants', label: 'Descendants', icon: 'descendants' },
-    { name: 'sources', label: 'Sources', icon: 'sources' },
-    { name: 'media', label: 'Media', icon: 'media' },
+  const ITEMS: { name: NavName; label: MessageKey; icon: IconName }[] = [
+    { name: 'family', label: 'nav.family', icon: 'family' },
+    { name: 'people', label: 'nav.people', icon: 'people' },
+    { name: 'pedigree', label: 'nav.pedigree', icon: 'pedigree' },
+    { name: 'descendants', label: 'nav.descendants', icon: 'descendants' },
+    { name: 'sources', label: 'nav.sources', icon: 'sources' },
+    { name: 'media', label: 'nav.media', icon: 'media' },
   ];
 
   let searchOpen = $state(false);
@@ -77,42 +79,82 @@
   }
 
   const shortcuts: Shortcut[] = [
-    { id: 'search', keys: 'Mod+K', label: 'Search the tree', run: () => (searchOpen = !searchOpen), inInput: true },
-    { id: 'filter', keys: '/', label: 'Focus the list filter', run: () => filterInput()?.focus(), when: () => !!filterInput() },
-    { id: 'undo', keys: 'Mod+Z', label: 'Undo', run: () => void undo() },
-    { id: 'redo', keys: 'Mod+Shift+Z', label: 'Redo', run: () => void redo() },
-    { id: 'redo-y', keys: 'Mod+Y', label: 'Redo', run: () => void redo() },
-    { id: 'new', keys: 'Mod+N', label: 'New person', run: () => ui.requestAdd() },
+    { id: 'search', keys: 'Mod+K', get label() {
+      return t('shortcuts.search');
+    }, run: () => (searchOpen = !searchOpen), inInput: true },
+    { id: 'filter', keys: '/', get label() {
+      return t('shortcuts.filter');
+    }, run: () => filterInput()?.focus(), when: () => !!filterInput() },
+    { id: 'undo', keys: 'Mod+Z', get label() {
+      return t('shortcuts.undo');
+    }, run: () => void undo() },
+    { id: 'redo', keys: 'Mod+Shift+Z', get label() {
+      return t('shortcuts.redo');
+    }, run: () => void redo() },
+    { id: 'redo-y', keys: 'Mod+Y', get label() {
+      return t('shortcuts.redo');
+    }, run: () => void redo() },
+    { id: 'new', keys: 'Mod+N', get label() {
+      return t('shortcuts.newPerson');
+    }, run: () => ui.requestAdd() },
     {
       id: 'edit',
       keys: 'Mod+E',
-      label: 'Edit the focus person',
+      get label() {
+      return t('shortcuts.editFocus');
+    },
       run: () => nav.focusPerson && nav.go({ name: 'person', id: nav.focusPerson }),
       when: () => !!nav.focusPerson,
     },
     {
       id: 'home',
       keys: 'Mod+Home',
-      label: 'Go to the home person',
+      get label() {
+      return t('shortcuts.home');
+    },
       run: () => {
         if (homeId) nav.focus(homeId);
         nav.go({ name: 'family' });
       },
     },
-    { id: 'back', keys: 'Alt+ArrowLeft', label: 'Back', run: () => nav.back() },
-    { id: 'forward', keys: 'Alt+ArrowRight', label: 'Forward', run: () => nav.forward() },
-    { id: 'n1', keys: 'Mod+1', label: 'Family', run: () => go('family') },
-    { id: 'n2', keys: 'Mod+2', label: 'People', run: () => go('people') },
-    { id: 'n3', keys: 'Mod+3', label: 'Pedigree', run: () => go('pedigree') },
-    { id: 'n4', keys: 'Mod+4', label: 'Descendants', run: () => go('descendants') },
-    { id: 'n5', keys: 'Mod+5', label: 'Sources', run: () => go('sources') },
-    { id: 'n6', keys: 'Mod+6', label: 'Media', run: () => go('media') },
-    { id: 'export', keys: 'Mod+Shift+E', label: 'Export GEDCOM', run: () => (exportOpen = true) },
-    { id: 'settings', keys: 'Mod+,', label: 'Settings', run: () => go('settings') },
-    { id: 'save', keys: 'Mod+S', label: 'Save', run: () => {
-        if (project.info && project.save === 'saved') toasts.push({ text: 'All changes are saved' });
+    { id: 'back', keys: 'Alt+ArrowLeft', get label() {
+      return t('shortcuts.back');
+    }, run: () => nav.back() },
+    { id: 'forward', keys: 'Alt+ArrowRight', get label() {
+      return t('shortcuts.forward');
+    }, run: () => nav.forward() },
+    { id: 'n1', keys: 'Mod+1', get label() {
+      return t('nav.family');
+    }, run: () => go('family') },
+    { id: 'n2', keys: 'Mod+2', get label() {
+      return t('nav.people');
+    }, run: () => go('people') },
+    { id: 'n3', keys: 'Mod+3', get label() {
+      return t('nav.pedigree');
+    }, run: () => go('pedigree') },
+    { id: 'n4', keys: 'Mod+4', get label() {
+      return t('nav.descendants');
+    }, run: () => go('descendants') },
+    { id: 'n5', keys: 'Mod+5', get label() {
+      return t('nav.sources');
+    }, run: () => go('sources') },
+    { id: 'n6', keys: 'Mod+6', get label() {
+      return t('nav.media');
+    }, run: () => go('media') },
+    { id: 'export', keys: 'Mod+Shift+E', get label() {
+      return t('shortcuts.exportGedcom');
+    }, run: () => (exportOpen = true) },
+    { id: 'settings', keys: 'Mod+,', get label() {
+      return t('nav.settings');
+    }, run: () => go('settings') },
+    { id: 'save', keys: 'Mod+S', get label() {
+      return t('shortcuts.save');
+    }, run: () => {
+        if (project.info && project.save === 'saved') toasts.push({ text: t('shell.allSaved') });
       }, },
-    { id: 'help', keys: '?', label: 'Keyboard shortcuts', run: () => (sheetOpen = true) },
+    { id: 'help', keys: '?', get label() {
+      return t('shortcuts.title');
+    }, run: () => (sheetOpen = true) },
   ];
 
   onMount(() => {
@@ -172,16 +214,18 @@
   }
 
   const current = $derived(nav.route.name);
-  const saveText = $derived(project.save === 'saving' ? 'Saving…' : project.save === 'failed' ? 'Not saved' : 'Saved');
+  const saveText = $derived(
+    project.save === 'saving' ? t('shell.saving') : project.save === 'failed' ? t('shell.notSaved') : t('shell.saved'),
+  );
 </script>
 
 {#snippet mediaSection(d: PersonDetail)}
   {#if d.media.length > 0}
     <MediaGrid items={d.media} target={{ kind: 'person', id: d.ref.id }} onOpen={() => openMedia(d.ref.id)} />
   {:else}
-    <p class="sec-empty">Nothing attached.</p>
+    <p class="sec-empty">{t('shell.nothingAttached')}</p>
   {/if}
-  <p><Button onclick={() => openMedia(d.ref.id)}>Open media</Button></p>
+  <p><Button onclick={() => openMedia(d.ref.id)}>{t('shell.openMedia')}</Button></p>
 {/snippet}
 
 {#snippet sourcesSection(d: PersonDetail)}
@@ -194,7 +238,7 @@
       <Ribbon title="Gene Tree" size="1.25rem" />
       <span class="brand-name">Gene Tree</span>
     </div>
-    <nav aria-label="Main">
+    <nav aria-label={t('shell.main')}>
       <ul>
         {#each ITEMS as it (it.name)}
           <li>
@@ -208,20 +252,20 @@
               }}
             >
               <Icon name={it.icon} />
-              <span class="lbl">{it.label}</span>
+              <span class="lbl">{t(it.label)}</span>
             </a>
           </li>
         {/each}
         <li class="gap">
           <button type="button" class="item" onclick={() => (exportOpen = true)}>
             <Icon name="download" />
-            <span class="lbl">Export</span>
+            <span class="lbl">{t('shell.export')}</span>
           </button>
         </li>
         <li>
           <button type="button" class="item" onclick={() => void closeThisTree()}>
             <Icon name="x" />
-            <span class="lbl">Close tree</span>
+            <span class="lbl">{t('shell.closeTree')}</span>
           </button>
         </li>
         <li>
@@ -235,15 +279,15 @@
             }}
           >
             <Icon name="settings" />
-            <span class="lbl">Settings</span>
+            <span class="lbl">{t('nav.settings')}</span>
           </a>
         </li>
       </ul>
     </nav>
     <footer class="foot">
       <div class="pname" title={project.info?.dir}>{project.info?.name}</div>
-      <div class="pcount tnum">{project.info?.personCount ?? 0} people</div>
-      <div class="saved" role="status" aria-label="Save status" class:bad={project.save === 'failed'}>
+      <div class="pcount tnum">{plural('common.people', project.info?.personCount ?? 0)}</div>
+      <div class="saved" role="status" aria-label={t('shell.saveStatus')} class:bad={project.save === 'failed'}>
         <Icon name="check" />
         <span class="lbl">{saveText}</span>
       </div>
@@ -253,23 +297,23 @@
   <div class="col">
     <header class="top">
       <div class="hist">
-        <IconButton label="Back" icon="chevron-left" disabled={!nav.canBack} onclick={() => nav.back()} />
-        <IconButton label="Forward" icon="chevron-right" disabled={!nav.canForward} onclick={() => nav.forward()} />
+        <IconButton label={t('common.back')} icon="chevron-left" disabled={!nav.canBack} onclick={() => nav.back()} />
+        <IconButton label={t('common.forward')} icon="chevron-right" disabled={!nav.canForward} onclick={() => nav.forward()} />
       </div>
       <button type="button" class="find" onclick={() => (searchOpen = true)}>
         <Icon name="search" />
-        <span>Search the tree</span>
+        <span>{t('ui.searchTheTree')}</span>
         <Kbd>{modLabel}</Kbd>
       </button>
       <div class="hist">
         <IconButton
-          label={undoState.undoLabel ?? 'Undo last change'}
+          label={undoState.undoLabel ? editLabel(undoState.undoLabel) : t('shell.undoLast')}
           icon="undo"
           disabled={!undoState.canUndo}
           onclick={() => void undo()}
         />
         <IconButton
-          label={undoState.redoLabel ?? 'Redo last change'}
+          label={undoState.redoLabel ? editLabel(undoState.redoLabel) : t('shell.redoLast')}
           icon="redo"
           disabled={!undoState.canRedo}
           onclick={() => void redo()}
@@ -296,7 +340,7 @@
           {#if nav.focusPerson ?? homeId}
             <MediaView personId={(nav.focusPerson ?? homeId)!} />
           {:else}
-            <RoutePlaceholder title="Media" note="Choose a person first." />
+            <RoutePlaceholder title={t('nav.media')} note={t('shell.chooseFirst')} />
           {/if}
         {:else if nav.route.name === 'settings'}
           <Settings />

@@ -3,26 +3,12 @@ import { project } from './project.svelte';
 import { toasts } from './toast.svelte';
 import { undoIfMine } from './ownUndo';
 import { undoState } from './undo.svelte';
+import { t, plural } from '../i18n';
+import { editDoneText, editLabel } from '../i18n/backend';
 
-const PAST: Record<string, string> = {
-  Save: 'saved',
-  Add: 'added',
-  Delete: 'deleted',
-  Edit: 'saved',
-  Remove: 'removed',
-  Attach: 'attached',
-  Detach: 'detached',
-  Set: 'set',
-  Reorder: 'reordered',
-  Link: 'linked',
-  Unlink: 'unlinked',
-};
-
-/** "Save event" -> "Event saved". Unknown shapes fall back to "<label>: done". */
+/** "Save event" -> "Event saved", in the active language. */
 export function toastText(label: string): string {
-  const m = /^([A-Z][a-z]+)\s+(.+)$/.exec(label);
-  if (!m || !PAST[m[1]]) return `${label}: done`;
-  return `${m[2].charAt(0).toUpperCase()}${m[2].slice(1)} ${PAST[m[1]]}`;
+  return editDoneText(label);
 }
 
 /**
@@ -55,12 +41,12 @@ export function observeApi(inner: Api): Api {
 
   function undoAction(mine: number) {
     return {
-      label: 'Undo',
+      label: t('shell.undo'),
       run: () => {
         void undoIfMine(
           wrapped as Api,
           () => mine === seq,
-          () => toasts.push({ text: 'That change is no longer the latest one, so it cannot be undone from here.', kind: 'warn' }),
+          () => toasts.push({ text: t('edit.notLatest'), kind: 'warn' }),
         );
       },
     };
@@ -78,14 +64,14 @@ export function observeApi(inner: Api): Api {
       const r = await tracked(() => inner.undo());
       undoState.ingest(r);
       supersede();
-      if (r) toasts.push({ text: `Undone: ${r.label.replace(/^Undo: /, '')}` });
+      if (r) toasts.push({ text: t('edit.undone', { label: editLabel(r.label.replace(/^Undo: /, '')) }) });
       return r;
     },
     async redo() {
       const r = await tracked(() => inner.redo());
       undoState.ingest(r);
       supersede();
-      if (r) toasts.push({ text: `Redone: ${r.label.replace(/^Redo: /, '')}` });
+      if (r) toasts.push({ text: t('edit.redone', { label: editLabel(r.label.replace(/^Redo: /, '')) }) });
       return r;
     },
     async attachFiles(target, paths, opts) {
@@ -94,7 +80,7 @@ export function observeApi(inner: Api): Api {
       if (r.attached.length > 0 && !opts?.silent) {
         const mine = supersede();
         const n = r.attached.length;
-        toasts.push({ text: `${n} ${n === 1 ? 'file' : 'files'} attached`, action: undoAction(mine) });
+        toasts.push({ text: plural('edit.filesAttached', n), action: undoAction(mine) });
       }
       return r;
     },
