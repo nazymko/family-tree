@@ -48,7 +48,7 @@ fn quote(term: &str) -> String {
 impl Project {
     fn word_hits(&self, expr: &str, lim: i64) -> Result<Vec<SearchHit>, StoreError> {
         let mut st = self.conn.prepare_cached(
-            "SELECT kind, id, label, snippet(search_words, 3, '[', ']', '...', 10)              FROM search_words WHERE search_words MATCH ?1 ORDER BY rank LIMIT ?2",
+            "SELECT kind, id, label, snippet(search_words, 3, '', '', '…', 10)              FROM search_words WHERE search_words MATCH ?1 ORDER BY rank LIMIT ?2",
         )?;
         let mut rows = st.query(rusqlite::params![expr, lim])?;
         let mut out = Vec::new();

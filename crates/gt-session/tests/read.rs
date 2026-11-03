@@ -565,6 +565,32 @@ fn search_limit_clamped_and_person_ref_attached() {
 }
 
 #[test]
+fn person_search_hit_subtitle_is_lifespan_not_raw_index_text() {
+    let recs = vec![indi(
+        1,
+        "Hana /Yamada/",
+        "1 BIRT
+2 DATE 1901
+2 PLAC Kyoto
+1 DEAT
+2 DATE 1980
+",
+    )];
+    let (_d, s) = open_ged(&ged(&recs));
+    let hits = s.search("Yamada", 10).unwrap();
+    let h = hits
+        .iter()
+        .find(|h| h.kind == HitKindDto::Person)
+        .expect("person hit");
+    let snip = h.snippet.as_deref().expect("lifespan subtitle");
+    assert_eq!(snip, h.person.as_ref().unwrap().lifespan);
+    assert!(
+        !snip.contains('/') && !snip.contains('['),
+        "raw index text leaked: {snip}"
+    );
+}
+
+#[test]
 fn settings_round_trip_through_meta() {
     let (dir, mut s) = open_ged(&family_ged());
     let anna = person_id(&s, "Anna Schmidt");

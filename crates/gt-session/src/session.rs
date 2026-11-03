@@ -367,19 +367,31 @@ impl Session {
         let hits = self.project.search(q, limit.min(MAX_SEARCH))?;
         Ok(hits
             .into_iter()
-            .map(|h| SearchHitDto {
-                kind: match h.kind {
-                    HitKind::Person => HitKindDto::Person,
-                    HitKind::Place => HitKindDto::Place,
-                    HitKind::Source => HitKindDto::Source,
-                    HitKind::Note => HitKindDto::Note,
-                },
-                person: (h.kind == HitKind::Person)
+            .map(|h| {
+                let person = (h.kind == HitKind::Person)
                     .then(|| self.person_ref(h.id))
-                    .flatten(),
-                id: h.id,
-                label: h.label,
-                snippet: h.snippet,
+                    .flatten();
+                // A person hit's subtitle is its lifespan (as on every card), never the raw
+                // index text, which holds GEDCOM name forms like "Anna /Smith/".
+                let snippet = match (&h.kind, &person) {
+                    (HitKind::Person, Some(p)) => {
+                        Some(p.lifespan.clone()).filter(|s| !s.is_empty())
+                    }
+                    (HitKind::Person, None) => None,
+                    _ => h.snippet,
+                };
+                SearchHitDto {
+                    kind: match h.kind {
+                        HitKind::Person => HitKindDto::Person,
+                        HitKind::Place => HitKindDto::Place,
+                        HitKind::Source => HitKindDto::Source,
+                        HitKind::Note => HitKindDto::Note,
+                    },
+                    person,
+                    id: h.id,
+                    label: h.label,
+                    snippet,
+                }
             })
             .collect())
     }
