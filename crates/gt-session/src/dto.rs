@@ -363,3 +363,14 @@ impl Default for Settings {
         }
     }
 }
+
+/// Live feedback while a date is typed (`Api.parseDate`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DatePreview {
+    pub raw: String,
+    pub understood_as: String,
+    pub range: Option<String>,
+    pub status: DateStatus,
+    pub warnings: Vec<String>,
+}

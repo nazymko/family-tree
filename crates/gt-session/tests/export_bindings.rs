@@ -51,6 +51,7 @@ fn export_all(dir: &Path) {
         Page<PersonRow>,
         DateDto,
         DateStatus,
+        DatePreview,
         PlaceOption,
         NameDto,
         NameKindDto,
