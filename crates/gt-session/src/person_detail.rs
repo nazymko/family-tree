@@ -212,7 +212,7 @@ impl Session {
                         original_name: md.original_name.clone(),
                         date: md.date.as_ref().map(date_dto),
                         description: md.description.clone(),
-                        resolved: self.project.dir.join(&md.path).is_file(),
+                        resolved: self.media_file_exists(&md.path),
                         width: None,
                         height: None,
                         sha256: md.sha256.clone(),
@@ -221,6 +221,26 @@ impl Session {
                 })
             })
             .collect()
+    }
+
+    /// Whether a stored media path names a file inside `<project>/media`. The path is checked
+    /// lexically first (no absolute, UNC, drive or `..` forms); only then is the disk touched.
+    pub(crate) fn media_file_exists(&self, stored: &str) -> bool {
+        let rel = std::path::Path::new(stored);
+        if stored.is_empty()
+            || rel.has_root()
+            || rel.components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::Prefix(_) | std::path::Component::RootDir
+                )
+            })
+        {
+            return false;
+        }
+        let candidate = self.project.dir.join(rel);
+        let roots = [self.project.dir.join("media")];
+        gt_gedcom::is_lexically_under(&candidate, &roots) && candidate.is_file()
     }
 
     pub(crate) fn event_dto(&self, e: &Event) -> EventDto {

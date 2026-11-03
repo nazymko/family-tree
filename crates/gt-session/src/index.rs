@@ -321,7 +321,7 @@ impl PersonIndex {
             })
             .collect();
         let mut order: Vec<u32> = (0..u32::try_from(s.len()).unwrap_or(u32::MAX)).collect();
-        order.sort_unstable_by_key(|&i| (keys[i as usize], i));
+        order.sort_unstable_by_key(|&i| (keys[i as usize], s[i as usize].id));
         order
     }
 }

@@ -17,6 +17,7 @@ pub use export::{ExportOptions, export};
 pub use gt_core::date::GedcomVersion;
 pub use import::{
     ImportOptions, ImportOutcome, ImportReport, MissingMedia, MissingReason, Repair, import,
+    is_lexically_under,
 };
 pub use node::{GedNode, TokenIssue, Tokenized};
 pub use tokenizer::tokenize;

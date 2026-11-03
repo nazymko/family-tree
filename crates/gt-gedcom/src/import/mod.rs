@@ -24,6 +24,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 pub(crate) use indi::compose_name;
+pub use media_paths::is_lexically_under;
 pub use report::{ImportReport, MissingMedia, MissingReason, Repair};
 
 #[derive(Debug, Clone)]
