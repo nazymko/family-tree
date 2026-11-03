@@ -53,3 +53,35 @@ fn media_missing_source_is_an_error() {
     let p = Project::create(&tmp.path().join("t.genetree")).unwrap();
     assert!(p.add_media_file(&tmp.path().join("nope.jpg")).is_err());
 }
+
+#[test]
+fn media_jpeg_and_jpg_share_one_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = Project::create(&tmp.path().join("t.genetree")).unwrap();
+    let a = tmp.path().join("a.jpeg");
+    let b = tmp.path().join("b.JPG");
+    std::fs::write(&a, b"pixels").unwrap();
+    std::fs::write(&b, b"pixels").unwrap();
+    let (r1, _) = p.add_media_file(&a).unwrap();
+    let (r2, _) = p.add_media_file(&b).unwrap();
+    assert_eq!(r1, r2);
+    assert!(r1.ends_with(".jpg"));
+    assert_eq!(count_files(&p.dir.join("media")), 1);
+}
+
+#[test]
+fn media_name_matches_stored_content_and_no_tmp_left() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = Project::create(&tmp.path().join("t.genetree")).unwrap();
+    let a = tmp.path().join("big.bin");
+    std::fs::write(&a, vec![7u8; 300_000]).unwrap();
+    let (rel, sha) = p.add_media_file(&a).unwrap();
+    use sha2::{Digest, Sha256};
+    let stored = std::fs::read(p.dir.join(&rel)).unwrap();
+    let again: String = Sha256::digest(&stored)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(again, sha);
+    assert_eq!(count_files(&p.dir.join("media")), 1);
+}

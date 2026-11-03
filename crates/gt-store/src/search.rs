@@ -46,6 +46,24 @@ fn quote(term: &str) -> String {
 }
 
 impl Project {
+    fn word_hits(&self, expr: &str, lim: i64) -> Result<Vec<SearchHit>, StoreError> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT kind, id, label, snippet(search_words, 3, '[', ']', '...', 10)              FROM search_words WHERE search_words MATCH ?1 ORDER BY rank LIMIT ?2",
+        )?;
+        let mut rows = st.query(rusqlite::params![expr, lim])?;
+        let mut out = Vec::new();
+        while let Some(r) = rows.next()? {
+            let snippet: Option<String> = r.get(3)?;
+            out.push(SearchHit {
+                kind: HitKind::parse(&r.get::<_, String>(0)?)?,
+                id: parse_uuid(&r.get::<_, String>(1)?)?,
+                label: r.get(2)?,
+                snippet: snippet.filter(|s| !s.is_empty()),
+            });
+        }
+        Ok(out)
+    }
+
     /// Union of word-prefix matches, trigram matches and phonetic matches, deduplicated
     /// by id and ranked in that order, truncated to `limit`.
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>, StoreError> {
@@ -67,29 +85,11 @@ impl Project {
             .split_whitespace()
             .map(|t| format!("{}*", quote(t)))
             .collect();
-        {
-            let mut st = self.conn.prepare_cached(
-                "SELECT kind, id, label, snippet(search_words, 3, '[', ']', '...', 10) \
-                 FROM search_words WHERE search_words MATCH ?1 ORDER BY rank LIMIT ?2",
-            )?;
-            let mut rows = match st.query(rusqlite::params![terms.join(" "), lim]) {
-                Ok(r) => r,
-                // A query FTS5 cannot parse simply has no word matches.
-                Err(rusqlite::Error::SqliteFailure(..)) => return Ok(hits),
-                Err(e) => return Err(e.into()),
-            };
-            while let Some(r) = rows.next()? {
-                let snippet: Option<String> = r.get(3)?;
-                push(
-                    &mut hits,
-                    SearchHit {
-                        kind: HitKind::parse(&r.get::<_, String>(0)?)?,
-                        id: parse_uuid(&r.get::<_, String>(1)?)?,
-                        label: r.get(2)?,
-                        snippet: snippet.filter(|s| !s.is_empty()),
-                    },
-                );
-            }
+        // A query FTS5 cannot parse has no word matches; the other searches still run.
+        match self.word_hits(&terms.join(" "), lim) {
+            Ok(found) => found.into_iter().for_each(|h| push(&mut hits, h)),
+            Err(StoreError::Sql(rusqlite::Error::SqliteFailure(..))) => {}
+            Err(e) => return Err(e),
         }
 
         // 2. Trigram: at least 3 characters; shorter CJK text falls back to a substring scan.

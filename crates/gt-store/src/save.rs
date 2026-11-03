@@ -238,8 +238,16 @@ fn save_all(tx: &Transaction, tree: &Tree, living: &HashMap<Uuid, bool>) -> Resu
     for e in tree.events.values() {
         let Some(pl) = e.place else { continue };
         for part in &e.participants {
-            if let ParticipantRef::Person(pid) = part.target {
-                event_places.entry(pid).or_default().push(pl);
+            match part.target {
+                ParticipantRef::Person(pid) => event_places.entry(pid).or_default().push(pl),
+                // A family event (marriage) belongs to both partners.
+                ParticipantRef::Family(fid) => {
+                    if let Some(f) = tree.families.get(&fid) {
+                        for pid in [f.partner1, f.partner2].into_iter().flatten() {
+                            event_places.entry(pid).or_default().push(pl);
+                        }
+                    }
+                }
             }
         }
     }

@@ -136,3 +136,23 @@ fn plain_dir_ok() {
     let tmp = tempfile::tempdir().unwrap();
     assert_eq!(check_location(tmp.path()), None);
 }
+
+#[test]
+fn prune_keeps_the_new_backup_even_with_keep_zero() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = Project::create(&tmp.path().join("t.genetree")).unwrap();
+    let first = p.backup(BackupReason::Manual, 5).unwrap();
+    let second = p.backup(BackupReason::Manual, 0).unwrap();
+    assert!(second.exists());
+    assert!(!first.exists());
+}
+
+#[test]
+fn prune_failure_is_not_fatal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = Project::create(&tmp.path().join("t.genetree")).unwrap();
+    // A directory named like an old backup cannot be removed with remove_file.
+    std::fs::create_dir(p.dir.join("backups").join("tree-20000101-000000-manual.db")).unwrap();
+    let new = p.backup(BackupReason::Manual, 1).unwrap();
+    assert!(new.exists());
+}
