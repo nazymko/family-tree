@@ -126,12 +126,6 @@ pub fn parse_date_preview(input: &str, order: DayOrder) -> DatePreview {
     }
 }
 
-/// A place's name segments, leaf first.
-struct Chain {
-    id: Uuid,
-    names: Vec<String>,
-}
-
 fn place_name(p: &gt_core::model::Place) -> String {
     p.names
         .first()
@@ -140,11 +134,30 @@ fn place_name(p: &gt_core::model::Place) -> String {
         .unwrap_or_default()
 }
 
-impl Session {
-    /// Number of events referencing each place or any of its descendants.
-    fn place_use_counts(&self) -> HashMap<Uuid, u32> {
+/// One place with its chain pre-folded for matching.
+#[derive(Debug)]
+struct PlaceEntry {
+    option: PlaceOption,
+    /// Folded leaf name.
+    leaf: String,
+    /// Folded names of the ancestors, parent first.
+    ancestors: Vec<String>,
+    /// Folded `full`.
+    full: String,
+    /// Events at the place or any descendant.
+    uses: u32,
+}
+
+/// Place suggestions index, built when the session opens and after every rebuild.
+#[derive(Debug, Default)]
+pub struct PlaceIndex {
+    entries: Vec<PlaceEntry>,
+}
+
+impl PlaceIndex {
+    pub fn build(tree: &gt_core::tree::Tree) -> PlaceIndex {
         let mut direct: HashMap<Uuid, u32> = HashMap::new();
-        for e in self.tree.events.values() {
+        for e in tree.events.values() {
             if let Some(p) = e.place {
                 *direct.entry(p).or_default() += 1;
             }
@@ -156,72 +169,79 @@ impl Session {
             for _ in 0..16 {
                 let Some(pid) = next else { break };
                 *total.entry(pid).or_default() += n;
-                next = self.tree.places.get(&pid).and_then(|p| p.parent);
+                next = tree.places.get(&pid).and_then(|p| p.parent);
             }
         }
-        total
-    }
-
-    fn chain_of(&self, id: Uuid) -> Chain {
-        let mut names = Vec::new();
-        let mut next = Some(id);
-        for _ in 0..16 {
-            let Some(p) = next.and_then(|p| self.tree.places.get(&p)) else {
-                break;
+        let mut folded_names: HashMap<Uuid, String> = HashMap::new();
+        let mut entries = Vec::with_capacity(tree.places.len());
+        for (id, place) in &tree.places {
+            let mut names = Vec::new();
+            let mut next = Some(*id);
+            for _ in 0..16 {
+                let Some(p) = next.and_then(|p| tree.places.get(&p)) else {
+                    break;
+                };
+                let n = place_name(p);
+                if !n.is_empty() {
+                    names.push((next.unwrap_or(*id), n));
+                }
+                next = p.parent;
+            }
+            let mut fold_of = |(pid, n): &(Uuid, String)| {
+                folded_names.entry(*pid).or_insert_with(|| fold(n)).clone()
             };
-            let n = place_name(p);
-            if !n.is_empty() {
-                names.push(n);
-            }
-            next = p.parent;
+            let folded: Vec<String> = names.iter().map(&mut fold_of).collect();
+            let strs: Vec<&str> = names.iter().map(|(_, n)| n.as_str()).collect();
+            let full = strs.join(", ");
+            entries.push(PlaceEntry {
+                option: PlaceOption {
+                    id: *id,
+                    name: strs.first().map(|s| (*s).to_string()).unwrap_or_default(),
+                    full: full.clone(),
+                    kind: place.kind.clone(),
+                },
+                leaf: folded.first().cloned().unwrap_or_default(),
+                ancestors: folded.iter().skip(1).cloned().collect(),
+                full: folded.join(", "),
+                uses: total.get(id).copied().unwrap_or(0),
+            });
         }
-        Chain { id, names }
+        PlaceIndex { entries }
     }
 
-    /// Places whose leaf name starts with `prefix` come first, then places with an ancestor
-    /// that does; within a group by use count, then ICU order. `limit` is clamped to 20.
-    /// Computed from the tree on each call, so it always reflects the latest edit.
-    pub fn suggest_places(&self, prefix: &str, limit: usize) -> Vec<PlaceOption> {
+    /// Leaf-prefix matches first, then ancestor-prefix matches; each by use count, then ICU order.
+    pub fn suggest(&self, prefix: &str, limit: usize) -> Vec<PlaceOption> {
         let limit = limit.min(MAX_PLACES);
         if limit == 0 {
             return Vec::new();
         }
         let q = fold(prefix.trim());
-        let uses = self.place_use_counts();
-        let mut hits: Vec<(u8, u32, String, Chain)> = Vec::new();
-        for id in self.tree.places.keys() {
-            let chain = self.chain_of(*id);
-            let full = chain.names.join(", ");
-            let tier = if q.is_empty() {
-                0
-            } else {
-                let folded: Vec<String> = chain.names.iter().map(|n| fold(n)).collect();
-                if folded.first().is_some_and(|n| n.starts_with(&q)) || fold(&full).starts_with(&q)
-                {
-                    0
-                } else if folded.iter().skip(1).any(|n| n.starts_with(&q)) {
-                    1
-                } else {
-                    continue;
-                }
-            };
-            hits.push((tier, uses.get(id).copied().unwrap_or(0), full, chain));
+        let mut hits: Vec<(u8, &PlaceEntry)> = Vec::new();
+        for e in &self.entries {
+            if q.is_empty() || e.leaf.starts_with(&q) || e.full.starts_with(&q) {
+                hits.push((0, e));
+            } else if e.ancestors.iter().any(|a| a.starts_with(&q)) {
+                hits.push((1, e));
+            }
         }
         hits.sort_by(|a, b| {
             a.0.cmp(&b.0)
-                .then(b.1.cmp(&a.1))
-                .then_with(|| collate(&a.2, &b.2))
-                .then(a.3.id.cmp(&b.3.id))
+                .then(b.1.uses.cmp(&a.1.uses))
+                .then_with(|| collate(&a.1.option.full, &b.1.option.full))
+                .then(a.1.option.id.cmp(&b.1.option.id))
         });
         hits.into_iter()
             .take(limit)
-            .map(|(_, _, full, c)| PlaceOption {
-                id: c.id,
-                name: c.names.first().cloned().unwrap_or_default(),
-                full,
-                kind: self.tree.places.get(&c.id).and_then(|p| p.kind.clone()),
-            })
+            .map(|(_, e)| e.option.clone())
             .collect()
+    }
+}
+
+impl Session {
+    /// Places whose leaf name starts with `prefix` come first, then places with an ancestor
+    /// that does; within a group by use count, then ICU order. `limit` is clamped to 20.
+    pub fn suggest_places(&self, prefix: &str, limit: usize) -> Vec<PlaceOption> {
+        self.place_index.suggest(prefix, limit)
     }
 
     /// Sources whose title starts with `prefix` first, then those with a title, abbreviation

@@ -92,3 +92,30 @@ fn search_under_100ms() {
     assert!(!hits.is_empty());
     assert!(took < Duration::from_millis(100), "search took {took:?}");
 }
+
+#[test]
+#[ignore = "release-only budget check"]
+fn place_suggest_under_5ms() {
+    let (mut s, _) = open(&fixture());
+    let t = Instant::now();
+    s.rebuild();
+    let rebuilt = t.elapsed();
+    let t = Instant::now();
+    let idx = gt_session::lookup::PlaceIndex::build(s.tree());
+    let built = t.elapsed();
+    drop(idx);
+    let prefixes = ["a", "ber", "ham", "s", "new", "", "zzz", "st"];
+    let t = Instant::now();
+    let mut n = 0;
+    for _ in 0..25 {
+        for p in prefixes {
+            n += s.suggest_places(p, 20).len();
+        }
+    }
+    let avg = t.elapsed() / (25 * prefixes.len() as u32);
+    eprintln!(
+        "place index build {built:?}, full rebuild {rebuilt:?}, avg suggest {avg:?} ({n} results)"
+    );
+    assert!(built < Duration::from_millis(100), "index build {built:?}");
+    assert!(avg < Duration::from_millis(5), "suggest avg {avg:?}");
+}

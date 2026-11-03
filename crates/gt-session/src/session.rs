@@ -45,6 +45,7 @@ pub struct Session {
     pub(crate) living_computed: HashMap<Uuid, bool>,
     pub(crate) settings: Settings,
     pub(crate) clock: SessionClock,
+    pub(crate) place_index: crate::lookup::PlaceIndex,
 }
 
 impl Session {
@@ -61,6 +62,7 @@ impl Session {
             living_computed: HashMap::new(),
             settings,
             clock,
+            place_index: Default::default(),
         };
         s.rebuild();
         Ok(s)
@@ -99,6 +101,7 @@ impl Session {
             &self.living,
             self.settings.name_order,
         );
+        self.place_index = crate::lookup::PlaceIndex::build(&self.tree);
     }
 
     pub fn tree(&self) -> &Tree {
