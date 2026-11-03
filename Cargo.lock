@@ -293,6 +293,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "gt-layout"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "gt-store"
 version = "0.1.0"
 dependencies = [
