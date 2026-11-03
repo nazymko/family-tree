@@ -266,3 +266,29 @@ pub fn last_jdn(cal: Calendar, year: i32, month: Option<u8>, day: Option<u8>) ->
     };
     jdn_of(cal, year, m, d)
 }
+
+/// Gregorian `(year, month, day)` of a Julian Day Number (proleptic).
+pub fn gregorian_ymd(jdn: i32) -> (i32, u8, u8) {
+    let a = i64::from(jdn) + 32044;
+    let b = (4 * a + 3).div_euclid(146_097);
+    let c = a - (146_097 * b).div_euclid(4);
+    let d = (4 * c + 3).div_euclid(1461);
+    let e = c - (1461 * d).div_euclid(4);
+    let m = (5 * e + 2).div_euclid(153);
+    let day = e - (153 * m + 2).div_euclid(5) + 1;
+    let month = m + 3 - 12 * m.div_euclid(10);
+    let year = 100 * b + d - 4800 + m.div_euclid(10);
+    (
+        i32::try_from(year).unwrap_or(i32::MAX),
+        u8::try_from(month).unwrap_or(1),
+        u8::try_from(day).unwrap_or(1),
+    )
+}
+
+/// JDN of the same Gregorian month/day `years` earlier (29 Feb clamps to 28 Feb).
+pub fn gregorian_minus_years(jdn: i32, years: u32) -> i32 {
+    let (y, m, d) = gregorian_ymd(jdn);
+    let ny = y.saturating_sub(i32::try_from(years).unwrap_or(i32::MAX));
+    let nd = days_in_month(Calendar::Gregorian, ny, m).map_or(d, |max| d.min(max));
+    first_jdn(Calendar::Gregorian, ny, Some(m), Some(nd)).unwrap_or(i32::MIN)
+}
