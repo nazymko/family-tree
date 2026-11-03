@@ -377,7 +377,7 @@ pub struct DatePreview {
 
 // ---- Charts (mirrors ChartRequest .. OutlineItem in types.ts) ----
 
-wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants });
+wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants, Whole });
 wire_enum!(EdgeKindDto, "lowercase", { Parent, Partner, Dup });
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -457,6 +457,34 @@ pub struct ChartEdge {
 pub struct ChartWindow {
     pub nodes: Vec<ChartNode>,
     pub edges: Vec<ChartEdge>,
+}
+
+/// A heading above one family (connected group of people) in the whole-tree chart.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WholeBlockDto {
+    /// "Koval family (34 people)" or "Unconnected people (12)".
+    pub title: String,
+    pub people: u32,
+    /// The block of people who have no family link at all.
+    pub unconnected: bool,
+    pub rect: Rect,
+}
+
+/// The whole-tree chart: the usual chart meta plus the block headings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WholeMeta {
+    pub meta: ChartMeta,
+    pub blocks: Vec<WholeBlockDto>,
+}
+
+/// Where a person sits in a whole-tree chart.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartLocation {
+    pub node_id: u32,
+    pub rect: Rect,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
