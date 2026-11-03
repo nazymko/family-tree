@@ -1707,6 +1707,7 @@ dependencies = [
  "gt-gedcom",
  "icu_collator",
  "indexmap 2.14.2",
+ "proptest",
  "rusqlite",
  "serde",
  "serde_json",
