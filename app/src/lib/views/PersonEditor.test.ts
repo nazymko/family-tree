@@ -129,4 +129,16 @@ describe('PersonEditor', () => {
     expect(await screen.findByText('The disk is full. Free some space and save again.')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Given name' })).toHaveValue('Kept');
   });
+
+  it('add_event_opens_event_editor_and_saves', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'apply');
+    await open();
+    await user.click(screen.getByRole('button', { name: 'Add event' }));
+    const dlg = screen.getByRole('dialog', { name: 'Add event' });
+    await user.type(within(dlg).getByRole('textbox', { name: 'Date' }), '1901');
+    await user.click(within(dlg).getByRole('button', { name: 'Save event' }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(await screen.findByText('Event saved')).toBeInTheDocument();
+  });
 });

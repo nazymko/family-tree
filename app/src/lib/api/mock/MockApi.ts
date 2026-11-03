@@ -51,7 +51,8 @@ import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } fr
 import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
 import { layoutDescendants, layoutPedigree, outlineOf, type Layout, type LayoutSource } from './mockLayout';
-import { toDateDto, toPreview, yearOf } from './mockParse';
+import { toDateDto, yearOf } from './mockParse';
+import { previewDate } from './mockDate';
 
 export { MockApiError } from './model';
 
@@ -322,7 +323,7 @@ export class MockApi implements Api {
   }
 
   async parseDate(input: string, order: DayOrder): Promise<DatePreview> {
-    return toPreview(input, order);
+    return previewDate(input, order);
   }
 
   async suggestPlaces(prefix: string, limit: number): Promise<PlaceOption[]> {

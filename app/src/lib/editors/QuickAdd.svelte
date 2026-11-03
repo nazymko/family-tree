@@ -6,6 +6,9 @@
   import Select from '../ui/Select.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
   import Banner from '../ui/Banner.svelte';
+  import DateField from './DateField.svelte';
+  import PlacePicker from './PlacePicker.svelte';
+  import { settings } from '../state/settings.svelte';
   import EditorDialog from './EditorDialog.svelte';
   import { errMessage, opt, splitList } from './errors';
 
@@ -120,8 +123,8 @@
     oninput={() => (touchedSurname = true)}
   />
   <Select label="Sex" options={SEXES} bind:value={sex} />
-  <TextField label="Birth date" bind:value={birthDate} />
-  <TextField label="Birth place" bind:value={birthPlace} />
+  <DateField label="Birth date" value={birthDate} onChange={(r) => (birthDate = r)} order={settings.value.dayOrder} />
+  <PlacePicker label="Birth place" value={null} text="" onChange={(v) => (birthPlace = v?.placeText ?? '')} onOption={(p) => (birthPlace = p.full)} />
   <Checkbox label="Open new person afterwards" bind:checked={openAfter} />
   {#if unnamed}<Banner kind="warning">No name entered: saved as Unknown</Banner>{/if}
 </EditorDialog>

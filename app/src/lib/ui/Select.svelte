@@ -6,6 +6,8 @@
     value: string;
     label: string;
     disabled?: boolean;
+    /** Options sharing a group name (consecutive) render inside one optgroup. */
+    group?: string;
   }
   let {
     label,
@@ -22,6 +24,17 @@
     value?: string;
     onchange?: (value: string) => void;
   } = $props();
+
+  const groups = $derived.by(() => {
+    const out: { name: string; items: Option[] }[] = [];
+    for (const o of options) {
+      const name = o.group ?? '';
+      const last = out[out.length - 1];
+      if (last && last.name === name) last.items.push(o);
+      else out.push({ name, items: [o] });
+    }
+    return out;
+  });
 </script>
 
 <Field {label} {hint} {error}>
@@ -34,8 +47,14 @@
       bind:value
       onchange={() => onchange?.(value)}
     >
-      {#each options as o (o.value)}
-        <option value={o.value} disabled={o.disabled}>{o.label}</option>
+      {#each groups as g (g.name)}
+        {#if g.name}
+          <optgroup label={g.name}>
+            {#each g.items as o (o.value)}<option value={o.value} disabled={o.disabled}>{o.label}</option>{/each}
+          </optgroup>
+        {:else}
+          {#each g.items as o (o.value)}<option value={o.value} disabled={o.disabled}>{o.label}</option>{/each}
+        {/if}
       {/each}
     </select>
   {/snippet}

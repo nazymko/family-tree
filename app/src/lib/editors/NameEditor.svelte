@@ -4,6 +4,8 @@
   import TextField from '../ui/TextField.svelte';
   import Select from '../ui/Select.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
+  import DateField from './DateField.svelte';
+  import { settings } from '../state/settings.svelte';
   import EditorDialog from './EditorDialog.svelte';
   import { errMessage, opt, splitList } from './errors';
 
@@ -101,7 +103,7 @@
   <TextField label="Suffix" hint="For example Jr or III" bind:value={f.suffix} />
   <TextField label="Nickname" bind:value={f.nickname} />
   <TextField label="Language" hint="A language code such as de or ru" bind:value={f.lang} />
-  <TextField label="Date in use" bind:value={f.dateRaw} />
+  <DateField label="Date in use" value={f.dateRaw} onChange={(r) => (f.dateRaw = r)} order={settings.value.dayOrder} />
   <Checkbox label="Preferred name" bind:checked={f.preferred} />
   <Checkbox label="Private" bind:checked={f.isPrivate} />
 </EditorDialog>

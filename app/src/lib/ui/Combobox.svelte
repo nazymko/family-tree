@@ -10,6 +10,7 @@
     onText,
     onPick,
     render,
+    detail,
     createLabel,
     onCreate,
     hint,
@@ -22,6 +23,8 @@
     onText: (s: string) => void;
     onPick: (t: T) => void;
     render: (t: T) => string;
+    /** Optional second line under each option (for example a place chain). */
+    detail?: (t: T) => string | undefined;
     createLabel?: (text: string) => string;
     onCreate?: (text: string) => void;
     hint?: string;
@@ -135,6 +138,7 @@
             onkeydown={() => {}}
           >
             {render(it)}
+            {#if detail?.(it)}<span class="detail">{detail(it)}</span>{/if}
           </li>
         {/each}
         {#if showCreate}
@@ -185,6 +189,11 @@
   }
   li.active {
     background: var(--ribbon-wash);
+  }
+  .detail {
+    display: block;
+    font-size: var(--t-sm);
+    color: var(--ink-1);
   }
   .create {
     border-top: 1px solid var(--rule);

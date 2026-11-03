@@ -26,6 +26,7 @@
   import NameEditor from '../editors/NameEditor.svelte';
   import NoteEditor from '../editors/NoteEditor.svelte';
   import QuickAdd from '../editors/QuickAdd.svelte';
+  import EventEditor from '../editors/EventEditor.svelte';
   import { errMessage } from '../editors/errors';
 
   let {
@@ -59,6 +60,7 @@
     | null
     | { kind: 'name'; name?: NameDto }
     | { kind: 'note'; note?: NoteDto }
+    | { kind: 'event'; event?: EventDto }
     | { kind: 'quick'; relation: 'father' | 'mother' | 'partner' | 'child' | 'sibling' }
     | { kind: 'delete' }
   >(null);
@@ -261,6 +263,7 @@
     <section aria-labelledby="h-events">
       <div class="sec-head">
         <h2 id="h-events">Events and facts</h2>
+        <Button onclick={() => (dialog = { kind: 'event' })}>Add event</Button>
       </div>
       {#if detail.events.length === 0}
         <p class="empty">No events or facts recorded yet.</p>
@@ -270,6 +273,7 @@
             <li>
               <span class="kind">{e.label}</span>
               <span class="grow">{eventLine(e) || 'No date or place'}</span>
+              <Button onclick={() => (dialog = { kind: 'event', event: e })} aria-label="Edit {e.label}">Edit</Button>
             </li>
           {/each}
         </ul>
@@ -383,6 +387,13 @@
 
 {#if detail && dialog?.kind === 'name'}
   <NameEditor person={id} name={dialog.name} onCancel={closeDialog} onSaved={(r) => saved(r, 'Name saved')} />
+{:else if detail && dialog?.kind === 'event'}
+  <EventEditor
+    owner={{ kind: 'person', id }}
+    event={dialog.event}
+    onCancel={closeDialog}
+    onSaved={(r) => saved(r, 'Event saved')}
+  />
 {:else if detail && dialog?.kind === 'note'}
   <NoteEditor
     target={{ kind: 'person', id }}
