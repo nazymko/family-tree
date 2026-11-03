@@ -8,7 +8,9 @@ mod descendants;
 mod grid;
 mod pedigree;
 mod types;
+mod whole;
 
 pub use descendants::descendants;
 pub use pedigree::pedigree;
 pub use types::{ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Nav, Node, Rect};
+pub use whole::{Block, BlockKind, WholeExtras, WholeFamily, WholeInput, WholeLayout, whole};
