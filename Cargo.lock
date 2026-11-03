@@ -1753,19 +1753,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gt-import-gramps"
-version = "0.1.0"
-dependencies = [
- "flate2",
- "gt-core",
- "gt-gedcom",
- "roxmltree",
- "tempfile",
- "thiserror 2.0.21",
- "uuid",
-]
-
-[[package]]
 name = "gt-import-atdb"
 version = "0.1.0"
 dependencies = [
@@ -1773,6 +1760,19 @@ dependencies = [
  "gt-gedcom",
  "gt-import-atdb",
  "rusqlite",
+ "tempfile",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
+name = "gt-import-gramps"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "gt-core",
+ "gt-gedcom",
+ "roxmltree",
  "tempfile",
  "thiserror 2.0.21",
  "uuid",
