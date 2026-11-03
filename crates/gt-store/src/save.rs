@@ -293,7 +293,8 @@ fn save_phonetic(tx: &Transaction, n: &Name) -> Result<(), StoreError> {
 }
 
 impl Project {
-    fn living_rule(&self) -> LivingRule {
+    /// The living rule from meta `living_max_age` (default 100).
+    pub fn living_rule(&self) -> LivingRule {
         let v: Option<String> = self
             .conn
             .query_row(

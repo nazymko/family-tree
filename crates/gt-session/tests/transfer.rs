@@ -564,7 +564,8 @@ fn export_matches_cli_output() {
     let p = s.preview_export(&o).unwrap();
     let out = t.path().join("o.ged");
     s.export_gedcom(&o, &out, &p.token).unwrap();
-    // What `gt export` does, step by step, on the stored project.
+    // What `gt export` does, step by step, on the stored project (the session's lock goes first).
+    drop(s);
     let project = Project::open(&t.path().join("proj")).unwrap();
     let tree = project.load_tree().unwrap();
     let policy = PrivacyPolicy {
@@ -653,11 +654,11 @@ fn discard_consumes_the_session_and_leaves_no_scratch_folder() {
 #[cfg(windows)]
 #[test]
 fn discard_while_open_changes_nothing() {
-    // The open database locks the folder: the rename step fails and nothing is deleted.
+    // The open project holds the folder lock: discard is refused and nothing is deleted.
     let (t, s, _) = import_text("0 @I1@ INDI\n1 NAME A /B/\n");
     let dir = t.path().join("proj");
     let err = Session::discard_import(&dir).unwrap_err();
-    assert_eq!(err.code, ErrorCode::Io);
+    assert_eq!(err.code, ErrorCode::Conflict);
     assert!(dir.join("tree.db").is_file());
     assert_eq!(s.tree().persons.len(), 1);
 }
@@ -785,4 +786,20 @@ fn export_replaces_a_stale_tmp_file() {
     let out = t.path().join("o.ged");
     s.export_gedcom(&o, &out, &p.token).unwrap();
     assert!(out.is_file() && !t.path().join("o.ged.tmp").exists());
+}
+
+#[test]
+fn opening_a_session_twice_is_a_conflict_until_the_first_closes() {
+    let (t, s, _) = import_text("0 @I1@ INDI\n1 NAME A /B/\n");
+    let dir = t.path().join("proj");
+    let err = Session::open(&dir, SessionClock::fixed(today(), 0))
+        .err()
+        .unwrap();
+    assert_eq!(err.code, ErrorCode::Conflict);
+    assert_eq!(
+        err.message,
+        "This tree is open in another Gene Tree window."
+    );
+    drop(s);
+    Session::open(&dir, SessionClock::fixed(today(), 0)).unwrap();
 }

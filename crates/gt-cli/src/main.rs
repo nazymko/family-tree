@@ -106,6 +106,7 @@ impl From<StoreError> for CliError {
             StoreError::AlreadyExists(_)
             | StoreError::NotAProject(_)
             | StoreError::NewerSchema { .. }
+            | StoreError::Locked(_)
             | StoreError::Io(_) => CliError::User(e.to_string()),
             StoreError::Sql(_) | StoreError::Corrupt(_) => CliError::Internal(e.to_string()),
         }
@@ -390,7 +391,7 @@ fn cmd_export(
             LivingArg::All => LivingMode::IncludeAll,
         },
         include_private,
-        ..PrivacyPolicy::default()
+        rule: project.living_rule(),
     };
     let (filtered, summary) = filter(&tree, &policy, today_jdn());
     let bytes = export(&filtered, &ExportOptions { version });

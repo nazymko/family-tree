@@ -615,3 +615,46 @@ fn settings_round_trip_through_meta() {
     assert_eq!(s.settings().living_max_age, 80);
     assert_eq!(s.info().home_person, Some(anna));
 }
+
+#[test]
+fn note_and_place_hits_carry_the_owning_person() {
+    let recs = vec![
+        indi(
+            1,
+            "Anna /Berg/",
+            "1 NOTE Emigrated in 1891 to Ohio\n1 BIRT\n2 DATE 1850\n2 PLAC Zanzibarton\n",
+        ),
+        indi(
+            2,
+            "Karl /Berg/",
+            "1 DEAT\n2 DATE 1900\n2 NOTE Buried at sea near Quuxville\n",
+        ),
+    ];
+    let (_d, s) = open_ged(&ged(&recs));
+    let anna = s.search("Berg", 10).unwrap();
+    let anna_id = anna
+        .iter()
+        .find(|h| h.label.starts_with("Anna"))
+        .unwrap()
+        .id;
+    let karl_id = anna
+        .iter()
+        .find(|h| h.label.starts_with("Karl"))
+        .unwrap()
+        .id;
+
+    let notes = s.search("emigrated", 10).unwrap();
+    let hit = notes.iter().find(|h| h.kind == HitKindDto::Note).unwrap();
+    assert_eq!(hit.person.as_ref().unwrap().id, anna_id);
+
+    let event_note = s.search("quuxville", 10).unwrap();
+    let hit = event_note
+        .iter()
+        .find(|h| h.kind == HitKindDto::Note)
+        .unwrap();
+    assert_eq!(hit.person.as_ref().unwrap().id, karl_id);
+
+    let places = s.search("Zanzibarton", 10).unwrap();
+    let hit = places.iter().find(|h| h.kind == HitKindDto::Place).unwrap();
+    assert_eq!(hit.person.as_ref().unwrap().id, anna_id);
+}

@@ -45,7 +45,7 @@ impl From<gt_store::StoreError> for ApiError {
             S::Io(_) => ErrorCode::Io,
             S::NotAProject(_) => ErrorCode::NoProject,
             S::NewerSchema { .. } => ErrorCode::Invalid,
-            S::AlreadyExists(_) => ErrorCode::Conflict,
+            S::AlreadyExists(_) | S::Locked(_) => ErrorCode::Conflict,
             S::Sql(_) | S::Corrupt(_) => ErrorCode::Internal,
         };
         let message = match &e {

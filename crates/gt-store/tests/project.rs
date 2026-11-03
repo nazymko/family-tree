@@ -150,3 +150,19 @@ fn every_foreign_key_column_is_indexed() {
         }
     }
 }
+
+#[test]
+fn second_open_is_locked_until_the_first_is_dropped() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("t.genetree");
+    drop(Project::create(&dir).unwrap());
+    let first = Project::open(&dir).unwrap();
+    let err = Project::open(&dir).unwrap_err();
+    assert!(matches!(err, gt_store::StoreError::Locked(_)), "{err}");
+    assert_eq!(
+        err.to_string(),
+        "This tree is open in another Gene Tree window."
+    );
+    drop(first);
+    drop(Project::open(&dir).unwrap());
+}

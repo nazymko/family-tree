@@ -320,3 +320,49 @@ fn round_trip_on_path_with_spaces_and_non_ascii() {
     let hit = run_ok(gt().arg("search").arg(&dir).arg("muller"));
     assert!(hit.contains("Mueller"), "{hit}");
 }
+
+fn current_year() -> i64 {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    1970 + (secs / 31_556_952) as i64
+}
+
+#[test]
+fn export_uses_the_projects_living_threshold() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ged = tmp.path().join("old.ged");
+    let born = current_year() - 105;
+    std::fs::write(
+        &ged,
+        format!(
+            "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n0 @I1@ INDI\n1 NAME Zelda /Centenarian/\n1 BIRT\n2 DATE {born}\n0 TRLR\n"
+        ),
+    )
+    .unwrap();
+    let dir = tmp.path().join("p");
+    import_into(&ged, &dir);
+    // Default threshold of 100: a 105-year-old with no death is presumed dead and exported.
+    assert!(export_text(&dir, &[]).contains("Centenarian"));
+    {
+        let mut p = gt_store::Project::open(&dir).unwrap();
+        p.meta_set("living_max_age", "110").unwrap();
+    }
+    let text = export_text(&dir, &[]);
+    assert!(!text.contains("Centenarian"), "{text}");
+}
+
+#[test]
+fn export_of_an_open_project_is_a_clean_conflict_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("p");
+    import_into(&local_fixture("living.ged"), &dir);
+    let _held = gt_store::Project::open(&dir).unwrap();
+    let out = tmp.path().join("o.ged");
+    let err = stderr_of(gt().arg("export").arg(&dir).arg("-o").arg(&out), 1);
+    assert!(
+        err.contains("This tree is open in another Gene Tree window."),
+        "{err}"
+    );
+}

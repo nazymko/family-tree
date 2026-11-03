@@ -362,15 +362,69 @@ impl Session {
         crate::family_view::family(self, id)
     }
 
+    /// The first person a note belongs to: directly, through one of their names, an event they
+    /// take part in, or a family they are a partner or child of.
+    fn note_owner(&self, note: Uuid) -> Option<Uuid> {
+        let t = &self.tree;
+        let direct = t.persons.iter().find(|(_, p)| {
+            p.common.notes.contains(&note) || p.names.iter().any(|n| n.notes.contains(&note))
+        });
+        if let Some((id, _)) = direct {
+            return Some(*id);
+        }
+        let by_event = t
+            .events
+            .values()
+            .filter(|e| e.common.notes.contains(&note))
+            .find_map(|e| self.participant_person(&e.participants));
+        by_event.or_else(|| {
+            t.families
+                .values()
+                .filter(|f| f.common.notes.contains(&note))
+                .find_map(|f| {
+                    f.partner1
+                        .or(f.partner2)
+                        .or_else(|| f.children.first().map(|c| c.person))
+                })
+        })
+    }
+
+    /// The first person with an event at this place.
+    fn place_owner(&self, place: Uuid) -> Option<Uuid> {
+        self.tree
+            .events
+            .values()
+            .filter(|e| e.place == Some(place))
+            .find_map(|e| self.participant_person(&e.participants))
+    }
+
+    /// The first person among an event's participants (a family participant counts as its
+    /// first partner).
+    fn participant_person(&self, parts: &[gt_core::model::Participant]) -> Option<Uuid> {
+        use gt_core::model::ParticipantRef;
+        parts.iter().find_map(|p| match p.target {
+            ParticipantRef::Person(id) => Some(id),
+            ParticipantRef::Family(f) => self
+                .tree
+                .families
+                .get(&f)
+                .and_then(|f| f.partner1.or(f.partner2)),
+        })
+    }
+
     /// Full-text search; `limit` is clamped to 50.
     pub fn search(&self, q: &str, limit: usize) -> Result<Vec<SearchHitDto>, ApiError> {
         let hits = self.project.search(q, limit.min(MAX_SEARCH))?;
         Ok(hits
             .into_iter()
             .map(|h| {
-                let person = (h.kind == HitKind::Person)
-                    .then(|| self.person_ref(h.id))
-                    .flatten();
+                let owner = match h.kind {
+                    HitKind::Person => Some(h.id),
+                    HitKind::Note => self.note_owner(h.id),
+                    HitKind::Place => self.place_owner(h.id),
+                    HitKind::Source => None,
+                };
+                let person = owner.and_then(|id| self.person_ref(id));
                 // A person hit's subtitle is its lifespan (as on every card), never the raw
                 // index text, which holds GEDCOM name forms like "Anna /Smith/".
                 let snippet = match (&h.kind, &person) {
