@@ -25,9 +25,18 @@ tauri = { version = "2.12", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 serde_json = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }
+gt-session = { path = "../../crates/gt-session" }
+gt-store = { path = "../../crates/gt-store" }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+tauri = { version = "2.12", features = ["test"] }
+tempfile = { workspace = true }
+gt-gedcom = { path = "../../crates/gt-gedcom" }
+gt-core = { path = "../../crates/gt-core" }
+image = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,13 +1,21 @@
 //! Gene Tree desktop shell.
 
+pub mod commands;
+pub mod protocol;
+pub mod settings_file;
+pub mod state;
+
+use state::AppState;
+use tauri::Manager;
+
 #[cfg(any(debug_assertions, feature = "spike"))]
 mod spike {
     use std::time::{SystemTime, UNIX_EPOCH};
-    use tauri::{AppHandle, Manager};
+    use tauri::{AppHandle, Manager, Runtime};
 
     /// Writes the canvas spike result as `spike-<os>-<timestamp>.json` into the app data dir.
     #[tauri::command]
-    pub fn spike_report(app: AppHandle, json: String) -> Result<(), String> {
+    pub fn spike_report<R: Runtime>(app: AppHandle<R>, json: String) -> Result<(), String> {
         let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let secs = SystemTime::now()
@@ -17,14 +25,36 @@ mod spike {
         let name = format!("spike-{}-{secs}.json", std::env::consts::OS);
         std::fs::write(dir.join(name), json).map_err(|e| e.to_string())
     }
+
+    pub fn handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+        tauri::generate_handler![spike_report]
+    }
 }
 
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let dir = app.path().app_config_dir()?;
+            app.manage(AppState::new(dir));
+            Ok(())
+        });
+    let builder = protocol::register(builder);
+    let main = commands::handler();
     #[cfg(any(debug_assertions, feature = "spike"))]
-    let builder = builder.invoke_handler(tauri::generate_handler![spike::spike_report]);
+    let builder = {
+        let spike = spike::handler();
+        builder.invoke_handler(move |inv| {
+            if inv.message.command() == "spike_report" {
+                spike(inv)
+            } else {
+                main(inv)
+            }
+        })
+    };
+    #[cfg(not(any(debug_assertions, feature = "spike")))]
+    let builder = builder.invoke_handler(main);
     builder
         .run(tauri::generate_context!())
         .expect("error while running Gene Tree");
