@@ -39,7 +39,7 @@
     SOUR: 'Sources',
     OBJE: 'Media files',
     NOTE: 'Notes',
-    SNOTE: 'Notes',
+    SNOTE: 'Shared notes',
     REPO: 'Repositories',
     SUBM: 'Submitters',
   };
