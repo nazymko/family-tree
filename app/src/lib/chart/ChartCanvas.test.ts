@@ -1,0 +1,229 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import type { ChartNode } from '../api/types';
+import { MockApi } from '../api/mock/MockApi';
+import ChartCanvas from './ChartCanvas.svelte';
+import Host from './testing/Host.svelte';
+import { allNodes, attachContext, fakeRaf, lastCamera, makeApi, richestRoot } from './testing/helpers';
+
+type Setup = Awaited<ReturnType<typeof setup>>;
+
+async function setup(opts: { kind?: 'pedigree' | 'descendants'; root?: string; reducedMotion?: boolean } = {}) {
+  const raf = fakeRaf();
+  const { api, fx } = makeApi();
+  const kind = opts.kind ?? 'pedigree';
+  const root = opts.root ?? (await richestRoot(api, fx, kind));
+  const onRecentre = vi.fn();
+  const onOpenPerson = vi.fn();
+  const openSpy = vi.spyOn(api, 'chartOpen');
+  const winSpy = vi.spyOn(api, 'chartWindow');
+  if (opts.reducedMotion) {
+    const mm = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ ...mm(q), matches: q.includes('reduce') })) as typeof window.matchMedia;
+  }
+  render(Host, { props: { api, view: ChartCanvas, props: { kind, root, generations: 6, onRecentre, onOpenPerson } } });
+  const canvas = screen.getByRole('application') as HTMLCanvasElement;
+  const ctx = attachContext(canvas);
+  canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON() {} });
+  await waitFor(() => expect(openSpy).toHaveBeenCalled());
+  await waitFor(() => expect(winSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
+  await new Promise((r) => setTimeout(r, 0));
+  raf.pump(2);
+  return { api, raf, canvas, ctx, root, onRecentre, onOpenPerson, openSpy, winSpy };
+}
+
+const selectedLabel = () => screen.getByRole('option').textContent;
+
+async function nodesOf(s: Setup): Promise<ChartNode[]> {
+  const id = (await s.openSpy.mock.results[0].value).chartId;
+  return allNodes(s.api as MockApi, id);
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('ChartCanvas', () => {
+  it('opens_chart_and_draws_once_per_change', async () => {
+    const s = await setup();
+    expect(s.openSpy).toHaveBeenCalledWith({ kind: 'pedigree', root: s.root, generations: 6 });
+    expect(s.ctx.calls.filter((c) => c.op === 'fillText').length).toBeGreaterThan(0);
+    const before = s.ctx.calls.length;
+    s.raf.pump(10);
+    expect(s.ctx.calls.length).toBe(before);
+    await fireEvent.wheel(s.canvas, { deltaY: -100, clientX: 400, clientY: 300 });
+    s.raf.pump(10);
+    expect(s.ctx.calls.filter((c) => c.op === 'setTransform').length).toBeGreaterThan(0);
+    const after = s.ctx.calls.length;
+    s.raf.pump(10);
+    expect(s.ctx.calls.length).toBe(after);
+  });
+
+  it('wheel_zoom_calls_window_only_after_leaving_cache', async () => {
+    const s = await setup();
+    const base = s.winSpy.mock.calls.length;
+    await fireEvent.wheel(s.canvas, { deltaY: -100, clientX: 400, clientY: 300 });
+    await fireEvent.wheel(s.canvas, { deltaY: 100, clientX: 400, clientY: 300 });
+    expect(s.winSpy.mock.calls.length).toBe(base);
+    for (let i = 0; i < 12; i++) await fireEvent.wheel(s.canvas, { deltaY: 200, clientX: 400, clientY: 300 });
+    expect(s.winSpy.mock.calls.length).toBeGreaterThan(base);
+  });
+
+  it('arrow_keys_move_selection_via_nav', async () => {
+    const s = await setup();
+    const nodes = await nodesOf(s);
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const root = nodes.find((n) => n.ahnen === 1)!;
+    expect(selectedLabel()).toBe(root.label);
+    // Pedigree: Right goes towards the ancestors (nav.child), Left back to the root.
+    await fireEvent.keyDown(s.canvas, { key: 'ArrowRight' });
+    const first = byId.get(root.nav.child!)!;
+    expect(selectedLabel()).toBe(first.label);
+    // Up and Down move between siblings (father and mother).
+    await fireEvent.keyDown(s.canvas, { key: 'ArrowDown' });
+    expect(selectedLabel()).toBe(byId.get(first.nav.next!)!.label);
+    await fireEvent.keyDown(s.canvas, { key: 'ArrowUp' });
+    expect(selectedLabel()).toBe(first.label);
+    await fireEvent.keyDown(s.canvas, { key: 'ArrowLeft' });
+    expect(selectedLabel()).toBe(root.label);
+    await fireEvent.keyDown(s.canvas, { key: 'ArrowRight' });
+    await fireEvent.keyDown(s.canvas, { key: 'Home' });
+    expect(selectedLabel()).toBe(root.label);
+  });
+
+  it('descendants_arrows_follow_the_top_down_layout', async () => {
+    const { api, fx } = makeApi();
+    const root = await richestRoot(api, fx, 'descendants');
+    const raf = fakeRaf();
+    render(Host, { props: { api, view: ChartCanvas, props: { kind: 'descendants', root, generations: 4, onRecentre: vi.fn(), onOpenPerson: vi.fn() } } });
+    const canvas = screen.getByRole('application');
+    attachContext(canvas as HTMLCanvasElement);
+    await waitFor(() => expect(screen.queryByRole('option')).not.toBeNull());
+    await new Promise((r) => setTimeout(r, 0));
+    raf.pump(2);
+    const rootLabel = selectedLabel();
+    await fireEvent.keyDown(canvas, { key: 'ArrowDown' });
+    // The first child can lie outside the cached window: the camera scrolls there, then the window loads.
+    await waitFor(() => {
+      raf.pump(5);
+      expect(selectedLabel()).not.toBe(rootLabel);
+    });
+    await fireEvent.keyDown(canvas, { key: 'ArrowUp' });
+    await waitFor(() => {
+      raf.pump(5);
+      expect(selectedLabel()).toBe(rootLabel);
+    });
+  });
+
+  it('enter_recentres_and_tweens', async () => {
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const s = await setup();
+    const rootNode = (await nodesOf(s)).find((n) => n.ahnen === 1)!;
+    const before = lastCamera(s.ctx)!;
+    await fireEvent.keyDown(s.canvas, { key: 'Enter' });
+    expect(s.onRecentre).toHaveBeenCalledWith(s.root);
+    const target = { x: rootNode.x + rootNode.w / 2 - 400 / before.zoom, y: rootNode.y + rootNode.h / 2 - 300 / before.zoom };
+    now = 1140;
+    s.raf.pump(2);
+    const mid = lastCamera(s.ctx)!;
+    expect(mid.x).not.toBeCloseTo(before.x, 3);
+    expect(mid.x).not.toBeCloseTo(target.x, 3);
+    now = 1000 + 280;
+    s.raf.pump(3);
+    const end = lastCamera(s.ctx)!;
+    expect(end.x).toBeCloseTo(target.x, 3);
+    expect(end.y).toBeCloseTo(target.y, 3);
+  });
+
+  it('enter_with_reduced_motion_jumps', async () => {
+    const mm = window.matchMedia;
+    const s = await setup({ reducedMotion: true });
+    const rootNode = (await nodesOf(s)).find((n) => n.ahnen === 1)!;
+    const before = lastCamera(s.ctx)!;
+    await fireEvent.keyDown(s.canvas, { key: 'Enter' });
+    s.raf.pump(2);
+    const end = lastCamera(s.ctx)!;
+    expect(end.x).toBeCloseTo(rootNode.x + rootNode.w / 2 - 400 / before.zoom, 3);
+    window.matchMedia = mm;
+  });
+
+  it('e_opens_the_editor', async () => {
+    const s = await setup();
+    await fireEvent.keyDown(s.canvas, { key: 'e' });
+    expect(s.onOpenPerson).toHaveBeenCalledWith(s.root);
+  });
+
+  it('live_region_announces_selection', async () => {
+    const s = await setup();
+    await fireEvent.keyDown(s.canvas, { key: 'ArrowRight' });
+    const text = screen.getByRole('status').textContent ?? '';
+    expect(text).toBe(`${selectedLabel()}, 1 of 2 in this generation`);
+  });
+
+  it('activedescendant_label_matches', async () => {
+    const s = await setup();
+    const opt = screen.getByRole('option');
+    expect(s.canvas.getAttribute('aria-activedescendant')).toBe(opt.id);
+    expect(s.canvas.getAttribute('aria-label')).toMatch(/^Pedigree chart of .+\. Use arrow keys to move between people, Enter to centre, E to edit\.$/);
+    expect(s.canvas).toHaveAttribute('tabindex', '0');
+  });
+
+  it('dup_node_click_jumps_to_original', async () => {
+    const { api, fx } = makeApi();
+    const raf = fakeRaf();
+    render(Host, {
+      props: {
+        api,
+        view: ChartCanvas,
+        props: { kind: 'pedigree', root: fx.specials.cycleA!, generations: 8, onRecentre: vi.fn(), onOpenPerson: vi.fn() },
+      },
+    });
+    const canvas = screen.getByRole('application') as HTMLCanvasElement;
+    const ctx = attachContext(canvas);
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON() {} });
+    await waitFor(() => expect(screen.queryByRole('option')).not.toBeNull());
+    await new Promise((r) => setTimeout(r, 0));
+    raf.pump(2);
+    const opened = await api.chartOpen({ kind: 'pedigree', root: fx.specials.cycleA!, generations: 8 });
+    const nodes = await allNodes(api, opened.chartId);
+    const dup = nodes.find((n) => n.dupOf !== null)!;
+    expect(dup).toBeTruthy();
+    const orig = nodes.find((n) => n.id === dup.dupOf)!;
+    const cam = lastCamera(ctx)!;
+    const x = (dup.x - cam.x + 20) * cam.zoom;
+    const y = (dup.y - cam.y + 20) * cam.zoom;
+    await fireEvent.pointerDown(canvas, { clientX: x, clientY: y, pointerId: 1 });
+    await fireEvent.pointerUp(canvas, { clientX: x, clientY: y, pointerId: 1 });
+    expect(selectedLabel()).toBe(orig.label);
+  });
+
+  it('resize_updates_backing_store_size', async () => {
+    let cb: ResizeObserverCallback = () => {};
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(c: ResizeObserverCallback) {
+          cb = c;
+        }
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      },
+    );
+    Object.defineProperty(window, 'devicePixelRatio', { value: 2, configurable: true });
+    const s = await setup();
+    cb([{ contentRect: { width: 500, height: 300 } } as ResizeObserverEntry], {} as ResizeObserver);
+    expect(s.canvas.width).toBe(1000);
+    expect(s.canvas.height).toBe(600);
+    Object.defineProperty(window, 'devicePixelRatio', { value: 1, configurable: true });
+  });
+
+  it('stale_error_triggers_reopen', async () => {
+    const s = await setup();
+    const n = s.openSpy.mock.calls.length;
+    await (s.api as MockApi).apply({ type: 'createPerson', draft: { given: 'New', surnames: ['Person'], sex: 'unknown' } } as never);
+    for (let i = 0; i < 12; i++) await fireEvent.wheel(s.canvas, { deltaY: 200, clientX: 400, clientY: 300 });
+    await waitFor(() => expect(s.openSpy.mock.calls.length).toBeGreaterThan(n));
+  });
+});
