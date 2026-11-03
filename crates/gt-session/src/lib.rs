@@ -32,3 +32,10 @@ pub use settings::SettingsPatch;
 
 pub mod lookup;
 pub use lookup::parse_date_preview;
+
+pub mod transfer;
+pub use transfer::{
+    ExportOptions, ExportVersion, GroupMedia, ImportPhase, ImportProgress, ImportReportDto,
+    ImportRequest, LivingExport, MentionWarning, MissingMedia, MissingReasonDto, PrivacyPreview,
+    RelinkResult, RepairDto, UnparsedDateDto, import_gedcom,
+};

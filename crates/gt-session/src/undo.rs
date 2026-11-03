@@ -213,3 +213,16 @@ impl Session {
         })
     }
 }
+
+impl Session {
+    /// Applies a change set planned outside `apply` (media relink) as a new undo step.
+    pub(crate) fn apply_planned(&mut self, cs: ChangeSet) -> Result<EditResult, ApiError> {
+        self.commit(&cs)?;
+        self.edit.undo.push(cs.clone());
+        if self.edit.undo.len() > MAX_UNDO {
+            self.edit.undo.remove(0);
+        }
+        self.edit.redo.clear();
+        Ok(self.result(&cs, cs.label.clone(), None))
+    }
+}
