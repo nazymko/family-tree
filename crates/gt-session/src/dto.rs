@@ -363,3 +363,97 @@ impl Default for Settings {
         }
     }
 }
+
+// ---- Charts (mirrors ChartRequest .. OutlineItem in types.ts) ----
+
+wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants });
+wire_enum!(EdgeKindDto, "lowercase", { Parent, Partner, Dup });
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartRequest {
+    pub kind: ChartKind,
+    pub root: Uuid,
+    pub generations: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+pub struct ChartSize {
+    pub w: f32,
+    pub h: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartMeta {
+    pub chart_id: u32,
+    pub kind: ChartKind,
+    pub bounds: ChartSize,
+    pub node_count: u32,
+    pub root_node: u32,
+    pub truncated: bool,
+    /// Tree revision the chart was laid out at.
+    #[ts(type = "number")]
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct Rect {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ChartNav {
+    pub parent: Option<u32>,
+    pub child: Option<u32>,
+    pub prev: Option<u32>,
+    pub next: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartNode {
+    pub id: u32,
+    pub person: Option<PersonRef>,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    #[serde(rename = "gen")]
+    #[ts(rename = "gen")]
+    pub generation: i16,
+    pub ahnen: Option<u32>,
+    pub dup_of: Option<u32>,
+    pub more_up: bool,
+    pub more_down: bool,
+    pub nav: ChartNav,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct ChartEdge {
+    pub from: u32,
+    pub to: u32,
+    pub kind: EdgeKindDto,
+    /// Flat `x0, y0, x1, y1, ...`.
+    pub pts: Vec<f32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct ChartWindow {
+    pub nodes: Vec<ChartNode>,
+    pub edges: Vec<ChartEdge>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineItem {
+    pub node_id: u32,
+    pub person: Option<PersonRef>,
+    /// "2 Father", "Child 3".
+    pub label: String,
+    pub has_children: bool,
+}

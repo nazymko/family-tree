@@ -45,6 +45,7 @@ pub struct Session {
     pub(crate) living_computed: HashMap<Uuid, bool>,
     pub(crate) settings: Settings,
     pub(crate) clock: SessionClock,
+    pub(crate) charts: crate::chart::Charts,
 }
 
 impl Session {
@@ -61,6 +62,7 @@ impl Session {
             living_computed: HashMap::new(),
             settings,
             clock,
+            charts: crate::chart::Charts::default(),
         };
         s.rebuild();
         Ok(s)
@@ -73,6 +75,7 @@ impl Session {
 
     /// Recomputes links, living flags and the index from the tree.
     pub fn rebuild(&mut self) {
+        self.charts.bump_revision();
         let (today, _) = (self.clock.0)();
         let rule = LivingRule {
             max_age_years: self.settings.living_max_age,

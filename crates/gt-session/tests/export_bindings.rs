@@ -77,6 +77,17 @@ fn export_all(dir: &Path) {
         LocationKind,
         ProjectInfo,
         Settings,
+        ChartKind,
+        EdgeKindDto,
+        ChartRequest,
+        ChartSize,
+        ChartMeta,
+        Rect,
+        ChartNav,
+        ChartNode,
+        ChartEdge,
+        ChartWindow,
+        OutlineItem,
     );
     let mut names: Vec<String> = read_dir_files(dir)
         .keys()

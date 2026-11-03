@@ -1705,6 +1705,7 @@ version = "0.1.0"
 dependencies = [
  "gt-core",
  "gt-gedcom",
+ "gt-layout",
  "gt-store",
  "serde",
  "serde_json",

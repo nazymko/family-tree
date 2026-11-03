@@ -1,0 +1,533 @@
+#![allow(clippy::unwrap_used, clippy::indexing_slicing)]
+
+use gt_core::date::calendar::{Calendar, first_jdn};
+use gt_gedcom::{ImportOptions, import};
+use gt_session::chart::ahnen_label;
+use gt_session::*;
+use gt_store::Project;
+use std::fmt::Write as _;
+use tempfile::TempDir;
+use uuid::Uuid;
+
+const NOW_MS: i64 = 1_793_664_000_000; // 2026-11-03
+
+fn today() -> i32 {
+    first_jdn(Calendar::Gregorian, 2026, Some(11), Some(3)).unwrap()
+}
+
+fn open_ged(ged: &str) -> (TempDir, Session) {
+    let out = import(ged.as_bytes(), &ImportOptions::default());
+    let dir = tempfile::tempdir().unwrap();
+    let proj = dir.path().join("project");
+    let mut p = Project::create(&proj).unwrap();
+    p.save_tree(&out.tree, today()).unwrap();
+    drop(p);
+    let s = Session::open(&proj, SessionClock::fixed(today(), NOW_MS)).unwrap();
+    (dir, s)
+}
+
+const HEAD: &str = "0 HEAD\n1 SOUR TEST\n2 VERS 1.0\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n";
+
+fn indi(n: u32, name: &str, sex: &str, extra: &str) -> String {
+    format!("0 @I{n}@ INDI\n1 NAME {name}\n1 SEX {sex}\n{extra}")
+}
+
+fn fam(n: u32, husb: u32, wife: u32, kids: &[u32]) -> String {
+    let mut s = format!("0 @F{n}@ FAM\n1 HUSB @I{husb}@\n1 WIFE @I{wife}@\n");
+    for k in kids {
+        writeln!(s, "1 CHIL @I{k}@").unwrap();
+    }
+    s
+}
+
+fn ged(records: &[String]) -> String {
+    format!("{HEAD}{}0 TRLR\n", records.concat())
+}
+
+fn id_of(s: &Session, name: &str) -> Uuid {
+    let q = PersonQuery {
+        text: name.to_string(),
+        ..PersonQuery::default()
+    };
+    s.list_persons(&q, 0, 200)
+        .items
+        .iter()
+        .find(|r| r.person.name == name)
+        .unwrap_or_else(|| panic!("no person {name}"))
+        .person
+        .id
+}
+
+/// Me (1), Father Fred (2), Mother Mary (3), Fred's parents Gus (4) and Gina (5), Mary's parents
+/// Max (6) and Mia (7).
+fn pedigree_ged() -> String {
+    ged(&[
+        indi(1, "Me /X/", "M", ""),
+        indi(2, "Fred /X/", "M", ""),
+        indi(3, "Mary /Y/", "F", ""),
+        indi(4, "Gus /X/", "M", ""),
+        indi(5, "Gina /X/", "F", ""),
+        indi(6, "Max /Y/", "M", ""),
+        indi(7, "Mia /Y/", "F", ""),
+        fam(1, 2, 3, &[1]),
+        fam(2, 4, 5, &[2]),
+        fam(3, 6, 7, &[3]),
+    ])
+}
+
+fn pedigree_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
+    ChartRequest {
+        kind: ChartKind::Pedigree,
+        root: id_of(s, name),
+        generations,
+    }
+}
+
+fn descendants_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
+    ChartRequest {
+        kind: ChartKind::Descendants,
+        root: id_of(s, name),
+        generations,
+    }
+}
+
+fn everything() -> Rect {
+    Rect {
+        x: -1e6,
+        y: -1e6,
+        w: 2e6,
+        h: 2e6,
+    }
+}
+
+#[test]
+fn open_pedigree_meta() {
+    let (_d, mut s) = open_ged(&pedigree_ged());
+    let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    assert_eq!(m.node_count, 7);
+    assert_eq!(m.root_node, 0);
+    assert!(!m.truncated);
+    assert_eq!(m.kind, ChartKind::Pedigree);
+    assert_eq!(m.version, s.revision());
+    assert!(m.bounds.w > 0.0 && m.bounds.h > 0.0);
+    let v = serde_json::to_value(&m).unwrap();
+    assert!(v["chartId"].is_u64() && v["rootNode"] == 0 && v["nodeCount"] == 7);
+}
+
+#[test]
+fn window_returns_only_intersecting_nodes_and_their_edges() {
+    let (_d, mut s) = open_ged(&pedigree_ged());
+    let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    let all = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    assert_eq!(all.nodes.len(), 7);
+    assert_eq!(all.edges.len(), 6);
+    // The first column only (x 0..176), plus the gap where the root's two edges start.
+    let r = Rect {
+        x: 0.0,
+        y: -1000.0,
+        w: 200.0,
+        h: 5000.0,
+    };
+    let w = s.chart_window(m.chart_id, &r, 1.0).unwrap();
+    assert_eq!(w.nodes.len(), 1);
+    assert_eq!(w.nodes[0].id, 0);
+    assert_eq!(w.nodes[0].ahnen, Some(1));
+    assert_eq!(w.nodes[0].person.as_ref().unwrap().name, "Me X");
+    assert_eq!(w.edges.len(), 2);
+    assert!(w.edges.iter().all(|e| e.from == 0));
+    let far = Rect {
+        x: 1e5,
+        y: 1e5,
+        w: 10.0,
+        h: 10.0,
+    };
+    let none = s.chart_window(m.chart_id, &far, 1.0).unwrap();
+    assert!(none.nodes.is_empty() && none.edges.is_empty());
+}
+
+#[test]
+fn window_wire_shape_matches_types_ts() {
+    let (_d, mut s) = open_ged(&pedigree_ged());
+    let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    let v = serde_json::to_value(&w).unwrap();
+    let n = &v["nodes"][0];
+    for key in [
+        "id", "person", "x", "y", "w", "h", "gen", "ahnen", "dupOf", "moreUp", "moreDown", "nav",
+        "label",
+    ] {
+        assert!(n.get(key).is_some(), "missing {key}");
+    }
+    assert!(n["label"].as_str().unwrap().contains("Me X"));
+    assert_eq!(v["edges"][0]["kind"], "parent");
+    assert!(v["edges"][0]["pts"].is_array());
+}
+
+#[test]
+fn low_zoom_strips_text() {
+    let (_d, mut s) = open_ged(&pedigree_ged());
+    let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 0.2).unwrap();
+    assert_eq!(w.nodes.len(), 7);
+    assert!(
+        w.nodes
+            .iter()
+            .all(|n| n.person.is_none() && n.label.is_empty())
+    );
+    let w = s.chart_window(m.chart_id, &everything(), 0.25).unwrap();
+    assert!(
+        w.nodes
+            .iter()
+            .all(|n| n.person.is_some() && !n.label.is_empty())
+    );
+}
+
+#[test]
+fn stale_after_edit() {
+    let (_d, mut s) = open_ged(&pedigree_ged());
+    let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    // Any change that rebuilds the session data (an edit does the same) invalidates the chart.
+    s.set_settings(SettingsPatch {
+        living_max_age: Some(90),
+        ..SettingsPatch::default()
+    })
+    .unwrap();
+    let e = s.chart_window(m.chart_id, &everything(), 1.0).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Stale);
+    let e = s.chart_outline(m.chart_id, None, 10).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Stale);
+    // Reopening works and records the new revision.
+    let m2 = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    assert_eq!(m2.version, s.revision());
+    assert!(s.chart_window(m2.chart_id, &everything(), 1.0).is_ok());
+}
+
+#[test]
+fn lru_keeps_two_charts() {
+    let (_d, mut s) = open_ged(&pedigree_ged());
+    let a = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap().chart_id;
+    let b = s.chart_open(&pedigree_req(&s, "Me X", 2)).unwrap().chart_id;
+    let c = s.chart_open(&pedigree_req(&s, "Me X", 1)).unwrap().chart_id;
+    assert_eq!(
+        s.chart_window(a, &everything(), 1.0).unwrap_err().code,
+        ErrorCode::NotFound
+    );
+    assert!(s.chart_window(b, &everything(), 1.0).is_ok());
+    assert!(s.chart_window(c, &everything(), 1.0).is_ok());
+    // Using a chart keeps it: b is touched, so the next open evicts c.
+    s.chart_window(b, &everything(), 1.0).unwrap();
+    let d = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap().chart_id;
+    assert!(s.chart_window(b, &everything(), 1.0).is_ok());
+    assert_eq!(
+        s.chart_window(c, &everything(), 1.0).unwrap_err().code,
+        ErrorCode::NotFound
+    );
+    s.chart_close(d);
+    assert_eq!(
+        s.chart_window(d, &everything(), 1.0).unwrap_err().code,
+        ErrorCode::NotFound
+    );
+}
+
+#[test]
+fn open_unknown_person_is_not_found() {
+    let (_d, mut s) = open_ged(&pedigree_ged());
+    let req = ChartRequest {
+        kind: ChartKind::Pedigree,
+        root: Uuid::nil(),
+        generations: 3,
+    };
+    assert_eq!(s.chart_open(&req).unwrap_err().code, ErrorCode::NotFound);
+}
+
+/// Anna is the father's parent and also the child of her own child (a loop in the data).
+fn cycle_ged() -> String {
+    ged(&[
+        indi(1, "Anna /C/", "F", ""),
+        indi(2, "Ben /C/", "M", ""),
+        indi(3, "Cora /C/", "F", ""),
+        fam(1, 2, 3, &[1]), // Anna's parents: Ben, Cora
+        fam(2, 1, 3, &[2]), // Ben's parents: Anna (as husb), Cora
+    ])
+}
+
+#[test]
+fn cycle_chart_terminates_with_dup() {
+    let (_d, mut s) = open_ged(&cycle_ged());
+    let m = s.chart_open(&pedigree_req(&s, "Anna C", 12)).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    assert!(w.nodes.iter().any(|n| n.dup_of.is_some()));
+    assert!(w.edges.iter().any(|e| e.kind == EdgeKindDto::Dup));
+    let d = s.chart_open(&descendants_req(&s, "Anna C", 8)).unwrap();
+    assert!(d.node_count < 20);
+    let w = s.chart_window(d.chart_id, &everything(), 1.0).unwrap();
+    assert!(w.nodes.iter().any(|n| n.dup_of.is_some()));
+    // Dup items say so in the outline.
+    let dup = w
+        .nodes
+        .iter()
+        .find(|n| n.dup_of.is_some() && n.nav.parent.is_some())
+        .unwrap();
+    let parent = dup.nav.parent.unwrap();
+    let items = s.chart_outline(d.chart_id, Some(parent), 100).unwrap();
+    let item = items.iter().find(|i| i.node_id == dup.id).unwrap();
+    assert!(item.label.ends_with("(appears earlier)"), "{}", item.label);
+}
+
+/// A father with `n` children by one wife.
+fn wide_ged(n: u32) -> String {
+    let mut s = String::from(HEAD);
+    s.push_str(&indi(1, "Dad /W/", "M", ""));
+    s.push_str(&indi(2, "Mum /W/", "F", ""));
+    for i in 0..n {
+        s.push_str(&indi(10 + i, &format!("Kid{i} /W/"), "U", ""));
+    }
+    s.push_str("0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n");
+    for i in 0..n {
+        writeln!(s, "1 CHIL @I{}@", 10 + i).unwrap();
+    }
+    s.push_str("0 TRLR\n");
+    s
+}
+
+#[test]
+fn truncation_at_20000() {
+    let (_d, mut s) = open_ged(&wide_ged(30_000));
+    let m = s.chart_open(&descendants_req(&s, "Dad W", 3)).unwrap();
+    assert!(m.truncated);
+    assert_eq!(m.node_count, 20_000);
+    let m = s.chart_open(&descendants_req(&s, "Dad W", 3)).unwrap();
+    let huge = Rect {
+        x: -1e9,
+        y: -1e9,
+        w: 2e9,
+        h: 2e9,
+    };
+    let w = s.chart_window(m.chart_id, &huge, 0.1).unwrap();
+    assert_eq!(w.nodes.len(), 20_000);
+}
+
+#[test]
+fn outline_labels_ahnentafel() {
+    let (_d, mut s) = open_ged(&pedigree_ged());
+    let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    let top = s.chart_outline(m.chart_id, None, 10).unwrap();
+    assert_eq!(top.len(), 1);
+    assert_eq!(top[0].label, "1 Self");
+    assert_eq!(top[0].node_id, m.root_node);
+    assert!(top[0].has_children);
+    assert_eq!(top[0].person.as_ref().unwrap().name, "Me X");
+
+    let l1 = s.chart_outline(m.chart_id, Some(m.root_node), 10).unwrap();
+    let labels: Vec<_> = l1.iter().map(|i| i.label.as_str()).collect();
+    assert_eq!(labels, ["2 Father", "3 Mother"]);
+    assert_eq!(l1[0].person.as_ref().unwrap().name, "Fred X");
+
+    let mother = l1[1].node_id;
+    let l2 = s.chart_outline(m.chart_id, Some(mother), 10).unwrap();
+    let labels: Vec<_> = l2.iter().map(|i| i.label.as_str()).collect();
+    assert_eq!(labels, ["6 Mother's father", "7 Mother's mother"]);
+    let father = l1[0].node_id;
+    let l2 = s.chart_outline(m.chart_id, Some(father), 10).unwrap();
+    assert_eq!(l2[0].label, "4 Father's father");
+    assert_eq!(l2[1].label, "5 Father's mother");
+    assert!(!l2[0].has_children);
+}
+
+#[test]
+fn ahnen_labels_deeper() {
+    assert_eq!(ahnen_label(1), "Self");
+    assert_eq!(ahnen_label(8), "Father's father's father");
+    assert_eq!(ahnen_label(15), "Mother's mother's mother");
+    assert_eq!(ahnen_label(16), "2x great-grandfather");
+    assert_eq!(ahnen_label(31), "2x great-grandmother");
+    assert_eq!(ahnen_label(32), "3x great-grandfather");
+}
+
+#[test]
+fn male_parent_first_whatever_the_family_order() {
+    // The family lists the wife-slot person (male) second only by sex: here HUSB is the woman.
+    let g = ged(&[
+        indi(1, "Kid /Z/", "M", ""),
+        indi(2, "Joan /Z/", "F", ""),
+        indi(3, "John /Z/", "M", ""),
+        fam(1, 2, 3, &[1]),
+    ]);
+    let (_d, mut s) = open_ged(&g);
+    let m = s.chart_open(&pedigree_req(&s, "Kid Z", 2)).unwrap();
+    let l = s.chart_outline(m.chart_id, Some(m.root_node), 10).unwrap();
+    assert_eq!(l[0].label, "2 Father");
+    assert_eq!(l[0].person.as_ref().unwrap().name, "John Z");
+    assert_eq!(l[1].person.as_ref().unwrap().name, "Joan Z");
+}
+
+#[test]
+fn outline_limit_clamped() {
+    let (_d, mut s) = open_ged(&wide_ged(150));
+    let m = s.chart_open(&descendants_req(&s, "Dad W", 3)).unwrap();
+    let items = s
+        .chart_outline(m.chart_id, Some(m.root_node), 1000)
+        .unwrap();
+    assert_eq!(items.len(), 100);
+    let items = s.chart_outline(m.chart_id, Some(m.root_node), 5).unwrap();
+    assert_eq!(items.len(), 5);
+    assert_eq!(s.chart_outline(m.chart_id, None, 0).unwrap().len(), 0);
+}
+
+#[test]
+fn outline_children_lazy() {
+    // Gus has wife Gina; children Hal (1900) and Ida (1902); Hal has child Jon.
+    let g = ged(&[
+        indi(1, "Gus /D/", "M", ""),
+        indi(2, "Gina /D/", "F", ""),
+        indi(3, "Ida /D/", "F", "1 BIRT\n2 DATE 1902\n"),
+        indi(4, "Hal /D/", "M", "1 BIRT\n2 DATE 1900\n"),
+        indi(5, "Jon /D/", "M", ""),
+        indi(6, "Kay /D/", "F", ""),
+        fam(1, 1, 2, &[3, 4]),
+        fam(2, 4, 6, &[5]),
+    ]);
+    let (_d, mut s) = open_ged(&g);
+    let m = s.chart_open(&descendants_req(&s, "Gus D", 4)).unwrap();
+    let top = s.chart_outline(m.chart_id, None, 100).unwrap();
+    assert_eq!(top.len(), 1);
+    assert_eq!(top[0].label, "Self");
+    assert!(top[0].has_children);
+
+    let l1 = s
+        .chart_outline(m.chart_id, Some(top[0].node_id), 100)
+        .unwrap();
+    let labels: Vec<_> = l1.iter().map(|i| i.label.as_str()).collect();
+    // Partner first, then the children in birth order (Hal 1900 before Ida 1902).
+    assert_eq!(labels, ["Partner", "Child 1", "Child 2"]);
+    assert_eq!(l1[0].person.as_ref().unwrap().name, "Gina D");
+    assert_eq!(l1[1].person.as_ref().unwrap().name, "Hal D");
+    assert!(!l1[0].has_children);
+    assert!(l1[1].has_children);
+    assert!(!l1[2].has_children);
+
+    let l2 = s
+        .chart_outline(m.chart_id, Some(l1[1].node_id), 100)
+        .unwrap();
+    let labels: Vec<_> = l2.iter().map(|i| i.label.as_str()).collect();
+    assert_eq!(labels, ["Partner", "Grandchild 1"]);
+    assert_eq!(l2[1].person.as_ref().unwrap().name, "Jon D");
+
+    let e = s.chart_outline(m.chart_id, Some(9999), 10).unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound);
+    let e = s.chart_outline(9999, None, 10).unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound);
+}
+
+#[test]
+fn descendants_nav_matches_keyboard_semantics() {
+    let (_d, mut s) = open_ged(&wide_ged(3));
+    let m = s.chart_open(&descendants_req(&s, "Dad W", 3)).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    let root = w.nodes.iter().find(|n| n.id == m.root_node).unwrap();
+    let first = w
+        .nodes
+        .iter()
+        .find(|n| Some(n.id) == root.nav.child)
+        .unwrap();
+    assert_eq!(first.nav.parent, Some(root.id));
+    assert!(first.nav.prev.is_none() && first.nav.next.is_some());
+}
+
+/// A straight line of `n` people, each the child of the next (pedigree) / previous (descendants).
+fn chain_ged(n: u32) -> String {
+    let mut recs = Vec::new();
+    for i in 1..=n {
+        recs.push(indi(i, &format!("P{i:02} /L/"), "M", ""));
+    }
+    for i in 1..n {
+        // I{i+1} is the father of I{i}; wife slot left to a placeholder-free single parent.
+        recs.push(format!(
+            "0 @F{i}@ FAM\n1 HUSB @I{}@\n1 CHIL @I{i}@\n",
+            i + 1
+        ));
+    }
+    ged(&recs)
+}
+
+#[test]
+fn generations_clamped() {
+    let (_d, mut s) = open_ged(&chain_ged(20));
+    let ped = |s: &mut Session, g: u32| {
+        s.chart_open(&pedigree_req(s, "P01 L", g))
+            .unwrap()
+            .node_count
+    };
+    assert_eq!(ped(&mut s, 99), 12);
+    assert_eq!(ped(&mut s, 12), 12);
+    assert_eq!(ped(&mut s, 0), 1);
+    // Descendants of the oldest person: down the chain.
+    let desc = |s: &mut Session, g: u32| {
+        s.chart_open(&descendants_req(s, "P20 L", g))
+            .unwrap()
+            .node_count
+    };
+    assert_eq!(desc(&mut s, 99), 8);
+    assert_eq!(desc(&mut s, 0), 1);
+}
+
+#[test]
+fn living_people_are_not_masked_like_the_read_side() {
+    // The read side shows names of living people to the owner; charts use the same PersonRef.
+    let (_d, mut s) = open_ged(&pedigree_ged());
+    let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    for n in &w.nodes {
+        let p = n.person.as_ref().unwrap();
+        assert_eq!(Some(p.clone()), s.person_ref(p.id));
+    }
+}
+
+#[test]
+#[ignore = "release-only budget check"]
+fn chart_window_under_8ms_10k() {
+    // 100 children with 99 children each: about 10k nodes.
+    let mut recs = vec![indi(1, "Root /R/", "M", "")];
+    let mut n = 1000u32;
+    let mut fams = String::from("0 @F0@ FAM\n1 HUSB @I1@\n");
+    let mut kids = Vec::new();
+    for i in 0..100u32 {
+        let c = 2 + i;
+        recs.push(indi(c, &format!("C{i} /R/"), "M", ""));
+        fams.push_str(&format!("1 CHIL @I{c}@\n"));
+        let mut f = format!("0 @F{}@ FAM\n1 HUSB @I{c}@\n", 100 + i);
+        for _ in 0..99 {
+            recs.push(indi(n, &format!("G{n} /R/"), "U", ""));
+            f.push_str(&format!("1 CHIL @I{n}@\n"));
+            n += 1;
+        }
+        kids.push(f);
+    }
+    recs.push(fams);
+    recs.extend(kids);
+    let (_d, mut s) = open_ged(&ged(&recs));
+    let m = s.chart_open(&descendants_req(&s, "Root R", 3)).unwrap();
+    assert!(m.node_count >= 10_000, "{}", m.node_count);
+    let r = Rect {
+        x: 0.0,
+        y: 0.0,
+        w: 1920.0,
+        h: 1080.0,
+    };
+    let mut worst = std::time::Duration::ZERO;
+    for i in 0..50 {
+        let r = Rect {
+            x: r.x + f32::from(i as u8) * 300.0,
+            ..r
+        };
+        let t = std::time::Instant::now();
+        let w = s.chart_window(m.chart_id, &r, 1.0).unwrap();
+        worst = worst.max(t.elapsed());
+        std::hint::black_box(w);
+    }
+    assert!(
+        worst < std::time::Duration::from_millis(8),
+        "worst window {worst:?}"
+    );
+}
