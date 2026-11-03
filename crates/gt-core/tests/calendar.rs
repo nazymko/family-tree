@@ -45,7 +45,13 @@ fn invalid_dates() {
     assert_eq!(first_jdn(Gregorian, 1900, Some(13), None), None);
     assert_eq!(first_jdn(Gregorian, 1900, Some(0), None), None);
     assert_eq!(first_jdn(Gregorian, 1900, Some(1), Some(0)), None);
-    assert_eq!(first_jdn(Hebrew, 5783, Some(6), Some(1)), None);
+    // ADS (Adar II) does not exist in a non-leap year; ADR is plain Adar there.
+    assert_eq!(first_jdn(Hebrew, 5783, Some(7), Some(1)), None);
+    assert_eq!(
+        first_jdn(Hebrew, 5783, Some(6), Some(1)),
+        first_jdn(Gregorian, 2023, Some(2), Some(22))
+    );
+    assert!(first_jdn(Hebrew, 5783, Some(13), Some(1)).is_some());
     assert_eq!(first_jdn(Hebrew, 0, Some(1), Some(1)), None);
     assert_eq!(first_jdn(FrenchRepublican, 1, Some(13), Some(6)), None);
     assert_eq!(first_jdn(Gregorian, i32::MAX, None, None), None);

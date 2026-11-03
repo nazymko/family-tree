@@ -144,7 +144,7 @@ fn display_date(d: &Date) -> String {
         let name = match d.calendar {
             Calendar::Gregorian | Calendar::Julian => month_str(&GREGORIAN_NAMES, m),
             Calendar::Hebrew => {
-                if m == 7 && months_in_year(Calendar::Hebrew, d.year) == 12 {
+                if m == 6 && months_in_year(Calendar::Hebrew, d.year) == 12 {
                     "Adar"
                 } else {
                     month_str(&HEBREW_NAMES, m)

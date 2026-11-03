@@ -88,8 +88,8 @@ fn hebrew_year_days(y: i64) -> i64 {
 }
 
 /// Map a GEDCOM Hebrew month (TSH=1 .. ELL=13) to the R&D number (Nisan=1).
-/// ADR (6) exists only in leap years; ADS (7) is Adar II in a leap year and
-/// plain Adar otherwise.
+/// ADR (6) is Adar I in a leap year and plain Adar otherwise; ADS (7) is
+/// Adar II and exists only in leap years.
 fn hebrew_rd_month(y: i64, m: u8) -> Option<i64> {
     let leap = hebrew_leap(y);
     Some(match m {
@@ -98,9 +98,8 @@ fn hebrew_rd_month(y: i64, m: u8) -> Option<i64> {
         3 => 9,
         4 => 10,
         5 => 11,
-        6 if leap => 12,
+        6 => 12,
         7 if leap => 13,
-        7 => 12,
         8 => 1,
         9 => 2,
         10 => 3,
@@ -165,7 +164,9 @@ fn french_year_start(y: i64) -> i64 {
 // ---------- public API ----------
 
 /// Number of months in the year (Hebrew leap year = 13; French = 13 incl.
-/// the complementary days).
+/// the complementary days). GEDCOM month numbers 1..=13 remain the index
+/// space: ELL=13 is valid every Hebrew year, while ADS=7 exists only in leap
+/// years, so this count is not the highest valid month number.
 pub fn months_in_year(cal: Calendar, year: i32) -> u8 {
     match cal {
         Calendar::Gregorian | Calendar::Julian => 12,

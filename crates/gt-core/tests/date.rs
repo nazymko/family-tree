@@ -188,6 +188,18 @@ fn table() {
 }
 
 #[test]
+fn adar_in_non_leap_year() {
+    let p = GenDate::parse("1 ADR 5783", DayOrder::Dmy);
+    assert!(matches!(p.value, DateValue::Exact(_)), "{:?}", p.value);
+    assert_eq!(
+        p.sort_min,
+        first_jdn(Calendar::Gregorian, 2023, Some(2), Some(22))
+    );
+    let p = GenDate::parse("1 ADS 5783", DayOrder::Dmy);
+    assert_eq!(p.value, DateValue::Unparsed);
+}
+
+#[test]
 fn phrases() {
     let p = GenDate::parse("INT 1900 (about then)", DayOrder::Dmy);
     assert_eq!(p.phrase.as_deref(), Some("about then"));
