@@ -130,4 +130,14 @@ describe('MediaView attach flow', () => {
     renderWith(MediaView, { personId: id }, { api });
     expect(await screen.findByText(/No photos or documents for/)).toHaveTextContent('No photos or documents for Zofia Nowak. Drop files here to attach them.');
   });
+
+  it('attached_but_too_large_to_preview_is_a_warning_not_a_failure', async () => {
+    const { api, target } = await emptyPerson();
+    const { platform } = renderWith(Dropzone, { target, targetName: 'Zofia', onAttached: vi.fn() }, { api });
+    await act(() => platform.simulateDrop(['C:/p/huge-scan.png']));
+    expect(await screen.findByText('huge-scan.png: Attached, but too large to preview')).toBeInTheDocument();
+    expect(screen.queryByText('These files were not attached:')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(notices.current?.message).toBe('Attached 1 file');
+  });
 });

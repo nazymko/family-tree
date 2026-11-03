@@ -5,7 +5,7 @@
   import Icon from '../ui/Icon.svelte';
   import TextField from '../ui/TextField.svelte';
   import TextArea from '../ui/TextArea.svelte';
-  import { getApi, getPlatform } from '../api/context';
+  import { getApi } from '../api/context';
   import { notices } from '../ui/notices.svelte';
   import { isPdf, mediaLabel } from './MediaGrid.svelte';
   import type { Id, MediaLinkDto, OwnerRef } from '../api/api';
@@ -26,7 +26,6 @@
   } = $props();
 
   const api = getApi();
-  const platform = getPlatform();
   const MAX_ZOOM = 8;
 
   // svelte-ignore state_referenced_locally
@@ -179,7 +178,7 @@
         {#if target?.kind === 'person' && m.resolved && !isPdf(m)}
           <Button onclick={setPrimary}>Set as primary photo</Button>
         {/if}
-        <Button onclick={() => platform.openExternally(api.mediaUrl(m.id, 'original'))}>Open original</Button>
+        <Button onclick={() => api.openMediaExternally(m.id)}>Open original</Button>
       </div>
       {#key m.id}
         <TextField label="Title" value={title} onchange={(e) => saveField('title', e.currentTarget.value)} />

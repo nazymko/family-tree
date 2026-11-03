@@ -5,6 +5,7 @@ import Sources from './Sources.svelte';
 import { renderWith } from '../testing/renderWith';
 import { MockApi } from '../api/mock/MockApi';
 import { fixtureTree } from '../api/mock/fixtures';
+import { project } from '../state/project.svelte';
 
 describe('Sources', () => {
   it('lists_with_counts', async () => {
@@ -47,5 +48,17 @@ describe('Sources', () => {
     await waitFor(() => expect(spy).toHaveBeenCalled());
     expect(spy.mock.calls[0][0]).toMatchObject({ type: 'saveSource', source: { id: first.id, title: 'Renamed register' } });
     await waitFor(() => expect(within(list).getAllByRole('listitem')[0]).toHaveTextContent('Renamed register'));
+  });
+
+  it('reloads_when_project_rev_changes', async () => {
+    const api = new MockApi(fixtureTree(80));
+    const first = (await api.suggestSources('', 1))[0];
+    renderWith(Sources, {}, { api });
+    const list = await screen.findByRole('list', { name: 'Sources' });
+    await waitFor(() => expect(within(list).getAllByRole('listitem')[0]).toHaveTextContent(first.title!));
+    // A change made outside this view (undo, redo) must show without reopening it.
+    await api.apply({ type: 'saveSource', source: { id: first.id, title: 'Changed behind its back' } });
+    project.rev++;
+    await waitFor(() => expect(within(list).getAllByRole('listitem')[0]).toHaveTextContent('Changed behind its back'));
   });
 });

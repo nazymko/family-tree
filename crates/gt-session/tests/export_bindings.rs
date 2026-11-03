@@ -36,6 +36,9 @@ fn export_all(dir: &Path) {
         ($($t:ty),+ $(,)?) => { $( <$t as TS>::export_all(&cfg).unwrap(); )+ };
     }
     export!(
+        FamilyDto,
+        FamilyChildDto,
+        RecentProject,
         ApiError,
         ErrorCode,
         DayOrder,

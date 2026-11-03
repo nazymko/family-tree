@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import MediaGrid from './MediaGrid.svelte';
 import { renderWith } from '../testing/renderWith';
 import { MockApi } from '../api/mock/MockApi';
-import { MockPlatform } from '../api/mock/MockPlatform';
 import { fixtureTree } from '../api/mock/fixtures';
 import type { MediaDto, MediaLinkDto } from '../api/api';
 
@@ -39,12 +38,12 @@ describe('MediaGrid', () => {
 
   it('pdf_tile_has_document_icon_and_open_button', async () => {
     const user = userEvent.setup();
-    const platform = new MockPlatform();
+    const api = new MockApi(fixtureTree(30));
     const items = [link(media('d1', { mime: 'application/pdf', originalName: 'will.pdf' }))];
-    renderWith(MediaGrid, { items, onOpen: vi.fn() }, { platform });
+    renderWith(MediaGrid, { items, onOpen: vi.fn() }, { api });
     expect(screen.queryByRole('img')).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Open will.pdf' }));
-    expect(platform.calls[0].method).toBe('openExternally');
+    expect(api.openedMedia).toEqual(['d1']);
   });
 
   it('missing_file_tile_text', () => {

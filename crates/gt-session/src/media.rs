@@ -243,6 +243,18 @@ impl Session {
         Ok(AttachResult { attached, failed })
     }
 
+    /// The original file of one media item, for handing to the OS viewer. Looked up by id only;
+    /// the file must lie under `<project>/media` (lexical check, then symlink-resolving check).
+    pub fn media_original_path(&self, id: Uuid) -> Result<PathBuf, ApiError> {
+        let m = self
+            .tree
+            .media
+            .get(&id)
+            .ok_or_else(|| ApiError::not_found("media", id))?;
+        self.resolve_media_file(&m.path)
+            .ok_or_else(|| ApiError::not_found("media file", id))
+    }
+
     /// Bytes and MIME type of one rendition. Looked up by media id only; the file must lie
     /// under `<project>/media`. Thumbnails and previews are JPEG, cached under `thumbs/`.
     pub fn media_bytes(&self, id: Uuid, size: MediaSize) -> Result<(Vec<u8>, String), ApiError> {

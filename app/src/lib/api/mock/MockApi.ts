@@ -1,5 +1,6 @@
 import type { Api } from '../api';
 import type {
+  RelinkResult,
   AttachResult,
   ChartMeta,
   ChartNode,
@@ -230,8 +231,8 @@ export class MockApi implements Api {
   async saveImportReport(): Promise<void> {}
   async discardImport(): Promise<void> {}
 
-  async relinkMedia(): Promise<{ relinked: number; stillMissing: string[] }> {
-    return { relinked: 1, stillMissing: ['photos/farm.jpg'] };
+  async relinkMedia(): Promise<RelinkResult> {
+    return { relinked: 1, stillMissing: ['photos/farm.jpg'], searchIncomplete: false };
   }
 
   // ------------------------------------------------------------------ reads
@@ -485,6 +486,8 @@ export class MockApi implements Api {
         this.db.media.set(m.id, m);
         bag.media.push({ media: m, primary: bag.media.length === 0 });
         attached.push(m);
+        // Like the real session: an oversized image is attached but listed in `failed` (no preview).
+        if (/huge/i.test(a.name)) failed.push({ path: a.path, reason: 'image too large to preview' });
       }
       this.undoStack.push({ label: 'Attach media', db: before });
       this.redoStack = [];
@@ -565,6 +568,13 @@ export class MockApi implements Api {
       `<path d="M0 96 40 60l28 26 30-38 62 56v10H0z" fill="hsl(${hue} 22% 62%)"/>` +
       `<circle cx="118" cy="30" r="10" fill="hsl(${hue} 30% 94%)"/></svg>`;
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  }
+
+  /** Records the call in `openedMedia` so tests can assert it. */
+  readonly openedMedia: Id[] = [];
+
+  async openMediaExternally(id: Id): Promise<void> {
+    this.openedMedia.push(id);
   }
 
   async exifSuggestion(media: Id): Promise<ExifSuggestion | null> {

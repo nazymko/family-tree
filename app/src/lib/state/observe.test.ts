@@ -57,7 +57,7 @@ describe('observeApi', () => {
 
   it('other_mutations_bump_rev', async () => {
     const { api, raw } = make();
-    vi.spyOn(raw, 'relinkMedia').mockResolvedValue({ relinked: 0, stillMissing: [] });
+    vi.spyOn(raw, 'relinkMedia').mockResolvedValue({ relinked: 0, stillMissing: [], searchIncomplete: false });
     vi.spyOn(raw, 'discardImport').mockResolvedValue(undefined as never);
     vi.spyOn(raw, 'setSettings').mockResolvedValue(undefined as never);
     const r0 = project.rev;

@@ -100,7 +100,9 @@
     { id: 'n6', keys: 'Mod+6', label: 'Media', run: () => go('media') },
     { id: 'export', keys: 'Mod+Shift+E', label: 'Export GEDCOM', run: () => (exportOpen = true) },
     { id: 'settings', keys: 'Mod+,', label: 'Settings', run: () => go('settings') },
-    { id: 'save', keys: 'Mod+S', label: 'Save', run: () => toasts.push({ text: 'All changes are saved' }) },
+    { id: 'save', keys: 'Mod+S', label: 'Save', run: () => {
+        if (project.info && project.save === 'saved') toasts.push({ text: 'All changes are saved' });
+      }, },
     { id: 'help', keys: '?', label: 'Keyboard shortcuts', run: () => (sheetOpen = true) },
   ];
 

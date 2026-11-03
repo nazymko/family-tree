@@ -70,7 +70,7 @@ describe('ImportReport', () => {
   });
 
   it('locate_media_updates_list', async () => {
-    const { user } = await setup({}, { relinkMedia: async () => ({ relinked: 2, stillMissing: ['photos/farm.jpg'] }) });
+    const { user } = await setup({}, { relinkMedia: async () => ({ relinked: 2, stillMissing: ['photos/farm.jpg'], searchIncomplete: false }) });
     expect(screen.getByText('photos/wedding-1878.jpg')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Locate media folder' }));
     await waitFor(() => expect(screen.queryByText('photos/wedding-1878.jpg')).toBeNull());

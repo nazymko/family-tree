@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { MockApi } from '../api/mock/MockApi';
 import { nav } from '../state/nav.svelte';
+import { project } from '../state/project.svelte';
 import Host from '../chart/testing/Host.svelte';
 import { makeApi, richestRoot } from '../chart/testing/helpers';
 import Pedigree from './Pedigree.svelte';
@@ -93,5 +94,15 @@ describe('chart views', () => {
     await waitFor(() => expect(screen.getByRole('status').textContent).not.toBe(before));
     await fireEvent.keyDown(canvas, { key: 'Enter' });
     await waitFor(() => expect(nav.focusPerson).not.toBe(root));
+  });
+
+  it('chart_reopens_when_project_rev_changes', async () => {
+    const { api, fx } = makeApi();
+    nav.focus(await richestRoot(api, fx, 'pedigree'));
+    const open = vi.spyOn(api, 'chartOpen');
+    mount(api, Pedigree);
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
+    project.rev++; // undo or redo happened
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(2));
   });
 });
