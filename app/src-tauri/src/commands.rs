@@ -474,7 +474,9 @@ pub fn checked_original_path(state: &AppState, id: Uuid) -> ApiResult<PathBuf> {
             )
         };
         match s.media_bytes(id, gt_session::MediaSize::Original) {
-            Ok((_, mime)) if SAFE_OPEN_TYPES.contains(&mime.as_str()) => Ok(path),
+            // Both must agree: the OS picks the program by extension, so a script that merely
+            // starts with image or PDF magic bytes (e.g. `x.hta` beginning `GIF89a`) is refused.
+            Ok((_, mime)) if extension_matches(&path, &mime) => Ok(path),
             Ok(_) => Err(refused()),
             Err(e) if e.code == ErrorCode::Invalid => Err(refused()),
             Err(e) => Err(e),
@@ -482,15 +484,27 @@ pub fn checked_original_path(state: &AppState, id: Uuid) -> ApiResult<PathBuf> {
     })
 }
 
-/// Content types that may be handed to the operating system's default program.
-const SAFE_OPEN_TYPES: &[&str] = &[
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-    "image/gif",
-    "image/tiff",
-    "application/pdf",
+/// Content types that may be handed to the operating system's default program, with the file
+/// extensions each may carry.
+const SAFE_OPEN_TYPES: &[(&str, &[&str])] = &[
+    ("image/jpeg", &["jpg", "jpeg", "jpe", "jfif"]),
+    ("image/png", &["png"]),
+    ("image/webp", &["webp"]),
+    ("image/gif", &["gif"]),
+    ("image/tiff", &["tif", "tiff"]),
+    ("application/pdf", &["pdf"]),
 ];
+
+/// True when the sniffed `mime` is safe to open and the file's extension belongs to it.
+fn extension_matches(path: &Path, mime: &str) -> bool {
+    let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+        return false;
+    };
+    let ext = ext.to_ascii_lowercase();
+    SAFE_OPEN_TYPES
+        .iter()
+        .any(|(m, exts)| *m == mime && exts.contains(&ext.as_str()))
+}
 
 /// Opens the original file of a media item with the OS default program. The path is resolved by
 /// the session (under `<project>/media`, lexical check first) and opened from Rust, so the webview
