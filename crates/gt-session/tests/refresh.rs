@@ -90,6 +90,11 @@ fn random_command(s: &Session, rng: &mut Rng, n: usize) -> EditCommand {
     let persons: Vec<Uuid> = s.tree().persons.keys().copied().collect();
     let families: Vec<Uuid> = s.tree().families.keys().copied().collect();
     let person = |rng: &mut Rng| *rng.pick(&persons);
+    if rng.below(3) == 0
+        && let Some(c) = extended_command(s, rng, n)
+    {
+        return c;
+    }
     match rng.below(14) {
         0 => EditCommand::CreatePerson {
             draft: draft(rng, n),
@@ -211,6 +216,286 @@ fn random_command(s: &Session, rng: &mut Rng, n: usize) -> EditCommand {
     }
 }
 
+fn owner_ref(kind: OwnerKind, id: Uuid) -> OwnerRef {
+    OwnerRef { kind, id }
+}
+
+type OwnerInfo = (OwnerRef, Vec<Uuid>, Vec<Uuid>, Vec<Uuid>);
+
+/// A random record that can own notes, citations or media: a person, family, event or name.
+/// Returns the owner with its citation, note and media ids.
+fn random_owner(s: &Session, rng: &mut Rng) -> Option<OwnerInfo> {
+    let t = s.tree();
+    let (kind, id, c) = match rng.below(4) {
+        0 => {
+            let p = t.persons.values().nth(rng.below(t.persons.len().max(1)))?;
+            (OwnerKind::Person, p.common.id, &p.common)
+        }
+        1 => {
+            let f = t
+                .families
+                .values()
+                .nth(rng.below(t.families.len().max(1)))?;
+            (OwnerKind::Family, f.common.id, &f.common)
+        }
+        2 => {
+            let e = t.events.values().nth(rng.below(t.events.len().max(1)))?;
+            (OwnerKind::Event, e.common.id, &e.common)
+        }
+        _ => {
+            let p = t.persons.values().nth(rng.below(t.persons.len().max(1)))?;
+            let n = p.names.get(rng.below(p.names.len().max(1)))?;
+            return Some((
+                owner_ref(OwnerKind::Name, n.id),
+                n.citations.clone(),
+                n.notes.clone(),
+                Vec::new(),
+            ));
+        }
+    };
+    Some((
+        owner_ref(kind, id),
+        c.citations.clone(),
+        c.notes.clone(),
+        c.media.iter().map(|m| m.media).collect(),
+    ))
+}
+
+fn cite_input(rng: &mut Rng, s: &Session) -> CitationInput {
+    let sources: Vec<Uuid> = s.tree().sources.keys().copied().collect();
+    let source = if sources.is_empty() || rng.below(3) == 0 {
+        SourceRef::New(NewSource {
+            title: format!("Book {}", rng.below(3)),
+        })
+    } else {
+        SourceRef::Id(*rng.pick(&sources))
+    };
+    CitationInput {
+        source,
+        page: Some(format!("p. {}", rng.below(90))),
+        date_raw: None,
+        text: None,
+        quality: Some(rng.below(4) as u8),
+        evidence: None,
+    }
+}
+
+fn nth_key<T>(m: &indexmap::IndexMap<Uuid, T>, rng: &mut Rng) -> Option<Uuid> {
+    m.keys().nth(rng.below(m.len().max(1))).copied()
+}
+
+fn extended_command(s: &Session, rng: &mut Rng, n: usize) -> Option<EditCommand> {
+    let t = s.tree();
+    let persons: Vec<Uuid> = t.persons.keys().copied().collect();
+    let (owner, cites, notes, media) = random_owner(s, rng)?;
+    Some(match rng.below(15) {
+        0 => {
+            let p = t.persons.get(&nth_key(&t.persons, rng)?)?;
+            EditCommand::DeleteName {
+                person: p.common.id,
+                name: p.names.get(rng.below(p.names.len().max(1)))?.id,
+            }
+        }
+        1 => {
+            let f = t.families.get(&nth_key(&t.families, rng)?)?;
+            let c = f.children.get(rng.below(f.children.len().max(1)))?;
+            EditCommand::UpdateChildLink {
+                family: f.common.id,
+                child: c.person,
+                rel: (
+                    *rng.pick(&[
+                        ParentRelId::Adopted,
+                        ParentRelId::Foster,
+                        ParentRelId::Birth,
+                    ]),
+                    ParentRelId::Birth,
+                ),
+                preferred: rng.below(2) == 0,
+            }
+        }
+        2 => {
+            let f = t.families.get(&nth_key(&t.families, rng)?)?;
+            let mut order: Vec<Uuid> = f.children.iter().map(|c| c.person).collect();
+            for i in (1..order.len()).rev() {
+                order.swap(i, rng.below(i + 1));
+            }
+            EditCommand::ReorderChildren {
+                family: f.common.id,
+                order,
+            }
+        }
+        3 => EditCommand::SaveNote {
+            target: if rng.below(2) == 0 {
+                owner_ref(OwnerKind::Person, *rng.pick(&persons))
+            } else {
+                owner
+            },
+            note: NoteInput {
+                id: notes.first().filter(|_| rng.below(2) == 0).copied(),
+                kind: NoteKindDto::General,
+                text: format!("note {n}"),
+            },
+        },
+        4 => {
+            let _ = &notes;
+            let p = t.persons.values().find(|p| !p.common.notes.is_empty())?;
+            EditCommand::DeleteNote {
+                target: owner_ref(OwnerKind::Person, p.common.id),
+                note: p.common.notes[0],
+            }
+        }
+        5 => EditCommand::SaveSource {
+            source: SourceInput {
+                id: nth_key(&t.sources, rng).filter(|_| rng.below(2) == 0),
+                title: Some(format!("Source {n}")),
+                author: Some("Author".into()),
+                publication: None,
+                abbreviation: None,
+                text: None,
+            },
+        },
+        6 | 7 => EditCommand::AddCitation {
+            target: owner,
+            citation: match (rng.below(3), t.citations.keys().next(), s.reuse_citation()) {
+                (1, Some(c), _) => CitationArg::Clone(CloneOf { clone_of: *c }),
+                (2, _, Some(_)) => CitationArg::Reuse(ReuseLast { reuse_last: true }),
+                _ => CitationArg::New(cite_input(rng, s)),
+            },
+        },
+        8 => EditCommand::UpdateCitation {
+            id: nth_key(&t.citations, rng)?,
+            citation: CitationPatch {
+                source: nth_key(&t.sources, rng),
+                page: Some(format!("p. {n}")),
+                date_raw: None,
+                text: None,
+                quality: Some(rng.below(4) as u8),
+                evidence: None,
+            },
+        },
+        9 => {
+            let _ = (&cites, &owner);
+            let p = t
+                .persons
+                .values()
+                .find(|p| !p.common.citations.is_empty())?;
+            EditCommand::RemoveCitation {
+                target: owner_ref(OwnerKind::Person, p.common.id),
+                citation: p.common.citations[rng.below(p.common.citations.len())],
+            }
+        }
+        10 => match rng.below(4) {
+            0 => EditCommand::AttachMedia {
+                target: owner,
+                media: vec![nth_key(&t.media, rng)?],
+            },
+            1 => {
+                let _ = (&media, &owner);
+                let p = t.persons.values().find(|p| !p.common.media.is_empty())?;
+                EditCommand::DetachMedia {
+                    target: owner_ref(OwnerKind::Person, p.common.id),
+                    media: p.common.media[rng.below(p.common.media.len())].media,
+                }
+            }
+            2 => {
+                let p = t.persons.values().find(|p| !p.common.media.is_empty())?;
+                EditCommand::SetPrimaryMedia {
+                    person: p.common.id,
+                    media: p.common.media[rng.below(p.common.media.len())].media,
+                }
+            }
+            _ => EditCommand::UpdateMedia {
+                id: nth_key(&t.media, rng)?,
+                title: Some(format!("Title {n}")),
+                description: None,
+                date_raw: Some(rng.pick(&DATES).to_string()),
+            },
+        },
+        11 => EditCommand::SaveFamily {
+            // Edits an existing family: new partners and kind.
+            id: Some(nth_key(&t.families, rng)?),
+            partner1: Some(*rng.pick(&persons)),
+            partner2: if rng.below(3) == 0 {
+                None
+            } else {
+                Some(*rng.pick(&persons))
+            },
+            kind: *rng.pick(&[
+                UnionKindId::Married,
+                UnionKindId::Unmarried,
+                UnionKindId::CivilUnion,
+            ]),
+        },
+        12 => {
+            // An event owned by a family (marriage and the like).
+            let fam = nth_key(&t.families, rng)?;
+            let existing: Vec<Uuid> = t
+                .events
+                .values()
+                .filter(|e| {
+                    e.participants
+                        .iter()
+                        .any(|p| p.target == gt_core::model::ParticipantRef::Family(fam))
+                })
+                .map(|e| e.common.id)
+                .collect();
+            let owner = EventOwner {
+                kind: EventOwnerKind::Family,
+                id: fam,
+            };
+            if !existing.is_empty() && rng.below(3) == 0 {
+                EditCommand::DeleteEvent {
+                    owner,
+                    event: *rng.pick(&existing),
+                }
+            } else {
+                let reuse = existing.first().copied().filter(|_| rng.below(2) == 0);
+                let mut event = event_input(rng, reuse);
+                event.kind = rng.pick(&["marriage", "divorce", "residence"]).to_string();
+                EditCommand::SaveEvent { owner, event }
+            }
+        }
+        _ => {
+            // An event with several participants.
+            let mut event = event_input(rng, None);
+            event.kind = rng
+                .pick(&["residence", "baptism", "burial", "census"])
+                .to_string();
+            event.participants = Some(
+                (0..1 + rng.below(3))
+                    .map(|_| ParticipantInput {
+                        person: *rng.pick(&persons),
+                        role: rng.pick(&["principal", "witness", "godparent"]).to_string(),
+                    })
+                    .collect(),
+            );
+            EditCommand::SaveEvent {
+                owner: EventOwner {
+                    kind: EventOwnerKind::Person,
+                    id: *rng.pick(&persons),
+                },
+                event,
+            }
+        }
+    })
+}
+
+/// Writes tiny distinct PNGs and attaches them (one undoable step each) to random persons.
+fn attach_images(s: &mut Session, dir: &std::path::Path, rng: &mut Rng, n: usize) {
+    let id = *s
+        .tree()
+        .persons
+        .keys()
+        .nth(rng.below(s.tree().persons.len()))
+        .unwrap();
+    let path = dir.join(format!("img{n}.png"));
+    let shade = (n % 250) as u8;
+    image::RgbImage::from_pixel(4, 4, image::Rgb([shade, 20, 200]))
+        .save(&path)
+        .unwrap();
+    let _ = s.attach_files(owner_ref(OwnerKind::Person, id), &[path]);
+}
+
 fn check(s: &Session, seed: u64, step: usize, what: &str) {
     if let Err(e) = s.verify_derived_state() {
         panic!("seed {seed} step {step} ({what}): incremental state differs from rebuild: {e}");
@@ -221,13 +506,18 @@ fn check(s: &Session, seed: u64, step: usize, what: &str) {
 fn incremental_refresh_equals_rebuild_over_random_edit_undo_redo_sequences() {
     let tree = tree_of(GED);
     let mut applied = 0;
-    for seed in 1..=8u64 {
-        let (_dir, mut s) = open_tree(&tree);
+    let mut kinds: std::collections::BTreeMap<String, usize> = Default::default();
+    for seed in 1..=12u64 {
+        let (dir, mut s) = open_tree(&tree);
         check(&s, seed, 0, "open");
         let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
         for step in 1..=120 {
             if s.tree().persons.is_empty() {
                 break;
+            }
+            if step % 8 == 1 {
+                attach_images(&mut s, dir.path(), &mut rng, (seed as usize) * 1000 + step);
+                check(&s, seed, step, "attach files");
             }
             match rng.below(10) {
                 0 | 1 => {
@@ -241,8 +531,14 @@ fn incremental_refresh_equals_rebuild_over_random_edit_undo_redo_sequences() {
                 _ => {
                     let cmd = random_command(&s, &mut rng, step);
                     let label = format!("{cmd:?}");
+                    let kind = label
+                        .split([' ', '{'])
+                        .next()
+                        .unwrap_or_default()
+                        .to_string();
                     if s.apply(cmd).is_ok() {
                         applied += 1;
+                        *kinds.entry(kind).or_default() += 1;
                     }
                     check(&s, seed, step, &label);
                 }
@@ -257,6 +553,27 @@ fn incremental_refresh_equals_rebuild_over_random_edit_undo_redo_sequences() {
         }
     }
     assert!(applied > 200, "only {applied} edits applied");
+    eprintln!("applied by kind: {kinds:?}");
+    for k in [
+        "DeleteName",
+        "UpdateChildLink",
+        "ReorderChildren",
+        "SaveNote",
+        "DeleteNote",
+        "SaveSource",
+        "AddCitation",
+        "UpdateCitation",
+        "RemoveCitation",
+        "AttachMedia",
+        "DetachMedia",
+        "SetPrimaryMedia",
+        "UpdateMedia",
+        "SaveFamily",
+        "SaveEvent",
+        "DeleteEvent",
+    ] {
+        assert!(kinds.contains_key(k), "{k} was never applied: {kinds:?}");
+    }
 }
 
 #[test]

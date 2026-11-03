@@ -88,6 +88,14 @@ fn deep_root(s: &Session) -> Uuid {
         .id
 }
 
+/// Budgets are timings and a memory reading of one process: the tests take turns, so a parallel
+/// `cargo test` neither adds CPU contention nor stacks several 50k sessions in memory.
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// Median of `n` timed runs, so one scheduler hiccup does not fail a budget.
 fn median(n: usize, mut f: impl FnMut() -> Duration) -> Duration {
     let mut v: Vec<Duration> = (0..n).map(|_| f()).collect();
@@ -98,6 +106,7 @@ fn median(n: usize, mut f: impl FnMut() -> Duration) -> Duration {
 #[test]
 #[ignore = "release-only budget check"]
 fn open_under_2s() {
+    let _turn = serial();
     let (s, opened) = open(&fixture());
     eprintln!("BUDGET open: {opened:?} (< 2s)");
     assert!(s.info().person_count >= 50_000);
@@ -107,6 +116,7 @@ fn open_under_2s() {
 #[test]
 #[ignore = "release-only budget check"]
 fn list_page_under_30ms() {
+    let _turn = serial();
     let (s, _) = open(&fixture());
     let q = PersonQuery::default();
     let _ = s.list_persons(&q, 0, 200); // builds the order cache
@@ -124,6 +134,7 @@ fn list_page_under_30ms() {
 #[test]
 #[ignore = "release-only budget check"]
 fn search_under_100ms() {
+    let _turn = serial();
     let (s, _) = open(&fixture());
     let took = median(9, || {
         let t = Instant::now();
@@ -139,6 +150,7 @@ fn search_under_100ms() {
 #[test]
 #[ignore = "release-only budget check"]
 fn apply_under_50ms() {
+    let _turn = serial();
     let (mut s, _) = open(&fixture());
     let anchor = deep_root(&s);
     let (mut applies, mut undos, mut redos) = (Vec::new(), Vec::new(), Vec::new());
@@ -175,17 +187,21 @@ fn apply_under_50ms() {
     };
     let (ma, mu, mr) = (med(&mut applies), med(&mut undos), med(&mut redos));
     let worst = *all.last().unwrap();
+    let p90 = all[all.len() * 9 / 10];
     eprintln!(
-        "BUDGET apply: median apply {ma:?}, undo {mu:?}, redo {mr:?}, worst of all {worst:?} (< 50ms)"
+        "BUDGET apply: median apply {ma:?}, undo {mu:?}, redo {mr:?}, p90 of all {p90:?} (< 100ms), worst {worst:?} (median < 50ms)"
     );
     assert!(ma < Duration::from_millis(50), "apply median {ma:?}");
     assert!(mu < Duration::from_millis(50), "undo median {mu:?}");
     assert!(mr < Duration::from_millis(50), "redo median {mr:?}");
+    // Secondary bound for the occasional SQLite commit stall.
+    assert!(p90 < Duration::from_millis(100), "p90 {p90:?}");
 }
 
 #[test]
 #[ignore = "release-only budget check"]
 fn chart_window_under_8ms() {
+    let _turn = serial();
     let (mut s, _) = open(&fixture());
     let root = deep_root(&s);
     let meta = s
@@ -218,6 +234,7 @@ fn chart_window_under_8ms() {
 #[test]
 #[ignore = "release-only budget check"]
 fn chart_open_pedigree_8_gens_under_50ms() {
+    let _turn = serial();
     let (mut s, _) = open(&fixture());
     let root = deep_root(&s);
     let req = ChartRequest {
@@ -285,8 +302,12 @@ fn resident_bytes() -> Option<u64> {
 #[test]
 #[ignore = "release-only budget check"]
 fn resident_memory_under_500mb() {
+    let _turn = serial();
     let (s, _) = open(&fixture());
     let _ = s.list_persons(&PersonQuery::default(), 0, 200);
+    #[cfg(any(windows, target_os = "linux"))]
+    let bytes = resident_bytes().expect("could not read the process memory on a supported OS");
+    #[cfg(not(any(windows, target_os = "linux")))]
     let Some(bytes) = resident_bytes() else {
         eprintln!("BUDGET memory: not measured on this OS");
         return;
@@ -299,6 +320,7 @@ fn resident_memory_under_500mb() {
 #[test]
 #[ignore = "release-only budget check"]
 fn living_recompute_under_30ms() {
+    let _turn = serial();
     let (s, _) = open(&fixture());
     let rule = LivingRule::default();
     let took = median(9, || {

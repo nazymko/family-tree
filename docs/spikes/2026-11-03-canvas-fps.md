@@ -43,7 +43,7 @@ None yet. Order if a gate fails: boxes LOD 0.25 to 0.35; OffscreenCanvas tile ca
 | `open_under_2s` | 2 s | 0.57 s |
 | `list_page_under_30ms` | 30 ms | 1.1 ms |
 | `search_under_100ms` | 100 ms | 18.6 ms |
-| `apply_under_50ms` (add child with date and place) | 50 ms | median 11 ms apply, 17 ms undo, 13 ms redo (slowest single run 65 ms, see below) |
+| `apply_under_50ms` (add child with date and place) | 50 ms | median 11 ms apply, 17 ms undo, 13 ms redo (p90 of all edits 19-23 ms, bound 100 ms; slowest single run 60-85 ms, see below) |
 | `chart_window_under_8ms` (1920x1080 window of a 255-node pedigree) | 8 ms | 0.012 ms |
 | `chart_open_pedigree_8_gens_under_50ms` (255 nodes) | 50 ms | 0.07 ms |
 | `resident_memory_under_500mb` (working set via `tasklist`; the workspace forbids `unsafe`, so no `GetProcessMemoryInfo`) | 500 MB | 236 MB (includes the fixture builder) |
@@ -55,4 +55,4 @@ What it took to meet `apply_under_50ms` (first measurement: 400 ms per edit):
 - `Session::commit` computed the living map twice per edit and `rebuild()` rebuilt every derived structure. Edits now refresh incrementally (`Session::refresh_after`): one living pass (the rule alone, overrides applied on top, then diffed), links for the touched events, families and citations, index rows for the touched persons, and place use counts. `rebuild()` stays for open, import, settings changes and change sets above 2 000 records. A random edit/undo/redo test (`tests/refresh.rs`) asserts after every step that the incremental state equals a fresh rebuild (links, living maps, index rows and slots, sort orders, place index).
 - Remaining cost per edit is the single living pass (about 10 ms), the SQLite write and the index refresh.
 
-Known noise: roughly one edit in ten shows a 50 to 80 ms stall inside the SQLite WAL `commit` (OS file I/O on this machine, not CPU in our code). The budget is asserted on the median of repeated edits; the slowest run is printed.
+Known noise: roughly one edit in ten shows a 50 to 80 ms stall inside the SQLite WAL `commit` (OS file I/O on this machine, not CPU in our code). The budget is asserted on the median of repeated edits, with a secondary p90 < 100 ms bound; the slowest run is printed.
