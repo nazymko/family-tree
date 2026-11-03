@@ -226,7 +226,7 @@
   </main>
 
   <Dialog open={confirm} title="Undo import" onclose={() => (confirm = false)}>
-    <p>Delete the imported tree? Your GEDCOM file is not touched.</p>
+    <p>Delete the imported tree? Your file is not touched.</p>
     {#snippet footer()}
       <Button onclick={() => (confirm = false)}>Cancel</Button>
       <Button variant="danger" onclick={discard} disabled={busy}>Delete imported tree</Button>

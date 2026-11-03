@@ -6,6 +6,7 @@
 
 use crate::dto::{DayOrder as WireDayOrder, ProjectInfo};
 use crate::error::{ApiError, ErrorCode};
+use crate::import_format;
 use crate::names::display_name;
 use crate::session::{Session, SessionClock};
 use gt_core::DayOrder;
@@ -14,7 +15,7 @@ use gt_core::living::{LivingRule, compute_living};
 use gt_core::model::Media;
 use gt_core::privacy::{LivingMode, PrivacyPolicy, PrivacySummary, filter};
 use gt_core::tree::Tree;
-use gt_gedcom::{ImportOptions, MissingReason, Repair, import, is_lexically_under};
+use gt_gedcom::{ImportOptions, MissingReason, Repair, is_lexically_under};
 use gt_store::{ChangeSet, Project, Record, RecordKind};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -386,7 +387,7 @@ pub fn import_gedcom_with_opener(
     }
     let file = PathBuf::from(&req.file);
     emit(ImportPhase::Reading, 0, 1);
-    let bytes = std::fs::read(&file).map_err(|e| io_err("read", &file, &e))?;
+    let format = import_format::detect(&file)?;
     emit(ImportPhase::Reading, 1, 1);
 
     emit(ImportPhase::Parsing, 0, 1);
@@ -398,14 +399,18 @@ pub fn import_gedcom_with_opener(
     let media_roots: Vec<PathBuf> = req.media_roots.iter().map(PathBuf::from).collect();
     let mut allowed = media_roots.clone();
     allowed.push(gedcom_dir.clone());
-    let mut outcome = import(
-        &bytes,
+    let converted = import_format::convert(
+        format,
+        &file,
         &ImportOptions {
             day_order: core_day_order(req.day_order),
             media_roots,
             gedcom_dir: Some(gedcom_dir),
         },
-    );
+    )?;
+    allowed.extend(converted.extra_media_roots);
+    let cleanup = converted.cleanup;
+    let mut outcome = converted.outcome;
     emit(ImportPhase::Parsing, 1, 1);
 
     let (today, _) = (clock.0)();
@@ -423,6 +428,9 @@ pub fn import_gedcom_with_opener(
         &mut extra_missing,
         &emit,
     );
+    if let Some(scratch) = &cleanup {
+        let _ = std::fs::remove_dir_all(scratch);
+    }
     if let Err(e) = built.and_then(|()| {
         if dir.exists() {
             // An empty folder is a valid target; make room for the rename.

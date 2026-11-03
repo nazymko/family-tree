@@ -25,14 +25,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Parse a GEDCOM file and print the import report; creates nothing.
+    /// Parse a GEDCOM or Древо Жизни (.atdb) file and print the import report; creates nothing.
     Check {
         file: PathBuf,
         /// Read ambiguous numeric dates as month/day/year.
         #[arg(long)]
         mdy: bool,
     },
-    /// Import a GEDCOM file into a new project folder.
+    /// Import a GEDCOM or Древо Жизни (.atdb) file into a new project folder.
     Import {
         file: PathBuf,
         #[arg(long)]
@@ -168,8 +168,7 @@ fn main() -> ExitCode {
 fn run(cmd: Cmd) -> Result<(), CliError> {
     match cmd {
         Cmd::Check { file, mdy } => {
-            let bytes = read_file(&file)?;
-            let out = import(&bytes, &import_options(&file, mdy, Vec::new()));
+            let out = convert_file(&file, mdy, Vec::new())?;
             print!("{}", out.report.to_text());
             Ok(())
         }
@@ -208,6 +207,22 @@ fn run(cmd: Cmd) -> Result<(), CliError> {
             Ok(())
         }
     }
+}
+
+/// Reads `file` with the converter for its format: a Древо Жизни `.atdb` database (found by its
+/// SQLite header and tables), else GEDCOM. This is the CLI's counterpart of the format seam in
+/// `gt_session::import_format`; a new format adds one branch here.
+fn convert_file(
+    file: &Path,
+    mdy: bool,
+    media_roots: Vec<PathBuf>,
+) -> Result<gt_gedcom::ImportOutcome, CliError> {
+    let opts = import_options(file, mdy, media_roots);
+    if gt_import_atdb::is_atdb(file) {
+        return gt_import_atdb::import_atdb(file, &opts).map_err(|e| user(e.to_string()));
+    }
+    let bytes = read_file(file)?;
+    Ok(import(&bytes, &opts))
 }
 
 fn import_options(file: &Path, mdy: bool, media_roots: Vec<PathBuf>) -> ImportOptions {
@@ -255,13 +270,12 @@ fn partial_dir(into: &Path) -> PathBuf {
 /// Builds the project in `tmp` and returns the import outcome. The project is closed on return.
 fn build_project(
     tmp: &Path,
-    bytes: &[u8],
     file: &Path,
     mdy: bool,
     media_roots: Vec<PathBuf>,
 ) -> Result<gt_gedcom::ImportOutcome, CliError> {
     let mut project = Project::create(tmp)?;
-    let mut outcome = import(bytes, &import_options(file, mdy, media_roots));
+    let mut outcome = convert_file(file, mdy, media_roots)?;
     for (id, src) in &outcome.resolved_media {
         let (rel, sha) = project.add_media_file(src)?;
         if let Some(m) = outcome.tree.media.get_mut(id) {
@@ -287,7 +301,9 @@ fn cmd_import(
     if let Some(p) = report_path {
         check_overwrite(p, force)?;
     }
-    let bytes = read_file(file)?;
+    if !file.is_file() {
+        return Err(user(format!("cannot read {}: not a file", file.display())));
+    }
     if into.join("project.db").exists() || into.exists() && !is_empty_dir(into) {
         return Err(StoreError::AlreadyExists(into.to_path_buf()).into());
     }
@@ -298,7 +314,7 @@ fn cmd_import(
     }
     // The report is written before the rename: if it fails, nothing is left behind and the
     // user sees one error, instead of a saved project plus a failing exit code.
-    let result = build_project(&tmp, &bytes, file, mdy, media_roots).and_then(|outcome| {
+    let result = build_project(&tmp, file, mdy, media_roots).and_then(|outcome| {
         let text = outcome.report.to_text();
         if let Some(p) = report_path {
             std::fs::write(p, &text)

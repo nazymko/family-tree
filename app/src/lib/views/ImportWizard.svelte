@@ -26,6 +26,10 @@
     indexing: 'Building the search index',
   };
 
+  // GEDCOM and Древо Жизни work today; the backend answers "not supported yet" for .gramps and .gdz
+  // until those converters are wired in, so picking one gives a plain message, not a crash.
+  const IMPORT_EXTENSIONS = ['ged', 'gedcom', 'atdb', 'gramps', 'gdz'];
+
   let file = $state<string | null>(null);
   let name = $state('');
   let folder = $state<string | null>(null);
@@ -46,7 +50,7 @@
   }
 
   async function chooseFile() {
-    const f = await platform.pickFile({ title: 'Choose a GEDCOM file', extensions: ['ged', 'gedcom'] });
+    const f = await platform.pickFile({ title: 'Choose a GEDCOM or Древо Жизни file', extensions: IMPORT_EXTENSIONS });
     if (!f) return;
     file = f;
     if (!name.trim()) name = baseName(f);
@@ -101,15 +105,16 @@
 </script>
 
 <form class="wiz" onsubmit={start} aria-labelledby="wiz-title">
-  <h2 id="wiz-title">{mode === 'import' ? 'Import a GEDCOM file' : 'Create a new tree'}</h2>
+  <h2 id="wiz-title">{mode === 'import' ? 'Import a GEDCOM or Древо Жизни file' : 'Create a new tree'}</h2>
 
   {#if error}<Banner kind="error">{error}</Banner>{/if}
 
   {#if mode === 'import'}
     <div class="pick">
-      <span class="k" id="file-k">GEDCOM file</span>
+      <span class="k" id="file-k">GEDCOM or Древо Жизни file</span>
       <Button onclick={chooseFile} disabled={busy} aria-describedby="file-k">Choose file…</Button>
       <bdi dir="auto" class="v">{file ?? 'No file chosen'}</bdi>
+      <p class="hint">GEDCOM (.ged) or Древо Жизни (.atdb). Gramps and GEDZIP files are not supported yet.</p>
     </div>
   {/if}
 
@@ -208,6 +213,10 @@
     color: var(--ink-1);
     font-size: var(--t-sm);
     margin-top: var(--s-2);
+  }
+  .pick .hint {
+    grid-column: 1 / -1;
+    margin: 0;
   }
   .media {
     display: grid;

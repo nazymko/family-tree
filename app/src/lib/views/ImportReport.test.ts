@@ -110,7 +110,7 @@ describe('ImportReport', () => {
     const { user } = await setup({}, { discardImport: discard });
     await user.click(screen.getByRole('button', { name: 'Undo import' }));
     const dlg = screen.getByRole('dialog');
-    expect(within(dlg).getByText('Delete the imported tree? Your GEDCOM file is not touched.')).toBeInTheDocument();
+    expect(within(dlg).getByText('Delete the imported tree? Your file is not touched.')).toBeInTheDocument();
     await user.click(within(dlg).getByRole('button', { name: 'Cancel' }));
     expect(discard).not.toHaveBeenCalled();
     expect(nav.route.name).toBe('importReport');
