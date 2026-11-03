@@ -12,12 +12,13 @@
   import Button from '../ui/Button.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
   import Tabs from '../ui/Tabs.svelte';
+  import { t } from '../i18n';
 
   let { kind, onOpenPerson }: { kind: 'pedigree' | 'descendants'; onOpenPerson?: (id: Id) => void } = $props();
 
   const api = getApi();
   const STORE_KEY = 'gt.chartView';
-  const title = $derived(kind === 'pedigree' ? 'Pedigree' : 'Descendants');
+  const title = $derived(kind === 'pedigree' ? t('chart.pedigree') : t('chart.descendants'));
 
   function initialMode(): 'chart' | 'outline' {
     try {
@@ -69,7 +70,7 @@
 
   const recentre = (id: Id) => nav.focus(id);
   const openPerson = (id: Id) => (onOpenPerson ? onOpenPerson(id) : nav.go({ name: 'person', id }));
-  const who = $derived(rootName || 'this person');
+  const who = $derived(rootName || t('chart.thisPerson'));
   const isEmpty = $derived(meta !== null && meta.nodeCount <= 1);
 </script>
 
@@ -78,15 +79,15 @@
     <h1 id="chart-title">{title}</h1>
     {#if root}
       <Tabs
-        label="{title} display"
+        label={t('chart.display', { title })}
         tabs={[
-          { id: 'chart', label: 'Chart' },
-          { id: 'outline', label: 'Outline' },
+          { id: 'chart', label: t('chart.tabChart') },
+          { id: 'outline', label: t('chart.tabOutline') },
         ]}
         bind:selected={mode}
       >
         {#snippet panel(id)}
-          <span class="sr-only">{id === 'chart' ? 'Chart view' : 'Outline view'}</span>
+          <span class="sr-only">{id === 'chart' ? t('chart.chartView') : t('chart.outlineView')}</span>
         {/snippet}
       </Tabs>
     {/if}
@@ -94,16 +95,16 @@
 
   {#if !root}
     {#if settingsLoaded}
-      <EmptyState title="No person chosen">
-        Choose a person in People, or set a home person in Settings, to see their {kind === 'pedigree' ? 'ancestors' : 'descendants'}.
+      <EmptyState title={t('chart.noPerson')}>
+        {kind === 'pedigree' ? t('chart.choosePedigree') : t('chart.chooseDescendants')}
       </EmptyState>
     {/if}
   {:else}
     {#if isEmpty}
-      <EmptyState title={kind === 'pedigree' ? 'No parents recorded' : 'No children recorded'}>
-        {#if kind === 'pedigree'}No parents recorded for {who}. Add a father or mother.{:else}No children recorded for {who}. Add a child.{/if}
+      <EmptyState title={kind === 'pedigree' ? t('chart.noParentsTitle') : t('chart.noChildrenTitle')}>
+        {#if kind === 'pedigree'}{t('chart.noParentsFor', { who })}{:else}{t('chart.noChildrenFor', { who })}{/if}
         {#snippet action()}
-          <Button variant="primary" onclick={() => openPerson(root)}>{kind === 'pedigree' ? 'Add a parent' : 'Add a child'}</Button>
+          <Button variant="primary" onclick={() => openPerson(root)}>{kind === 'pedigree' ? t('chart.addParent') : t('chart.addChild')}</Button>
         {/snippet}
       </EmptyState>
     {/if}
@@ -124,7 +125,7 @@
         <div class="outline">
           <OutlineMirror
             chartId={meta.chartId}
-            label="{title} outline"
+            label={t('chart.outline', { title })}
             selected={selectedNode}
             onSelect={(id) => (selectedNode = id)}
             onPick={recentre}

@@ -15,6 +15,7 @@
   import { ui, type AddRelation } from '../state/ui.svelte';
   import FamilyEditor from '../editors/FamilyEditor.svelte';
   import { flipMove, snapshotRects } from './flip';
+  import { t, type MessageKey } from '../i18n';
 
   let { onQuickAdd }: { onQuickAdd?: (relation: AddRelation, opts?: { newParentSet?: boolean }) => void } = $props();
 
@@ -31,19 +32,17 @@
 
   const homeId = $derived(project.info?.homePerson ?? settings.value.homePerson ?? null);
 
-  const CHIP: Partial<Record<ParentRelId, string>> = {
-    adopted: 'Adopted',
-    step: 'Step',
-    foster: 'Foster',
-    guardian: 'Guardian',
-    sealed: 'Sealed',
-  };
-  const UNION: Record<UnionKindId, string> = {
-    married: 'Married',
-    civil_union: 'Civil union',
-    unmarried: 'Not married',
-    unknown: '',
-    other: '',
+  type Chip = 'adopted' | 'step' | 'foster' | 'guardian' | 'sealed';
+  const CHIPS: readonly string[] = ['adopted', 'step', 'foster', 'guardian', 'sealed'];
+  type Role = 'father' | 'mother' | 'son' | 'daughter' | 'child' | 'brother' | 'sister' | 'sibling';
+  const chipOf = (rel: ParentRelId | undefined): Chip | undefined => (rel && CHIPS.includes(rel) ? (rel as Chip) : undefined);
+  const chipLabel = (c: Chip) => t(`kin.chip${c.charAt(0).toUpperCase()}${c.slice(1)}` as MessageKey);
+  const UNION: Record<UnionKindId, MessageKey | null> = {
+    married: 'family.married',
+    civil_union: 'family.civilUnion',
+    unmarried: 'family.unmarried',
+    unknown: null,
+    other: null,
   };
 
   const reduced = () =>
@@ -112,42 +111,44 @@
   const addItems = $derived.by<MenuItem[]>(() => {
     const items: MenuItem[] = [];
     if (bothParents) {
-      items.push({ label: 'Add another set of parents', onselect: () => add('father', { newParentSet: true }) });
+      items.push({ label: t('family.addAnotherParents'), onselect: () => add('father', { newParentSet: true }) });
     } else {
-      items.push({ label: 'Add father', onselect: () => add('father'), disabled: !!primary?.parents[0], title: primary?.parents[0] ? 'A father is already recorded' : undefined });
-      items.push({ label: 'Add mother', onselect: () => add('mother'), disabled: !!primary?.parents[1], title: primary?.parents[1] ? 'A mother is already recorded' : undefined });
+      items.push({ label: t('edit.addFather'), onselect: () => add('father'), disabled: !!primary?.parents[0], title: primary?.parents[0] ? t('family.fatherRecorded') : undefined });
+      items.push({ label: t('edit.addMother'), onselect: () => add('mother'), disabled: !!primary?.parents[1], title: primary?.parents[1] ? t('family.motherRecorded') : undefined });
     }
-    items.push({ label: 'Add partner', onselect: () => add('partner') });
-    items.push({ label: 'Add family…', onselect: () => (familyDialog = 'new'), title: 'Record a partnership with an existing person' });
-    items.push({ label: 'Add child', onselect: () => add('child') });
+    items.push({ label: t('edit.addPartner'), onselect: () => add('partner') });
+    items.push({ label: t('family.addFamily'), onselect: () => (familyDialog = 'new'), title: t('family.addFamilyHint') });
+    items.push({ label: t('edit.addChild'), onselect: () => add('child') });
     items.push({
-      label: 'Add sibling',
+      label: t('edit.addSibling'),
       onselect: () => add('sibling'),
       disabled: !hasAnyParent,
-      title: hasAnyParent ? undefined : 'Add a parent first, so the sibling has someone to belong to',
+      title: hasAnyParent ? undefined : t('family.addParentFirst'),
     });
     return items;
   });
 
-  function parentWord(p: PersonRef, slot: number): string {
-    if (p.sex === 'male') return 'Father';
-    if (p.sex === 'female') return 'Mother';
-    return slot === 0 ? 'Father' : 'Mother';
+  function parentRole(p: PersonRef, slot: number): Role {
+    if (p.sex === 'male') return 'father';
+    if (p.sex === 'female') return 'mother';
+    return slot === 0 ? 'father' : 'mother';
   }
-  function childWord(p: PersonRef): string {
-    return p.sex === 'male' ? 'Son' : p.sex === 'female' ? 'Daughter' : 'Child';
+  function childRole(p: PersonRef): Role {
+    return p.sex === 'male' ? 'son' : p.sex === 'female' ? 'daughter' : 'child';
   }
-  function siblingWord(p: PersonRef): string {
-    return p.sex === 'male' ? 'Brother' : p.sex === 'female' ? 'Sister' : 'Sibling';
+  function siblingRole(p: PersonRef): Role {
+    return p.sex === 'male' ? 'brother' : p.sex === 'female' ? 'sister' : 'sibling';
   }
-  function withChip(chip: string | undefined, word: string): string {
-    return chip ? `${chip} ${word.toLowerCase()}` : word;
+  /** "Adopted father" / "Father": the whole phrase is looked up, so other languages can agree in gender. */
+  function withChip(chip: Chip | undefined, role: Role): string {
+    return chip ? t(`kin.${chip}.${role}` as MessageKey) : t(`kin.${role}` as MessageKey);
   }
-  function childChip(c: ChildDto): string | undefined {
-    return CHIP[c.rel[0]] ?? CHIP[c.rel[1]];
+  function childChip(c: ChildDto): Chip | undefined {
+    return chipOf(c.rel[0]) ?? chipOf(c.rel[1]);
   }
   function partnerSummary(p: PartnershipDto): string {
-    return [UNION[p.kind], p.summary].filter(Boolean).join(', ');
+    const kind = UNION[p.kind];
+    return [kind ? t(kind) : '', p.summary].filter(Boolean).join(', ');
   }
 
   function optionKeys(e: KeyboardEvent) {
@@ -169,17 +170,17 @@
 <div class="family" bind:this={root}>
   {#if error}
     <Banner kind="error">{error}</Banner>
-    <div class="gap"><Button onclick={() => nav.go({ name: 'people' })}>Go to People</Button></div>
+    <div class="gap"><Button onclick={() => nav.go({ name: 'people' })}>{t('family.goToPeople')}</Button></div>
   {:else if empty}
-    <EmptyState title="No one to show. Add the first person.">
+    <EmptyState title={t('family.emptyTitle')}>
       {#snippet action()}
-        <Button variant="primary" onclick={() => ui.requestAdd()}>Add person</Button>
+        <Button variant="primary" onclick={() => ui.requestAdd()}>{t('family.addPerson')}</Button>
       {/snippet}
     </EmptyState>
   {:else if view}
     {@const focus = view.focus}
-    <section class="band" aria-label="Parents">
-      <h2>Parents</h2>
+    <section class="band" aria-label={t('family.parents')}>
+      <h2>{t('family.parents')}</h2>
       <div class="cards">
         {#each [0, 1] as slot (slot)}
           {@const p = primary?.parents[slot] ?? null}
@@ -192,15 +193,15 @@
               isPrivate={p.private}
               home={p.id === homeId}
               flipKey={p.id}
-              chips={CHIP[primary.rel[slot]] ? [CHIP[primary.rel[slot]]!] : []}
-              relationship={withChip(CHIP[primary.rel[slot]], parentWord(p, slot))}
+              chips={chipOf(primary.rel[slot]) ? [chipLabel(chipOf(primary.rel[slot])!)] : []}
+              relationship={withChip(chipOf(primary.rel[slot]), parentRole(p, slot))}
               onclick={() => refocus(p.id)}
             />
           {:else}
             <div class="missing">
-              <span>{slot === 0 ? 'Father' : 'Mother'} not recorded</span>
+              <span>{slot === 0 ? t('family.parentMissing') : t('family.motherMissing')}</span>
               <Button variant="quiet" onclick={() => add(slot === 0 ? 'father' : 'mother')}>
-                Add {slot === 0 ? 'father' : 'mother'}
+                {slot === 0 ? t('edit.addFather') : t('edit.addMother')}
               </Button>
             </div>
           {/if}
@@ -208,7 +209,7 @@
       </div>
       {#if otherSets.length > 0}
         <details class="more">
-          <summary>Other parents ({otherSets.length})</summary>
+          <summary>{t('family.otherParents', { n: otherSets.length })}</summary>
           {#each otherSets as set (set.familyId)}
             <div class="cards set">
               {#each [0, 1] as slot (slot)}
@@ -221,8 +222,8 @@
                     living={p.living}
                     isPrivate={p.private}
                     flipKey={p.id}
-                    chips={CHIP[set.rel[slot]] ? [CHIP[set.rel[slot]]!] : []}
-                    relationship={withChip(CHIP[set.rel[slot]], parentWord(p, slot))}
+                    chips={chipOf(set.rel[slot]) ? [chipLabel(chipOf(set.rel[slot])!)] : []}
+                    relationship={withChip(chipOf(set.rel[slot]), parentRole(p, slot))}
                     onclick={() => refocus(p.id)}
                   />
                 {/if}
@@ -237,24 +238,24 @@
       <IndexCard as="section" ribbon={focus.id === homeId} flipKey={focus.id}>
         <h1 class="fname"><bdi dir="auto">{focus.name}</bdi></h1>
         <p class="flife tnum">
-          {#if focus.living}<span class="living"><span class="dot" aria-hidden="true"></span>Living</span>{/if}
+          {#if focus.living}<span class="living"><span class="dot" aria-hidden="true"></span>{t('common.living')}</span>{/if}
           {#if focus.lifespan}<span>{focus.lifespan}</span>{/if}
           {#if focus.private}<Lock />{/if}
         </p>
         {#if view.focusSummary}<p class="fsum">{view.focusSummary}</p>{/if}
         <div class="acts">
-          <Button onclick={() => nav.go({ name: 'person', id: focus.id })}>Edit person</Button>
-          <Menu label="Add" icon="plus" items={addItems} />
+          <Button onclick={() => nav.go({ name: 'person', id: focus.id })}>{t('family.editPerson')}</Button>
+          <Menu label={t('family.add')} icon="plus" items={addItems} />
         </div>
       </IndexCard>
 
-      <section class="band partners" aria-label="Partners">
-        <h2>Partners</h2>
+      <section class="band partners" aria-label={t('family.partners')}>
+        <h2>{t('family.partners')}</h2>
         {#if view.partnerships.length === 0}
-          <p class="none">No partners recorded.</p>
+          <p class="none">{t('family.noPartners')}</p>
         {:else}
           {#if view.partnerships.length > 1}
-            <div class="union-list" role="listbox" aria-label="Choose a partner" tabindex="-1">
+            <div class="union-list" role="listbox" aria-label={t('family.choosePartner')} tabindex="-1">
               {#each view.partnerships as p (p.familyId)}
                 {@const on = p.familyId === union?.familyId}
                 <!-- Roving focus: the selected option is the tab stop. -->
@@ -268,7 +269,7 @@
                   onclick={() => (selectedUnion = p.familyId)}
                   onkeydown={optionKeys}
                 >
-                  <bdi dir="auto" class="oname">{p.partner?.name ?? 'Partner not recorded'}</bdi>
+                  <bdi dir="auto" class="oname">{p.partner?.name ?? t('family.partnerMissing')}</bdi>
                   <span class="osum">{partnerSummary(p)}</span>
                 </div>
               {/each}
@@ -285,22 +286,22 @@
                   isPrivate={union.partner.private}
                   home={union.partner.id === homeId}
                   flipKey={union.partner.id}
-                  relationship="Partner"
+                  relationship={t('kin.partner')}
                   onclick={() => refocus(union!.partner!.id)}
                 />
               {:else}
-                <div class="missing"><span>Partner not recorded</span></div>
+                <div class="missing"><span>{t('family.partnerMissing')}</span></div>
               {/if}
               {#if partnerSummary(union)}<p class="usum">{partnerSummary(union)}</p>{/if}
-              <div class="uacts"><Button variant="quiet" onclick={() => (familyDialog = union!.familyId)}>Edit family</Button></div>
+              <div class="uacts"><Button variant="quiet" onclick={() => (familyDialog = union!.familyId)}>{t('family.editFamily')}</Button></div>
             </div>
           {/if}
         {/if}
       </section>
     </div>
 
-    <section class="band" aria-label="Children">
-      <h2>Children</h2>
+    <section class="band" aria-label={t('family.children')}>
+      <h2>{t('family.children')}</h2>
       {#if union && union.children.length > 0}
         <ul class="cards kids" role="list">
           {#each union.children as c (c.person.id)}
@@ -312,22 +313,22 @@
                 living={c.person.living}
                 isPrivate={c.person.private}
                 flipKey={c.person.id}
-                detail={c.birth ? `b. ${c.birth}` : undefined}
-                chips={childChip(c) ? [childChip(c)!] : []}
-                relationship={withChip(childChip(c), childWord(c.person))}
+                detail={c.birth ? t('family.bornShort', { birth: c.birth }) : undefined}
+                chips={childChip(c) ? [chipLabel(childChip(c)!)] : []}
+                relationship={withChip(childChip(c), childRole(c.person))}
                 onclick={() => refocus(c.person.id)}
               />
             </li>
           {/each}
         </ul>
       {:else}
-        <p class="none">No children recorded.</p>
+        <p class="none">{t('family.noChildren')}</p>
       {/if}
     </section>
 
     {#if view.siblings.length > 0}
       <details class="band sibs">
-        <summary>Siblings ({view.siblings.length})</summary>
+        <summary>{t('family.siblings', { n: view.siblings.length })}</summary>
         <ul class="cards" role="list">
           {#each view.siblings as s (s.id)}
             <li>
@@ -338,7 +339,7 @@
                 living={s.living}
                 isPrivate={s.private}
                 flipKey={s.id}
-                relationship={siblingWord(s)}
+                relationship={withChip(undefined, siblingRole(s))}
                 onclick={() => refocus(s.id)}
               />
             </li>
