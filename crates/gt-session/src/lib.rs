@@ -3,6 +3,7 @@
 //! paged person lists, the family view and person detail. No async; commands wrap these
 //! calls in `spawn_blocking`.
 
+pub mod chart;
 pub mod dates;
 pub mod dto;
 pub mod error;
