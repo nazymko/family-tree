@@ -17,6 +17,9 @@ thiserror.workspace = true
 uuid.workspace = true
 unicode-normalization.workspace = true
 ts-rs.workspace = true
+image.workspace = true
+kamadak-exif.workspace = true
+fast_image_resize.workspace = true
 
 [dev-dependencies]
 gt-gedcom = { path = "../gt-gedcom", features = ["synthetic"] }

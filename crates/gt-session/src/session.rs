@@ -49,6 +49,8 @@ pub struct Session {
     pub(crate) charts: crate::chart::Charts,
     /// Undo and redo stacks and the last citation (see `undo.rs`).
     pub(crate) edit: crate::undo::EditState,
+    /// Image sizes read so far (see `media.rs`).
+    pub(crate) media_dims: crate::media::DimsCache,
 }
 
 impl Session {
@@ -68,6 +70,7 @@ impl Session {
             place_index: Default::default(),
             charts: crate::chart::Charts::default(),
             edit: Default::default(),
+            media_dims: Default::default(),
         };
         s.rebuild();
         Ok(s)
