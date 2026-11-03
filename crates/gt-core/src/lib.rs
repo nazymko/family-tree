@@ -1,0 +1,10 @@
+#![forbid(unsafe_code)]
+//! Format-neutral genealogy model.
+
+pub mod date;
+pub mod ids;
+pub mod model;
+pub mod raw;
+pub mod tree;
+
+pub use uuid::Uuid;

@@ -1,0 +1,16 @@
+[package]
+name = "gt-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "gt"
+path = "src/main.rs"
+
+[dependencies]
+gt-core = { path = "../gt-core" }
+
+[lints]
+workspace = true
