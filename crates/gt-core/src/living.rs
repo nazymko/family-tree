@@ -17,65 +17,101 @@ impl Default for LivingRule {
     }
 }
 
-/// Latest JDN by which the person was born, if a birth-like event gives an upper bound.
-/// An open-ended date (`AFT`) has no `sort_max` and so proves nothing.
-fn birth_bound(tree: &Tree, person: Uuid) -> Option<i32> {
-    tree.events_of(person)
-        .filter(|(e, role)| {
-            !e.negative
-                && **role == Role::Principal
-                && matches!(
-                    e.kind,
-                    EventKind::Birth | EventKind::Christening | EventKind::Baptism
-                )
-        })
-        .filter_map(|(e, _)| e.date.as_ref().and_then(|d| d.sort_max))
-        .max()
+/// Per-person facts gathered in one pass over the events.
+#[derive(Default)]
+struct Facts {
+    /// Principal of a non-negated death-like event.
+    dead_event: bool,
+    /// Latest JDN by which the person was born, if a birth-like event gives an upper bound.
+    /// An open-ended date (`AFT`) has no `sort_max` and so proves nothing.
+    birth_bound: Option<i32>,
 }
 
-fn proven_dead(tree: &Tree, id: Uuid, rule: &LivingRule, today_jdn: i32) -> bool {
-    let max_age = rule.max_age_years;
-    if tree.events_of(id).any(|(e, role)| {
-        !e.negative
-            && *role == Role::Principal
-            && matches!(
-                e.kind,
-                EventKind::Death | EventKind::Burial | EventKind::Cremation | EventKind::Probate
-            )
-    }) {
-        return true;
+fn gather_facts(tree: &Tree) -> HashMap<Uuid, Facts> {
+    let mut facts: HashMap<Uuid, Facts> = HashMap::new();
+    for e in tree.events.values() {
+        if e.negative {
+            continue;
+        }
+        let is_death = matches!(
+            e.kind,
+            EventKind::Death | EventKind::Burial | EventKind::Cremation | EventKind::Probate
+        );
+        let is_birth = matches!(
+            e.kind,
+            EventKind::Birth | EventKind::Christening | EventKind::Baptism
+        );
+        if !is_death && !is_birth {
+            continue;
+        }
+        let bound = e.date.as_ref().and_then(|d| d.sort_max);
+        for p in &e.participants {
+            if p.role != Role::Principal {
+                continue;
+            }
+            let ParticipantRef::Person(id) = p.target else {
+                continue;
+            };
+            let f = facts.entry(id).or_default();
+            if is_death {
+                f.dead_event = true;
+            }
+            if is_birth {
+                f.birth_bound = f.birth_bound.max(bound);
+            }
+        }
     }
-    let older_than = |p: Uuid, years: u32| {
-        birth_bound(tree, p).is_some_and(|b| b < gregorian_minus_years(today_jdn, years))
-    };
-    if older_than(id, max_age) {
-        return true;
-    }
-    let child_years = max_age.saturating_sub(12);
-    let child_dead = tree
-        .families_as_partner(id)
-        .flat_map(|f| f.children.iter())
-        .any(|c| older_than(c.person, child_years));
-    if child_dead {
-        return true;
-    }
-    tree.families_as_child(id).any(|(f, _)| {
-        [f.partner1, f.partner2]
-            .into_iter()
-            .flatten()
-            .any(|p| older_than(p, max_age.saturating_add(70)))
-    })
+    facts
 }
 
 /// `true` = living. Every person in the tree gets an entry.
+///
+/// Linear in persons + events + family links: facts and parent/child
+/// indexes are built once, then each person is checked against them.
 pub fn compute_living(tree: &Tree, rule: &LivingRule, today_jdn: i32) -> HashMap<Uuid, bool> {
+    let max_age = rule.max_age_years;
+    let self_cut = gregorian_minus_years(today_jdn, max_age);
+    let child_cut = gregorian_minus_years(today_jdn, max_age.saturating_sub(12));
+    let parent_cut = gregorian_minus_years(today_jdn, max_age.saturating_add(70));
+
+    let facts = gather_facts(tree);
+    let born_before = |p: Uuid, cut: i32| {
+        facts
+            .get(&p)
+            .and_then(|f| f.birth_bound)
+            .is_some_and(|b| b < cut)
+    };
+
+    // A child older than `child_years` proves each of its parents dead; a parent
+    // older than `max_age + 70` proves each of its children dead.
+    let mut proven: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+    for f in tree.families.values() {
+        let partners = [f.partner1, f.partner2];
+        let old_partner = partners
+            .iter()
+            .flatten()
+            .any(|&p| born_before(p, parent_cut));
+        let old_child = f.children.iter().any(|c| born_before(c.person, child_cut));
+        if old_child {
+            proven.extend(partners.iter().flatten().copied());
+        }
+        if old_partner {
+            proven.extend(f.children.iter().map(|c| c.person));
+        }
+    }
+
     tree.persons
         .iter()
         .map(|(id, p)| {
             let living = match p.living_override {
                 Some(LivingOverride::Living) => true,
                 Some(LivingOverride::Deceased) => false,
-                None => !proven_dead(tree, *id, rule, today_jdn),
+                None => {
+                    let dead = facts.get(id).is_some_and(|f| f.dead_event)
+                        || born_before(*id, self_cut)
+                        || proven.contains(id);
+                    !dead
+                }
             };
             (*id, living)
         })
