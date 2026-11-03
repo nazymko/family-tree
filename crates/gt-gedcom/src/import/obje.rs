@@ -1,6 +1,8 @@
 //! Media: `OBJE` records and inline/pointer `OBJE` links.
 
-use super::media_paths::{Located, file_name, file_url_to_path, is_url, locate, normalize};
+use super::media_paths::{
+    Located, file_name, file_url_to_path, is_url, locate, normalize, percent_decode,
+};
 use super::report::{MissingMedia, MissingReason};
 use super::{Ctx, Rec, child, common_child, new_common, parse_uuid, push_unknown, resolve, val};
 use crate::idgen::derive_id;
@@ -36,6 +38,20 @@ fn link_props(node: &GedNode) -> (bool, Option<Region>) {
 
 fn is_link_prop(c: &GedNode) -> bool {
     matches!(c.tag.as_str(), "_PRIM" | "_PHOTO" | "_REGION")
+}
+
+/// GEDCOM 7 `FILE` is a URI reference: try its percent-decoded form first, then the literal text.
+fn locate_fileref(ctx: &mut Ctx, lp: &str) -> (Located, String) {
+    if ctx.version == gt_core::date::GedcomVersion::V70 {
+        let decoded = percent_decode(lp);
+        if decoded != lp {
+            let r = locate(ctx, &decoded);
+            if matches!(r, Located::Found(_)) {
+                return (r, decoded);
+            }
+        }
+    }
+    (locate(ctx, lp), lp.to_string())
 }
 
 fn read_media_node(ctx: &mut Ctx, node: &GedNode, id: Uuid, inline: bool) -> Option<Media> {
@@ -96,7 +112,8 @@ fn read_media_node(ctx: &mut Ctx, node: &GedNode, id: Uuid, inline: bool) -> Opt
                 reason,
                 candidates,
             };
-            match locate(ctx, &lp) {
+            let (found, lp) = locate_fileref(ctx, &lp);
+            match found {
                 Located::Found(found) => {
                     m.original_name = file_name(&lp);
                     ctx.resolved_media.push((id, found));

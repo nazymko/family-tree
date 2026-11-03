@@ -13,6 +13,8 @@ synthetic = []
 gt-core = { path = "../gt-core" }
 encoding_rs.workspace = true
 unicode-normalization.workspace = true
+zip.workspace = true
+thiserror.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
