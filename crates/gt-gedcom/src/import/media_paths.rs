@@ -141,6 +141,12 @@ pub(crate) fn lexical_check(cand: &Path, roots: &[PathBuf]) -> Lexical {
     }
 }
 
+/// Public lexical check: `true` only when `candidate` is component-wise under one of `roots`
+/// and has no `..`. Makes no filesystem call.
+pub fn is_lexically_under(candidate: &Path, roots: &[PathBuf]) -> bool {
+    matches!(lexical_check(candidate, roots), Lexical::Under(_))
+}
+
 fn canonical_roots(ctx: &mut Ctx, roots: &[PathBuf]) -> Vec<PathBuf> {
     ctx.canon_roots
         .get_or_insert_with(|| roots.iter().filter_map(|r| r.canonicalize().ok()).collect())

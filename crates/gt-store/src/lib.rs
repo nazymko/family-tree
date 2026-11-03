@@ -3,7 +3,7 @@
 
 mod backup;
 mod codec;
-mod collation;
+pub mod collation;
 mod edit;
 mod load;
 mod location;
