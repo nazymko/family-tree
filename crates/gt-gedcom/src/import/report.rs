@@ -49,11 +49,10 @@ impl ImportReport {
     pub fn to_text(&self) -> String {
         let mut s = String::new();
         let _ = writeln!(s, "Encoding: {}", self.encoding);
-        let _ = writeln!(
-            s,
-            "GEDCOM version: {}",
-            self.version.as_deref().unwrap_or("?")
-        );
+        // Converters from other formats (Gramps, .atdb) leave the version unset.
+        if let Some(v) = self.version.as_deref() {
+            let _ = writeln!(s, "GEDCOM version: {v}");
+        }
         let _ = writeln!(s, "Producer: {}", self.producer.as_deref().unwrap_or("?"));
         for (k, v) in &self.counts {
             let _ = writeln!(s, "  {k}: {v}");
