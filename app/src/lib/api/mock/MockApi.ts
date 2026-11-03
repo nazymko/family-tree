@@ -51,7 +51,8 @@ import type {
 import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } from './build';
 import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
-import { layoutDescendants, layoutPedigree, outlineOf, type Layout, type LayoutSource } from './mockLayout';
+import type { Layout } from './mockLayout';
+import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } from './layout';
 import { toDateDto, yearOf } from './mockParse';
 import { lifespanText, previewDate } from './mockDate';
 
@@ -77,6 +78,7 @@ interface HistoryRecord {
 interface ChartState {
   kind: 'pedigree' | 'descendants';
   layout: Layout;
+  version: number;
 }
 
 interface OwnerBag {
@@ -500,14 +502,14 @@ export class MockApi implements Api {
   async chartOpen(req: ChartRequest): Promise<ChartMeta> {
     this.person(req.root);
     const generations = Math.max(1, Math.min(req.generations, 20));
-    const src: LayoutSource = {
+    const src: RustLayoutSource = {
       ref: (id) => this.ref(this.person(id)),
       parents: (id) => this.preferredParents(id),
-      children: (id) => this.childrenOf(id),
+      unions: (id) => this.unionsOf(id),
     };
     const layout = req.kind === 'pedigree' ? layoutPedigree(req.root, generations, src) : layoutDescendants(req.root, generations, src);
     const chartId = this.nextChart++;
-    this.charts.set(chartId, { kind: req.kind, layout });
+    this.charts.set(chartId, { kind: req.kind, layout, version: this.version });
     return {
       chartId,
       kind: req.kind,
@@ -522,6 +524,7 @@ export class MockApi implements Api {
   async chartWindow(chartId: number, rect: Rect, zoom: number): Promise<ChartWindow> {
     void zoom;
     const c = this.chart(chartId);
+    if (c.version !== this.version) throw new MockApiError('stale', 'The tree changed since this chart was opened. Reopen the chart.');
     const nodes: ChartNode[] = c.layout.nodes.filter(
       (n) => n.x < rect.x + rect.w && n.x + n.w > rect.x && n.y < rect.y + rect.h && n.y + n.h > rect.y,
     );
@@ -883,6 +886,15 @@ export class MockApi implements Api {
       if (link.preferred) break;
     }
     return best ? [best.partner1, best.partner2] : [null, null];
+  }
+
+  private unionsOf(id: Id): { partner: Id | null; children: Id[] }[] {
+    const out: { partner: Id | null; children: Id[] }[] = [];
+    for (const f of this.db.families.values()) {
+      if (f.partner1 !== id && f.partner2 !== id) continue;
+      out.push({ partner: f.partner1 === id ? f.partner2 : f.partner1, children: f.children.map((c) => c.person) });
+    }
+    return out;
   }
 
   private childrenOf(id: Id): Id[] {

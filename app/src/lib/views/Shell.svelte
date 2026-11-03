@@ -14,6 +14,8 @@
   import Sources from './Sources.svelte';
   import MediaView from './MediaView.svelte';
   import Settings from './Settings.svelte';
+  import Pedigree from './Pedigree.svelte';
+  import Descendants from './Descendants.svelte';
   import ExportDialog from './ExportDialog.svelte';
   import QuickAdd from '../editors/QuickAdd.svelte';
   import CitationList from '../editors/CitationList.svelte';
@@ -140,6 +142,11 @@
     };
   });
 
+  function openPerson(id: Id) {
+    nav.focus(id);
+    nav.go({ name: 'person', id });
+  }
+
   function openMedia(id: Id) {
     nav.focus(id);
     nav.go({ name: 'media' });
@@ -253,15 +260,15 @@
       </div>
     </header>
     <main id="content" class="main">
-      <div class="page">
+      <div class="page" class:chart={current === 'pedigree' || current === 'descendants'}>
         {#if nav.route.name === 'family'}
           <FamilyView />
         {:else if nav.route.name === 'people'}
           <People />
         {:else if nav.route.name === 'pedigree'}
-          <RoutePlaceholder title="Pedigree" note="The pedigree chart is wired in when its task merges." />
+          <Pedigree onOpenPerson={openPerson} />
         {:else if nav.route.name === 'descendants'}
-          <RoutePlaceholder title="Descendants" note="The descendant chart is wired in when its task merges." />
+          <Descendants onOpenPerson={openPerson} />
         {:else if nav.route.name === 'person'}
           {#key nav.route.id}
             <PersonEditor id={nav.route.id} {mediaSection} {sourcesSection} />
@@ -449,6 +456,18 @@
     flex: 1;
     overflow: auto;
     min-height: 0;
+  }
+  /* Charts fill the pane: a fixed-height flex parent. */
+  .main:has(.page.chart) {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .page.chart {
+    flex: 1;
+    min-height: 0;
+    max-width: none;
+    padding-bottom: var(--s-5);
   }
   .page {
     max-width: var(--content-max);
