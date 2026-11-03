@@ -162,6 +162,15 @@
     `This removes ${detail?.ref.name ?? ''} from ${familyCount} ${familyCount === 1 ? 'family' : 'families'} and deletes ${soleEvents} ${soleEvents === 1 ? 'event' : 'events'} only they took part in.`,
   );
 
+  const cardLines = $derived(
+    detail
+      ? (['birth', 'death'] as const).flatMap((k) => {
+          const e = detail!.events.find((x) => x.kind === k);
+          return e ? [{ label: k === 'birth' ? 'Born' : 'Died', text: eventLine(e) || 'No date or place' }] : [];
+        })
+      : [],
+  );
+
   function eventLine(e: EventDto): string {
     return [e.date?.display, e.place?.full].filter(Boolean).join(', ');
   }
@@ -219,6 +228,11 @@
           </Button>
         </div>
       </div>
+      {#snippet body()}
+        {#each cardLines as l (l.label)}
+          <p class="card-line"><span class="card-label">{l.label}</span> {l.text}</p>
+        {/each}
+      {/snippet}
     </IndexCard>
     </div>
 
@@ -465,19 +479,28 @@
   }
   .head h1 {
     font-size: var(--t-2xl);
-    line-height: 56px;
+    line-height: var(--t-2xl-lh);
   }
   .life {
-    line-height: var(--rule-step);
-    padding-inline-start: calc(3rem + var(--s-3)); /* right of the card margin rule */
     color: var(--ink-1);
     font-variant-numeric: tabular-nums;
   }
   .head-actions {
-    display: flex;
-    align-items: center;
-    min-height: 56px;
-    background: var(--paper-1);
+    padding-top: var(--s-3);
+  }
+  .head-actions :global(.btn) {
+    margin-inline-start: calc(-1 * var(--s-5)); /* the ribbon glyph aligns with the name */
+  }
+  .card-line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card-label {
+    display: inline-block;
+    min-width: 4rem;
+    color: var(--ink-1);
+    font-size: var(--t-sm);
   }
   section {
     display: grid;
