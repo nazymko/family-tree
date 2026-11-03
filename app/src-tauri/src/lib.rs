@@ -70,6 +70,13 @@ pub fn run() {
     #[cfg(not(any(debug_assertions, feature = "spike")))]
     let builder = builder.invoke_handler(main);
     builder
-        .run(tauri::generate_context!())
-        .expect("error while running Gene Tree");
+        .build(tauri::generate_context!())
+        .expect("error while building Gene Tree")
+        .run(|app, event| {
+            // Close the project cleanly: dropping it checkpoints the WAL into tree.db, so a
+            // user who copies only that file loses nothing, and the lock file is released.
+            if let tauri::RunEvent::Exit = event {
+                commands::close_project_impl(&app.state::<AppState>());
+            }
+        });
 }

@@ -12,6 +12,8 @@ pub enum BackupReason {
     BeforeImport,
     BeforeMerge,
     Manual,
+    /// Taken on open, before a schema migration rewrites the file; never pruned.
+    BeforeMigration,
 }
 
 impl BackupReason {
@@ -21,6 +23,7 @@ impl BackupReason {
             BackupReason::BeforeImport => "before-import",
             BackupReason::BeforeMerge => "before-merge",
             BackupReason::Manual => "manual",
+            BackupReason::BeforeMigration => "pre-migration",
         }
     }
 }
@@ -63,35 +66,45 @@ fn sort_key(name: &str) -> Option<(String, u32)> {
     Some((stamp.to_string(), counter))
 }
 
+/// `VACUUM INTO <dir>/backups/tree-<stamp>-<reason>.db` on an open connection; no pruning.
+pub(crate) fn vacuum_backup(
+    conn: &rusqlite::Connection,
+    project_dir: &std::path::Path,
+    reason: BackupReason,
+) -> Result<PathBuf, StoreError> {
+    let dir = project_dir.join("backups");
+    std::fs::create_dir_all(&dir)?;
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_secs()).unwrap_or(0))
+        .unwrap_or(0);
+    let stamp = utc_stamp(secs);
+    // One more than the highest counter already used in this second (pruning can leave gaps).
+    let taken = std::fs::read_dir(&dir)?
+        .filter_map(Result::ok)
+        .filter_map(|e| sort_key(&e.file_name().to_string_lossy()))
+        .filter(|(s, _)| *s == stamp)
+        .map(|(_, c)| c)
+        .max()
+        .unwrap_or(0);
+    let name = if taken == 0 {
+        format!("tree-{stamp}-{}.db", reason.slug())
+    } else {
+        format!("tree-{stamp}-{}-{}.db", reason.slug(), taken + 1)
+    };
+    let path = dir.join(name);
+    let target = path
+        .to_str()
+        .ok_or_else(|| corrupt("backup path is not valid UTF-8"))?;
+    conn.execute("VACUUM INTO ?1", [target])?;
+    Ok(path)
+}
+
 impl Project {
     /// `VACUUM INTO backups/tree-<yyyyMMdd-HHmmss>-<reason>.db` (UTC), then prune to the
     /// `keep` newest backups. A second backup in the same second gets a `-2`, `-3`, ... suffix.
     pub fn backup(&self, reason: BackupReason, keep: usize) -> Result<PathBuf, StoreError> {
-        let dir = self.dir.join("backups");
-        std::fs::create_dir_all(&dir)?;
-        let secs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| i64::try_from(d.as_secs()).unwrap_or(0))
-            .unwrap_or(0);
-        let stamp = utc_stamp(secs);
-        // One more than the highest counter already used in this second (pruning can leave gaps).
-        let taken = std::fs::read_dir(&dir)?
-            .filter_map(Result::ok)
-            .filter_map(|e| sort_key(&e.file_name().to_string_lossy()))
-            .filter(|(s, _)| *s == stamp)
-            .map(|(_, c)| c)
-            .max()
-            .unwrap_or(0);
-        let name = if taken == 0 {
-            format!("tree-{stamp}-{}.db", reason.slug())
-        } else {
-            format!("tree-{stamp}-{}-{}.db", reason.slug(), taken + 1)
-        };
-        let path = dir.join(name);
-        let target = path
-            .to_str()
-            .ok_or_else(|| corrupt("backup path is not valid UTF-8"))?;
-        self.conn.execute("VACUUM INTO ?1", [target])?;
+        let path = vacuum_backup(&self.conn, &self.dir, reason)?;
         // The backup exists; failing to tidy old ones must not turn that into an error.
         if let Err(e) = self.prune_backups(keep.max(1), &path) {
             eprintln!("gt-store: could not prune old backups: {e}");
@@ -104,7 +117,11 @@ impl Project {
         let mut files: Vec<((String, u32), PathBuf)> = std::fs::read_dir(&dir)?
             .filter_map(Result::ok)
             .filter_map(|e| {
-                let key = sort_key(&e.file_name().to_string_lossy())?;
+                let name = e.file_name().to_string_lossy().into_owned();
+                if name.contains("-pre-migration") {
+                    return None;
+                }
+                let key = sort_key(&name)?;
                 Some((key, e.path()))
             })
             .collect();

@@ -77,9 +77,19 @@ fn load_raw(config_dir: &Path) -> Vec<RecentProject> {
 pub fn canonical_key(dir: &str) -> String {
     let p = std::fs::canonicalize(dir).unwrap_or_else(|_| PathBuf::from(dir));
     let s = p.to_string_lossy().into_owned();
-    // `\?\C:\x` and `C:\x` are the same folder.
-    let s = s.strip_prefix(r"\?\").map(str::to_owned).unwrap_or(s);
+    let s = strip_verbatim(s);
     if cfg!(windows) { s.to_lowercase() } else { s }
+}
+
+/// `\\?\C:\x` and `C:\x` are the same folder; `\\?\UNC\srv\share` is `\\srv\share`.
+fn strip_verbatim(s: String) -> String {
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        rest.to_owned()
+    } else {
+        s
+    }
 }
 
 /// Most recent first, `missing` set for folders that no longer hold a project.
@@ -132,4 +142,19 @@ fn write_recent(config_dir: &Path, list: &[RecentProject]) -> Result<(), ApiErro
     let json = serde_json::to_vec_pretty(list)
         .map_err(|e| ApiError::new(ErrorCode::Internal, e.to_string()))?;
     write_atomic(&config_dir.join(RECENT_FILE), &json).map_err(|e| io_err("the recent list", &e))
+}
+
+#[cfg(test)]
+mod verbatim_tests {
+    use super::strip_verbatim;
+
+    #[test]
+    fn verbatim_prefix_is_stripped() {
+        let b = char::from(92);
+        let v = format!("{b}{b}?{b}C:{b}Users{b}x");
+        assert_eq!(strip_verbatim(v), format!("C:{b}Users{b}x"));
+        let unc = format!("{b}{b}?{b}UNC{b}srv{b}share");
+        assert_eq!(strip_verbatim(unc), format!("{b}{b}srv{b}share"));
+        assert_eq!(strip_verbatim("/home/x".into()), "/home/x");
+    }
 }

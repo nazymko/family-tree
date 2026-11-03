@@ -259,6 +259,20 @@ impl Session {
     /// Applies a patch; project values go to the `meta` table, and display or rule changes
     /// rebuild the index.
     pub fn set_settings(&mut self, patch: SettingsPatch) -> Result<&Settings, ApiError> {
+        // Validate every field before changing anything: a bad value must not half-apply.
+        if let Some(v) = patch.living_max_age
+            && !(1..=150).contains(&v)
+        {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "Enter a maximum age between 1 and 150 years.",
+            ));
+        }
+        if let Some(Some(id)) = patch.home_person
+            && !self.tree.persons.contains_key(&id)
+        {
+            return Err(ApiError::not_found("person", id));
+        }
         let mut rebuild = false;
         let mut living_rule_changed = false;
         if let Some(v) = patch.day_order {
@@ -275,12 +289,6 @@ impl Session {
             self.settings.name_order = v;
         }
         if let Some(v) = patch.living_max_age {
-            if !(1..=150).contains(&v) {
-                return Err(ApiError::new(
-                    ErrorCode::Invalid,
-                    "Enter a maximum age between 1 and 150 years.",
-                ));
-            }
             self.project
                 .meta_set(settings::KEY_LIVING_MAX_AGE, &v.to_string())?;
             living_rule_changed = v != self.settings.living_max_age;
@@ -288,11 +296,6 @@ impl Session {
             self.settings.living_max_age = v;
         }
         if let Some(home) = patch.home_person {
-            if let Some(id) = home
-                && !self.tree.persons.contains_key(&id)
-            {
-                return Err(ApiError::not_found("person", id));
-            }
             self.project.meta_set(
                 settings::KEY_HOME_PERSON,
                 &home.map(|h| h.to_string()).unwrap_or_default(),

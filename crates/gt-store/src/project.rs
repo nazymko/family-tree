@@ -107,6 +107,10 @@ impl Project {
             });
         }
         setup(&conn)?;
+        if found < SCHEMA_VERSION {
+            // Cheap insurance: a migration rewrites the file in place.
+            crate::backup::vacuum_backup(&conn, dir, crate::BackupReason::BeforeMigration)?;
+        }
         let version = migrate(&mut conn, MIGRATIONS)?;
         for sub in SUBDIRS {
             std::fs::create_dir_all(dir.join(sub))?;
@@ -131,5 +135,55 @@ impl Project {
 
     pub fn conn(&self) -> &Connection {
         &self.conn
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn open_backs_up_before_migrating() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("old");
+        std::fs::create_dir_all(&dir).unwrap();
+        // A project as the previous app version left it: only migration 1 applied.
+        let c = Connection::open(dir.join(DB_FILE)).unwrap();
+        c.execute_batch(MIGRATIONS[0].1).unwrap();
+        c.pragma_update(None, "user_version", 1).unwrap();
+        drop(c);
+
+        let p = Project::open(&dir).unwrap();
+        assert_eq!(p.schema_version(), SCHEMA_VERSION);
+        let backups: Vec<_> = std::fs::read_dir(dir.join("backups"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(backups.len(), 1, "{backups:?}");
+        assert!(backups[0].ends_with("-pre-migration.db"), "{backups:?}");
+        let b = Connection::open(dir.join("backups").join(&backups[0])).unwrap();
+        assert_eq!(user_version(&b).unwrap(), 1);
+        drop(p);
+
+        // Already current: no new backup.
+        let p = Project::open(&dir).unwrap();
+        drop(p);
+        assert_eq!(std::fs::read_dir(dir.join("backups")).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn dropping_the_project_checkpoints_the_wal() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("p");
+        let mut p = Project::create(&dir).unwrap();
+        p.meta_set("k", "v").unwrap();
+        assert!(dir.join("tree.db-wal").metadata().unwrap().len() > 0);
+        drop(p);
+        let wal = dir.join("tree.db-wal");
+        assert!(!wal.exists() || wal.metadata().unwrap().len() == 0);
+        let p = Project::open(&dir).unwrap();
+        assert_eq!(p.meta_get("k").unwrap().as_deref(), Some("v"));
     }
 }
