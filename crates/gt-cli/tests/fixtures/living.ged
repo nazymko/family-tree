@@ -1,0 +1,14 @@
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Anna /Mueller/
+1 SEX F
+1 BIRT
+2 DATE 1850
+1 DEAT Y
+0 @I2@ INDI
+1 NAME Zed /Livingstone/
+1 SEX M
+0 TRLR

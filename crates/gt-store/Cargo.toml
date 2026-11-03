@@ -17,6 +17,7 @@ sha2.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+gt-gedcom = { path = "../gt-gedcom" }
 
 [lints]
 workspace = true
