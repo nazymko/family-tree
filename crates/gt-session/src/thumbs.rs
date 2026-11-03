@@ -7,8 +7,9 @@ use image::{
     DynamicImage, ExtendedColorType, ImageDecoder, ImageEncoder, ImageError, ImageReader, Limits,
     codecs::jpeg::JpegEncoder, metadata::Orientation,
 };
-use std::io::{BufRead, Cursor, Seek};
+use std::io::Cursor;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Longest side of a thumbnail in pixels.
 pub const THUMB_PX: u32 = 256;
@@ -19,6 +20,7 @@ pub const MAX_PIXELS: u64 = 100_000_000;
 const MAX_SIDE: u32 = 32_768;
 const MAX_ALLOC: u64 = 1024 * 1024 * 1024;
 const JPEG_QUALITY: u8 = 82;
+static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThumbSize {
@@ -65,20 +67,39 @@ fn map_image_err(e: ImageError) -> ApiError {
     }
 }
 
+/// Most bytes of a file ever handed to the EXIF parser (it reads a whole TIFF into memory).
+pub(crate) const EXIF_READ_CAP: u64 = 16 * 1024 * 1024;
+
+/// Parses EXIF from at most `EXIF_READ_CAP` bytes of `src`.
+pub(crate) fn read_exif_capped<R: std::io::Read>(src: R) -> Option<exif::Exif> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    src.take(EXIF_READ_CAP).read_to_end(&mut buf).ok()?;
+    exif::Reader::new()
+        .read_from_container(&mut Cursor::new(buf))
+        .ok()
+}
+
 /// EXIF orientation tag (1..=8) of an image container, when present.
-pub(crate) fn exif_orientation<R: BufRead + Seek>(src: &mut R) -> Option<u8> {
-    let exif = exif::Reader::new().read_from_container(src).ok()?;
+pub(crate) fn exif_orientation<R: std::io::Read>(src: R) -> Option<u8> {
+    let exif = read_exif_capped(src)?;
     let f = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)?;
     let v = f.value.get_uint(0)?;
     u8::try_from(v).ok().filter(|v| (1..=8).contains(v))
 }
 
+/// Header-only pixel size, as stored (no orientation, nothing decoded).
+pub(crate) fn raw_dims(path: &Path) -> Option<(u32, u32)> {
+    let mut reader = ImageReader::open(path).ok()?.with_guessed_format().ok()?;
+    reader.limits(limits());
+    reader.into_dimensions().ok()
+}
+
 /// Pixel size of an image as displayed (EXIF orientation applied), reading headers only.
 pub(crate) fn image_dims(path: &Path) -> Option<(u32, u32)> {
-    let reader = ImageReader::open(path).ok()?.with_guessed_format().ok()?;
-    let (w, h) = reader.into_dimensions().ok()?;
+    let (w, h) = raw_dims(path)?;
     let file = std::fs::File::open(path).ok()?;
-    let turned = exif_orientation(&mut std::io::BufReader::new(file)).is_some_and(|o| o >= 5);
+    let turned = exif_orientation(file).is_some_and(|o| o >= 5);
     Some(if turned { (h, w) } else { (w, h) })
 }
 
@@ -139,7 +160,7 @@ pub fn render(bytes: &[u8], size: ThumbSize) -> Result<Vec<u8>, ApiError> {
         image::RgbImage::from_raw(w, h, rgb)
             .ok_or_else(|| ApiError::new(ErrorCode::Internal, "bad pixel buffer"))?,
     );
-    if let Some(o) = exif_orientation(&mut Cursor::new(bytes)).and_then(Orientation::from_exif) {
+    if let Some(o) = exif_orientation(Cursor::new(bytes)).and_then(Orientation::from_exif) {
         out.apply_orientation(o);
     }
     let rgb = out.to_rgb8();
@@ -188,7 +209,8 @@ pub(crate) fn cached_render(
     }
     let out = render(&bytes()?, size)?;
     if let Some(c) = cache {
-        let tmp = c.with_extension(format!("tmp{}", std::process::id()));
+        let n = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let tmp = c.with_extension(format!("tmp{}-{n}", std::process::id()));
         if std::fs::create_dir_all(c.parent().unwrap_or(project)).is_ok()
             && std::fs::write(&tmp, &out).is_ok()
             && std::fs::rename(&tmp, &c).is_err()

@@ -122,15 +122,6 @@ fn fail(failed: &mut Vec<AttachFailure>, path: &Path, reason: &str) {
     });
 }
 
-fn raw_dims(path: &Path) -> Option<(u32, u32)> {
-    image::ImageReader::open(path)
-        .ok()?
-        .with_guessed_format()
-        .ok()?
-        .into_dimensions()
-        .ok()
-}
-
 impl Session {
     /// The file behind a stored media path, only when it lies inside `<project>/media`.
     /// Lexical check first (no filesystem call before it), then a symlink-resolving check.
@@ -201,7 +192,7 @@ impl Session {
             };
             let stored = self.project.dir.join(&rel);
             let too_large = kind.is_image()
-                && raw_dims(&stored)
+                && thumbs::raw_dims(&stored)
                     .is_some_and(|(w, h)| u64::from(w) * u64::from(h) > thumbs::MAX_PIXELS);
             staged.push(Staged {
                 media: Media {
@@ -267,6 +258,7 @@ impl Session {
             std::fs::read(f).map_err(|_| ApiError::new(ErrorCode::Io, "cannot read file"))
         };
         let thumb_size = match size {
+            // Whole file in memory: the shell (Task 26) is expected to stream big originals.
             MediaSize::Original => {
                 let bytes = read(&file)?;
                 let kind = sniff(&bytes)
@@ -305,7 +297,7 @@ impl Session {
         let Ok(f) = std::fs::File::open(file) else {
             return Err(ApiError::new(ErrorCode::Io, "cannot read file"));
         };
-        Ok(read_exif(&mut std::io::BufReader::new(f)))
+        Ok(read_exif(f))
     }
 }
 
@@ -347,8 +339,8 @@ fn degrees(f: &exif::Field) -> Option<f64> {
     Some(part(0, 1.0)? + part(1, 60.0).unwrap_or(0.0) + part(2, 3600.0).unwrap_or(0.0))
 }
 
-fn read_exif<R: std::io::BufRead + std::io::Seek>(src: &mut R) -> Option<ExifSuggestion> {
-    let ex = exif::Reader::new().read_from_container(src).ok()?;
+fn read_exif<R: std::io::Read>(src: R) -> Option<ExifSuggestion> {
+    let ex = thumbs::read_exif_capped(src)?;
     let get = |t| ex.get_field(t, exif::In::PRIMARY);
     let date = get(exif::Tag::DateTimeOriginal)
         .or_else(|| get(exif::Tag::DateTimeDigitized))

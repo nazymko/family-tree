@@ -665,3 +665,83 @@ fn thumb_generation_under_80ms_for_12mp() {
     let ms = t.elapsed().as_millis();
     assert!(ms < 80, "took {ms} ms");
 }
+
+// ---- fix round 1 ----
+
+fn marker_jpeg(orientation: u16) -> Vec<u8> {
+    let mut img = RgbImage::from_pixel(64, 32, Rgb([20, 20, 20]));
+    for y in 0..16 {
+        for x in 0..16 {
+            img.put_pixel(x, y, Rgb([255, 255, 255]));
+        }
+    }
+    let e = vec![entry(0x0112, 3, 1, orientation.to_le_bytes().to_vec())];
+    let mut tiff = tiff_header();
+    tiff.extend(block(&e, 8));
+    with_exif(
+        &encode(&DynamicImage::ImageRgb8(img), ImageFormat::Jpeg),
+        &tiff,
+    )
+}
+
+#[test]
+fn all_exif_orientations_are_applied() {
+    let (_d, mut s, eva, src) = setup();
+    // (orientation, displayed size, corner holding the white marker: 0=TL 1=TR 2=BR 3=BL)
+    let cases = [
+        (1, (64, 32), 0),
+        (2, (64, 32), 1),
+        (3, (64, 32), 2),
+        (4, (64, 32), 3),
+        (5, (32, 64), 0),
+        (6, (32, 64), 1),
+        (7, (32, 64), 2),
+        (8, (32, 64), 3),
+    ];
+    for (o, dims, corner) in cases {
+        let p = write(&src, &format!("o{o}.jpg"), &marker_jpeg(o));
+        let r = s.attach_files(person(eva), &[p]).unwrap();
+        let m = &r.attached[0];
+        assert_eq!((m.width, m.height), (Some(dims.0), Some(dims.1)), "dto {o}");
+        let (b, _) = s.media_bytes(m.id, MediaSize::Thumb).unwrap();
+        let img = image::load_from_memory(&b).unwrap().to_rgb8();
+        assert_eq!(img.dimensions(), dims, "thumb {o}");
+        let (w, h) = dims;
+        let spots = [(4, 4), (w - 5, 4), (w - 5, h - 5), (4, h - 5)];
+        for (i, (x, y)) in spots.iter().enumerate() {
+            let bright = img.get_pixel(*x, *y).0[0] > 128;
+            assert_eq!(bright, i == corner, "orientation {o} corner {i}");
+        }
+    }
+}
+
+#[test]
+fn thumb_still_served_when_cache_dir_cannot_be_created() {
+    let (d, mut s, eva, src) = setup();
+    let p = write(&src, "a.jpg", &jpeg(600, 300, [50, 60, 70]));
+    let r = s.attach_files(person(eva), &[p]).unwrap();
+    let thumbs = project_dir(&d).join("thumbs");
+    let _ = std::fs::remove_dir_all(&thumbs);
+    std::fs::write(&thumbs, b"a file where the folder should be").unwrap();
+    let (b, _) = s.media_bytes(r.attached[0].id, MediaSize::Thumb).unwrap();
+    assert_eq!(decode_dims(&b), (256, 128));
+}
+
+#[test]
+fn big_file_with_bogus_tiff_header_is_cheap() {
+    let (_d, mut s, eva, src) = setup();
+    let p = src.join("bogus.tif");
+    {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&p).unwrap();
+        f.write_all(b"II*\0\x08\0\0\0").unwrap();
+        f.set_len(300 * 1024 * 1024).unwrap();
+    }
+    let r = s.attach_files(person(eva), &[p]).unwrap();
+    assert_eq!(r.attached.len(), 1);
+    let t = std::time::Instant::now();
+    let id = r.attached[0].id;
+    assert_eq!(s.exif_suggestion(id).unwrap(), None);
+    assert!(s.media_bytes(id, MediaSize::Thumb).is_err());
+    assert!(t.elapsed().as_secs() < 5, "took {:?}", t.elapsed());
+}
