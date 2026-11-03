@@ -36,6 +36,8 @@ import type {
   SearchHitDto,
   Settings,
   SourceDto,
+  TraceDraftState,
+  TraceImageInfo,
   UndoState,
 } from '../types';
 import { toApiError } from './errors';
@@ -154,6 +156,21 @@ export class TauriApi implements Api {
   }
   attachFiles(target: OwnerRef, paths: string[]): Promise<AttachResult> {
     return call('attach_files', { target, paths });
+  }
+  stageTraceImage(path: string): Promise<TraceImageInfo> {
+    return call('stage_trace_image', { path });
+  }
+  traceImageUrl(version: number): string {
+    return `${convertFileSrc('trace', 'gtmedia')}/picture?v=${version}`;
+  }
+  saveTraceDraft(json: string): Promise<void> {
+    return call('save_trace_draft', { json });
+  }
+  loadTraceDraft(): Promise<TraceDraftState> {
+    return call('load_trace_draft');
+  }
+  discardTraceDraft(): Promise<void> {
+    return call('discard_trace_draft');
   }
   previewExport(opts: ExportOptions): Promise<PrivacyPreview> {
     return call('preview_export', { opts });

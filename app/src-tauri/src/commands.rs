@@ -9,7 +9,7 @@ use gt_session::{
     FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto, ImportRequest, LocationKind,
     LocationWarningDto, OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery, PersonRow,
     PlaceOption, PrivacyPreview, ProjectInfo, RecentProject, Rect, RelinkResult, SearchHitDto,
-    Session, Settings, SettingsPatch, SourceDto, UndoState,
+    Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoState,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -68,6 +68,10 @@ command_list!(
     chart_close,
     exif_suggestion,
     attach_files,
+    stage_trace_image,
+    save_trace_draft,
+    load_trace_draft,
+    discard_trace_draft,
     open_media_externally,
     preview_export,
     export_gedcom,
@@ -459,6 +463,29 @@ pub async fn attach_files<R: Runtime>(
         s.with_session(|se| se.attach_files(target, &paths))
     })
     .await
+}
+
+// ------------------------------------------------------------ trace a tree picture
+
+/// Copies the picked picture into the open project as the one being traced.
+#[tauri::command(async)]
+pub fn stage_trace_image(state: State<'_, AppState>, path: String) -> ApiResult<TraceImageInfo> {
+    state.with_session(|s| s.stage_trace_image(Path::new(&path)))
+}
+
+#[tauri::command(async)]
+pub fn save_trace_draft(state: State<'_, AppState>, json: String) -> ApiResult<()> {
+    state.with_session(|s| s.save_trace_draft(&json))
+}
+
+#[tauri::command(async)]
+pub fn load_trace_draft(state: State<'_, AppState>) -> ApiResult<TraceDraftState> {
+    state.with_session(|s| s.load_trace_draft())
+}
+
+#[tauri::command(async)]
+pub fn discard_trace_draft(state: State<'_, AppState>) -> ApiResult<()> {
+    state.with_session(|s| s.discard_trace_draft())
 }
 
 /// The original file of a media item, but only when its CONTENT is an image or a PDF. The type is

@@ -103,6 +103,12 @@ describe('TauriApi', () => {
     expect(new TauriApi().mediaUrl(id, 'preview')).not.toContain('%2F');
   });
 
+  it('trace_image_url_uses_gtmedia_scheme', () => {
+    expect(new TauriApi().traceImageUrl(3)).toBe('http://gtmedia.localhost/trace/picture?v=3');
+    mockConvertFileSrc('linux');
+    expect(new TauriApi().traceImageUrl(1)).toBe('gtmedia://localhost/trace/picture?v=1');
+  });
+
   it('open_media_externally_sends_only_the_media_id', async () => {
     await new TauriApi().openMediaExternally('m1');
     expect(calls).toEqual([{ cmd: 'open_media_externally', args: { id: 'm1' } }]);
@@ -124,7 +130,7 @@ describe('TauriApi', () => {
 
   it('every_method_calls_its_snake_case_command', async () => {
     const api = new TauriApi() as unknown as Record<string, (...a: unknown[]) => unknown>;
-    const skip = new Set(['constructor', 'mediaUrl', 'importGedcom']);
+    const skip = new Set(['constructor', 'mediaUrl', 'traceImageUrl', 'importGedcom']);
     for (const name of Object.getOwnPropertyNames(TauriApi.prototype).filter((n) => !skip.has(n))) {
       calls = [];
       await api[name]();

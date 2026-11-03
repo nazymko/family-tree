@@ -33,6 +33,8 @@ import type {
   SearchHitDto,
   Settings,
   SourceDto,
+  TraceDraftState,
+  TraceImageInfo,
   UndoState,
 } from './types';
 
@@ -77,6 +79,15 @@ export interface Api {
   /** add_media_file + Media record + link, one undo step. */
   /** `silent` asks the shell's default toaster to stay quiet because the caller shows its own notice. */
   attachFiles(target: OwnerRef, paths: string[], opts?: { silent?: boolean }): Promise<AttachResult>;
+  /** Copies a picture into the open tree as the one being traced. */
+  stageTraceImage(path: string): Promise<TraceImageInfo>;
+  /** Synchronous: a gtmedia: URL of the picture being traced; `version` changes when a new picture is staged. */
+  traceImageUrl(version: number): string;
+  /** Saves the trace draft (opaque text) inside the project. */
+  saveTraceDraft(json: string): Promise<void>;
+  loadTraceDraft(): Promise<TraceDraftState>;
+  /** Forgets the draft and deletes the picture copy. */
+  discardTraceDraft(): Promise<void>;
   previewExport(opts: ExportOptions): Promise<PrivacyPreview>;
   exportGedcom(opts: ExportOptions, dest: string, previewToken: string): Promise<{ bytes: number }>;
   getSettings(): Promise<Settings>;
