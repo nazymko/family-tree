@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import Button from '../ui/Button.svelte';
   import Banner from '../ui/Banner.svelte';
-  import IndexCard from '../ui/IndexCard.svelte';
   import Ribbon from '../ui/Ribbon.svelte';
   import ImportWizard from './ImportWizard.svelte';
   import { getApi, getPlatform } from '../api/context';
@@ -65,7 +64,7 @@
       </div>
 
       <section aria-labelledby="recent-h">
-        <IndexCard>
+        <div class="ledger">
           <h2 id="recent-h" class="rh">Recent trees</h2>
           {#if recents === null}
             <p class="note">&nbsp;</p>
@@ -77,7 +76,7 @@
                 <li>
                   {#if r.missing}
                     <div class="gone">
-                      <div class="rname">{r.name}</div>
+                      <span class="rname">{r.name}</span>
                       <Banner kind="warning">This folder is not there any more</Banner>
                       <Button variant="quiet" onclick={() => remove(r.dir)} aria-label="Remove {r.name} from the list">
                         Remove
@@ -101,7 +100,7 @@
               {/each}
             </ul>
           {/if}
-        </IndexCard>
+        </div>
       </section>
     {:else}
       <ImportWizard {mode} oncancel={() => (mode = 'home')} />
@@ -145,19 +144,30 @@
     min-height: 2.75rem;
     padding-inline: var(--s-6);
   }
+  .ledger {
+    border: 1px solid var(--rule);
+    border-radius: var(--r-1);
+    background: var(--paper-1);
+    padding: 0 var(--s-6);
+  }
   .rh {
-    line-height: 56px;
-    padding-top: var(--s-3);
+    padding: var(--s-5) 0 var(--s-3);
+    border-block-end: 1px solid var(--ink-2);
   }
   .note {
     color: var(--ink-1);
-    padding: 0 0 var(--s-4);
-    line-height: var(--rule-step);
+    padding: var(--s-5) 0;
+  }
+  .recent li + li {
+    border-block-start: 1px solid var(--rule);
   }
   .recent {
     list-style: none;
     margin: 0;
     padding: 0;
+  }
+  .actions :global(.btn.quiet) {
+    border-color: var(--ink-2);
   }
   .row {
     display: grid;
@@ -184,9 +194,11 @@
     overflow-wrap: anywhere;
   }
   .gone {
-    display: grid;
-    gap: var(--s-2);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-4);
+    min-height: 56px;
     padding: var(--s-3) 0;
-    justify-items: start;
   }
 </style>

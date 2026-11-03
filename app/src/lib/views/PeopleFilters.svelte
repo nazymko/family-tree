@@ -68,11 +68,11 @@
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
-    gap: var(--s-4) var(--s-6);
+    gap: var(--s-4) var(--s-5);
   }
   .text {
-    flex: 1 1 14rem;
-    max-width: 22rem;
+    flex: 1 1 11rem;
+    max-width: 15rem;
   }
   .grp {
     display: grid;
@@ -108,6 +108,12 @@
     gap: var(--s-5);
     flex-wrap: wrap;
     padding-bottom: var(--s-3);
+  }
+  .sort :global(.btn.quiet) {
+    border-color: var(--ink-2);
+  }
+  .sort :global(select) {
+    min-width: 10rem;
   }
   .sort {
     display: flex;

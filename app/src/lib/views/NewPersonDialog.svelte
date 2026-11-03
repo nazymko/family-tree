@@ -13,6 +13,7 @@
     ondone,
     relation,
     anchor,
+    newParentSet,
   }: {
     open: boolean;
     onclose: () => void;
@@ -20,6 +21,7 @@
     ondone: (id: Id | null) => void;
     relation?: Relation;
     anchor?: Id;
+    newParentSet?: boolean;
   } = $props();
 
   const api = getApi();
@@ -58,7 +60,7 @@
       };
       const r =
         relation && anchor
-          ? await api.apply({ type: 'quickAdd', anchor, relation, draft })
+          ? await api.apply({ type: 'quickAdd', anchor, relation, draft, newParentSet })
           : await api.apply({ type: 'createPerson', draft });
       ondone(r.focus);
     } catch (err) {

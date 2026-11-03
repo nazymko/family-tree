@@ -12,6 +12,7 @@
   import NewPersonDialog from './NewPersonDialog.svelte';
   import RoutePlaceholder from './RoutePlaceholder.svelte';
   import People from './People.svelte';
+  import FamilyView from './FamilyView.svelte';
   import type { IconName } from '../ui/icons';
   import { getApi } from '../api/context';
   import type { Id, SearchHitDto } from '../api/types';
@@ -204,7 +205,7 @@
     <main id="content" class="main">
       <div class="page">
         {#if nav.route.name === 'family'}
-          <RoutePlaceholder title="Family" />
+          <FamilyView />
         {:else if nav.route.name === 'people'}
           <People />
         {:else if nav.route.name === 'pedigree'}
@@ -231,6 +232,7 @@
   open={ui.add.open}
   relation={ui.add.relation}
   anchor={ui.add.anchor}
+  newParentSet={ui.add.newParentSet}
   onclose={() => ui.closeAdd()}
   ondone={added}
 />

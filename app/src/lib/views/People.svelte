@@ -237,7 +237,7 @@
     display: flex;
     gap: var(--s-3);
     align-items: stretch;
-    height: max(22rem, calc(100vh - 21rem));
+    height: max(22rem, calc(100vh - 16rem));
   }
   .listbox {
     flex: 1;
@@ -253,7 +253,7 @@
   .rail button {
     flex: none;
     width: 100%;
-    min-height: 1.35rem;
+    min-height: 1.2rem;
     border: 0;
     background: transparent;
     font-size: var(--t-xs);

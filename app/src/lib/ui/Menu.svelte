@@ -4,6 +4,8 @@
     onselect: () => void;
     danger?: boolean;
     disabled?: boolean;
+    /** Tooltip; use it to say why an item is disabled. */
+    title?: string;
   }
 </script>
 
@@ -85,6 +87,7 @@
           tabindex="-1"
           class:danger={item.danger}
           aria-disabled={item.disabled ? 'true' : undefined}
+          title={item.title}
           onclick={() => choose(item)}
         >
           {item.label}
