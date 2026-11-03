@@ -9,6 +9,8 @@ rust-version.workspace = true
 uuid.workspace = true
 indexmap.workspace = true
 serde.workspace = true
+rphonetic = { workspace = true, features = ["embedded_dm"] }
+unicode-normalization.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
