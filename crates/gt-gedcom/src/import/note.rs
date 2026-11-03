@@ -1,8 +1,6 @@
 //! Notes: records (`NOTE`, `SNOTE`) and inline `NOTE` structures.
 
-use super::{
-    Ctx, Rec, child, common_child, is_pointer, new_common, parse_uuid, push_unknown, resolve, val,
-};
+use super::{Ctx, Rec, child, common_child, new_common, parse_uuid, push_unknown, resolve, val};
 use crate::idgen::derive_id;
 use crate::node::GedNode;
 use gt_core::model::*;
@@ -43,9 +41,7 @@ pub(crate) fn read_note_record(ctx: &mut Ctx, node: &GedNode, id: Uuid) {
 
 /// `NOTE`/`SNOTE` under a structure: a pointer links a shared note, text creates an inline note.
 pub(crate) fn link_note(ctx: &mut Ctx, owner: Uuid, c: &GedNode, notes: &mut Vec<Uuid>) -> bool {
-    if let Some(p) = val(c)
-        && is_pointer(p)
-    {
+    if val(c).is_some() && c.ptr {
         if let Some(id) = resolve(ctx, c, Rec::Note)
             && !notes.contains(&id)
         {

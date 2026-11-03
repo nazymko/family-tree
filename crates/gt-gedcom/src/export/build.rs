@@ -43,6 +43,7 @@ fn raw_to_ged(r: &RawNode) -> GedNode {
         xref: r.xref.clone(),
         tag: r.tag.clone(),
         value: r.value.clone(),
+        ptr: r.value.as_deref().is_some_and(crate::import::is_pointer),
         children: r.children.iter().map(raw_to_ged).collect(),
     }
 }
@@ -94,8 +95,16 @@ impl<'a> Bld<'a> {
             xref: None,
             tag: tag.to_string(),
             value: value.filter(|v| !v.is_empty()),
+            ptr: false,
             children: vec![],
         }
+    }
+
+    /// A line whose value is a pointer to another record.
+    fn ptr(&mut self, tag: &str, xref: String) -> GedNode {
+        let mut n = self.nd(tag, Some(xref));
+        n.ptr = true;
+        n
     }
 
     fn kv(&mut self, tag: &str, value: &str) -> GedNode {
@@ -183,7 +192,7 @@ impl<'a> Bld<'a> {
         if n.shared {
             let x = self.nx.get(&nid)?.clone();
             let tag = if self.v70 { "SNOTE" } else { "NOTE" };
-            return Some(self.nd(tag, Some(x)));
+            return Some(self.ptr(tag, x));
         }
         let mut node = self.nd("NOTE", Some(n.text.clone()));
         self.note_body(n, &mut node, Some(derive_id(owner, "note", idx)));
@@ -209,7 +218,9 @@ impl<'a> Bld<'a> {
             _ if self.v70 => Some("@VOID@".to_string()),
             _ => None,
         };
+        let is_ptr = value.is_some();
         let mut n = self.nd("SOUR", value);
+        n.ptr = is_ptr;
         if let Some(p) = &c.page {
             n.children.push(self.kv("PAGE", p));
         }
@@ -237,7 +248,7 @@ impl<'a> Bld<'a> {
 
     fn media_ref(&mut self, l: &MediaLink) -> Option<GedNode> {
         let x = self.ox.get(&l.media)?.clone();
-        let mut n = self.nd("OBJE", Some(x));
+        let mut n = self.ptr("OBJE", x);
         if l.primary {
             n.children.push(self.kv("_PRIM", "Y"));
         }
@@ -363,7 +374,7 @@ impl<'a> Bld<'a> {
             let Some(x) = self.px.get(&pid).cloned() else {
                 continue;
             };
-            let mut asso = self.nd("ASSO", Some(x));
+            let mut asso = self.ptr("ASSO", x);
             let (text, phrase) = role_text(&p.role, self.v70);
             if !text.is_empty() && p.role != Role::Other(String::new()) {
                 let tag = if self.v70 { "ROLE" } else { "RELA" };
@@ -511,7 +522,13 @@ pub(crate) fn build(t: &Tree, version: GedcomVersion) -> Vec<GedNode> {
             let nn = b.name_node(*pid, i, nm);
             n.children.push(nn);
         }
-        n.children.push(b.kv("SEX", &Bld::sex_text(&p.sex)));
+        if p.sex == Sex::Intersex && !b.v70 {
+            // 5.5.1 has no X (invalid value): keep it in an extension tag.
+            n.children.push(b.kv("SEX", "U"));
+            n.children.push(b.kv("_SEX", "X"));
+        } else {
+            n.children.push(b.kv("SEX", &Bld::sex_text(&p.sex)));
+        }
         let mut common = Vec::new();
         // ext ids and privacy first, then events, links, notes/citations/media.
         let mut c0 = p.common.clone();
@@ -535,13 +552,13 @@ pub(crate) fn build(t: &Tree, version: GedcomVersion) -> Vec<GedNode> {
             let Some(x) = b.fx.get(fid).cloned() else {
                 continue;
             };
-            let mut fc = b.nd("FAMC", Some(x));
+            let mut fc = b.ptr("FAMC", x);
             famc_children(&mut b, l, *pid, *fid, &mut fc);
             n.children.push(fc);
         }
         for fid in fams.get(pid).into_iter().flatten() {
             if let Some(x) = b.fx.get(fid).cloned() {
-                let s = b.nd("FAMS", Some(x));
+                let s = b.ptr("FAMS", x);
                 n.children.push(s);
             }
         }
@@ -568,14 +585,14 @@ pub(crate) fn build(t: &Tree, version: GedcomVersion) -> Vec<GedNode> {
             std::mem::swap(&mut p1, &mut p2);
         }
         if let Some(x) = p1.and_then(|p| b.px.get(&p).cloned()) {
-            n.children.push(b.nd("HUSB", Some(x)));
+            n.children.push(b.ptr("HUSB", x));
         }
         if let Some(x) = p2.and_then(|p| b.px.get(&p).cloned()) {
-            n.children.push(b.nd("WIFE", Some(x)));
+            n.children.push(b.ptr("WIFE", x));
         }
         for c in &f.children {
             if let Some(x) = b.px.get(&c.person).cloned() {
-                n.children.push(b.nd("CHIL", Some(x)));
+                n.children.push(b.ptr("CHIL", x));
             }
         }
         for ev in by_family.get(fid).into_iter().flatten() {
@@ -606,7 +623,7 @@ pub(crate) fn build(t: &Tree, version: GedcomVersion) -> Vec<GedNode> {
         }
         for r in &s.repositories {
             if let Some(x) = b.rx.get(&r.repository).cloned() {
-                let mut rn = b.nd("REPO", Some(x));
+                let mut rn = b.ptr("REPO", x);
                 if let Some(c) = &r.call_number {
                     rn.children.push(b.kv("CALN", c));
                 }
@@ -706,7 +723,7 @@ pub(crate) fn build(t: &Tree, version: GedcomVersion) -> Vec<GedNode> {
     if !v70 {
         head.children.push(b.kv("CHAR", "UTF-8"));
         if !has_subm {
-            head.children.push(b.kv("SUBM", OWN_SUBM));
+            head.children.push(b.ptr("SUBM", OWN_SUBM.to_string()));
             let mut s = b.rec(Some(OWN_SUBM.to_string()), "SUBM", None);
             s.children.push(b.kv("NAME", "gene-tree"));
             tail.push(s);

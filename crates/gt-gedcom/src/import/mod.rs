@@ -24,12 +24,14 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 pub(crate) use indi::compose_name;
-pub use report::{ImportReport, Repair};
+pub use report::{ImportReport, MissingMedia, MissingReason, Repair};
 
 #[derive(Debug, Clone)]
 pub struct ImportOptions {
     pub day_order: DayOrder,
     pub media_roots: Vec<PathBuf>,
+    /// Folder holding the GEDCOM file: absolute and relative `FILE` paths may resolve under it.
+    pub gedcom_dir: Option<PathBuf>,
 }
 
 impl Default for ImportOptions {
@@ -37,6 +39,7 @@ impl Default for ImportOptions {
         Self {
             day_order: DayOrder::Dmy,
             media_roots: Vec::new(),
+            gedcom_dir: None,
         }
     }
 }
@@ -74,7 +77,7 @@ pub(crate) struct Ctx {
     pub place_map: HashMap<String, Uuid>,
     pub evid_map: HashMap<String, Uuid>,
     pub resolved_media: Vec<(Uuid, PathBuf)>,
-    pub media_index: Option<HashMap<String, PathBuf>>,
+    pub media_index: Option<HashMap<String, Vec<PathBuf>>>,
     pub id_xref: HashMap<Uuid, String>,
     pub famc: HashMap<(Uuid, Uuid), fam::FamcInfo>,
     pub famc_order: HashMap<(Uuid, Uuid), usize>,

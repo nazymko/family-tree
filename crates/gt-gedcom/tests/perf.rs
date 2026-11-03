@@ -27,6 +27,7 @@ fn import_50k_under_ten_seconds() {
         &ImportOptions {
             day_order: DayOrder::Dmy,
             media_roots: vec![],
+            ..Default::default()
         },
     );
     let import_time = t1.elapsed();

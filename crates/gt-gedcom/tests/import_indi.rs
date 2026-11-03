@@ -8,6 +8,7 @@ fn opts() -> ImportOptions {
     ImportOptions {
         day_order: DayOrder::Dmy,
         media_roots: vec![],
+        ..Default::default()
     }
 }
 

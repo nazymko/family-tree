@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 use gt_core::DayOrder;
 use gt_core::model::*;
-use gt_gedcom::{ImportOptions, ImportOutcome, Repair, import};
+use gt_gedcom::{ImportOptions, ImportOutcome, MissingReason, Repair, import};
 use std::path::PathBuf;
 
 fn imp_with(s: &str, roots: Vec<PathBuf>) -> ImportOutcome {
@@ -10,6 +10,7 @@ fn imp_with(s: &str, roots: Vec<PathBuf>) -> ImportOutcome {
         &ImportOptions {
             day_order: DayOrder::Dmy,
             media_roots: roots,
+            ..Default::default()
         },
     )
 }
@@ -159,10 +160,9 @@ fn missing_header_reported() {
 #[test]
 fn missing_media_reported() {
     let o = imp("0 HEAD\n0 @O1@ OBJE\n1 FILE C:\\Users\\x\\photo.jpg\n0 TRLR\n");
-    assert_eq!(
-        o.report.missing_media,
-        vec!["C:/Users/x/photo.jpg".to_string()]
-    );
+    assert_eq!(o.report.missing_media.len(), 1);
+    assert_eq!(o.report.missing_media[0].path, "C:/Users/x/photo.jpg");
+    assert_eq!(o.report.missing_media[0].reason, MissingReason::NotFound);
     assert_eq!(
         o.tree.media.values().next().unwrap().path,
         "C:/Users/x/photo.jpg"

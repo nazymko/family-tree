@@ -1,6 +1,5 @@
 //! Serialise `GedNode` trees to GEDCOM text.
 
-use crate::import::is_pointer;
 use crate::node::GedNode;
 
 /// Longest line in 5.5.1 output, in bytes (without the line terminator).
@@ -15,8 +14,9 @@ pub fn write(nodes: &[GedNode], v70: bool) -> Vec<u8> {
     out.into_bytes()
 }
 
-fn escape(v: &str) -> String {
-    if is_pointer(v) {
+/// Pointer values are written raw; every `@` in text is doubled, whatever the text looks like.
+fn escape(v: &str, ptr: bool) -> String {
+    if ptr {
         v.to_string()
     } else {
         v.replace('@', "@@")
@@ -87,7 +87,11 @@ fn chunks(s: &str, first_max: usize) -> Vec<&str> {
 }
 
 fn write_node(out: &mut String, n: &GedNode, level: usize, v70: bool, eol: &str) {
-    let value = n.value.as_deref().map(escape).unwrap_or_default();
+    let value = n
+        .value
+        .as_deref()
+        .map(|v| escape(v, n.ptr))
+        .unwrap_or_default();
     let mut lines = value.split('\n');
     let first = lines.next().unwrap_or("");
     let head_len =

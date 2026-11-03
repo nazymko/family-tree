@@ -9,6 +9,9 @@ pub struct GedNode {
     pub xref: Option<String>,
     pub tag: String,
     pub value: Option<String>,
+    /// The value is a pointer (`@X@` in the source or on output), not text that happens to look
+    /// like one (`@@X@` in the source).
+    pub ptr: bool,
     pub children: Vec<GedNode>,
 }
 

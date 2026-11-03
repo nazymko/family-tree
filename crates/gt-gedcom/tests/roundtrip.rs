@@ -41,6 +41,7 @@ fn opts() -> ImportOptions {
     ImportOptions {
         day_order: DayOrder::Dmy,
         media_roots: vec![],
+        ..Default::default()
     }
 }
 
@@ -98,6 +99,15 @@ fn diff(a: &Tree, b: &Tree) -> String {
 fn corpus_round_trips_in_both_versions() {
     let all = files();
     assert!(!all.is_empty(), "no fixtures found");
+    if std::env::var("GT_REQUIRE_CORPUS").is_ok_and(|v| v == "1") {
+        let mut corpus = Vec::new();
+        collect(&root().join("corpus"), &mut corpus);
+        assert!(
+            corpus.len() >= 50,
+            "GT_REQUIRE_CORPUS=1 but tests/corpus has {} .ged files (need >= 50): run scripts/fetch-corpus.sh",
+            corpus.len()
+        );
+    }
     let mut failures = Vec::new();
     let mut checked = 0;
     for f in &all {

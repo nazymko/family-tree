@@ -1,9 +1,8 @@
 //! Media: `OBJE` records and inline/pointer `OBJE` links.
 
-use super::media_paths::{file_name, is_url, locate, normalize};
-use super::{
-    Ctx, Rec, child, common_child, is_pointer, new_common, parse_uuid, push_unknown, resolve, val,
-};
+use super::media_paths::{Located, file_name, file_url_to_path, is_url, locate, normalize};
+use super::report::{MissingMedia, MissingReason};
+use super::{Ctx, Rec, child, common_child, new_common, parse_uuid, push_unknown, resolve, val};
 use crate::idgen::derive_id;
 use crate::node::GedNode;
 use gt_core::model::*;
@@ -80,13 +79,41 @@ fn read_media_node(ctx: &mut Ctx, node: &GedNode, id: Uuid, inline: bool) -> Opt
             }
         }
     }
-    if !is_url(&path) {
-        match locate(ctx, &path) {
-            Some(found) => {
-                m.original_name = file_name(&path);
-                ctx.resolved_media.push((id, found));
+    // `file://` URLs are local paths; every other URL stays a URL (listed, never fetched).
+    let local = match file_url_to_path(&path) {
+        Some(p) => Some(p),
+        None if is_url(&path) => None,
+        None => Some(path.clone()),
+    };
+    match local {
+        None => {
+            let shown: String = path.chars().take(100).collect();
+            ctx.report.media_urls.push(shown);
+        }
+        Some(lp) => {
+            let miss = |reason, candidates| MissingMedia {
+                path: path.clone(),
+                reason,
+                candidates,
+            };
+            match locate(ctx, &lp) {
+                Located::Found(found) => {
+                    m.original_name = file_name(&lp);
+                    ctx.resolved_media.push((id, found));
+                }
+                Located::OutsideRoots => ctx
+                    .report
+                    .missing_media
+                    .push(miss(MissingReason::OutsideRoots, vec![])),
+                Located::Ambiguous(c) => ctx
+                    .report
+                    .missing_media
+                    .push(miss(MissingReason::Ambiguous, c)),
+                Located::NotFound => ctx
+                    .report
+                    .missing_media
+                    .push(miss(MissingReason::NotFound, vec![])),
             }
-            None => ctx.report.missing_media.push(path),
         }
     }
     Some(m)
@@ -114,9 +141,7 @@ pub(crate) fn link_media(
     media: &mut Vec<MediaLink>,
 ) -> bool {
     let (primary, region) = link_props(c);
-    if let Some(p) = val(c)
-        && is_pointer(p)
-    {
+    if val(c).is_some() && c.ptr {
         if let Some(id) = resolve(ctx, c, Rec::Obje) {
             media.push(MediaLink {
                 media: id,

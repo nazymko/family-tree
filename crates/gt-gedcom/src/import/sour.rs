@@ -1,8 +1,8 @@
 //! Source and repository records, and citations (`SOUR` under any structure).
 
 use super::{
-    Ctx, Rec, child, common_child, count_dropped, is_pointer, new_common, parse_uuid, push_unknown,
-    read_date, resolve, val,
+    Ctx, Rec, child, common_child, count_dropped, new_common, parse_uuid, push_unknown, read_date,
+    resolve, val,
 };
 use crate::idgen::derive_id;
 use crate::node::GedNode;
@@ -55,7 +55,7 @@ pub(crate) fn link_citation(
         },
     };
     match val(c) {
-        Some(p) if is_pointer(p) => {
+        Some(p) if c.ptr => {
             if !p.trim().eq_ignore_ascii_case("@VOID@") {
                 match resolve(ctx, c, Rec::Sour) {
                     Some(s) => cit.source = Some(s),
@@ -118,7 +118,7 @@ pub(crate) fn read_source(ctx: &mut Ctx, node: &GedNode, id: Uuid) {
             ("PUBL", Some(v)) => s.publication = Some(v),
             ("ABBR", Some(v)) => s.abbreviation = Some(v),
             ("TEXT", Some(v)) => s.text = Some(v),
-            ("REPO", Some(p)) if is_pointer(&p) => {
+            ("REPO", Some(_)) if c.ptr => {
                 if let Some(r) = resolve(ctx, c, Rec::Repo) {
                     s.repositories.push(RepoRef {
                         repository: r,

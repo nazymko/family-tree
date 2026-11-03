@@ -87,12 +87,21 @@ fn unescape_at(v: &[u8]) -> Vec<u8> {
     out
 }
 
+fn raw_is_pointer(v: &[u8]) -> bool {
+    let v = v.trim_ascii();
+    v.len() >= 3
+        && v.first() == Some(&b'@')
+        && v.last() == Some(&b'@')
+        && v.get(1..v.len() - 1).is_some_and(|m| !m.contains(&b'@'))
+}
+
 fn finish(p: Pending, enc: &DetectedEncoding) -> GedNode {
     GedNode {
         line: p.line,
         level: p.level,
         xref: p.xref,
         tag: p.tag,
+        ptr: p.value.as_deref().is_some_and(raw_is_pointer),
         value: p.value.map(|v| decode_payload(&unescape_at(&v), enc)),
         children: p.children.into_iter().map(|c| finish(c, enc)).collect(),
     }
