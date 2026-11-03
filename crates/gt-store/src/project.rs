@@ -2,7 +2,7 @@ use crate::migrate::{MIGRATIONS, migrate, user_version};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;
 const DB_FILE: &str = "tree.db";
 const SUBDIRS: [&str; 3] = ["media", "thumbs", "backups"];
 
@@ -59,6 +59,10 @@ impl Project {
             "INSERT INTO meta(key, value) VALUES ('app_version', ?1), ('created_ms', ?2)",
             (env!("CARGO_PKG_VERSION"), created_ms.to_string()),
         )?;
+        conn.execute(
+            "INSERT INTO meta(key, value) VALUES ('fts_scheme', '2')",
+            [],
+        )?;
         Ok(Project {
             dir: dir.to_path_buf(),
             conn,
@@ -85,11 +89,17 @@ impl Project {
         for sub in SUBDIRS {
             std::fs::create_dir_all(dir.join(sub))?;
         }
-        Ok(Project {
+        let mut project = Project {
             dir: dir.to_path_buf(),
             conn,
             version,
-        })
+        };
+        // v1 full-text rows have arbitrary row ids; v2 edits address them by seq. The key is
+        // written by the rebuild itself, so an interrupted upgrade is redone on the next open.
+        if project.meta_get("fts_scheme")?.is_none() {
+            project.rebuild_search()?;
+        }
+        Ok(project)
     }
 
     pub fn schema_version(&self) -> i32 {

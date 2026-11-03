@@ -18,7 +18,7 @@ fn create_then_open() {
     let dir = tmp.path().join("My.genetree");
     {
         let p = Project::create(&dir).unwrap();
-        assert_eq!(p.schema_version(), 1);
+        assert_eq!(p.schema_version(), SCHEMA_VERSION);
     }
     for sub in ["media", "thumbs", "backups"] {
         assert!(dir.join(sub).is_dir(), "{sub}");
@@ -76,7 +76,7 @@ fn open_newer_schema_refused() {
     drop(c);
     match Project::open(&dir) {
         Err(StoreError::NewerSchema { found, supported }) => {
-            assert_eq!((found, supported), (99, 1));
+            assert_eq!((found, supported), (99, SCHEMA_VERSION));
         }
         other => panic!("unexpected: {:?}", other.map(|p| p.dir)),
     }
