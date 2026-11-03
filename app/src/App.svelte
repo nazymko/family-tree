@@ -35,7 +35,11 @@
           project.open(info);
         }
         nav.focus(info.homePerson);
-        nav.go({ name: wanted } as never);
+        if (wanted === 'person') nav.go({ name: 'person', id: info.homePerson });
+        else if (wanted === 'export') {
+          nav.go({ name: 'family' });
+          setTimeout(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'E', ctrlKey: true, shiftKey: true, bubbles: true })), 400);
+        } else nav.go({ name: wanted } as never);
       })();
     }
   }
