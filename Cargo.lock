@@ -1717,6 +1717,7 @@ dependencies = [
  "clap",
  "gt-core",
  "gt-gedcom",
+ "gt-import-atdb",
  "gt-store",
  "tempfile",
 ]
@@ -1748,6 +1749,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "gt-import-atdb"
+version = "0.1.0"
+dependencies = [
+ "gt-core",
+ "gt-gedcom",
+ "gt-import-atdb",
+ "rusqlite",
+ "tempfile",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
 name = "gt-layout"
 version = "0.1.0"
 dependencies = [
@@ -1761,6 +1775,7 @@ dependencies = [
  "fast_image_resize",
  "gt-core",
  "gt-gedcom",
+ "gt-import-atdb",
  "gt-layout",
  "gt-store",
  "image",
