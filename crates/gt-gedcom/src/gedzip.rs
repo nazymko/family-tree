@@ -3,11 +3,9 @@
 //! files are only written beneath the caller's `extract_dir`.
 
 use crate::import::{ImportOptions, ImportOutcome, import, is_lexically_under};
-use std::cell::RefCell;
 use std::collections::HashSet;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use zip::ZipArchive;
 
 /// Name of the GEDCOM file at the zip root.
@@ -74,6 +72,27 @@ pub struct GedzipContents {
     pub media: Vec<(String, Vec<u8>)>,
 }
 
+/// Windows device names that must never become file names (checked on every platform so an
+/// archive is rejected the same way everywhere).
+fn is_reserved_device(component: &str) -> bool {
+    let stem = component.split('.').next().unwrap_or("").trim_end();
+    let up = stem.to_uppercase();
+    if matches!(
+        up.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) {
+        return true;
+    }
+    let mut chars = up.chars();
+    let head: String = chars.by_ref().take(3).collect();
+    matches!(head.as_str(), "COM" | "LPT")
+        && matches!(
+            chars.next(),
+            Some('1'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}')
+        )
+        && chars.next().is_none()
+}
+
 /// Validate a zip-relative path.
 fn check_path(name: &str) -> Result<(), GedzipError> {
     let bad = || GedzipError::UnsafePath(name.to_string());
@@ -89,6 +108,7 @@ fn check_path(name: &str) -> Result<(), GedzipError> {
             || c.chars().any(char::is_control)
             || c.ends_with('.')
             || c.ends_with(' ')
+            || is_reserved_device(c)
         {
             return Err(bad());
         }
@@ -96,156 +116,92 @@ fn check_path(name: &str) -> Result<(), GedzipError> {
     Ok(())
 }
 
-fn percent_decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while let Some(&c) = b.get(i) {
-        let hex = |k: usize| b.get(k).and_then(|&h| (h as char).to_digit(16));
-        if c == b'%'
-            && let (Some(h), Some(l)) = (hex(i + 1), hex(i + 2))
-        {
-            out.push((h * 16 + l) as u8);
-            i += 3;
-        } else {
-            out.push(c);
-            i += 1;
+/// Where one entry's bytes go.
+enum Out {
+    Mem(Vec<u8>),
+    File(std::fs::File),
+}
+
+impl Write for Out {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Out::Mem(v) => v.write(b),
+            Out::File(f) => f.write(b),
         }
     }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-fn percent_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for &b in s.as_bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~' | b'/') {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Out::Mem(v) => v.flush(),
+            Out::File(f) => f.flush(),
         }
     }
-    out
 }
 
-/// Every spelling under which a GEDCOM `FILE` may name this entry (raw name, percent-decoded,
-/// percent-encoded), each validated. The first is the raw name.
-fn spellings(raw: &str) -> Result<Vec<String>, GedzipError> {
-    check_path(raw)?;
-    let mut v = vec![raw.to_string()];
-    for alt in [percent_decode(raw), percent_encode(raw)] {
-        if !v.contains(&alt) {
-            check_path(&alt)?;
-            v.push(alt);
-        }
-    }
-    Ok(v)
-}
-
-/// A destination for one media file.
-trait Sink {
-    fn writer(&mut self) -> &mut dyn Write;
-    fn finish(self: Box<Self>) -> Result<(), GedzipError>;
-}
-
-type MediaVec = Rc<RefCell<Vec<(String, Vec<u8>)>>>;
-
-struct MemSink {
-    buf: Vec<u8>,
-    name: String,
-    out: MediaVec,
-}
-
-impl Sink for MemSink {
-    fn writer(&mut self) -> &mut dyn Write {
-        &mut self.buf
-    }
-    fn finish(self: Box<Self>) -> Result<(), GedzipError> {
-        let s = *self;
-        s.out.borrow_mut().push((s.name, s.buf));
-        Ok(())
-    }
-}
-
-struct FileSink {
-    file: std::fs::File,
-    first: PathBuf,
-    aliases: Vec<PathBuf>,
-}
-
-impl Sink for FileSink {
-    fn writer(&mut self) -> &mut dyn Write {
-        &mut self.file
-    }
-    fn finish(self: Box<Self>) -> Result<(), GedzipError> {
-        let s = *self;
-        drop(s.file);
-        for a in &s.aliases {
-            if std::fs::hard_link(&s.first, a).is_err() {
-                std::fs::copy(&s.first, a)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-/// Copy one entry into `sink`, enforcing the caps on the bytes really produced.
-fn stream_entry(
-    file: &mut impl Read,
-    claimed_compressed: u64,
-    name: &str,
-    total: &mut u64,
+/// Running totals, enforced on the bytes really produced.
+struct Budget<'a> {
+    lim: &'a Limits,
+    total: u64,
     archive_len: u64,
-    lim: &Limits,
-    sink: &mut dyn Write,
-    entry_cap: u64,
-) -> Result<(), GedzipError> {
-    let claimed = claimed_compressed.max(1);
-    let mut buf = [0u8; 64 * 1024];
-    let mut n_entry = 0u64;
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            return Ok(());
+}
+
+impl Budget<'_> {
+    fn copy(
+        &mut self,
+        src: &mut impl Read,
+        claimed_compressed: u64,
+        name: &str,
+        cap: u64,
+        sink: &mut dyn Write,
+    ) -> Result<(), GedzipError> {
+        let claimed = claimed_compressed.max(1);
+        let mut buf = [0u8; 64 * 1024];
+        let mut n_entry = 0u64;
+        loop {
+            let n = src.read(&mut buf)?;
+            if n == 0 {
+                return Ok(());
+            }
+            n_entry += n as u64;
+            self.total += n as u64;
+            if n_entry > cap {
+                return Err(GedzipError::EntryTooLarge(name.to_string()));
+            }
+            if self.total > self.lim.max_total_bytes {
+                return Err(GedzipError::TotalTooLarge);
+            }
+            // Per-entry ratio against the (possibly lying) header, and overall against the
+            // real archive size, which cannot lie.
+            if (n_entry > self.lim.ratio_floor && n_entry / claimed > self.lim.max_ratio)
+                || (self.total > self.lim.ratio_floor
+                    && self.total / self.archive_len.max(1) > self.lim.max_ratio)
+            {
+                return Err(GedzipError::RatioTooHigh(name.to_string()));
+            }
+            sink.write_all(buf.get(..n).unwrap_or_default())?;
         }
-        n_entry += n as u64;
-        *total += n as u64;
-        if n_entry > entry_cap {
-            return Err(GedzipError::EntryTooLarge(name.to_string()));
-        }
-        if *total > lim.max_total_bytes {
-            return Err(GedzipError::TotalTooLarge);
-        }
-        // Per-entry ratio against the (possibly lying) header, and overall against the real
-        // archive size, which cannot lie.
-        if (n_entry > lim.ratio_floor && n_entry / claimed > lim.max_ratio)
-            || (*total > lim.ratio_floor && *total / archive_len.max(1) > lim.max_ratio)
-        {
-            return Err(GedzipError::RatioTooHigh(name.to_string()));
-        }
-        sink.write_all(buf.get(..n).unwrap_or_default())?;
     }
 }
 
-/// Walk the archive: `open(spellings)` returns the sink for each non-gedcom file; the root
-/// `gedcom.ged` is returned.
-fn walk(
-    bytes: &[u8],
-    lim: &Limits,
-    mut open: impl FnMut(&[String]) -> Result<Box<dyn Sink>, GedzipError>,
-) -> Result<Vec<u8>, GedzipError> {
-    let mut archive = ZipArchive::new(Cursor::new(bytes))?;
+fn entry_cap(name: &str, lim: &Limits) -> u64 {
+    if name == GEDCOM_NAME {
+        lim.max_gedcom_bytes
+    } else {
+        lim.max_entry_bytes
+    }
+}
+
+/// Pass 1, no writes: every name, flag, the count, duplicates, and the header sizes.
+fn scan(archive: &mut ZipArchive<Cursor<&[u8]>>, lim: &Limits) -> Result<(), GedzipError> {
     if archive.len() > lim.max_entries {
         return Err(GedzipError::TooManyEntries(lim.max_entries));
     }
-    let archive_len = bytes.len() as u64;
     let mut seen: HashSet<String> = HashSet::new();
-    let mut gedcom: Option<Vec<u8>> = None;
-    let mut total = 0u64;
+    let mut claimed_total = 0u64;
+    let mut has_gedcom = false;
     for i in 0..archive.len() {
-        let mut file = archive.by_index(i)?;
+        let file = archive.by_index(i)?;
         let raw = file.name()?.into_owned();
-        let sp = spellings(&raw)?;
+        check_path(&raw)?;
         if file.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000) {
             return Err(GedzipError::Symlink(raw));
         }
@@ -255,61 +211,109 @@ fn walk(
         if file.is_dir() {
             continue;
         }
-        for s in &sp {
-            if !seen.insert(s.to_lowercase()) {
-                return Err(GedzipError::Duplicate(raw));
-            }
+        if !seen.insert(raw.to_lowercase()) {
+            return Err(GedzipError::Duplicate(raw));
         }
+        if file.size() > entry_cap(&raw, lim) {
+            return Err(GedzipError::EntryTooLarge(raw));
+        }
+        claimed_total = claimed_total.saturating_add(file.size());
+        if claimed_total > lim.max_total_bytes {
+            return Err(GedzipError::TotalTooLarge);
+        }
+        has_gedcom |= raw == GEDCOM_NAME;
+    }
+    if has_gedcom {
+        Ok(())
+    } else {
+        Err(GedzipError::MissingGedcom)
+    }
+}
+
+/// Scan, then stream every file. `make(name)` opens the destination; `done(name, out)` receives
+/// it back. The root `gedcom.ged` is always returned, never passed to `make`.
+fn run(
+    bytes: &[u8],
+    lim: &Limits,
+    mut make: impl FnMut(&str) -> Result<Out, GedzipError>,
+    mut done: impl FnMut(&str, Out),
+) -> Result<Vec<u8>, GedzipError> {
+    let mut archive = ZipArchive::new(Cursor::new(bytes))?;
+    scan(&mut archive, lim)?;
+    let mut budget = Budget {
+        lim,
+        total: 0,
+        archive_len: bytes.len() as u64,
+    };
+    let mut gedcom = Vec::new();
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        if file.is_dir() {
+            continue;
+        }
+        let raw = file.name()?.into_owned();
         let claimed = file.compressed_size();
+        let cap = entry_cap(&raw, lim);
         if raw == GEDCOM_NAME {
-            let mut v = Vec::new();
-            let cap = lim.max_gedcom_bytes;
-            stream_entry(
-                &mut file,
-                claimed,
-                &raw,
-                &mut total,
-                archive_len,
-                lim,
-                &mut v,
-                cap,
-            )?;
-            gedcom = Some(v);
+            budget.copy(&mut file, claimed, &raw, cap, &mut gedcom)?;
         } else {
-            let mut sink = open(&sp)?;
-            let cap = lim.max_entry_bytes;
-            stream_entry(
-                &mut file,
-                claimed,
-                &raw,
-                &mut total,
-                archive_len,
-                lim,
-                sink.writer(),
-                cap,
-            )?;
-            sink.finish()?;
+            let mut out = make(&raw)?;
+            budget.copy(&mut file, claimed, &raw, cap, &mut out)?;
+            done(&raw, out);
         }
     }
-    gedcom.ok_or(GedzipError::MissingGedcom)
+    Ok(gedcom)
 }
 
 fn read_with(bytes: &[u8], lim: &Limits) -> Result<GedzipContents, GedzipError> {
-    let out: MediaVec = Rc::new(RefCell::new(Vec::new()));
-    let gedcom = walk(bytes, lim, |sp| {
-        Ok(Box::new(MemSink {
-            buf: Vec::new(),
-            name: sp.first().cloned().unwrap_or_default(),
-            out: out.clone(),
-        }))
-    })?;
-    let media = out.take();
+    let mut media = Vec::new();
+    let gedcom = run(
+        bytes,
+        lim,
+        |_| Ok(Out::Mem(Vec::new())),
+        |name, out| {
+            if let Out::Mem(v) = out {
+                media.push((name.to_string(), v));
+            }
+        },
+    )?;
     Ok(GedzipContents { gedcom, media })
 }
 
-/// Read a GEDZIP fully into memory (every limit still applies).
+/// Read a GEDZIP fully into memory (every limit still applies, so this may buffer up to the
+/// total cap; prefer [`import_gedzip`] for large archives).
 pub fn read_gedzip(bytes: &[u8]) -> Result<GedzipContents, GedzipError> {
     read_with(bytes, &LIMITS)
+}
+
+/// Sibling staging folder for `extract_dir`.
+fn staging_path(extract_dir: &Path) -> PathBuf {
+    let mut name = extract_dir.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".partial-{}", std::process::id()));
+    extract_dir.with_file_name(name)
+}
+
+fn extract_to(bytes: &[u8], stage: &Path, lim: &Limits) -> Result<Vec<u8>, GedzipError> {
+    let roots = [stage.to_path_buf()];
+    run(
+        bytes,
+        lim,
+        |name| {
+            let p = stage.join(name);
+            if !is_lexically_under(&p, &roots) {
+                return Err(GedzipError::UnsafePath(name.to_string()));
+            }
+            if let Some(parent) = p.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let f = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&p)?;
+            Ok(Out::File(f))
+        },
+        |_, _| {},
+    )
 }
 
 fn extract_with(
@@ -318,41 +322,40 @@ fn extract_with(
     opts: &ImportOptions,
     lim: &Limits,
 ) -> Result<ImportOutcome, GedzipError> {
-    std::fs::create_dir_all(extract_dir)?;
-    let roots = [extract_dir.to_path_buf()];
-    let gedcom = walk(bytes, lim, |sp| {
-        let mut paths = Vec::new();
-        for s in sp {
-            let p = extract_dir.join(s);
-            if !is_lexically_under(&p, &roots) {
-                return Err(GedzipError::UnsafePath(s.clone()));
-            }
-            if let Some(parent) = p.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            paths.push(p);
+    if let Some(parent) = extract_dir.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let stage = staging_path(extract_dir);
+    let _ = std::fs::remove_dir_all(&stage);
+    std::fs::create_dir(&stage)?;
+    let gedcom = match extract_to(bytes, &stage, lim) {
+        Ok(g) => g,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&stage);
+            return Err(e);
         }
-        let first = paths.remove(0);
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&first)?;
-        Ok(Box::new(FileSink {
-            file,
-            first,
-            aliases: paths,
-        }))
-    })?;
+    };
+    // An existing, empty extract_dir is fine; anything else is refused.
+    if extract_dir.exists()
+        && let Err(e) = std::fs::remove_dir(extract_dir)
+    {
+        let _ = std::fs::remove_dir_all(&stage);
+        return Err(e.into());
+    }
+    if let Err(e) = std::fs::rename(&stage, extract_dir) {
+        let _ = std::fs::remove_dir_all(&stage);
+        return Err(e.into());
+    }
     let mut o = opts.clone();
     o.gedcom_dir = Some(extract_dir.to_path_buf());
     Ok(import(&gedcom, &o))
 }
 
 /// Extract the media under `extract_dir` and run the normal GEDCOM import over `gedcom.ged`,
-/// with `gedcom_dir = extract_dir` so `FILE` references resolve. `extract_dir` should be a
-/// fresh folder: an existing file with an entry's name is an error, never overwritten. Each
-/// file is also reachable under its percent-decoded/encoded spelling (hard link or copy),
-/// because the GEDCOM importer matches `FILE` text literally.
+/// with `gedcom_dir = extract_dir` so `FILE` references resolve (GEDCOM 7 `FILE` values are
+/// percent-decoded by the importer). Every entry is validated before anything is written; files
+/// go to a sibling `<extract_dir>.partial-<pid>` folder that is renamed into place only on
+/// success and removed on any error. `extract_dir` must not exist or must be an empty folder.
 pub fn import_gedzip(
     bytes: &[u8],
     extract_dir: &Path,
@@ -367,7 +370,7 @@ mod tests {
     use super::*;
     use zip::write::SimpleFileOptions;
 
-    const GED: &str = "0 HEAD\n1 GEDC\n2 VERS 7.0\n0 @I1@ INDI\n1 NAME A /B/\n1 OBJE @M1@\n1 OBJE @M2@\n0 @M1@ OBJE\n1 FILE media/a.jpg\n2 FORM image/jpeg\n0 @M2@ OBJE\n1 FILE pics/my%20photo.png\n2 FORM image/png\n0 TRLR\n";
+    const GED: &str = "0 HEAD\n1 GEDC\n2 VERS 7.0\n0 @I1@ INDI\n1 NAME A /B/\n1 OBJE @M1@\n1 OBJE @M2@\n1 OBJE @M3@\n0 @M1@ OBJE\n1 FILE media/a.jpg\n2 FORM image/jpeg\n0 @M2@ OBJE\n1 FILE pics/my%20photo.png\n2 FORM image/png\n0 @M3@ OBJE\n1 FILE %D1%84%D0%BE%D1%82%D0%BE/%D0%91%D0%B0%D0%B1%D1%83%D1%81%D1%8F.jpg\n2 FORM image/jpeg\n0 TRLR\n";
 
     fn make(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
@@ -389,10 +392,11 @@ mod tests {
             ("gedcom.ged", GED.as_bytes()),
             ("media/a.jpg", b"jpegdata"),
             ("pics/my photo.png", b"pngdata"),
+            ("фото/Бабуся.jpg", b"cyr"),
         ]);
         let dir = tempfile::tempdir().unwrap();
         let out = import_gedzip(&z, dir.path(), &opts()).unwrap();
-        assert_eq!(out.resolved_media.len(), 2, "{:?}", out.report);
+        assert_eq!(out.resolved_media.len(), 3, "{:?}", out.report);
         for (_, p) in &out.resolved_media {
             assert!(p.starts_with(dir.path()) && p.is_file());
         }
@@ -402,7 +406,7 @@ mod tests {
         );
         let c = read_gedzip(&z).unwrap();
         assert_eq!(c.gedcom, GED.as_bytes());
-        assert_eq!(c.media.len(), 2);
+        assert_eq!(c.media.len(), 3);
     }
 
     #[test]
@@ -420,8 +424,11 @@ mod tests {
             "C:/x",
             "c:x",
             "a\\b",
-            "%2e%2e/x",
-            "a%5Cb",
+            "NUL",
+            "dir/con.txt",
+            "Com1",
+            "lpt9.png",
+            "a.txt:stream",
         ] {
             let z = make(&[("gedcom.ged", GED.as_bytes()), (name, b"x")]);
             let dir = tempfile::tempdir().unwrap();
@@ -441,12 +448,6 @@ mod tests {
             ("gedcom.ged", GED.as_bytes()),
             ("a.jpg", b"1"),
             ("A.JPG", b"2"),
-        ]);
-        assert!(matches!(read_gedzip(&z), Err(GedzipError::Duplicate(_))));
-        let z = make(&[
-            ("gedcom.ged", GED.as_bytes()),
-            ("a b", b"1"),
-            ("a%20b", b"2"),
         ]);
         assert!(matches!(read_gedzip(&z), Err(GedzipError::Duplicate(_))));
         let lim = Limits {
@@ -496,7 +497,10 @@ mod tests {
             ratio_floor: u64::MAX,
             ..LIMITS
         };
-        assert!(read_with(&z, &lim).is_err());
+        assert!(matches!(
+            read_with(&z, &lim),
+            Err(GedzipError::EntryTooLarge(_) | GedzipError::Io(_))
+        ));
         // A truthful header over the cap is rejected too.
         let z = make(&[("gedcom.ged", b"0 TRLR\n"), ("big.bin", &big)]);
         assert!(matches!(
@@ -515,11 +519,69 @@ mod tests {
     }
 
     #[test]
+    fn failing_archive_leaves_nothing_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("out");
+        // Bad name late in the archive: rejected by the first pass, nothing written.
+        let z = make(&[
+            ("gedcom.ged", GED.as_bytes()),
+            ("media/a.jpg", b"x"),
+            ("../evil", b"y"),
+        ]);
+        assert!(import_gedzip(&z, &out, &opts()).is_err());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+        // Failure while streaming (bomb after a good file): staging folder is removed.
+        let zeros = vec![0u8; 16 << 20];
+        let z = make(&[
+            ("gedcom.ged", GED.as_bytes()),
+            ("media/a.jpg", b"x"),
+            ("zzz.bin", &zeros),
+        ]);
+        assert!(import_gedzip(&z, &out, &opts()).is_err());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn nonempty_extract_dir_is_refused_and_untouched() {
+        let base = tempfile::tempdir().unwrap();
+        let out = base.path().join("out");
+        std::fs::create_dir(&out).unwrap();
+        std::fs::write(out.join("keep.txt"), b"k").unwrap();
+        let z = make(&[("gedcom.ged", GED.as_bytes()), ("media/a.jpg", b"x")]);
+        assert!(import_gedzip(&z, &out, &opts()).is_err());
+        assert!(out.join("keep.txt").is_file());
+        assert_eq!(std::fs::read_dir(base.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn reserved_device_names() {
+        for n in [
+            "CON",
+            "prn",
+            "Aux.txt",
+            "nul",
+            "COM1",
+            "com9.png",
+            "LPT3",
+            "CONIN$",
+            "COM\u{b9}",
+        ] {
+            assert!(is_reserved_device(n), "{n}");
+        }
+        for n in ["COM0", "COM10", "console", "a.con", "lpt", "nulx"] {
+            assert!(!is_reserved_device(n), "{n}");
+        }
+    }
+
+    #[test]
     fn rejects_zip_bomb_by_ratio() {
         let zeros = vec![0u8; 16 << 20];
         let z = make(&[("gedcom.ged", b"0 TRLR\n"), ("bomb.bin", &zeros)]);
         assert!(matches!(read_gedzip(&z), Err(GedzipError::RatioTooHigh(_))));
         let dir = tempfile::tempdir().unwrap();
-        assert!(import_gedzip(&z, dir.path(), &opts()).is_err());
+        assert!(matches!(
+            import_gedzip(&z, dir.path(), &opts()),
+            Err(GedzipError::RatioTooHigh(_))
+        ));
     }
 }

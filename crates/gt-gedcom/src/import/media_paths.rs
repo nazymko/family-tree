@@ -72,7 +72,7 @@ pub(crate) fn file_url_to_path(url: &str) -> Option<String> {
     Some(percent_decode(&path))
 }
 
-fn percent_decode(s: &str) -> String {
+pub(crate) fn percent_decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
