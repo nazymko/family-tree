@@ -648,3 +648,179 @@ fn rejects_non_gramps_input() {
         Err(GrampsError::NotUtf8)
     ));
 }
+
+fn wrap(inner: &str) -> String {
+    format!(
+        "<?xml version=\"1.0\"?><database xmlns=\"http://gramps-project.org/xml/1.7.1/\">{inner}</database>"
+    )
+}
+
+#[test]
+fn decompression_bomb_is_refused_without_inflating_it_all() {
+    let mut e = GzEncoder::new(Vec::new(), Compression::best());
+    e.write_all(b"<database>").expect("write");
+    let chunk = vec![b' '; 1 << 20];
+    for _ in 0..512 {
+        e.write_all(&chunk).expect("write");
+    }
+    e.write_all(b"</database>").expect("write");
+    let bomb = e.finish().expect("finish");
+    assert!(bomb.len() < 1 << 20, "the bomb is small: {}", bomb.len());
+    assert!(matches!(
+        import_gramps(&bomb, &ImportOptions::default()),
+        Err(GrampsError::TooLarge)
+    ));
+}
+
+#[test]
+fn truncated_gzip_is_an_error() {
+    let mut data = gz(FIXTURE);
+    data.truncate(data.len() / 2);
+    assert!(matches!(
+        import_gramps(&data, &ImportOptions::default()),
+        Err(GrampsError::Gzip(_))
+    ));
+}
+
+#[test]
+fn hostile_media_paths_never_resolve_outside_the_roots() {
+    let dir = tempfile::tempdir().expect("tmp");
+    let root = dir.path().join("root");
+    std::fs::create_dir_all(&root).expect("mkdir");
+    std::fs::write(dir.path().join("secret.jpg"), b"x").expect("write");
+    let outside = dir.path().join("secret.jpg");
+    let abs = outside.to_string_lossy().replace(char::from(92), "/");
+    let srcs = [
+        abs.clone(),
+        "../secret.jpg".to_string(),
+        "//server/share/x.jpg".to_string(),
+        format!("{0}{0}server{0}share{0}y.jpg", char::from(92)),
+        format!("file:///{}", abs.trim_start_matches('/')),
+    ];
+    let objects: String = srcs
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            format!(
+                "<object handle=\"_o{i}\" id=\"O{i}\"><file src=\"{s}\" mime=\"image/jpeg\"/></object>"
+            )
+        })
+        .collect();
+    let opts = ImportOptions {
+        gedcom_dir: Some(root),
+        ..ImportOptions::default()
+    };
+    let out = import_gramps(
+        wrap(&format!("<objects>{objects}</objects>")).as_bytes(),
+        &opts,
+    )
+    .expect("import");
+    assert!(out.resolved_media.is_empty(), "{:?}", out.resolved_media);
+    assert_eq!(out.report.missing_media.len(), srcs.len());
+    assert!(out.report.missing_media.iter().all(|m| matches!(
+        m.reason,
+        MissingReason::OutsideRoots | MissingReason::NotFound
+    )));
+}
+
+#[test]
+fn malformed_dates_are_reported_not_fatal() {
+    let ev = |i: u32, body: &str| {
+        format!("<event handle=\"_e{i}\" id=\"E{i}\"><type>Birth</type>{body}</event>")
+    };
+    let inner = [
+        ev(1, "<dateval val=\"garbage\"/>"),
+        ev(2, "<dateval val=\"1900-13-01\"/>"),
+        ev(3, "<dateval val=\"0000-00-00\"/>"),
+        ev(4, "<daterange start=\"1900-01-01\" stop=\"\"/>"),
+        ev(5, "<dateval val=\"1900-01-01\" type=\"wobble\"/>"),
+        ev(6, "<daterange start=\"1950-01-01\" stop=\"1900-01-01\"/>"),
+        ev(7, "<dateval val=\"2020-00-15\"/>"),
+        ev(
+            8,
+            "<dateval val=\"1900-01-01\"/><dateval val=\"1901-01-01\"/>",
+        ),
+        ev(9, "<dateval val=\"-0044-03-15\"/>"),
+    ]
+    .concat();
+    let out = run(&wrap(&format!("<events>{inner}</events>")));
+    let u = &out.report.unmapped_tags;
+    let t = &out.tree;
+    assert!(matches!(date_of(t, "E1").value, DateValue::PhraseOnly));
+    assert!(u.contains_key("date/value garbage"));
+    assert!(matches!(date_of(t, "E2").value, DateValue::PhraseOnly));
+    assert!(u.contains_key("date/month out of range"));
+    assert!(event(t, "E3").date.is_none());
+    assert!(matches!(date_of(t, "E4").value, DateValue::PhraseOnly));
+    assert!(u.keys().any(|k| k.starts_with("date/value")));
+    assert!(matches!(date_of(t, "E5").value, DateValue::PhraseOnly));
+    assert!(u.contains_key("date/type wobble"));
+    // start after stop is kept as written, never a panic
+    assert!(matches!(date_of(t, "E6").value, DateValue::Between(..)));
+    // day without month: the year survives and the loss is counted
+    assert!(
+        matches!(date_of(t, "E7").value, DateValue::Exact(ref d) if d.year == 2020 && d.day.is_none())
+    );
+    assert_eq!(u.get("date/day without month dropped"), Some(&1));
+    assert!(u.contains_key("event/dateval(extra)"));
+    assert!(matches!(date_of(t, "E9").value, DateValue::Exact(ref d) if d.bce && d.year == 44));
+}
+
+#[test]
+fn dangling_handles_are_repaired_for_every_reference_kind() {
+    let xml = wrap(
+        r##"<events><event handle="_e1" id="E1"><type>Birth</type><place hlink="_noplace"/></event></events>
+<people><person handle="_p1" id="I1"><gender>M</gender>
+  <noteref hlink="_nonote"/><citationref hlink="_nocit"/><objref hlink="_noobj"/><tagref hlink="_notag"/>
+  <childof hlink="_nofam"/><parentin hlink="_nofam2"/></person></people>
+<families><family handle="_f1" id="F1"><father hlink="_nofather"/><mother hlink="_nomother"/>
+  <childref hlink="_nochild"/></family></families>
+<citations><citation handle="_c1" id="C1"><sourceref hlink="_nosrc"/><confidence>9</confidence></citation></citations>
+<places><placeobj handle="_pl1" id="P1"><pname value="X"/><placeref hlink="_noparent"/></placeobj></places>"##,
+    );
+    let out = run(&xml);
+    for h in [
+        "_noplace",
+        "_nonote",
+        "_nocit",
+        "_noobj",
+        "_notag",
+        "_nofam",
+        "_nofam2",
+        "_nofather",
+        "_nomother",
+        "_nochild",
+        "_nosrc",
+        "_noparent",
+    ] {
+        assert!(
+            out.report
+                .repairs
+                .iter()
+                .any(|r| matches!(r, Repair::DanglingPointer { xref, .. } if xref == h)),
+            "no repair for {h}"
+        );
+    }
+    let t = &out.tree;
+    let f = t.families.values().next().expect("family");
+    assert!(f.partner1.is_none() && f.partner2.is_none() && f.children.is_empty());
+    assert!(t.citations.values().next().expect("c").source.is_none());
+    assert!(t.places.values().next().expect("p").parent.is_none());
+    assert_eq!(
+        out.report.unmapped_tags.get("citation/confidence(invalid)"),
+        Some(&1)
+    );
+}
+
+#[test]
+fn report_keys_are_bounded() {
+    let many: String = (0..2000).map(|i| format!("<weird{i} a=\"1\"/>")).collect();
+    let out = run(&wrap(&many));
+    assert!(out.report.unmapped_tags.len() <= 301);
+    assert!(
+        out.report
+            .unmapped_tags
+            .keys()
+            .all(|k| k.chars().count() <= 60)
+    );
+}

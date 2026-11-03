@@ -5,7 +5,8 @@ use gt_core::DayOrder;
 use gt_core::date::{DateValue, GenDate};
 use gt_gedcom::ImportReport;
 use gt_gedcom::import::canonical_date_text;
-use roxmltree::{Document, Node};
+use roxmltree::Node;
+use std::cell::OnceCell;
 
 const GREGORIAN: [&str; 12] = [
     "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
@@ -22,8 +23,54 @@ pub(crate) fn is_date_tag(name: &str) -> bool {
     matches!(name, "dateval" | "daterange" | "datespan" | "datestr")
 }
 
+/// Line numbers by byte offset: the newline index is built once, on the first lookup.
+pub(crate) struct LineIndex<'t> {
+    text: &'t str,
+    starts: OnceCell<Vec<usize>>,
+}
+
+impl<'t> LineIndex<'t> {
+    pub(crate) fn new(text: &'t str) -> Self {
+        Self {
+            text,
+            starts: OnceCell::new(),
+        }
+    }
+
+    /// 1-based line of a byte offset.
+    pub(crate) fn row(&self, offset: usize) -> u32 {
+        let starts = self.starts.get_or_init(|| {
+            let mut v = vec![0usize];
+            v.extend(
+                self.text
+                    .bytes()
+                    .enumerate()
+                    .filter(|(_, b)| *b == b'\n')
+                    .map(|(i, _)| i + 1),
+            );
+            v
+        });
+        u32::try_from(starts.partition_point(|s| *s <= offset)).unwrap_or(u32::MAX)
+    }
+}
+
+/// Distinct report keys beyond this fold into `other`; key text is cut to `KEY_CHARS`.
+const MAX_KEYS: usize = 300;
+const KEY_CHARS: usize = 60;
+const MAX_UNPARSED: usize = 1000;
+
+pub(crate) fn count_key(report: &mut ImportReport, key: &str) {
+    let key: String = key.chars().take(KEY_CHARS).collect();
+    let key = if report.unmapped_tags.contains_key(&key) || report.unmapped_tags.len() < MAX_KEYS {
+        key
+    } else {
+        "other".to_string()
+    };
+    *report.unmapped_tags.entry(key).or_insert(0) += 1;
+}
+
 fn count(report: &mut ImportReport, key: &str) {
-    *report.unmapped_tags.entry(key.to_string()).or_insert(0) += 1;
+    count_key(report, key);
 }
 
 enum PartErr {
@@ -84,7 +131,7 @@ fn part(val: &str, cal: &str) -> Result<String, PartErr> {
 
 /// The first date child of `parent`, if any. Further date children are counted as unmapped.
 pub(crate) fn read_date(
-    doc: &Document,
+    lines: &LineIndex,
     parent: Node,
     order: DayOrder,
     report: &mut ImportReport,
@@ -102,16 +149,27 @@ pub(crate) fn read_date(
             );
             continue;
         }
-        let line = doc.text_pos_at(c.range().start).row;
-        out = build(c, name, order, report, line);
+        out = build(c, name, order, report, lines);
     }
     out
 }
 
-fn finish(text: &str, order: DayOrder, report: &mut ImportReport, line: u32) -> GenDate {
+fn finish(
+    text: &str,
+    order: DayOrder,
+    report: &mut ImportReport,
+    lines: &LineIndex,
+    at: usize,
+) -> GenDate {
     let mut g = GenDate::parse(text, order);
     if matches!(g.value, DateValue::Unparsed) {
-        report.unparsed_dates.push((line, g.raw.clone()));
+        if report.unparsed_dates.len() < MAX_UNPARSED {
+            report
+                .unparsed_dates
+                .push((lines.row(at), g.raw.chars().take(200).collect()));
+        } else {
+            count(report, "date(unparsed, over limit)");
+        }
     } else {
         g.raw = canonical_date_text(&g);
     }
@@ -123,8 +181,9 @@ fn build(
     name: &str,
     order: DayOrder,
     report: &mut ImportReport,
-    line: u32,
+    lines: &LineIndex,
 ) -> Option<GenDate> {
+    let at = c.range().start;
     let cal = c.attribute("cformat").unwrap_or("Gregorian");
     if c.attribute("dualdated")
         .is_some_and(|v| matches!(v, "1" | "true"))
@@ -139,6 +198,12 @@ fn build(
         Some("calculated") => Some("calculated"),
         _ => None,
     };
+    for a in ["val", "start", "stop", "from", "to"] {
+        if c.attribute(a).is_some_and(day_without_month) {
+            // The year (and any month) is kept; a day cannot be expressed without a month.
+            count(report, "date/day without month dropped");
+        }
+    }
     let raw_val = c.attribute("val").unwrap_or("");
     let expr: Result<String, PartErr> = match name {
         "datestr" => {
@@ -146,7 +211,7 @@ fn build(
             if t.is_empty() {
                 return None;
             }
-            return Some(finish(t, order, report, line));
+            return Some(finish(t, order, report, lines, at));
         }
         "dateval" => dateval(c, cal, raw_val, qword),
         "daterange" | "datespan" => {
@@ -182,15 +247,24 @@ fn build(
         _ => return None,
     };
     match expr {
-        Ok(text) => Some(finish(&text, order, report, line)),
+        Ok(text) => Some(finish(&text, order, report, lines, at)),
         Err(PartErr::Empty) => None,
         Err(PartErr::Unsupported(what)) => {
             count(report, &format!("date/{what}"));
             // Keep what the file said as a phrase-only date rather than losing it.
             let shown = describe(c);
-            Some(finish(&format!("({shown})"), order, report, line))
+            Some(finish(&format!("({shown})"), order, report, lines, at))
         }
     }
+}
+
+fn day_without_month(v: &str) -> bool {
+    let body = v.trim().trim_start_matches('-');
+    let p: Vec<u32> = body
+        .split('-')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+    matches!(p.as_slice(), [y, 0, d] if *y > 0 && *d > 0)
 }
 
 fn with_phrase(base: String, q: Option<&str>) -> String {

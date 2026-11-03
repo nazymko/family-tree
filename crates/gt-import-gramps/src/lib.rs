@@ -14,8 +14,11 @@ use roxmltree::{Document, ParsingOptions};
 use std::io::Read;
 
 /// Largest XML accepted after decompression.
-const MAX_XML_BYTES: u64 = 1 << 30;
-const MAX_NODES: u32 = 50_000_000;
+const MAX_XML_BYTES: u64 = 256 << 20;
+const MAX_NODES: u32 = 10_000_000;
+/// Output past this size must also stay under `MAX_RATIO` times the compressed size.
+const RATIO_FLOOR: usize = 16 << 20;
+const MAX_RATIO: usize = 200;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GrampsError {
@@ -36,32 +39,42 @@ pub fn is_gzip(bytes: &[u8]) -> bool {
     bytes.starts_with(&[0x1f, 0x8b])
 }
 
-fn decode(bytes: &[u8]) -> Result<String, GrampsError> {
-    let raw: Vec<u8> = if is_gzip(bytes) {
-        let mut out = Vec::new();
-        flate2::read::MultiGzDecoder::new(bytes)
-            .take(MAX_XML_BYTES + 1)
-            .read_to_end(&mut out)
+/// The XML bytes: inflated (streamed, refused past the size cap or an absurd ratio) or borrowed.
+fn decode(bytes: &[u8]) -> Result<std::borrow::Cow<'_, [u8]>, GrampsError> {
+    if !is_gzip(bytes) {
+        return if bytes.len() as u64 > MAX_XML_BYTES {
+            Err(GrampsError::TooLarge)
+        } else {
+            Ok(std::borrow::Cow::Borrowed(bytes))
+        };
+    }
+    let mut dec = flate2::read::MultiGzDecoder::new(bytes);
+    let mut out: Vec<u8> = Vec::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = dec
+            .read(&mut buf)
             .map_err(|e| GrampsError::Gzip(e.to_string()))?;
-        if out.len() as u64 > MAX_XML_BYTES {
+        if n == 0 {
+            break;
+        }
+        out.extend_from_slice(buf.get(..n).unwrap_or(&[]));
+        if out.len() as u64 > MAX_XML_BYTES
+            || (out.len() > RATIO_FLOOR && out.len() / MAX_RATIO > bytes.len())
+        {
             return Err(GrampsError::TooLarge);
         }
-        out
-    } else {
-        bytes.to_vec()
-    };
-    let text = String::from_utf8(raw).map_err(|_| GrampsError::NotUtf8)?;
-    Ok(text
-        .strip_prefix('\u{feff}')
-        .map(str::to_string)
-        .unwrap_or(text))
+    }
+    Ok(std::borrow::Cow::Owned(out))
 }
 
 /// Import a Gramps XML database. Problems that do not stop the import are reported, never dropped.
 pub fn import_gramps(bytes: &[u8], opts: &ImportOptions) -> Result<ImportOutcome, GrampsError> {
-    let text = decode(bytes)?;
+    let raw = decode(bytes)?;
+    let text = std::str::from_utf8(&raw).map_err(|_| GrampsError::NotUtf8)?;
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let doc = Document::parse_with_options(
-        &text,
+        text,
         ParsingOptions {
             allow_dtd: true,
             nodes_limit: MAX_NODES,

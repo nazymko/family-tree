@@ -1,6 +1,6 @@
 //! Record readers: two passes over the Gramps document (ids first, then content).
 
-use crate::date::{is_date_tag, read_date};
+use crate::date::{LineIndex, count_key, is_date_tag, read_date};
 use gt_core::DayOrder;
 use gt_core::model::*;
 use gt_core::raw::RawNode;
@@ -278,8 +278,10 @@ fn split_pct(v: Option<&str>) -> Option<f32> {
     v?.trim().parse::<f32>().ok().map(|n| n / 100.0)
 }
 
-pub(crate) struct Ctx<'a, 'i> {
-    doc: &'a Document<'i>,
+pub(crate) struct Ctx<'a> {
+    lines: LineIndex<'a>,
+    marriages: HashSet<Uuid>,
+    parentin: Vec<(Uuid, Uuid)>,
     order: DayOrder,
     tree: Tree,
     pub(crate) report: ImportReport,
@@ -292,10 +294,12 @@ pub(crate) struct Ctx<'a, 'i> {
     bad_objects: HashSet<Uuid>,
 }
 
-impl<'a, 'i> Ctx<'a, 'i> {
-    pub(crate) fn new(doc: &'a Document<'i>, opts: &ImportOptions) -> Self {
+impl<'a> Ctx<'a> {
+    pub(crate) fn new(doc: &Document<'a>, opts: &ImportOptions) -> Self {
         Self {
-            doc,
+            lines: LineIndex::new(doc.input_text()),
+            marriages: HashSet::new(),
+            parentin: Vec::new(),
             order: opts.day_order,
             tree: Tree::new(),
             report: ImportReport::default(),
@@ -310,6 +314,7 @@ impl<'a, 'i> Ctx<'a, 'i> {
     }
 
     pub(crate) fn finish(mut self) -> (Tree, ImportReport, Vec<(Uuid, PathBuf)>) {
+        self.finish_parentin();
         self.finish_notes();
         self.finish_places();
         self.finish_preferred();
@@ -317,15 +322,11 @@ impl<'a, 'i> Ctx<'a, 'i> {
     }
 
     fn line(&self, n: Node) -> u32 {
-        self.doc.text_pos_at(n.range().start).row
+        self.lines.row(n.range().start)
     }
 
     fn count(&mut self, key: &str) {
-        *self
-            .report
-            .unmapped_tags
-            .entry(key.to_string())
-            .or_insert(0) += 1;
+        count_key(&mut self.report, key);
     }
 
     fn lookup(&mut self, n: Node, kind: K) -> Option<Uuid> {
@@ -346,6 +347,15 @@ impl<'a, 'i> Ctx<'a, 'i> {
         }
     }
 
+    /// Count attributes of `n` that are not in the space-separated `allowed` list.
+    fn check_attrs(&mut self, n: Node, label: &str, allowed: &str) {
+        for a in n.attributes() {
+            if !allowed.split(' ').any(|k| k == a.name()) {
+                self.count(&format!("{label}/@{}", a.name()));
+            }
+        }
+    }
+
     fn keep(&mut self, into: &mut Vec<RawNode>, n: Node, pos: usize, key: &str) {
         self.count(key);
         into.push(raw_of(n, pos, 0));
@@ -353,8 +363,8 @@ impl<'a, 'i> Ctx<'a, 'i> {
 
     // ---- passes ----
 
-    pub(crate) fn run(&mut self, root: Node<'a, 'i>) {
-        let mut records: Vec<(K, Node<'a, 'i>, Uuid)> = Vec::new();
+    pub(crate) fn run<'d>(&mut self, root: Node<'d, 'a>) {
+        let mut records: Vec<(K, Node<'d, 'a>, Uuid)> = Vec::new();
         let mut header_unknown: Vec<RawNode> = Vec::new();
         // Pass 1: an id for every handle.
         for (pos, sec) in elements(root).enumerate() {
@@ -471,6 +481,7 @@ impl<'a, 'i> Ctx<'a, 'i> {
     }
 
     fn link_object(&mut self, n: Node, into: &mut Vec<MediaLink>, primary: bool) {
+        self.check_attrs(n, "objref", "hlink");
         for c in elements(n) {
             if c.tag_name().name() != "region" {
                 self.count(&format!("objref/{}", c.tag_name().name()));
@@ -570,11 +581,18 @@ impl<'a, 'i> Ctx<'a, 'i> {
                     first_obj = false;
                 }
                 "tagref" => {
-                    let tag = ch
-                        .attribute("hlink")
-                        .and_then(|h| self.tags.get(h))
-                        .cloned()
-                        .unwrap_or_default();
+                    let hl = ch.attribute("hlink").unwrap_or("");
+                    let tag = match self.tags.get(hl) {
+                        Some(t) => t.clone(),
+                        None => {
+                            let line = self.line(ch);
+                            self.report.repairs.push(Repair::DanglingPointer {
+                                line,
+                                xref: hl.chars().take(100).collect(),
+                            });
+                            String::new()
+                        }
+                    };
                     self.count("tagref");
                     c.unknown.push(RawNode {
                         tag: "tagref".to_string(),
@@ -596,7 +614,7 @@ impl<'a, 'i> Ctx<'a, 'i> {
     }
 
     fn date_of(&mut self, node: Node) -> Option<gt_core::date::GenDate> {
-        read_date(self.doc, node, self.order, &mut self.report)
+        read_date(&self.lines, node, self.order, &mut self.report)
     }
 
     // ---- records ----
@@ -616,6 +634,23 @@ impl<'a, 'i> Ctx<'a, 'i> {
                 shared: false,
             },
         );
+    }
+
+    /// A `parentin` link the family does not confirm is an inconsistent file.
+    fn finish_parentin(&mut self) {
+        let bad = self
+            .parentin
+            .iter()
+            .filter(|(p, f)| {
+                self.tree
+                    .families
+                    .get(f)
+                    .is_none_or(|f| f.partner1 != Some(*p) && f.partner2 != Some(*p))
+            })
+            .count();
+        for _ in 0..bad {
+            self.count("parentin(not confirmed by family)");
+        }
     }
 
     fn finish_notes(&mut self) {
@@ -674,6 +709,10 @@ impl<'a, 'i> Ctx<'a, 'i> {
             if nonempty(r.attribute("medium")).is_some() {
                 self.count("reporef/@medium");
             }
+            self.check_attrs(r, "reporef", "hlink callno medium");
+            for cc in elements(r) {
+                self.count(&format!("reporef/{}", cc.tag_name().name()));
+            }
             if let Some(repo) = self.lookup(r, K::Repo) {
                 repositories.push(RepoRef {
                     repository: repo,
@@ -706,9 +745,21 @@ impl<'a, 'i> Ctx<'a, 'i> {
         );
         let source = child(node, "sourceref").and_then(|s| self.lookup(s, K::Source));
         // Gramps confidence 0..4 (very low .. very high) onto the GEDCOM 0..3 scale.
-        let quality = child_text(node, "confidence")
-            .and_then(|v| v.parse::<u8>().ok())
-            .map(|q| q.min(3));
+        let quality = match child_text(node, "confidence") {
+            None => None,
+            Some(v) => match v.parse::<u8>() {
+                Ok(q) if q <= 4 => {
+                    if q == 4 {
+                        self.count("citation/confidence(4 folded to 3)");
+                    }
+                    Some(q.min(3))
+                }
+                _ => {
+                    self.count("citation/confidence(invalid)");
+                    None
+                }
+            },
+        };
         let date = self.date_of(node);
         self.tree.citations.insert(
             id,
@@ -743,6 +794,7 @@ impl<'a, 'i> Ctx<'a, 'i> {
         {
             self.count("object/file(extra)");
         }
+        self.check_attrs(file, "file", "src mime description checksum");
         if file.attribute("checksum").is_some() {
             self.count("file/@checksum");
         }
@@ -787,11 +839,17 @@ impl<'a, 'i> Ctx<'a, 'i> {
         let mut names: Vec<PlaceName> = Vec::new();
         for p in elements(node).filter(|c| c.tag_name().name() == "pname") {
             let name = p.attribute("value").unwrap_or("").trim().to_string();
+            if name.is_empty() {
+                self.count("pname(empty)");
+            }
             names.push(PlaceName {
                 name,
                 lang: nonempty(p.attribute("lang")).map(str::to_string),
                 date: self.date_of(p),
             });
+        }
+        if !names.is_empty() && child(node, "ptitle").is_some() {
+            self.count("ptitle(ignored, pname present)");
         }
         if names.is_empty() {
             // Older files carry only the title.
@@ -931,6 +989,7 @@ impl<'a, 'i> Ctx<'a, 'i> {
 
     fn add_event_refs(&mut self, node: Node, target: ParticipantRef) {
         for r in elements(node).filter(|c| c.tag_name().name() == "eventref") {
+            self.check_attrs(r, "eventref", "hlink role");
             for c in elements(r) {
                 self.count(&format!("eventref/{}", c.tag_name().name()));
             }
@@ -942,6 +1001,11 @@ impl<'a, 'i> Ctx<'a, 'i> {
                 role: role_of(r.attribute("role")),
             };
             if let Some(ev) = self.tree.events.get_mut(&eid) {
+                if ev.kind == EventKind::Marriage
+                    && let ParticipantRef::Family(f) = &target
+                {
+                    self.marriages.insert(*f);
+                }
                 if !ev.participants.contains(&p) {
                     ev.participants.push(p);
                 }
@@ -983,7 +1047,12 @@ impl<'a, 'i> Ctx<'a, 'i> {
                 self.childof.entry(id).or_default().push(f);
             }
         }
-        // `parentin` repeats the partner links the family records already carry.
+        // `parentin` repeats the partner links the family records carry: checked in `finish`.
+        for r in elements(node).filter(|c| c.tag_name().name() == "parentin") {
+            if let Some(f) = self.lookup(r, K::Family) {
+                self.parentin.push((id, f));
+            }
+        }
         self.tree.persons.insert(
             id,
             Person {
@@ -1001,7 +1070,7 @@ impl<'a, 'i> Ctx<'a, 'i> {
             node,
             nid,
             "name",
-            "first call nick title suffix surname group dates",
+            "first call nick title suffix surname dates",
             "type alt",
             false,
         );
@@ -1120,17 +1189,12 @@ impl<'a, 'i> Ctx<'a, 'i> {
             Some(o) => UnionKind::Other(o.to_string()),
         };
         self.add_event_refs(node, ParticipantRef::Family(id));
-        let has_marriage = self.tree.events.values().any(|e| {
-            e.kind == EventKind::Marriage
-                && e.participants
-                    .iter()
-                    .any(|p| p.target == ParticipantRef::Family(id))
-        });
-        if has_marriage && kind == UnionKind::Unknown {
+        if self.marriages.contains(&id) && kind == UnionKind::Unknown {
             kind = UnionKind::Married;
         }
         let mut children: Vec<ChildLink> = Vec::new();
         for r in elements(node).filter(|c| c.tag_name().name() == "childref") {
+            self.check_attrs(r, "childref", "hlink frel mrel");
             let Some(person) = self.lookup(r, K::Person) else {
                 continue;
             };
