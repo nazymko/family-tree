@@ -4,3 +4,4 @@ tests/corpus/
 node_modules/
 tests/fixtures/private/
 .claude/worktrees/
+.tools/

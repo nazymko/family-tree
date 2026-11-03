@@ -26,6 +26,7 @@
   const notFound = $derived(byReason('notFound'));
   const outside = $derived(byReason('outsideRoots'));
   const ambiguous = $derived(byReason('ambiguous'));
+  // The real importer counts records by GEDCOM tag; the mock counts by word.
   const COUNT_LABELS: Record<string, string> = {
     persons: 'People',
     families: 'Families',
@@ -33,6 +34,14 @@
     media: 'Media files',
     notes: 'Notes',
     places: 'Places',
+    INDI: 'People',
+    FAM: 'Families',
+    SOUR: 'Sources',
+    OBJE: 'Media files',
+    NOTE: 'Notes',
+    SNOTE: 'Notes',
+    REPO: 'Repositories',
+    SUBM: 'Submitters',
   };
   const label = (k: string) => COUNT_LABELS[k] ?? k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, ' ');
 
@@ -92,7 +101,7 @@
   <main class="report">
     <div class="col">
       <header>
-        <h1>Imported {report.counts.persons ?? report.project.personCount} people from {report.producer ?? 'an unknown program'}</h1>
+        <h1>Imported {report.counts.INDI ?? report.counts.persons ?? report.project.personCount} people from {report.producer ?? 'an unknown program'}</h1>
         <p class="sub">
           {report.version ? `GEDCOM ${report.version}, ` : ''}{report.encoding}. The tree is saved as
           <bdi dir="auto" class="dir">{report.project.name}</bdi>.
