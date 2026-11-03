@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { getApi } from '../api/context';
   import type { ChartMeta, ChartNode, ChartWindow, Id, Rect } from '../api/types';
+  import { project } from '../state/project.svelte';
   import { undoState as undo } from '../state/undo.svelte';
   import Button from '../ui/Button.svelte';
   import IconButton from '../ui/IconButton.svelte';
@@ -262,8 +263,8 @@
     };
   });
 
-  // Edits elsewhere change the undo state; reopen so the chart shows the new tree.
-  const undoState = () => `${undo.canUndo}|${undo.undoLabel}|${undo.canRedo}|${undo.redoLabel}`;
+  // Edits, undo and redo bump project.rev (and change the undo state); reopen so the chart shows the new tree.
+  const undoState = () => `${project.rev}|${undo.canUndo}|${undo.undoLabel}|${undo.canRedo}|${undo.redoLabel}`;
   let undoKey = untrack(() => undoState());
   $effect(() => {
     const k = undoState();

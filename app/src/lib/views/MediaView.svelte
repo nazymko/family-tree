@@ -4,6 +4,7 @@
   import MediaGrid from '../media/MediaGrid.svelte';
   import MediaViewer from '../media/MediaViewer.svelte';
   import { getApi } from '../api/context';
+  import { project } from '../state/project.svelte';
   import type { Id, MediaLinkDto, OwnerRef } from '../api/api';
 
   let {
@@ -31,6 +32,7 @@
 
   $effect(() => {
     void personId;
+    void project.rev; // undo/redo and edits elsewhere
     void load();
   });
 </script>

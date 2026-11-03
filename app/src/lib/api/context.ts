@@ -3,6 +3,8 @@ import type { Api, Platform } from './api';
 import { MockApi } from './mock/MockApi';
 import { MockPlatform } from './mock/MockPlatform';
 import { fixtureTree } from './mock/fixtures';
+import { TauriApi } from './tauri/TauriApi';
+import { TauriPlatform } from './tauri/TauriPlatform';
 
 const KEY = Symbol('gene-tree.api');
 
@@ -35,18 +37,10 @@ export function getPlatform(): Platform {
   return bundle().platform;
 }
 
-let tauriFactory: (() => ApiBundle) | null = null;
-
-/** Task 27 registers the Tauri adapter here so this module never imports `@tauri-apps/api`. */
-export function registerTauri(factory: () => ApiBundle): void {
-  tauriFactory = factory;
-}
-
 /** TauriApi inside the desktop shell (`'__TAURI_INTERNALS__' in window`), MockApi in a plain browser. */
 export function defaultApi(): ApiBundle {
   if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-    if (!tauriFactory) throw new Error('Running inside Tauri but no TauriApi is registered.');
-    return tauriFactory();
+    return { api: new TauriApi(), platform: new TauriPlatform() };
   }
   return { api: new MockApi(fixtureTree(500)), platform: new MockPlatform() };
 }

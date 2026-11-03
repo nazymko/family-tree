@@ -29,6 +29,7 @@ import type {
   ProjectInfo,
   RecentProject,
   Rect,
+  RelinkResult,
   SearchHitDto,
   Settings,
   SourceDto,
@@ -48,7 +49,7 @@ export interface Api {
   saveImportReport(dest: string): Promise<void>;
   /** Deletes the project created by the last import (only before the first edit). */
   discardImport(): Promise<void>;
-  relinkMedia(folder: string): Promise<{ relinked: number; stillMissing: string[] }>;
+  relinkMedia(folder: string): Promise<RelinkResult>;
   listPersons(q: PersonQuery, offset: number, limit: number): Promise<Page<PersonRow>>;
   getPerson(id: Id): Promise<PersonDetail>;
   getFamilyView(id: Id): Promise<FamilyViewDto>;
