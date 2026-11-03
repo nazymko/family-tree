@@ -5,6 +5,8 @@
   import { project } from './lib/state/project.svelte';
   import { observeApi } from './lib/state/observe';
   import Shell from './lib/views/Shell.svelte';
+  import Welcome from './lib/views/Welcome.svelte';
+  import ImportReport from './lib/views/ImportReport.svelte';
 
   document.documentElement.lang = 'en';
 
@@ -20,7 +22,18 @@
     if (wanted && wanted !== 'welcome') {
       void (async () => {
         const info = await api.openProject('C:/Genealogy/Schmidt family');
-        project.open(info);
+        if (wanted === 'importReport') {
+          const report = await api.importGedcom({
+            file: 'C:/Mock/Family tree.ged',
+            projectDir: 'C:/Users/me/OneDrive/Trees/Schmidt',
+            projectName: 'Schmidt family',
+            mediaRoots: [],
+            dayOrder: 'dmy',
+          });
+          project.open(report.project, report);
+        } else {
+          project.open(info);
+        }
         nav.focus(info.homePerson);
         nav.go({ name: wanted } as never);
       })();
@@ -29,9 +42,9 @@
 </script>
 
 {#if nav.route.name === 'welcome' || !project.info}
-  <main>
-    <h1>Gene Tree</h1>
-  </main>
+  <Welcome />
+{:else if nav.route.name === 'importReport'}
+  <ImportReport />
 {:else}
   <Shell />
 {/if}
