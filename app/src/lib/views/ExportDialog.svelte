@@ -8,12 +8,13 @@
   import { getApi, getPlatform } from '../api/context';
   import { notices } from '../ui/notices.svelte';
   import type { ExportOptions, PrivacyPreview } from '../api/api';
+  import { t, formatNumber } from '../i18n';
 
   let { onClose }: { onClose: () => void } = $props();
 
   const api = getApi();
   const platform = getPlatform();
-  const WARN = "Living people's details will be written to the file.";
+  const WARN = $derived(t('exp.warn'));
 
   let version = $state<ExportOptions['version']>('7.0');
   let versionTouched = false;
@@ -61,14 +62,14 @@
   async function doExport() {
     if (!preview || !canExport) return;
     exportError = '';
-    const dest = await platform.pickSavePath({ title: 'Export GEDCOM', defaultName: 'Family tree.ged', extensions: ['ged'] });
+    const dest = await platform.pickSavePath({ title: t('exp.pickTitle'), defaultName: t('exp.defaultName'), extensions: ['ged'] });
     if (!dest) return;
     exporting = true;
     try {
       const r = await api.exportGedcom(preview.options, dest, preview.token);
       notices.show({
-        message: `Exported ${Math.max(1, Math.round(r.bytes / 1024))} KB to ${fileOf(dest)}`,
-        actionLabel: 'Reveal',
+        message: t('exp.exported', { kb: formatNumber(Math.max(1, Math.round(r.bytes / 1024))), file: fileOf(dest) }),
+        actionLabel: t('exp.reveal'),
         onaction: () => void platform.reveal(dest),
       });
     } catch (e) {
@@ -80,12 +81,12 @@
 
   async function saveCopy() {
     exportError = '';
-    const dest = await platform.pickFolder('Choose an empty folder for the copy of your tree');
+    const dest = await platform.pickFolder(t('exp.pickCopyFolder'));
     if (!dest) return;
     saving = true;
     try {
       await api.saveCopy(dest);
-      notices.show({ message: `Copy saved in the folder ${fileOf(dest)}`, actionLabel: 'Reveal', onaction: () => void platform.reveal(dest) });
+      notices.show({ message: t('exp.copySaved', { file: fileOf(dest) }), actionLabel: t('exp.reveal'), onaction: () => void platform.reveal(dest) });
     } catch (e) {
       exportError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -94,13 +95,13 @@
   }
 </script>
 
-<Dialog open title="Export" onclose={onClose}>
+<Dialog open title={t('exp.title')} onclose={onClose}>
   <div class="export">
     {#if exportError}<Banner kind="error">{exportError}</Banner>{/if}
     <div class="options">
       <div>
         <RadioGroup
-          legend="Format"
+          legend={t('exp.format')}
           options={[
             { value: '5.5.1', label: 'GEDCOM 5.5.1' },
             { value: '7.0', label: 'GEDCOM 7.0' },
@@ -108,29 +109,29 @@
           bind:value={version}
           onchange={() => (versionTouched = true)}
         />
-        <p class="hint">Defaults to the version your file came in, so your other programs can read it.</p>
+        <p class="hint">{t('exp.formatHint')}</p>
       </div>
       <div>
         <RadioGroup
-          legend="Living people"
+          legend={t('exp.livingPeople')}
           options={[
-            { value: 'placeholder', label: 'Show as Living (default)' },
-            { value: 'exclude', label: 'Leave out' },
-            { value: 'all', label: 'Include everyone' },
+            { value: 'placeholder', label: t('exp.asLiving') },
+            { value: 'exclude', label: t('exp.leaveOut') },
+            { value: 'all', label: t('exp.includeEveryone') },
           ]}
           bind:value={living}
         />
         {#if living === 'all'}<div class="warn"><Banner kind="warning">{WARN}</Banner></div>{/if}
       </div>
       <div>
-        <Checkbox label="Include records marked private" bind:checked={includePrivate} />
+        <Checkbox label={t('exp.includePrivate')} bind:checked={includePrivate} />
         {#if includePrivate}<div class="warn"><Banner kind="warning">{WARN}</Banner></div>{/if}
       </div>
     </div>
 
-    <div class="preview" role="region" aria-label="Privacy preview" aria-busy={loading}>
-      <h3>Privacy preview</h3>
-      <p class="fixed">Photos are not included in a GEDCOM file.</p>
+    <div class="preview" role="region" aria-label={t('exp.preview')} aria-busy={loading}>
+      <h3>{t('exp.preview')}</h3>
+      <p class="fixed">{t('exp.noPhotos')}</p>
       {#if previewError}
         <Banner kind="error">{previewError}</Banner>
       {:else if preview}
@@ -139,33 +140,33 @@
             <div class="bar"></div>
             <div class="bar short"></div>
           </div>
-          <p class="hint">Updating the preview…</p>
+          <p class="hint">{t('exp.updating')}</p>
         {:else}
         <div class="body">
           <dl>
-            <div><dt>People in the file</dt><dd>{preview.exportedPersons + preview.placeholderPersons}</dd></div>
-            <div><dt>Named</dt><dd>{preview.exportedPersons}</dd></div>
-            <div><dt>Shown as 'Living'</dt><dd>{preview.placeholderPersons}</dd></div>
-            <div><dt>Left out</dt><dd>{leftOut}</dd></div>
+            <div><dt>{t('exp.peopleInFile')}</dt><dd>{formatNumber(preview.exportedPersons + preview.placeholderPersons)}</dd></div>
+            <div><dt>{t('exp.named')}</dt><dd>{formatNumber(preview.exportedPersons)}</dd></div>
+            <div><dt>{t('exp.shownAsLiving')}</dt><dd>{formatNumber(preview.placeholderPersons)}</dd></div>
+            <div><dt>{t('exp.leftOut')}</dt><dd>{formatNumber(leftOut)}</dd></div>
             <div>
-              <dt>Other records removed</dt>
-              <dd>{preview.removedRecords}</dd>
+              <dt>{t('exp.otherRemoved')}</dt>
+              <dd>{formatNumber(preview.removedRecords)}</dd>
             </div>
           </dl>
-          <p class="hint">Other records removed: private items, and events and notes of couples with a living partner</p>
+          <p class="hint">{t('exp.otherRemovedHint')}</p>
           {#if preview.mentionWarnings.length}
-            <h4>Notes that may name hidden people</h4>
+            <h4>{t('exp.mentionTitle')}</h4>
             <ul>
               {#each preview.mentionWarnings as w, i (i)}
-                <li>“{w.noteExcerpt}” mentions <bdi dir="auto">{w.hiddenPerson}</bdi></li>
+                <li>{t('exp.mentions', { excerpt: w.noteExcerpt })} <bdi dir="auto">{w.hiddenPerson}</bdi></li>
               {/each}
             </ul>
           {/if}
           <p class="hint">
-            {preview.mentionWarnings.length ? '' : 'No notes name hidden people. '}This check is best effort: nicknames and initials are not caught.
+            {preview.mentionWarnings.length ? '' : t('exp.noneNamed')}{t('exp.bestEffort')}
           </p>
           {#if preview.groupMedia.length}
-            <h4>Photos that also show hidden people: you decide whether to keep them in the shared copy</h4>
+            <h4>{t('exp.groupMedia')}</h4>
             <ul>
               {#each preview.groupMedia as g, i (i)}<li>{g.title}</li>{/each}
             </ul>
@@ -178,20 +179,20 @@
         </div>
         {/if}
       {:else}
-        <p class="hint">Checking what would be shared…</p>
+        <p class="hint">{t('exp.checking')}</p>
       {/if}
     </div>
 
     <section class="copy">
-      <h3>Save a copy of the whole tree</h3>
-      <p class="hint">This copy is not filtered. It includes living people, private records and history; keep it to yourself.</p>
-      <p class="hint">The copy is a tree folder, not a zip file. You can open it in Gene Tree as a tree of its own; choose an empty or new folder.</p>
-      <div><Button disabled={saving} onclick={saveCopy}>Save a copy to a folder…</Button></div>
+      <h3>{t('exp.copyTitle')}</h3>
+      <p class="hint">{t('exp.copyHint1')}</p>
+      <p class="hint">{t('exp.copyHint2')}</p>
+      <div><Button disabled={saving} onclick={saveCopy}>{t('exp.saveCopy')}</Button></div>
     </section>
   </div>
   {#snippet footer()}
-    <Button onclick={onClose}>Close</Button>
-    <Button variant="primary" disabled={!canExport} onclick={doExport}>Export…</Button>
+    <Button onclick={onClose}>{t('common.close')}</Button>
+    <Button variant="primary" disabled={!canExport} onclick={doExport}>{t('exp.exportButton')}</Button>
   {/snippet}
 </Dialog>
 
