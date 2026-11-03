@@ -2,19 +2,22 @@
 
 use crate::dto::{
     FamilyViewDto, HitKindDto, LocationKind, LocationWarningDto, Page, PersonDetail, PersonQuery,
-    PersonRef, PersonRow, ProjectInfo, SearchHitDto, Settings,
+    PersonRef, PersonRow, ProjectInfo, SearchHitDto, Settings, SortKey,
 };
 use crate::error::{ApiError, ErrorCode};
 use crate::index::{Links, PersonIndex};
 use crate::query::MAX_SEARCH;
 use crate::settings::{self, SettingsPatch};
-use gt_core::living::{LivingRule, compute_living};
-use gt_core::model::LivingOverride;
+use gt_core::living::{LivingRule, compute_living, compute_living_ignoring_overrides};
+use gt_core::model::{LivingOverride, ParticipantRef};
 use gt_core::tree::Tree;
-use gt_store::{HitKind, LocationWarning, Project};
-use std::collections::HashMap;
+use gt_store::{ChangeSet, HitKind, LocationWarning, Project, Record, RecordKind};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use uuid::Uuid;
+
+/// Change sets with more records than this refresh by full `rebuild`.
+const FULL_REBUILD_ABOVE: usize = 2_000;
 
 /// `(today as a Julian day number, now in Unix milliseconds)`. Injected so tests pin the date.
 pub struct SessionClock(pub Box<dyn Fn() -> (i32, i64) + Send + Sync>);
@@ -81,29 +84,30 @@ impl Session {
         drop(self);
     }
 
-    /// Recomputes links, living flags and the index from the tree.
-    pub fn rebuild(&mut self) {
-        self.charts.bump_revision();
+    /// The living flags from the tree: `(effective with manual overrides, the rule alone)`.
+    pub(crate) fn living_maps(&self) -> (HashMap<Uuid, bool>, HashMap<Uuid, bool>) {
         let (today, _) = (self.clock.0)();
         let rule = LivingRule {
             max_age_years: self.settings.living_max_age,
         };
+        let computed = compute_living_ignoring_overrides(&self.tree, &rule, today);
+        let mut effective = computed.clone();
+        for (id, p) in &self.tree.persons {
+            match p.living_override {
+                Some(LivingOverride::Living) => effective.insert(*id, true),
+                Some(LivingOverride::Deceased) => effective.insert(*id, false),
+                None => None,
+            };
+        }
+        (effective, computed)
+    }
+
+    /// Recomputes links, living flags and the index from the tree (open, import, settings that
+    /// change every row). Edits use `refresh_after` instead.
+    pub fn rebuild(&mut self) {
+        self.charts.bump_revision();
         self.links = Links::build(&self.tree);
-        self.living = compute_living(&self.tree, &rule, today);
-        self.living_computed = if self
-            .tree
-            .persons
-            .values()
-            .any(|p| p.living_override.is_some())
-        {
-            let mut plain = self.tree.clone();
-            for p in plain.persons.values_mut() {
-                p.living_override = None::<LivingOverride>;
-            }
-            compute_living(&plain, &rule, today)
-        } else {
-            self.living.clone()
-        };
+        (self.living, self.living_computed) = self.living_maps();
         self.index = PersonIndex::build(
             &self.tree,
             &self.links,
@@ -111,6 +115,133 @@ impl Session {
             self.settings.name_order,
         );
         self.place_index = crate::lookup::PlaceIndex::build(&self.tree);
+    }
+
+    /// Brings every derived structure in line after `cs` was applied to the tree, touching only
+    /// what `cs` can have changed: the rows of the persons it names (or whose events or living
+    /// flag it changes), the links of the records it names, and the place use counts. Equal to
+    /// `rebuild` (see `verify_derived_state`). `effective` and `computed` are the living maps of
+    /// the new tree and `living_changed` the flags that differ from `self.living`.
+    pub(crate) fn refresh_after(
+        &mut self,
+        cs: &ChangeSet,
+        effective: HashMap<Uuid, bool>,
+        computed: HashMap<Uuid, bool>,
+        living_changed: &[(Uuid, bool)],
+    ) {
+        if cs.changes.len() > FULL_REBUILD_ABOVE {
+            self.rebuild();
+            return;
+        }
+        self.charts.bump_revision();
+        let mut dirty: HashSet<Uuid> = HashSet::new();
+        let mut structural = false;
+        let mut places_changed = false;
+        for ch in &cs.changes {
+            match ch.kind {
+                RecordKind::Person => {
+                    dirty.insert(ch.id);
+                    structural |= ch.before.is_none() != ch.after.is_none();
+                }
+                RecordKind::Place => places_changed = true,
+                _ => {}
+            }
+            for rec in [&ch.before, &ch.after].into_iter().flatten() {
+                if let Record::Event(e) = rec {
+                    for p in &e.participants {
+                        if let ParticipantRef::Person(id) = p.target {
+                            dirty.insert(id);
+                        }
+                    }
+                }
+            }
+        }
+        dirty.extend(living_changed.iter().map(|(id, _)| *id));
+        self.living = effective;
+        self.living_computed = computed;
+        self.links.apply(&self.tree, cs);
+        self.index.refresh(
+            &self.tree,
+            &self.links,
+            &self.living,
+            self.settings.name_order,
+            &dirty,
+            structural,
+        );
+        if places_changed {
+            self.place_index = crate::lookup::PlaceIndex::build(&self.tree);
+        } else {
+            for ch in &cs.changes {
+                let place_of = |r: &Option<Record>| match r {
+                    Some(Record::Event(e)) => e.place,
+                    _ => None,
+                };
+                if ch.kind == RecordKind::Event {
+                    self.place_index.move_event(
+                        &self.tree,
+                        place_of(&ch.before),
+                        place_of(&ch.after),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Checks that the incrementally refreshed state equals a fresh `rebuild`; the first
+    /// difference is returned. For tests.
+    #[doc(hidden)]
+    pub fn verify_derived_state(&self) -> Result<(), String> {
+        let (living, computed) = self.living_maps();
+        let rule = LivingRule {
+            max_age_years: self.settings.living_max_age,
+        };
+        let (today, _) = (self.clock.0)();
+        if living != compute_living(&self.tree, &rule, today) {
+            return Err("effective living differs from compute_living".into());
+        }
+        if living != self.living {
+            return Err("living map differs".into());
+        }
+        if computed != self.living_computed {
+            return Err("living_computed map differs".into());
+        }
+        let links = Links::build(&self.tree);
+        if links != self.links {
+            return Err("links differ".into());
+        }
+        let index = PersonIndex::build(&self.tree, &links, &living, self.settings.name_order);
+        if index.summaries.len() != self.index.summaries.len() {
+            return Err("index row count differs".into());
+        }
+        for (i, (a, b)) in index
+            .summaries
+            .iter()
+            .zip(&self.index.summaries)
+            .enumerate()
+        {
+            if a != b {
+                return Err(format!("index row {i} differs: {a:?} vs {b:?}"));
+            }
+            if self.index.slot(a.id) != index.slot(a.id) {
+                return Err(format!("slot of row {i} differs"));
+            }
+        }
+        for sort in [
+            SortKey::Surname,
+            SortKey::Given,
+            SortKey::Birth,
+            SortKey::Changed,
+        ] {
+            for desc in [false, true] {
+                if index.order(sort, desc) != self.index.order(sort, desc) {
+                    return Err(format!("sort order {sort:?} desc={desc} differs"));
+                }
+            }
+        }
+        if crate::lookup::PlaceIndex::build(&self.tree) != self.place_index {
+            return Err("place index differs".into());
+        }
+        Ok(())
     }
 
     pub fn tree(&self) -> &Tree {

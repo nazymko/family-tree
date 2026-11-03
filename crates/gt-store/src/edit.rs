@@ -367,7 +367,8 @@ fn person_text(tx: &Transaction, id: &str) -> Result<(String, String), StoreErro
             });
         }
     }
-    // Places of the person's own events and of their family events, in event order.
+    // Places of the person's own events and of their family events, in event order. CROSS JOIN fixes
+    // the family query's join order: left alone SQLite scans every family participant row.
     let mut found: Vec<(i64, i64, String)> = Vec::new();
     for sql in [
         "SELECT e.seq, p.pos, e.place_id FROM participant p JOIN event e ON e.id = p.event_id \
@@ -375,8 +376,8 @@ fn person_text(tx: &Transaction, id: &str) -> Result<(String, String), StoreErro
         "SELECT e.seq, p.pos, e.place_id \
          FROM (SELECT id FROM family WHERE partner1_id = ?1 \
                UNION SELECT id FROM family WHERE partner2_id = ?1) f \
-         JOIN participant p ON p.target_type = 'family' AND p.target_id = f.id \
-         JOIN event e ON e.id = p.event_id WHERE e.place_id IS NOT NULL",
+         CROSS JOIN participant p ON p.target_type = 'family' AND p.target_id = f.id \
+         CROSS JOIN event e ON e.id = p.event_id WHERE e.place_id IS NOT NULL",
     ] {
         let mut st = tx.prepare_cached(sql)?;
         let mut rows = st.query([id])?;

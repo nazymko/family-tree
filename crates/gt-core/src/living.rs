@@ -69,6 +69,20 @@ fn gather_facts(tree: &Tree) -> HashMap<Uuid, Facts> {
 /// Linear in persons + events + family links: facts and parent/child
 /// indexes are built once, then each person is checked against them.
 pub fn compute_living(tree: &Tree, rule: &LivingRule, today_jdn: i32) -> HashMap<Uuid, bool> {
+    compute(tree, rule, today_jdn, true)
+}
+
+/// As `compute_living` but ignoring every manual `living_override`: the rule alone. Applying the
+/// overrides on top of this map gives exactly `compute_living`.
+pub fn compute_living_ignoring_overrides(
+    tree: &Tree,
+    rule: &LivingRule,
+    today_jdn: i32,
+) -> HashMap<Uuid, bool> {
+    compute(tree, rule, today_jdn, false)
+}
+
+fn compute(tree: &Tree, rule: &LivingRule, today_jdn: i32, overrides: bool) -> HashMap<Uuid, bool> {
     let max_age = rule.max_age_years;
     let self_cut = gregorian_minus_years(today_jdn, max_age);
     let child_cut = gregorian_minus_years(today_jdn, max_age.saturating_sub(12));
@@ -103,7 +117,7 @@ pub fn compute_living(tree: &Tree, rule: &LivingRule, today_jdn: i32) -> HashMap
     tree.persons
         .iter()
         .map(|(id, p)| {
-            let living = match p.living_override {
+            let living = match p.living_override.as_ref().filter(|_| overrides) {
                 Some(LivingOverride::Living) => true,
                 Some(LivingOverride::Deceased) => false,
                 None => {

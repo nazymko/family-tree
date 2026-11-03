@@ -135,7 +135,7 @@ fn place_name(p: &gt_core::model::Place) -> String {
 }
 
 /// One place with its chain pre-folded for matching.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct PlaceEntry {
     option: PlaceOption,
     /// Folded leaf name.
@@ -149,9 +149,11 @@ struct PlaceEntry {
 }
 
 /// Place suggestions index, built when the session opens and after every rebuild.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct PlaceIndex {
     entries: Vec<PlaceEntry>,
+    /// Place -> position in `entries`.
+    pos: HashMap<Uuid, usize>,
 }
 
 impl PlaceIndex {
@@ -206,7 +208,37 @@ impl PlaceIndex {
                 uses: total.get(id).copied().unwrap_or(0),
             });
         }
-        PlaceIndex { entries }
+        let pos = entries
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (e.option.id, i))
+            .collect();
+        PlaceIndex { entries, pos }
+    }
+
+    /// An event moved from place `from` to place `to` (either may be none): the use counts of
+    /// both chains follow, without rebuilding. Valid while no place itself changed.
+    pub fn move_event(&mut self, tree: &gt_core::tree::Tree, from: Option<Uuid>, to: Option<Uuid>) {
+        if from == to {
+            return;
+        }
+        for (start, add) in [(from, false), (to, true)] {
+            let mut next = start;
+            // The limit only guards against a parent cycle (as in `build`).
+            for _ in 0..16 {
+                let Some(pid) = next else { break };
+                if let Some(&i) = self.pos.get(&pid)
+                    && let Some(e) = self.entries.get_mut(i)
+                {
+                    e.uses = if add {
+                        e.uses.saturating_add(1)
+                    } else {
+                        e.uses.saturating_sub(1)
+                    };
+                }
+                next = tree.places.get(&pid).and_then(|p| p.parent);
+            }
+        }
     }
 
     /// Leaf-prefix matches first, then ancestor-prefix matches; each by use count, then ICU order.

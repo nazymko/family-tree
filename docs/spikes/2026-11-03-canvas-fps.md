@@ -33,3 +33,26 @@ None yet. Order if a gate fails: boxes LOD 0.25 to 0.35; OffscreenCanvas tile ca
 
 1. After Task 4: run the release spike build on Windows, copy the JSON from the app data folder, fill the table.
 2. Run on macOS and Linux (CI `shell-build` only proves the shell compiles).
+
+## Rust budgets (Windows, release)
+
+`cargo test -p gt-session --release --test budget -- --ignored --nocapture` on the dev machine (Windows 11, release profile, 50 000 synthetic persons plus a hand-made full 8-generation pedigree of 255 people so the chart tests lay out real ancestry). Medians of 9 to 25 runs; the budgets are unchanged from the plan.
+
+| Budget | Limit | Measured |
+|---|---|---|
+| `open_under_2s` | 2 s | 0.57 s |
+| `list_page_under_30ms` | 30 ms | 1.1 ms |
+| `search_under_100ms` | 100 ms | 18.6 ms |
+| `apply_under_50ms` (add child with date and place) | 50 ms | median 11 ms apply, 17 ms undo, 13 ms redo (slowest single run 65 ms, see below) |
+| `chart_window_under_8ms` (1920x1080 window of a 255-node pedigree) | 8 ms | 0.012 ms |
+| `chart_open_pedigree_8_gens_under_50ms` (255 nodes) | 50 ms | 0.07 ms |
+| `resident_memory_under_500mb` (working set via `tasklist`; the workspace forbids `unsafe`, so no `GetProcessMemoryInfo`) | 500 MB | 236 MB (includes the fixture builder) |
+| `living_recompute_under_30ms` | 30 ms | 8.7 ms |
+
+What it took to meet `apply_under_50ms` (first measurement: 400 ms per edit):
+
+- The family branch of `person_text` in `gt-store` (search-text refresh after every edit) let SQLite scan every family participant row: 110 ms per affected person. `CROSS JOIN` fixes the join order (3 ms total for the store write now).
+- `Session::commit` computed the living map twice per edit and `rebuild()` rebuilt every derived structure. Edits now refresh incrementally (`Session::refresh_after`): one living pass (the rule alone, overrides applied on top, then diffed), links for the touched events, families and citations, index rows for the touched persons, and place use counts. `rebuild()` stays for open, import, settings changes and change sets above 2 000 records. A random edit/undo/redo test (`tests/refresh.rs`) asserts after every step that the incremental state equals a fresh rebuild (links, living maps, index rows and slots, sort orders, place index).
+- Remaining cost per edit is the single living pass (about 10 ms), the SQLite write and the index refresh.
+
+Known noise: roughly one edit in ten shows a 50 to 80 ms stall inside the SQLite WAL `commit` (OS file I/O on this machine, not CPU in our code). The budget is asserted on the median of repeated edits; the slowest run is printed.
