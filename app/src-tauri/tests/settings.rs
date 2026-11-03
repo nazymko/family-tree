@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use gt_app_lib::settings_file::*;
-use gt_session::{DayOrder, NameOrder, Theme};
+use gt_session::{DayOrder, Language, NameOrder, Theme};
 
 #[test]
 fn settings_atomic_write_and_defaults() {
@@ -13,9 +13,11 @@ fn settings_atomic_write_and_defaults() {
     assert_eq!(d.day_order, DayOrder::Dmy);
     assert_eq!(d.name_order, NameOrder::GivenFirst);
     assert_eq!(d.theme, Theme::System);
+    assert_eq!(d.language, Language::System);
     assert_eq!(d.backups_to_keep, 10);
 
     let mut s = d.clone();
+    s.language = Language::Uk;
     s.theme = Theme::Dark;
     s.backups_to_keep = 3;
     s.day_order = DayOrder::Mdy;

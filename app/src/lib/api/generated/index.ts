@@ -45,6 +45,7 @@ export * from './ImportPhase';
 export * from './ImportProgress';
 export * from './ImportReportDto';
 export * from './ImportRequest';
+export * from './Language';
 export * from './LetterOffset';
 export * from './LivingExport';
 export * from './LivingFilter';

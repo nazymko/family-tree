@@ -1,8 +1,14 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, vi } from 'vitest';
 import { cleanup } from '@testing-library/svelte';
+import { setLanguage } from './lib/i18n';
 
-afterEach(() => cleanup());
+// Tests query by English text, so they run in English unless one switches the language itself.
+setLanguage('en');
+afterEach(() => {
+  cleanup();
+  setLanguage('en');
+});
 
 /** Reports an 800x600 box shortly after observe(), like a browser's first layout. */
 class ResizeObserverStub {

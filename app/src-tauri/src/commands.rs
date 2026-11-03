@@ -105,6 +105,7 @@ fn app_patch(state: &AppState) -> SettingsPatch {
         day_order: Some(s.day_order),
         name_order: Some(s.name_order),
         theme: Some(s.theme),
+        language: Some(s.language),
         backups_to_keep: Some(s.backups_to_keep),
         ..SettingsPatch::default()
     }
@@ -563,6 +564,7 @@ pub struct SettingsPatchWire {
     pub day_order: Option<DayOrder>,
     pub name_order: Option<gt_session::NameOrder>,
     pub theme: Option<gt_session::Theme>,
+    pub language: Option<gt_session::Language>,
     pub backups_to_keep: Option<u32>,
     pub living_max_age: Option<u32>,
     #[serde(deserialize_with = "some_or_null")]
@@ -582,6 +584,7 @@ pub fn get_settings_impl(state: &AppState) -> Settings {
         day_order: a.day_order,
         name_order: a.name_order,
         theme: a.theme,
+        language: a.language,
         backups_to_keep: a.backups_to_keep,
         ..Settings::default()
     }
@@ -604,6 +607,7 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
             day_order: patch.day_order,
             name_order: patch.name_order,
             theme: patch.theme,
+            language: patch.language,
             backups_to_keep: patch.backups_to_keep,
             living_max_age: patch.living_max_age,
             home_person: patch.home_person,
@@ -620,6 +624,9 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
         }
         if let Some(v) = patch.theme {
             a.theme = v;
+        }
+        if let Some(v) = patch.language {
+            a.language = v;
         }
         if let Some(v) = patch.backups_to_keep {
             a.backups_to_keep = v;

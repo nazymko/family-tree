@@ -281,6 +281,9 @@ impl Session {
         if let Some(v) = patch.theme {
             self.settings.theme = v;
         }
+        if let Some(v) = patch.language {
+            self.settings.language = v;
+        }
         if let Some(v) = patch.backups_to_keep {
             self.settings.backups_to_keep = v;
         }

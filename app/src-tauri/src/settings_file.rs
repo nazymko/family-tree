@@ -1,7 +1,7 @@
 //! App-level settings and the recent-projects list, as JSON files in the app config dir.
 //! Writes go to a temp file that is renamed into place, so a crash never leaves half a file.
 
-use gt_session::{ApiError, DayOrder, ErrorCode, NameOrder, RecentProject, Theme};
+use gt_session::{ApiError, DayOrder, ErrorCode, Language, NameOrder, RecentProject, Theme};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -16,6 +16,7 @@ pub struct AppSettings {
     pub day_order: DayOrder,
     pub name_order: NameOrder,
     pub theme: Theme,
+    pub language: Language,
     pub backups_to_keep: u32,
 }
 
@@ -25,6 +26,7 @@ impl Default for AppSettings {
             day_order: DayOrder::Dmy,
             name_order: NameOrder::GivenFirst,
             theme: Theme::System,
+            language: Language::System,
             backups_to_keep: 10,
         }
     }

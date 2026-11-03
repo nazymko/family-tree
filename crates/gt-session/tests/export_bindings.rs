@@ -45,6 +45,7 @@ fn export_all(dir: &Path) {
         NameOrder,
         SexKind,
         Theme,
+        Language,
         PersonRef,
         PersonRow,
         PersonQuery,

@@ -17,6 +17,7 @@ macro_rules! wire_enum {
 wire_enum!(DayOrder, "lowercase", { Dmy, Mdy });
 wire_enum!(SexKind, "lowercase", { Male, Female, Intersex, Unknown, Other });
 wire_enum!(Theme, "lowercase", { Light, Dark, System });
+wire_enum!(Language, "lowercase", { En, Uk, System });
 wire_enum!(DateStatus, "lowercase", { Ok, Phrase, Unparsed });
 wire_enum!(HitKindDto, "lowercase", { Person, Place, Source, Note });
 wire_enum!(LivingOverrideDto, "lowercase", { Living, Deceased });
@@ -344,6 +345,8 @@ pub struct Settings {
     pub day_order: DayOrder,
     pub name_order: NameOrder,
     pub theme: Theme,
+    /// Interface language; `system` follows the OS language.
+    pub language: Language,
     pub backups_to_keep: u32,
     /// Project setting.
     pub living_max_age: u32,
@@ -357,6 +360,7 @@ impl Default for Settings {
             day_order: DayOrder::Dmy,
             name_order: NameOrder::GivenFirst,
             theme: Theme::System,
+            language: Language::System,
             backups_to_keep: 10,
             living_max_age: 100,
             home_person: None,
