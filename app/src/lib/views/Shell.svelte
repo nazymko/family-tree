@@ -31,6 +31,7 @@
   import { toasts } from '../state/toast.svelte';
   import { ui } from '../state/ui.svelte';
   import { undoState } from '../state/undo.svelte';
+  import { closeTree } from '../state/openTree';
   import { currentPlatform, formatKeys, registerShortcuts, type Shortcut } from '../state/shortcuts';
 
   const api = getApi();
@@ -55,6 +56,14 @@
   function go(name: NavName) {
     if (name === 'family' && !nav.focusPerson && homeId) nav.focus(homeId);
     nav.go({ name } as Route);
+  }
+
+  async function closeThisTree() {
+    try {
+      await closeTree(api);
+    } catch (e) {
+      toasts.push({ text: e instanceof Error ? e.message : String(e) });
+    }
   }
 
   async function undo() {
@@ -207,6 +216,12 @@
           <button type="button" class="item" onclick={() => (exportOpen = true)}>
             <Icon name="download" />
             <span class="lbl">Export</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="item" onclick={() => void closeThisTree()}>
+            <Icon name="x" />
+            <span class="lbl">Close tree</span>
           </button>
         </li>
         <li>

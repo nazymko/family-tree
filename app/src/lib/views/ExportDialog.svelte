@@ -80,12 +80,12 @@
 
   async function saveCopy() {
     exportError = '';
-    const dest = await platform.pickSavePath({ title: 'Save a copy of the whole tree', defaultName: 'Family tree copy.zip', extensions: ['zip'] });
+    const dest = await platform.pickFolder('Choose an empty folder for the copy of your tree');
     if (!dest) return;
     saving = true;
     try {
       await api.saveCopy(dest);
-      notices.show({ message: `Copy saved to ${fileOf(dest)}`, actionLabel: 'Reveal', onaction: () => void platform.reveal(dest) });
+      notices.show({ message: `Copy saved in the folder ${fileOf(dest)}`, actionLabel: 'Reveal', onaction: () => void platform.reveal(dest) });
     } catch (e) {
       exportError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -185,7 +185,8 @@
     <section class="copy">
       <h3>Save a copy of the whole tree</h3>
       <p class="hint">This copy is not filtered. It includes living people, private records and history; keep it to yourself.</p>
-      <div><Button disabled={saving} onclick={saveCopy}>Save a copy…</Button></div>
+      <p class="hint">The copy is a tree folder, not a zip file. You can open it in Gene Tree as a tree of its own; choose an empty or new folder.</p>
+      <div><Button disabled={saving} onclick={saveCopy}>Save a copy to a folder…</Button></div>
     </section>
   </div>
   {#snippet footer()}

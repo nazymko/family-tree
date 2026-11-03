@@ -42,6 +42,15 @@ describe('Shell', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'People' })).toBeInTheDocument();
   });
 
+  it('close_tree_returns_to_welcome', async () => {
+    const { api, user } = await mountShell();
+    const spy = vi.spyOn(api, 'closeProject');
+    await user.click(screen.getByRole('button', { name: 'Close tree' }));
+    await waitFor(() => expect(project.info).toBeNull());
+    expect(spy).toHaveBeenCalledOnce();
+    expect(nav.route.name).toBe('welcome');
+  });
+
   it('footer_shows_project_and_saved', async () => {
     await mountShell();
     expect(screen.getByText('Test')).toBeInTheDocument();

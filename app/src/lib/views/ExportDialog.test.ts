@@ -151,12 +151,15 @@ describe('ExportDialog', () => {
     const api = new PrivacyMockApi(fixtureTree(80));
     const spy = vi.spyOn(api, 'saveCopy');
     const platform = new MockPlatform();
-    platform.next = { save: 'D:/Backups/Tree copy.zip' };
+    platform.next = { folder: 'D:/Backups/Tree copy' };
     renderWith(ExportDialog, { onClose: vi.fn() }, { api, platform });
     expect(screen.getByText('Save a copy of the whole tree')).toBeInTheDocument();
     expect(screen.getByText('This copy is not filtered. It includes living people, private records and history; keep it to yourself.')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Save a copy…' }));
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('D:/Backups/Tree copy.zip'));
+    expect(screen.getByText(/The copy is a tree folder, not a zip file/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save a copy to a folder…' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('D:/Backups/Tree copy'));
+    expect(platform.calls.some((c) => c.method === 'pickFolder')).toBe(true);
+    expect(platform.calls.some((c) => c.method === 'pickSavePath')).toBe(false);
   });
 
   it('export_failure_shows_error_and_keeps_dialog', async () => {

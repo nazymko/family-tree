@@ -1,6 +1,15 @@
 <script lang="ts" module>
   import type { MediaDto } from '../api/api';
+  import { notices } from '../ui/notices.svelte';
   export const isPdf = (m: MediaDto) => m.mime === 'application/pdf' || /\.pdf$/i.test(m.originalName ?? '');
+  /** Opens the original in the OS viewer; the backend refuses types that are not safe, and the reason is shown. */
+  export async function openOriginal(api: { openMediaExternally(id: string): Promise<void> }, id: string): Promise<void> {
+    try {
+      await api.openMediaExternally(id);
+    } catch (e) {
+      notices.show({ message: e instanceof Error ? e.message : String(e) });
+    }
+  }
   export const mediaLabel = (m: MediaDto) => m.title || m.originalName || 'Untitled file';
 </script>
 
@@ -29,7 +38,7 @@
         <div class="face doc">
           <Icon name="file" size="2rem" />
           <span class="name">{mediaLabel(m)}</span>
-          <Button aria-label="Open {mediaLabel(m)}" onclick={() => api.openMediaExternally(m.id)}>Open</Button>
+          <Button aria-label="Open {mediaLabel(m)}" onclick={() => openOriginal(api, m.id)}>Open</Button>
         </div>
       {:else}
         <button type="button" class="face photo" aria-label="View {mediaLabel(m)}" onclick={() => onOpen(i)}>

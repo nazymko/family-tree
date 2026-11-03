@@ -185,7 +185,14 @@ export class MockApi implements Api {
     this.charts.clear();
   }
 
-  async saveCopy(): Promise<void> {}
+  /** Destinations passed to `saveCopy`, for tests. */
+  readonly savedCopies: string[] = [];
+
+  /** Like the backend, the copy is a project FOLDER: a path that names a file (`.zip`) is refused. */
+  async saveCopy(dest: string): Promise<void> {
+    if (/\.(zip|ged)$/i.test(dest)) throw new Error(`"${dest}" is a file. Choose an empty folder for the copy.`);
+    this.savedCopies.push(dest);
+  }
 
   async checkLocation(dir: string): Promise<LocationWarningDto | null> {
     if (/onedrive/i.test(dir)) return { kind: 'synced_folder', provider: 'OneDrive' };
@@ -574,6 +581,10 @@ export class MockApi implements Api {
   readonly openedMedia: Id[] = [];
 
   async openMediaExternally(id: Id): Promise<void> {
+    const m = this.db.media.get(id);
+    if (m && !(m.mime ?? '').match(/^(image\/(jpeg|png|webp|gif|tiff)|application\/pdf)$/)) {
+      throw new Error('Gene Tree will only open photos and PDF documents. This file is some other kind of file, so it was not opened.');
+    }
     this.openedMedia.push(id);
   }
 

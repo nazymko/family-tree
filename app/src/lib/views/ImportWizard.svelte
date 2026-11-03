@@ -9,6 +9,7 @@
   import type { DayOrder, ImportProgress, LocationWarningDto } from '../api/types';
   import { nav } from '../state/nav.svelte';
   import { project } from '../state/project.svelte';
+  import { settings } from '../state/settings.svelte';
   import { enterProject } from '../state/openTree';
 
   let { mode, oncancel }: { mode: 'import' | 'create'; oncancel: () => void } = $props();
@@ -87,6 +88,7 @@
           onProgress,
         );
         project.open(report.project, report);
+        await settings.load(api).catch(() => {});
         nav.go({ name: 'importReport' });
       }
     } catch (err) {

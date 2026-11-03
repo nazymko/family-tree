@@ -34,7 +34,16 @@ mod spike {
 }
 
 pub fn run() {
+    // The single-instance plugin must be registered first (its docs require it): a second launch
+    // brings the running window forward instead of opening a second writer on the same tree.
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {

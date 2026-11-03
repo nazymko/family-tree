@@ -1,5 +1,6 @@
 import type { Api, Settings } from '../api/api';
 import { applyTheme } from './theme';
+import { project } from './project.svelte';
 
 const DEFAULTS: Settings = {
   dayOrder: 'dmy',
@@ -28,6 +29,8 @@ class SettingsStore {
     this.value = s;
     this.loaded = true;
     applyTheme(s.theme);
+    // The ribbon, the Home shortcut and the People marker read the home person from the open project.
+    if (project.info && project.info.homePerson !== s.homePerson) project.info = { ...project.info, homePerson: s.homePerson };
   }
 }
 

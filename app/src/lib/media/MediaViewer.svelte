@@ -7,7 +7,7 @@
   import TextArea from '../ui/TextArea.svelte';
   import { getApi } from '../api/context';
   import { notices } from '../ui/notices.svelte';
-  import { isPdf, mediaLabel } from './MediaGrid.svelte';
+  import { isPdf, mediaLabel, openOriginal } from './MediaGrid.svelte';
   import type { Id, MediaLinkDto, OwnerRef } from '../api/api';
 
   let {
@@ -178,7 +178,7 @@
         {#if target?.kind === 'person' && m.resolved && !isPdf(m)}
           <Button onclick={setPrimary}>Set as primary photo</Button>
         {/if}
-        <Button onclick={() => api.openMediaExternally(m.id)}>Open original</Button>
+        <Button onclick={() => openOriginal(api, m.id)}>Open original</Button>
       </div>
       {#key m.id}
         <TextField label="Title" value={title} onchange={(e) => saveField('title', e.currentTarget.value)} />
