@@ -35,7 +35,7 @@ MyFamily.genetree/
 
 ### `meta`
 Key/value settings of the project.
-- `key`: setting name. The keys `app_version` (the app version that created the project) and `created_ms` (creation time) always exist. Optional keys: `living_max_age` (years after birth until a person counts as deceased, default 100), `home_person` (UUID of the person the app opens on) and `last_import_id` (id of the import that created the project, cleared by the first edit).
+- `key`: setting name. The keys `app_version` (the app version that created the project) and `created_ms` (creation time) always exist. Optional keys: `living_max_age` (years after birth until a person counts as deceased, default 100), `home_person` (UUID of the person the app opens on) and `last_import_id` (id of the import that created the project, cleared by the first edit). The key `fts_scheme` (`2`) says the full-text rows use the `seq`-based row ids; it is written in the same transaction that rebuilds them, and a project without it is rebuilt on open.
 - `value`: setting value as text.
 
 ### `tree_header`
@@ -229,6 +229,8 @@ History of edits, used for undo and the per-record history. Rows get increasing 
 - `group_id`: the UUID shared by every row of one edit; null for rows written before schema 2.
 - `label`: the user-facing name of the edit, such as `Edit name`; null for rows written before schema 2.
 - `after_json`: the record as it is after the change, as JSON; null for a delete.
+- `before_seq`: for a delete, the record's `seq`; undoing the delete restores it when still free, so record order survives delete and undo.
+- `reverts_group`: for an undo, the `group_id` of the edit it reverts; otherwise null.
 
 ## Search
 

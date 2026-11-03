@@ -112,17 +112,20 @@ pub struct Change {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChangeSet {
     pub group: Uuid,
+    /// The group this set undoes (set by `inverse`), recorded in the change log.
+    pub reverts: Option<Uuid>,
     pub label: String,
     pub ts: i64,
     pub changes: Vec<Change>,
 }
 
 impl ChangeSet {
-    /// Reversed order, `before` and `after` swapped; same group, label and time
-    /// (the caller prefixes the label with "Undo: ").
+    /// Reversed order, `before` and `after` swapped; a fresh group that records the one it
+    /// reverts, same label and time (the caller prefixes the label with "Undo: ").
     pub fn inverse(&self) -> ChangeSet {
         ChangeSet {
-            group: self.group,
+            group: Uuid::now_v7(),
+            reverts: Some(self.group),
             label: self.label.clone(),
             ts: self.ts,
             changes: self
@@ -192,6 +195,31 @@ fn next_seq(tx: &Transaction, kind: RecordKind) -> Result<i64, StoreError> {
     Ok(tx.prepare_cached(&sql)?.query_row([], |r| r.get(0))?)
 }
 
+/// The `seq` a record had when it was last deleted, if nobody has taken it since
+/// (so that undoing a delete restores the record's place in the order).
+fn deleted_seq(tx: &Transaction, kind: RecordKind, id: &Uuid) -> Result<Option<i64>, StoreError> {
+    let last: Option<(String, Option<i64>)> = tx
+        .prepare_cached(
+            "SELECT op, before_seq FROM change_log WHERE target_type = ?1 AND target_id = ?2              ORDER BY id DESC LIMIT 1",
+        )?
+        .query_row(params![kind.as_str(), id.to_string()], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .optional()?;
+    let Some((op, Some(seq))) = last else {
+        return Ok(None);
+    };
+    if op != "delete" {
+        return Ok(None);
+    }
+    let sql = format!(
+        "SELECT EXISTS (SELECT 1 FROM {} WHERE seq = ?1)",
+        kind.as_str()
+    );
+    let taken: bool = tx.prepare_cached(&sql)?.query_row([seq], |r| r.get(0))?;
+    Ok((!taken).then_some(seq))
+}
+
 fn fts_code(kind: RecordKind) -> Option<i64> {
     match kind {
         RecordKind::Person => Some(FTS_PERSON),
@@ -245,7 +273,10 @@ fn write_record(tx: &Transaction, rec: &Record) -> Result<(), StoreError> {
     let id = rec.id();
     let seq = match existing_seq(tx, kind, &id)? {
         Some(s) => s,
-        None => next_seq(tx, kind)?,
+        None => match deleted_seq(tx, kind, &id)? {
+            Some(s) => s,
+            None => next_seq(tx, kind)?,
+        },
     };
     match rec {
         // A new person counts as living until `living` says otherwise; an existing
@@ -281,8 +312,10 @@ fn write_record(tx: &Transaction, rec: &Record) -> Result<(), StoreError> {
     Ok(())
 }
 
-fn delete_record(tx: &Transaction, kind: RecordKind, id: &Uuid) -> Result<(), StoreError> {
-    if let (Some(code), Some(seq)) = (fts_code(kind), existing_seq(tx, kind, id)?) {
+/// Deletes a record; returns the `seq` it had.
+fn delete_record(tx: &Transaction, kind: RecordKind, id: &Uuid) -> Result<Option<i64>, StoreError> {
+    let seq = existing_seq(tx, kind, id)?;
+    if let (Some(code), Some(seq)) = (fts_code(kind), seq) {
         remove_search(tx, fts_rowid(code, seq))?;
     }
     match kind {
@@ -295,7 +328,8 @@ fn delete_record(tx: &Transaction, kind: RecordKind, id: &Uuid) -> Result<(), St
         RecordKind::Citation => delete_citation(tx, id),
         RecordKind::Media => delete_media(tx, id),
         RecordKind::Note => delete_note(tx, id),
-    }
+    }?;
+    Ok(seq)
 }
 
 fn uuids(rows: Vec<String>) -> Result<Vec<Uuid>, StoreError> {
@@ -409,15 +443,18 @@ impl Project {
                 (Some(_), None) => ChangeOp::Delete,
                 (None, None) => return Err(corrupt("a change has neither before nor after")),
             };
-            match &ch.after {
-                Some(rec) => write_record(&tx, rec)?,
+            let before_seq = match &ch.after {
+                Some(rec) => {
+                    write_record(&tx, rec)?;
+                    None
+                }
                 None => delete_record(&tx, ch.kind, &ch.id)?,
-            }
+            };
             let before_json = ch.before.as_ref().map(json).transpose()?;
             let after_json = ch.after.as_ref().map(json).transpose()?;
             tx.prepare_cached(
                 "INSERT INTO change_log(ts, target_type, target_id, op, before_json, group_id, \
-                 label, after_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                 label, after_json, before_seq, reverts_group) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
             )?
             .execute(params![
                 cs.ts,
@@ -428,6 +465,8 @@ impl Project {
                 group,
                 cs.label,
                 after_json,
+                before_seq,
+                cs.reverts.map(|u| u.to_string()),
             ])?;
         }
 
@@ -544,14 +583,19 @@ impl Project {
             })?)
     }
 
-    /// Rewrites every full-text row keyed by `seq` (used once when a v1 project is upgraded;
-    /// v1 saved `seq` as the position in the tree, which is what `index_all` assumes).
+    /// Rewrites every full-text row keyed by `seq` and sets meta `fts_scheme` = 2, in ONE
+    /// transaction. Runs on open while the key is absent (a v1 project, or an upgrade that
+    /// was interrupted); v1 saved `seq` as the position in the tree, which `index_all` assumes.
     pub(crate) fn rebuild_search(&mut self) -> Result<(), StoreError> {
         let tree = self.load_tree()?;
         let tx = self.conn.transaction()?;
         tx.execute("DELETE FROM search_words", [])?;
         tx.execute("DELETE FROM search_trigram", [])?;
         index_all(&tx, &tree)?;
+        tx.execute(
+            "INSERT INTO meta(key, value) VALUES ('fts_scheme', '2')              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )?;
         tx.commit()?;
         Ok(())
     }

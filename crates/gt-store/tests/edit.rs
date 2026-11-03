@@ -27,6 +27,7 @@ fn base() -> (tempfile::TempDir, Project, Tree) {
 fn cs(label: &str, changes: Vec<Change>) -> ChangeSet {
     ChangeSet {
         group: Uuid::now_v7(),
+        reverts: None,
         label: label.into(),
         ts: 1_700_000_000_000,
         changes,
@@ -98,6 +99,18 @@ fn same_order(a: &Tree, b: &Tree) {
     assert_eq!(
         a.notes.keys().collect::<Vec<_>>(),
         b.notes.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(
+        a.sources.keys().collect::<Vec<_>>(),
+        b.sources.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(
+        a.citations.keys().collect::<Vec<_>>(),
+        b.citations.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(
+        a.media.keys().collect::<Vec<_>>(),
+        b.media.keys().collect::<Vec<_>>()
     );
 }
 
@@ -204,7 +217,7 @@ fn v1_project_with_data_keeps_search_consistent_after_upgrade() {
             "DROP INDEX change_log_target; DROP INDEX change_log_group; DROP INDEX idx_person_seq; DROP INDEX idx_family_seq; DROP INDEX idx_event_seq; DROP INDEX idx_place_seq; DROP INDEX idx_source_seq; DROP INDEX idx_repository_seq; DROP INDEX idx_citation_seq; DROP INDEX idx_media_seq; DROP INDEX idx_note_seq; \
              ALTER TABLE change_log DROP COLUMN group_id; \
              ALTER TABLE change_log DROP COLUMN label; \
-             ALTER TABLE change_log DROP COLUMN after_json; \
+             ALTER TABLE change_log DROP COLUMN after_json; \n             ALTER TABLE change_log DROP COLUMN before_seq; \n             ALTER TABLE change_log DROP COLUMN reverts_group; \n             DELETE FROM meta WHERE key = 'fts_scheme'; \
              UPDATE search_words SET rowid = rowid + 1000003; \
              UPDATE search_trigram SET rowid = rowid + 1000003;",
         )
@@ -235,6 +248,53 @@ fn v1_project_with_data_keeps_search_consistent_after_upgrade() {
             .count(),
         1
     );
+}
+
+#[test]
+fn interrupted_fts_rebuild_is_redone_on_next_open() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("old.genetree");
+    let tree = rich_tree();
+    {
+        let mut p = Project::create(&dir).unwrap();
+        p.save_tree(&tree, TODAY).unwrap();
+    }
+    {
+        // Version 2 already committed, but the rebuild never wrote its marker: stale rows.
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            "DELETE FROM meta WHERE key = 'fts_scheme';              UPDATE search_words SET rowid = rowid + 1000003;              UPDATE search_trigram SET rowid = rowid + 1000003;",
+        )
+        .unwrap();
+    }
+    let mut p = Project::open(&dir).unwrap();
+    assert_eq!(p.meta_get("fts_scheme").unwrap().as_deref(), Some("2"));
+    let rows: i64 = p
+        .conn()
+        .query_row("SELECT count(*) FROM search_words", [], |r| r.get(0))
+        .unwrap();
+    let min: i64 = p
+        .conn()
+        .query_row("SELECT min(rowid) FROM search_words", [], |r| r.get(0))
+        .unwrap();
+    assert!(min < 1000, "rows were not rebuilt");
+    assert_eq!(
+        rows as usize,
+        tree.persons.len() + tree.places.len() + tree.sources.len() + tree.notes.len()
+    );
+    let who = person_named(&tree, "Müller");
+    let before = tree.persons[&who].clone();
+    let mut after = before.clone();
+    after.names = vec![name("Anna", "Meier")];
+    p.apply_changes(
+        &cs(
+            "Edit name",
+            vec![update(Record::Person(before), Record::Person(after))],
+        ),
+        &[],
+    )
+    .unwrap();
+    assert!(p.search("muller", 10).unwrap().is_empty());
 }
 
 #[test]
@@ -527,12 +587,25 @@ fn inverse_roundtrip() {
         tree.normalized_for_compare()
     );
     let inv = set.inverse();
+    assert_ne!(inv.group, set.group);
+    assert_eq!(inv.reverts, Some(set.group));
     assert_eq!(inv.changes.len(), 4);
     assert_eq!(inv.changes[0].kind, RecordKind::Event);
     assert!(inv.changes[0].before.is_none());
     p.apply_changes(&inv, &[]).unwrap();
+    let reverted: i64 = p
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM change_log WHERE group_id = ?1 AND reverts_group = ?2",
+            [inv.group.to_string(), set.group.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(reverted, 4);
     let got = p.load_tree().unwrap();
     assert_eq!(got.normalized_for_compare(), tree.normalized_for_compare());
+    // The deleted event is back at its old place in the order, not at the end.
+    same_order(&got, &tree);
     assert!(p.search("hamburg", 10).unwrap().is_empty());
     assert!(p.search("muller", 10).unwrap().iter().any(|h| h.id == who));
 }
@@ -651,7 +724,7 @@ fn gen_name(r: &mut Rng) -> Name {
 }
 
 fn gen_cs(r: &mut Rng, t: &Tree) -> Option<ChangeSet> {
-    let changes = match r.below(14) {
+    let changes = match r.below(20) {
         0 => {
             let mut p = person(GIVEN[r.below(4)], FAMILY[r.below(5)]);
             p.sex = if r.below(2) == 0 {
@@ -810,7 +883,7 @@ fn gen_cs(r: &mut Rng, t: &Tree) -> Option<ChangeSet> {
             out.push(delete(Record::Note(n.clone())));
             out
         }
-        _ => {
+        13 => {
             let (pid, pl) = r.pick(&t.places)?;
             let used = t.events.values().any(|e| e.place == Some(pid))
                 || t.places.values().any(|x| x.parent == Some(pid));
@@ -818,6 +891,122 @@ fn gen_cs(r: &mut Rng, t: &Tree) -> Option<ChangeSet> {
                 return None;
             }
             vec![delete(Record::Place(pl.clone()))]
+        }
+        14 => vec![create(Record::Source(Source {
+            common: common(Uuid::now_v7()),
+            title: Some(format!("Src{}", r.below(1000))),
+            author: None,
+            publication: None,
+            abbreviation: None,
+            text: None,
+            repositories: vec![],
+        }))],
+        15 => {
+            let (sid, _) = r.pick(&t.sources)?;
+            let (_, b) = r.pick(&t.persons)?;
+            let cite = Citation {
+                common: common(Uuid::now_v7()),
+                source: Some(sid),
+                page: Some(format!("p. {}", r.below(100))),
+                date: None,
+                text: None,
+                quality: None,
+                evidence: Evidence {
+                    original: None,
+                    primary_info: None,
+                    direct: None,
+                },
+            };
+            let mut a = b.clone();
+            a.common.citations.push(cite.common.id);
+            vec![
+                create(Record::Citation(cite)),
+                update(Record::Person(b.clone()), Record::Person(a)),
+            ]
+        }
+        16 => {
+            let (cid, c) = r.pick(&t.citations)?;
+            let has = |x: &Common| x.citations.contains(&cid);
+            let elsewhere =
+                t.families.values().any(|f| {
+                    has(&f.common) || f.children.iter().any(|ch| ch.citations.contains(&cid))
+                }) || t.events.values().any(|e| has(&e.common))
+                    || t.places.values().any(|e| has(&e.common))
+                    || t.sources.values().any(|e| has(&e.common))
+                    || t.citations.values().any(|e| has(&e.common))
+                    || t.media.values().any(|e| has(&e.common))
+                    || t.notes.values().any(|e| has(&e.common));
+            if elsewhere {
+                return None;
+            }
+            let mut out = Vec::new();
+            for p in t.persons.values() {
+                if has(&p.common) || p.names.iter().any(|x| x.citations.contains(&cid)) {
+                    let mut a = p.clone();
+                    a.common.citations.retain(|x| *x != cid);
+                    a.names
+                        .iter_mut()
+                        .for_each(|x| x.citations.retain(|y| *y != cid));
+                    out.push(update(Record::Person(p.clone()), Record::Person(a)));
+                }
+            }
+            out.push(delete(Record::Citation(c.clone())));
+            out
+        }
+        17 => {
+            let (sid, s) = r.pick(&t.sources)?;
+            if t.citations.values().any(|c| c.source == Some(sid)) {
+                return None;
+            }
+            vec![delete(Record::Source(s.clone()))]
+        }
+        18 => {
+            let (_, b) = r.pick(&t.persons)?;
+            let mid = Uuid::now_v7();
+            let m = Media {
+                common: common(mid),
+                path: format!("media/xx/{mid}.jpg"),
+                original_name: None,
+                mime: None,
+                title: None,
+                date: None,
+                description: None,
+                sha256: Some(mid.to_string()),
+            };
+            let mut a = b.clone();
+            a.common.media.push(MediaLink {
+                media: mid,
+                region: None,
+                primary: false,
+            });
+            vec![
+                create(Record::Media(m)),
+                update(Record::Person(b.clone()), Record::Person(a)),
+            ]
+        }
+        _ => {
+            let (mid, m) = r.pick(&t.media)?;
+            let has = |x: &Common| x.media.iter().any(|l| l.media == mid);
+            let elsewhere = t.families.values().any(|e| has(&e.common))
+                || t.events.values().any(|e| has(&e.common))
+                || t.places.values().any(|e| has(&e.common))
+                || t.sources.values().any(|e| has(&e.common))
+                || t.citations.values().any(|e| has(&e.common))
+                || t.media.values().any(|e| has(&e.common))
+                || t.notes.values().any(|e| has(&e.common));
+            if elsewhere {
+                return None;
+            }
+            let mut out = Vec::new();
+            for p in t.persons.values() {
+                if has(&p.common) {
+                    let mut a = p.clone();
+                    a.common.media.retain(|l| l.media != mid);
+                    out.push(update(Record::Person(p.clone()), Record::Person(a)));
+                }
+            }
+            out.push(delete(Record::Media(m.clone())));
+            out
         }
     };
     Some(cs("Random", changes))
@@ -832,11 +1021,33 @@ proptest! {
         let mut rng = Rng(seed);
         let mut applied = 0;
         let mut attempts = 0;
-        while applied < 50 && attempts < 1000 {
+        // (change set, tree before it, tree after it) for undo and redo.
+        let mut done: Vec<(ChangeSet, Tree, Tree)> = Vec::new();
+        let mut undone: Vec<(ChangeSet, Tree, Tree)> = Vec::new();
+        while applied < 50 && attempts < 2000 {
             attempts += 1;
-            let Some(set) = gen_cs(&mut rng, &mirrored) else { continue };
-            p.apply_changes(&set, &[]).unwrap();
-            mirror(&mut mirrored, &set);
+            match rng.below(8) {
+                0 if !done.is_empty() => {
+                    let (set, before, after) = done.pop().unwrap();
+                    p.apply_changes(&set.inverse(), &[]).unwrap();
+                    mirrored = before.clone();
+                    undone.push((set, before, after));
+                }
+                1 if !undone.is_empty() => {
+                    let (set, before, after) = undone.pop().unwrap();
+                    p.apply_changes(&set, &[]).unwrap();
+                    mirrored = after.clone();
+                    done.push((set, before, after));
+                }
+                _ => {
+                    let Some(set) = gen_cs(&mut rng, &mirrored) else { continue };
+                    let before = mirrored.clone();
+                    p.apply_changes(&set, &[]).unwrap();
+                    mirror(&mut mirrored, &set);
+                    done.push((set, before, mirrored.clone()));
+                    undone.clear();
+                }
+            }
             applied += 1;
         }
         prop_assert_eq!(applied, 50);
@@ -846,7 +1057,7 @@ proptest! {
         // The incrementally maintained search rows answer like a full save's.
         let (_t2, mut full, _) = base();
         full.save_tree(&mirrored, TODAY).unwrap();
-        for q in ["meier", "muller", "novak", "town", "renamed", "note"] {
+        for q in ["meier", "muller", "novak", "town", "renamed", "note", "src"] {
             let a: std::collections::BTreeSet<_> =
                 p.search(q, 500).unwrap().into_iter().map(|h| (h.id, h.kind as u8)).collect();
             let b: std::collections::BTreeSet<_> =

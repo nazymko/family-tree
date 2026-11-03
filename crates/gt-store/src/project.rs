@@ -59,6 +59,10 @@ impl Project {
             "INSERT INTO meta(key, value) VALUES ('app_version', ?1), ('created_ms', ?2)",
             (env!("CARGO_PKG_VERSION"), created_ms.to_string()),
         )?;
+        conn.execute(
+            "INSERT INTO meta(key, value) VALUES ('fts_scheme', '2')",
+            [],
+        )?;
         Ok(Project {
             dir: dir.to_path_buf(),
             conn,
@@ -90,8 +94,9 @@ impl Project {
             conn,
             version,
         };
-        if found == 1 {
-            // v1 full-text rows have arbitrary row ids; v2 edits address them by seq.
+        // v1 full-text rows have arbitrary row ids; v2 edits address them by seq. The key is
+        // written by the rebuild itself, so an interrupted upgrade is redone on the next open.
+        if project.meta_get("fts_scheme")?.is_none() {
             project.rebuild_search()?;
         }
         Ok(project)

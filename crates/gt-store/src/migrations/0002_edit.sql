@@ -3,6 +3,9 @@
 ALTER TABLE change_log ADD COLUMN group_id TEXT;
 ALTER TABLE change_log ADD COLUMN label TEXT;
 ALTER TABLE change_log ADD COLUMN after_json TEXT;
+-- seq of a deleted record (restored when the delete is undone) and the group an undo reverts.
+ALTER TABLE change_log ADD COLUMN before_seq INTEGER;
+ALTER TABLE change_log ADD COLUMN reverts_group TEXT;
 CREATE INDEX change_log_target ON change_log(target_id, ts);
 CREATE INDEX change_log_group ON change_log(group_id);
 -- A new record takes MAX(seq) + 1; without these indexes that is a table scan.
