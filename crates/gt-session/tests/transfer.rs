@@ -636,3 +636,153 @@ fn save_copy_opens_as_project() {
     s.save_copy(&empty).unwrap();
     assert!(empty.join("tree.db").is_file());
 }
+
+#[test]
+fn discard_consumes_the_session_and_leaves_no_scratch_folder() {
+    let (t, s, _) = import_text("0 @I1@ INDI\n1 NAME A /B/\n");
+    let dir = t.path().join("proj");
+    s.discard().unwrap();
+    assert!(!dir.exists());
+    assert!(
+        !t.path()
+            .join(format!("proj.discard-{}", std::process::id()))
+            .exists()
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn discard_while_open_changes_nothing() {
+    // The open database locks the folder: the rename step fails and nothing is deleted.
+    let (t, s, _) = import_text("0 @I1@ INDI\n1 NAME A /B/\n");
+    let dir = t.path().join("proj");
+    let err = Session::discard_import(&dir).unwrap_err();
+    assert_eq!(err.code, ErrorCode::Io);
+    assert!(dir.join("tree.db").is_file());
+    assert_eq!(s.tree().persons.len(), 1);
+}
+
+#[test]
+fn import_open_failure_removes_the_folder_and_retry_works() {
+    let tmp = tempfile::tempdir().unwrap();
+    let f = write(tmp.path(), "t.ged", &ged("0 @I1@ INDI\n1 NAME A /B/\n"));
+    let proj = tmp.path().join("p");
+    let req = request(&f, &proj, &[]);
+    let boom = ApiError::new(ErrorCode::Internal, "boom");
+    let err = import_gedcom_with_opener(&req, clock(), &|_| {}, &|_, _| Err(boom.clone()))
+        .err()
+        .unwrap();
+    assert_eq!(err, boom);
+    assert!(!proj.exists());
+    assert!(
+        !tmp.path()
+            .join(format!("p.discard-{}", std::process::id()))
+            .exists()
+    );
+    let (s, _) = import_gedcom(&req, clock(), &|_| {}).unwrap();
+    assert_eq!(s.tree().persons.len(), 1);
+}
+
+#[test]
+fn non_ascii_path_with_spaces_round_trips() {
+    let tmp = tempfile::tempdir().unwrap();
+    let base = tmp.path().join("Familie Müller ä ö");
+    let pics = base.join("Bilder 1");
+    write(&pics, "Grüße.jpg", "photo");
+    let f = write(
+        &base,
+        "in put/Stammbaum Ü.ged",
+        &ged("0 @I1@ INDI\n1 NAME Åse /Øre/\n1 OBJE @M1@\n0 @M1@ OBJE\n1 FILE Grüße.jpg\n"),
+    );
+    let proj = base.join("Projekt Ä");
+    let (mut s, r) = import_gedcom(&request(&f, &proj, &[&pics]), clock(), &|_| {}).unwrap();
+    assert!(r.missing_media.is_empty());
+    let o = opts(ExportVersion::V70, LivingExport::All);
+    let p = s.preview_export(&o).unwrap();
+    let out = base.join("Ausgabe ß.ged");
+    s.export_gedcom(&o, &out, &p.token).unwrap();
+    let copy = base.join("Kopie ü");
+    s.save_copy(&copy).unwrap();
+    assert_eq!(
+        Session::open(&copy, clock()).unwrap().tree().persons.len(),
+        1
+    );
+    // Relink from a folder with such a name as well.
+    let (t2, mut s2) = two_missing();
+    let folder = t2.path().join("Ordner mit Ümlaut");
+    write(&folder, "unter/a.jpg", "x");
+    assert_eq!(s2.relink_media(&folder).unwrap().relinked, 1);
+    assert!(!s2.relink_media(&folder).unwrap().search_incomplete);
+    let _ = &mut s;
+}
+
+#[test]
+fn save_copy_to_existing_destination_leaves_it_alone() {
+    let (t, s, _) = import_text(LIVING);
+    let dest = t.path().join("taken");
+    write(&dest, "keep.txt", "mine");
+    assert_eq!(s.save_copy(&dest).unwrap_err().code, ErrorCode::Conflict);
+    assert_eq!(
+        std::fs::read_to_string(dest.join("keep.txt")).unwrap(),
+        "mine"
+    );
+    assert!(!dest.join("tree.db").exists());
+    // A plain file at the destination is refused too.
+    let file = write(t.path(), "file.txt", "x");
+    assert_eq!(s.save_copy(&file).unwrap_err().code, ErrorCode::Conflict);
+}
+
+#[test]
+fn save_copy_rejects_destination_inside_project() {
+    let (t, s, _) = import_text(LIVING);
+    let proj = t.path().join("proj");
+    for dest in [
+        proj.join("media").join("x"),
+        proj.join("..").join("proj").join("y"),
+        proj.clone(),
+    ] {
+        assert_eq!(
+            s.save_copy(&dest).unwrap_err().code,
+            ErrorCode::Invalid,
+            "{dest:?}"
+        );
+    }
+    #[cfg(windows)]
+    {
+        let upper = PathBuf::from(proj.to_string_lossy().to_uppercase()).join("z");
+        assert_eq!(s.save_copy(&upper).unwrap_err().code, ErrorCode::Invalid);
+    }
+    assert!(!proj.join("media").join("x").exists());
+}
+
+#[test]
+fn save_copy_failure_midway_leaves_nothing_and_retry_works() {
+    let (t, s, _) = import_text(LIVING);
+    let dest = t.path().join("copy");
+    let err = s
+        .save_copy_hooked(&dest, &|tmp| {
+            assert!(tmp.join("tree.db").is_file()); // the database was copied already
+            Err(std::io::Error::other("disk full"))
+        })
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Io);
+    assert!(!dest.exists());
+    assert!(
+        !t.path()
+            .join(format!("copy.partial-{}", std::process::id()))
+            .exists()
+    );
+    s.save_copy(&dest).unwrap();
+    assert!(dest.join("tree.db").is_file());
+}
+
+#[test]
+fn export_replaces_a_stale_tmp_file() {
+    let (t, s, _) = import_text(LIVING);
+    let o = opts(ExportVersion::V70, LivingExport::All);
+    let p = s.preview_export(&o).unwrap();
+    write(t.path(), "o.ged.tmp", "leftover");
+    let out = t.path().join("o.ged");
+    s.export_gedcom(&o, &out, &p.token).unwrap();
+    assert!(out.is_file() && !t.path().join("o.ged.tmp").exists());
+}

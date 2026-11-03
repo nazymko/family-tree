@@ -179,6 +179,8 @@ pub struct PrivacyPreview {
 pub struct RelinkResult {
     pub relinked: u32,
     pub still_missing: Vec<String>,
+    /// The folder held too many entries to search all of it; some files may have been missed.
+    pub search_incomplete: bool,
 }
 
 // ---------------------------------------------------------------- helpers
@@ -203,6 +205,17 @@ fn core_day_order(o: WireDayOrder) -> DayOrder {
 
 fn is_empty_dir(p: &Path) -> bool {
     std::fs::read_dir(p).is_ok_and(|mut d| d.next().is_none())
+}
+
+/// Renames `dir` to a sibling `<dir>.discard-<pid>` (all or nothing; fails while something holds
+/// files in it) and deletes that. Never leaves a half-deleted project under the original name.
+fn remove_folder_safely(dir: &Path) -> Result<(), ApiError> {
+    let mut name = dir.as_os_str().to_os_string();
+    name.push(format!(".discard-{}", std::process::id()));
+    let aside = PathBuf::from(name);
+    let _ = std::fs::remove_dir_all(&aside);
+    std::fs::rename(dir, &aside).map_err(|e| io_err("remove", dir, &e))?;
+    std::fs::remove_dir_all(&aside).map_err(|e| io_err("delete", &aside, &e))
 }
 
 /// Sibling scratch path `<target>.partial-<pid>`.
@@ -344,6 +357,20 @@ pub fn import_gedcom(
     clock: SessionClock,
     progress: &dyn Fn(ImportProgress),
 ) -> Result<(Session, ImportReportDto), ApiError> {
+    import_gedcom_with_opener(req, clock, progress, &|dir, clock| {
+        Session::open(dir, clock)
+    })
+}
+
+/// `import_gedcom` with the final "open the new project" step injectable (tests make it fail).
+/// When opening fails the new folder is removed again, so a retry does not hit a `Conflict`.
+#[doc(hidden)]
+pub fn import_gedcom_with_opener(
+    req: &ImportRequest,
+    clock: SessionClock,
+    progress: &dyn Fn(ImportProgress),
+    open: &dyn Fn(&Path, SessionClock) -> Result<Session, ApiError>,
+) -> Result<(Session, ImportReportDto), ApiError> {
     let emit = |phase, done, total| {
         progress(ImportProgress { phase, done, total });
     };
@@ -408,7 +435,13 @@ pub fn import_gedcom(
     }
 
     emit(ImportPhase::Indexing, 0, 1);
-    let session = Session::open(&dir, clock)?;
+    let session = match open(&dir, clock) {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = remove_folder_safely(&dir);
+            return Err(e);
+        }
+    };
     emit(ImportPhase::Indexing, 1, 1);
     let dto = report_dto(&outcome.report, session.info(), &extra_missing);
     Ok((session, dto))
@@ -480,7 +513,15 @@ impl Session {
             ));
         }
         drop(project);
-        std::fs::remove_dir_all(dir).map_err(|e| io_err("delete", dir, &e))
+        remove_folder_safely(dir)
+    }
+
+    /// Closes this session, then discards its project as `discard_import` does. The database
+    /// handle is released first, so the folder can be removed on Windows.
+    pub fn discard(self) -> Result<(), ApiError> {
+        let dir = self.project.dir.clone();
+        drop(self);
+        Session::discard_import(&dir)
     }
 }
 
@@ -511,7 +552,7 @@ fn basename_lower(path: &str) -> String {
 
 /// Every regular file under `root` (depth <= `RELINK_MAX_DEPTH`), by lower-case file name.
 /// Symlinks are skipped, so the search cannot leave `root`.
-fn index_folder(root: &Path) -> HashMap<String, Vec<PathBuf>> {
+fn index_folder(root: &Path, incomplete: &mut bool) -> HashMap<String, Vec<PathBuf>> {
     let mut out: HashMap<String, Vec<PathBuf>> = HashMap::new();
     let mut stack = vec![(root.to_path_buf(), 0usize)];
     let mut seen = 0usize;
@@ -522,6 +563,7 @@ fn index_folder(root: &Path) -> HashMap<String, Vec<PathBuf>> {
         for e in rd.flatten() {
             seen += 1;
             if seen > RELINK_MAX_ENTRIES {
+                *incomplete = true;
                 return out;
             }
             let Ok(ft) = e.file_type() else { continue };
@@ -565,6 +607,7 @@ impl Session {
             .map_err(|e| io_err("open", folder, &e))?;
         let roots = [folder.to_path_buf()];
         let mut index: Option<HashMap<String, Vec<PathBuf>>> = None;
+        let mut search_incomplete = false;
         let (_, now) = (self.clock.0)();
         let mut changes = Vec::new();
         let mut still_missing: Vec<String> = Vec::new();
@@ -596,7 +639,8 @@ impl Session {
             if found.is_none() {
                 let name = basename_lower(&stored);
                 if !name.is_empty() {
-                    let idx = index.get_or_insert_with(|| index_folder(folder));
+                    let idx =
+                        index.get_or_insert_with(|| index_folder(folder, &mut search_incomplete));
                     if let Some([one]) = idx.get(&name).map(Vec::as_slice)
                         && confirmed_under(one, &canon_root)
                     {
@@ -646,6 +690,7 @@ impl Session {
         Ok(RelinkResult {
             relinked,
             still_missing,
+            search_incomplete,
         })
     }
 }
@@ -818,7 +863,16 @@ impl Session {
         tmp_name.push(".tmp");
         let tmp = PathBuf::from(tmp_name);
         let written = (|| {
-            let mut f = std::fs::File::create(&tmp)?;
+            let mut open = std::fs::OpenOptions::new();
+            open.write(true).create_new(true);
+            // A leftover from an interrupted export is ours to replace; anything else is not.
+            let mut f = match open.open(&tmp) {
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    std::fs::remove_file(&tmp)?;
+                    open.open(&tmp)?
+                }
+                other => other?,
+            };
             f.write_all(&bytes)?;
             f.sync_all()?;
             drop(f);
@@ -833,6 +887,36 @@ impl Session {
 }
 
 // ---------------------------------------------------------------- save copy
+
+/// Whether `dest` is (or would be) inside `project`, compared after resolving the parts that
+/// exist (symlinks, `..`) and, on Windows, ignoring case.
+fn inside_project(project: &Path, dest: &Path) -> bool {
+    let canon = |p: &Path| -> PathBuf {
+        // Resolve the longest existing ancestor, then re-append the rest.
+        let mut rest = Vec::new();
+        let mut cur = p.to_path_buf();
+        loop {
+            if let Ok(c) = cur.canonicalize() {
+                return rest.iter().rev().fold(c, |acc, n| acc.join(n));
+            }
+            match (cur.file_name().map(|n| n.to_owned()), cur.parent()) {
+                (Some(n), Some(parent)) => {
+                    rest.push(n);
+                    cur = parent.to_path_buf();
+                }
+                _ => return p.to_path_buf(),
+            }
+        }
+    };
+    let fold = |p: PathBuf| -> PathBuf {
+        if cfg!(windows) {
+            PathBuf::from(p.to_string_lossy().to_lowercase())
+        } else {
+            p
+        }
+    };
+    fold(canon(dest)).starts_with(fold(canon(project)))
+}
 
 fn copy_media_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
@@ -858,7 +942,18 @@ impl Session {
     /// empty folder, and must not be inside this project. The copy is not an import: it cannot
     /// be discarded as one.
     pub fn save_copy(&self, dest: &Path) -> Result<(), ApiError> {
-        if dest.starts_with(&self.project.dir) {
+        self.save_copy_hooked(dest, &|_| Ok(()))
+    }
+
+    /// `save_copy` with a hook run in the scratch folder after the database is copied (tests make
+    /// it fail to prove a failed copy leaves nothing behind).
+    #[doc(hidden)]
+    pub fn save_copy_hooked(
+        &self,
+        dest: &Path,
+        hook: &dyn Fn(&Path) -> std::io::Result<()>,
+    ) -> Result<(), ApiError> {
+        if inside_project(&self.project.dir, dest) {
             return Err(ApiError::new(
                 ErrorCode::Invalid,
                 "Choose a folder outside the project for the copy.",
@@ -875,7 +970,7 @@ impl Session {
         }
         let tmp = partial_path(dest);
         let _ = std::fs::remove_dir_all(&tmp);
-        let result = self.build_copy(&tmp).and_then(|()| {
+        let result = self.build_copy(&tmp, hook).and_then(|()| {
             if dest.exists() {
                 std::fs::remove_dir(dest).map_err(|e| io_err("replace", dest, &e))?;
             }
@@ -887,7 +982,11 @@ impl Session {
         result
     }
 
-    fn build_copy(&self, tmp: &Path) -> Result<(), ApiError> {
+    fn build_copy(
+        &self,
+        tmp: &Path,
+        hook: &dyn Fn(&Path) -> std::io::Result<()>,
+    ) -> Result<(), ApiError> {
         for sub in ["media", "thumbs", "backups"] {
             let p = tmp.join(sub);
             std::fs::create_dir_all(&p).map_err(|e| io_err("create", &p, &e))?;
@@ -900,6 +999,7 @@ impl Session {
             .conn()
             .execute("VACUUM INTO ?1", [target])
             .map_err(|e| ApiError::new(ErrorCode::Io, format!("Cannot copy the tree: {e}")))?;
+        hook(tmp).map_err(|e| io_err("copy to", tmp, &e))?;
         let media = self.project.dir.join("media");
         if media.is_dir() {
             copy_media_tree(&media, &tmp.join("media")).map_err(|e| io_err("copy", &media, &e))?;

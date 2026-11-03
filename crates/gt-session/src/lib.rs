@@ -37,5 +37,5 @@ pub mod transfer;
 pub use transfer::{
     ExportOptions, ExportVersion, GroupMedia, ImportPhase, ImportProgress, ImportReportDto,
     ImportRequest, LivingExport, MentionWarning, MissingMedia, MissingReasonDto, PrivacyPreview,
-    RelinkResult, RepairDto, UnparsedDateDto, import_gedcom,
+    RelinkResult, RepairDto, UnparsedDateDto, import_gedcom, import_gedcom_with_opener,
 };
