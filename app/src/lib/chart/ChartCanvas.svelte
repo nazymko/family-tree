@@ -11,6 +11,7 @@
   import { hitHandle, hitTest, neighbor, type Dir } from './hit';
   import { draw, themeFromCss, type Theme } from './renderer';
   import { WindowCache } from './window';
+  import { t, plural } from '../i18n';
 
   let {
     kind,
@@ -74,7 +75,8 @@
   let pendingAnnounce = false;
 
   const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const kindLabel = $derived(kind === 'pedigree' ? 'Pedigree' : 'Descendant');
+  const chartLabel = $derived(kind === 'pedigree' ? t('chartCanvas.pedigreeChart') : t('chartCanvas.descendantChart'));
+  const toolsLabel = $derived(kind === 'pedigree' ? t('chartCanvas.pedigreeTools') : t('chartCanvas.descendantTools'));
 
   function invalidate(): void {
     dirty = true;
@@ -123,7 +125,7 @@
       if (z >= 0.55) cam = { zoom: z, x: u.x + u.w / 2 - size.w / z / 2, y: u.y + u.h / 2 - size.h / z / 2 };
       else {
         cam = { zoom: 0.55, x: rootRect.x + rootRect.w / 2 - size.w / 0.55 / 2, y: rootRect.y - 40 / 0.55 };
-        hint = `${childCount} ${childCount === 1 ? 'child' : 'children'}, wider than the window: drag or press F to fit all`;
+        hint = plural('chartCanvas.wide', childCount);
       }
     } else if (f.zoom >= 0.55 && kind === 'pedigree') cam = f;
     else if (kind === 'descendants' && f.zoom >= 0.55) cam = f;
@@ -175,7 +177,7 @@
     try {
       m = await api.chartOpen({ kind, root, generations });
     } catch (e) {
-      if (seq === openSeq) errorText = e instanceof Error ? e.message : 'The chart could not be opened.';
+      if (seq === openSeq) errorText = e instanceof Error ? e.message : t('chartCanvas.openFailed');
       return;
     }
     if (seq !== openSeq) {
@@ -369,7 +371,7 @@
     if (!cur || !meta || !selNode || cur.win.nodes.length !== meta.nodeCount) return '';
     const same = cur.win.nodes.filter((n) => n.gen === selNode!.gen).sort((a, b) => a.y - b.y || a.x - b.x);
     const i = same.findIndex((n) => n.id === selNode!.id);
-    return i < 0 ? '' : `, ${i + 1} of ${same.length} in this generation`;
+    return i < 0 ? '' : t('chartCanvas.position', { i: i + 1, n: same.length });
   }
 
   function announce(): void {
@@ -601,19 +603,19 @@
     if (meta) animateTo(fit(meta.bounds, size));
   }
 
-  const genOptions = [3, 4, 5, 6, 7, 8].map((n) => ({ value: String(n), label: `${n} generations` }));
+  const genOptions = $derived([3, 4, 5, 6, 7, 8].map((n) => ({ value: String(n), label: t('chartCanvas.nGenerations', { n }) })));
   let genValue = $derived(String(Math.min(8, Math.max(3, generations))));
 </script>
 
 <div class="chart" {hidden}>
-  <div class="toolbar" role="toolbar" aria-label="{kindLabel} chart tools">
-    <Button onclick={() => zoomBy(1.25)}>Zoom in</Button>
-    <Button onclick={() => zoomBy(0.8)}>Zoom out</Button>
-    <Button onclick={fitAll}>Fit</Button>
-    <IconButton label="Go to home person" icon="home" disabled={!homeId} onclick={() => homeId && onRecentre(homeId)} />
+  <div class="toolbar" role="toolbar" aria-label={toolsLabel}>
+    <Button onclick={() => zoomBy(1.25)}>{t('chartCanvas.zoomIn')}</Button>
+    <Button onclick={() => zoomBy(0.8)}>{t('chartCanvas.zoomOut')}</Button>
+    <Button onclick={fitAll}>{t('chartCanvas.fit')}</Button>
+    <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={!homeId} onclick={() => homeId && onRecentre(homeId)} />
     {#if onGenerations}
       <div class="gens">
-        <Select label="Generations" options={genOptions} bind:value={genValue} onchange={(v) => onGenerations(Number(v))} />
+        <Select label={t('chartCanvas.generations')} options={genOptions} bind:value={genValue} onchange={(v) => onGenerations(Number(v))} />
       </div>
     {/if}
   </div>
@@ -622,7 +624,7 @@
     <canvas
       bind:this={canvas}
       role="application"
-      aria-label="{kindLabel} chart"
+      aria-label={chartLabel}
       aria-describedby="{uid}-help"
       aria-activedescendant={selected !== null ? `${uid}-sel` : undefined}
       tabindex="0"
@@ -633,7 +635,7 @@
       {ondblclick}
       {onkeydown}
     ></canvas>
-    <div class="sr-only" role="listbox" aria-label="Selected person">
+    <div class="sr-only" role="listbox" aria-label={t('chartCanvas.selectedPerson')}>
       {#if selNode}
         <div id="{uid}-sel" role="option" aria-selected="true">{selNode.label}</div>
       {/if}
@@ -641,7 +643,7 @@
     {#if hint}
       <p class="hint">{hint}</p>
     {/if}
-    <p id="{uid}-help" class="sr-only">Use arrow keys to move between people, Enter to centre, E to edit.</p>
+    <p id="{uid}-help" class="sr-only">{t('chartCanvas.help')}</p>
     <div class="sr-only" role="status" aria-live="polite">{announcement}</div>
     {#if errorText}
       <p class="err" role="alert">{errorText}</p>

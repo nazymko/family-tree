@@ -10,7 +10,7 @@
       notices.show({ message: e instanceof Error ? e.message : String(e) });
     }
   }
-  export const mediaLabel = (m: MediaDto) => m.title || m.originalName || 'Untitled file';
+  export const mediaLabel = (m: MediaDto) => m.title || m.originalName || t('media.untitledFile');
 </script>
 
 <script lang="ts">
@@ -19,34 +19,35 @@
   import Button from '../ui/Button.svelte';
   import { getApi } from '../api/context';
   import type { MediaLinkDto, OwnerRef } from '../api/api';
+  import { t } from '../i18n';
 
   let { items, onOpen }: { items: MediaLinkDto[]; /** Reserved for the owner of the items. */ target?: OwnerRef; onOpen: (i: number) => void } = $props();
   const api = getApi();
 </script>
 
-<ul class="grid" aria-label="Photos and documents">
+<ul class="grid" aria-label={t('media.photosAndDocs')}>
   {#each items as link, i (link.media.id)}
     {@const m = link.media}
     <li class="tile">
       {#if !m.resolved}
         <div class="face missing">
           <Icon name="file" size="2rem" />
-          <span>File missing</span>
+          <span>{t('media.fileMissing')}</span>
           <span class="name">{mediaLabel(m)}</span>
         </div>
       {:else if isPdf(m)}
         <div class="face doc">
           <Icon name="file" size="2rem" />
           <span class="name">{mediaLabel(m)}</span>
-          <Button aria-label="Open {mediaLabel(m)}" onclick={() => openOriginal(api, m.id)}>Open</Button>
+          <Button aria-label={t('media.openNamed', { label: mediaLabel(m) })} onclick={() => openOriginal(api, m.id)}>{t('common.open')}</Button>
         </div>
       {:else}
-        <button type="button" class="face photo" aria-label="View {mediaLabel(m)}" onclick={() => onOpen(i)}>
+        <button type="button" class="face photo" aria-label={t('media.viewNamed', { label: mediaLabel(m) })} onclick={() => onOpen(i)}>
           <img loading="lazy" alt={mediaLabel(m)} src={api.mediaUrl(m.id, 'thumb')} />
         </button>
       {/if}
       {#if link.primary}
-        <span class="rib"><Ribbon title="Primary photo" size="1.5rem" /></span>
+        <span class="rib"><Ribbon title={t('media.primaryPhoto')} size="1.5rem" /></span>
       {/if}
     </li>
   {/each}

@@ -1,13 +1,11 @@
 <script lang="ts" module>
   export const MEDIA_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'tif', 'tiff', 'gif', 'pdf'];
-  export const NO_PREVIEW = 'Attached, but too large to preview';
-  const UNSUPPORTED = 'unsupported type; we attach JPEG, PNG, WebP, TIFF, GIF and PDF files';
   export const fileName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
   /** One line per failed file, e.g. "scan.exe: unsupported type; we attach ...". */
   export function failureLine(f: { path: string; reason: string }): string {
     const name = fileName(f.path);
     const ext = /\.([A-Za-z0-9]{1,8})$/.exec(name)?.[1]?.toLowerCase();
-    if (ext && !MEDIA_EXTENSIONS.includes(ext)) return `${name}: ${UNSUPPORTED}`;
+    if (ext && !MEDIA_EXTENSIONS.includes(ext)) return `${name}: ${t('media.unsupported')}`;
     return `${name}: ${f.reason}`;
   }
 </script>
@@ -19,6 +17,7 @@
   import { notices } from '../ui/notices.svelte';
   import { undoNotice } from '../ui/undoable';
   import type { AttachResult, OwnerRef } from '../api/api';
+  import { t, plural } from '../i18n';
 
   let {
     target,
@@ -44,7 +43,7 @@
   let warnings = $state<string[]>([]);
   let suggestion = $state<string | null>(null);
   let looked = $state<string | null>(null);
-  const name = $derived(targetName ?? looked ?? 'this record');
+  const name = $derived(targetName ?? looked ?? t('media.thisRecord'));
 
   $effect(() => {
     if (targetName || target.kind !== 'person') return;
@@ -81,10 +80,10 @@
     const isWarning = (f: { path: string; reason: string }) =>
       /too large to preview/i.test(f.reason) && attachedNames.has(fileName(f.path).toLowerCase());
     failures = r.failed.filter((f) => !isWarning(f)).map(failureLine);
-    warnings = r.failed.filter(isWarning).map((f) => `${fileName(f.path)}: ${NO_PREVIEW}`);
+    warnings = r.failed.filter(isWarning).map((f) => `${fileName(f.path)}: ${t('media.noPreview')}`);
     const n = r.attached.length;
     if (n > 0) {
-      notices.show(undoNotice(api, `Attached ${n} ${n === 1 ? 'file' : 'files'}`, await api.undoState(), onUndone));
+      notices.show(undoNotice(api, plural('media.attached', n), await api.undoState(), onUndone));
       if (n === 1 && r.attached[0].mime?.startsWith('image/')) {
         const ex = await api.exifSuggestion(r.attached[0].id).catch(() => null);
         suggestion = ex?.date ?? null;
@@ -94,16 +93,16 @@
   }
 
   async function pick() {
-    const paths = await platform.pickFiles({ title: 'Add photos and documents', extensions: MEDIA_EXTENSIONS });
+    const paths = await platform.pickFiles({ title: t('media.pickTitle'), extensions: MEDIA_EXTENSIONS });
     await attach(paths);
   }
 </script>
 
 <div class="dz">
-  <Button onclick={pick}>Add files…</Button>
+  <Button onclick={pick}>{t('media.addFiles')}</Button>
   {#if failures.length}
     <Banner kind="error">
-      <p>These files were not attached:</p>
+      <p>{t('media.notAttached')}</p>
       <ul>
         {#each failures as f (f)}<li>{f}</li>{/each}
       </ul>
@@ -118,16 +117,16 @@
   {/if}
   {#if suggestion}
     <Banner kind="info">
-      <span>Use the photo's date ({suggestion}) for a new event?</span>
+      <span>{t('media.useDate', { date: suggestion })}</span>
       <span class="acts">
         <Button
           onclick={() => {
             const d = suggestion!;
             suggestion = null;
             onSuggestEvent?.(d, target);
-          }}>Create event</Button
+          }}>{t('media.createEvent')}</Button
         >
-        <Button onclick={() => (suggestion = null)}>No thanks</Button>
+        <Button onclick={() => (suggestion = null)}>{t('media.noThanks')}</Button>
       </span>
     </Banner>
   {/if}
@@ -135,7 +134,7 @@
 
 {#if hovering}
   <div class="overlay" data-testid="drop-overlay">
-    <p>Drop photos and documents to attach them to {name}</p>
+    <p>{t('media.drop', { name })}</p>
   </div>
 {/if}
 

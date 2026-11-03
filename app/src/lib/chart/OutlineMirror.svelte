@@ -2,11 +2,12 @@
   import { tick, untrack } from 'svelte';
   import { getApi } from '../api/context';
   import type { Id, OutlineItem } from '../api/types';
+  import { t } from '../i18n';
 
   let {
     chartId,
     onPick,
-    label = 'Chart outline',
+    label,
     selected = null,
     onSelect,
   }: {
@@ -52,7 +53,7 @@
         focusId = items[0]?.nodeId ?? null;
       })
       .catch((e) => {
-        if (live) failed = e instanceof Error ? e.message : 'The outline could not be loaded.';
+        if (live) failed = e instanceof Error ? e.message : t('chartCanvas.outlineFailed');
       });
     return () => {
       live = false;
@@ -68,7 +69,7 @@
         for (const k of items) parentOf.set(k.nodeId, it.nodeId);
         kids[it.nodeId] = items;
       } catch (e) {
-        failed = e instanceof Error ? e.message : 'The outline could not be loaded.';
+        failed = e instanceof Error ? e.message : t('chartCanvas.outlineFailed');
         return;
       } finally {
         loading[it.nodeId] = false;
@@ -172,7 +173,7 @@
         <ul role="group">
           {@render branch(kids[it.nodeId], level + 1)}
           {#if kids[it.nodeId].length >= LIMIT}
-            <li role="none" class="more">More people are not shown here. Centre the chart on this person to see them.</li>
+            <li role="none" class="more">{t('chartCanvas.moreHidden')}</li>
           {/if}
         </ul>
       {/if}
@@ -183,7 +184,7 @@
 {#if failed}
   <p class="err" role="alert">{failed}</p>
 {/if}
-<ul role="tree" aria-label={label} class="outline">
+<ul role="tree" aria-label={label ?? t('chartCanvas.outline')} class="outline">
   {@render branch(roots, 1)}
 </ul>
 
