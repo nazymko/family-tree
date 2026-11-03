@@ -206,7 +206,13 @@ export class MockApi implements Api {
       ],
       unmappedTags: { _FSFTID: 412, _UID: 1380 },
       unparsedDates: [{ line: 880, text: 'sometime in the 1850s?' }],
-      missingMedia: ['photos/wedding-1878.jpg', 'photos/farm.jpg'],
+      missingMedia: [
+        { path: 'photos/wedding-1878.jpg', reason: 'notFound', candidates: [] },
+        { path: 'photos/farm.jpg', reason: 'notFound', candidates: [] },
+        { path: 'D:/Scans/census-1900.jpg', reason: 'outsideRoots', candidates: [] },
+        { path: 'portrait.jpg', reason: 'ambiguous', candidates: ['photos/anna/portrait.jpg', 'photos/karl/portrait.jpg'] },
+      ],
+      mediaUrls: ['https://example.org/images/grandfather.jpg'],
       truncated: false,
       text: 'Mock import report\nPersons: ' + this.db.persons.size + '\n',
     };

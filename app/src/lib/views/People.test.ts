@@ -94,6 +94,20 @@ describe('People', () => {
     expect(expected.surname.charAt(0).toUpperCase()).toBe('M');
   });
 
+  it('rev_change_reloads_in_place_without_reset', async () => {
+    const { raw, user } = await setup();
+    await waitFor(() => expect(rows().length).toBeGreaterThan(0));
+    await user.click(screen.getByRole('button', { name: 'M' }));
+    const box = screen.getByRole('listbox', { name: 'People' });
+    await waitFor(() => expect(rows().some((r) => Number(r.getAttribute('aria-rowindex')) > 100)).toBe(true));
+    const spy = vi.spyOn(raw, 'listPersons');
+    project.rev++;
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(screen.getByRole('listbox', { name: 'People' })).toBe(box);
+    await waitFor(() => expect(rows().some((r) => Number(r.getAttribute('aria-rowindex')) > 100)).toBe(true));
+    expect(rows().some((r) => r.getAttribute('aria-rowindex') === '1')).toBe(false);
+  });
+
   it('rtl_and_cjk_names_render_in_bdi_in_order', async () => {
     const { raw, user } = await setup();
     for (const text of ['יעקב', 'Иван', '王']) {

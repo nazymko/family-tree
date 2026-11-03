@@ -122,6 +122,23 @@
     return itemAtRaw(i);
   }
 
+  /** Re-fetches every cached page in place (rows keep showing their old data until the new page lands). */
+  export function reload(): void {
+    for (const p of [...lru]) {
+      if (inflight[p]) continue;
+      inflight[p] = true;
+      loadPage(p * pageSize, pageSize)
+        .then((items) => {
+          if (!alive) return;
+          store(p, items);
+          version++;
+        })
+        .catch(() => {})
+        .finally(() => delete inflight[p]);
+    }
+    version++;
+  }
+
   export function scrollToOffset(i: number): void {
     if (!el) return;
     const y = Math.max(0, Math.min(i, total - 1)) * rowHeight;

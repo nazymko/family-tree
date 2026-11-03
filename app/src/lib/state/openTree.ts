@@ -38,5 +38,6 @@ export async function enterProject(api: Api, info: ProjectInfo): Promise<void> {
 /** Back must not return to the welcome screen of a project that is already open. */
 function startHistoryHere(): void {
   nav.history = [nav.route];
+  nav.foci = [nav.focusPerson];
   nav.index = 0;
 }

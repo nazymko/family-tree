@@ -78,6 +78,22 @@ describe('ImportReport', () => {
     expect(toasts.items.map((t) => t.text)).toContain('Linked 2 files; 1 still missing');
   });
 
+  it('missing_media_grouped_by_reason', async () => {
+    await setup();
+    expect(screen.getByText("outside your tree's folders, so not copied for safety")).toBeInTheDocument();
+    expect(screen.getByText('D:/Scans/census-1900.jpg')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Choose folder…' })).toBeInTheDocument();
+    expect(screen.getByText('photos/anna/portrait.jpg')).toBeInTheDocument();
+    expect(screen.getByText('photos/karl/portrait.jpg')).toBeInTheDocument();
+    expect(screen.getAllByText('not found').length).toBe(2);
+  });
+
+  it('media_urls_listed_as_links', async () => {
+    await setup();
+    expect(screen.getByRole('heading', { name: 'Web links, kept as links' })).toBeInTheDocument();
+    expect(screen.getByText('https://example.org/images/grandfather.jpg')).toBeInTheDocument();
+  });
+
   it('undo_import_confirms', async () => {
     const discard = vi.fn(async () => {});
     const { user } = await setup({}, { discardImport: discard });

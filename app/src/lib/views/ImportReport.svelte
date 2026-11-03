@@ -3,7 +3,7 @@
   import Banner from '../ui/Banner.svelte';
   import Dialog from '../ui/Dialog.svelte';
   import { getApi, getPlatform } from '../api/context';
-  import type { ImportReportDto } from '../api/types';
+  import type { ImportReportDto, MissingMedia } from '../api/types';
   import { nav } from '../state/nav.svelte';
   import { project } from '../state/project.svelte';
   import { toasts } from '../state/toast.svelte';
@@ -15,11 +15,17 @@
   const platform = getPlatform();
 
   const report = $derived(reportProp ?? project.report);
-  let missing = $state<string[] | null>(null);
+  let stillMissing = $state<string[] | null>(null);
   let confirm = $state(false);
   let busy = $state(false);
 
-  const missingList = $derived(missing ?? report?.missingMedia ?? []);
+  const missingList = $derived<MissingMedia[]>(
+    (report?.missingMedia ?? []).filter((m) => stillMissing === null || stillMissing.includes(m.path)),
+  );
+  const byReason = (r: MissingMedia['reason']) => missingList.filter((m) => m.reason === r);
+  const notFound = $derived(byReason('notFound'));
+  const outside = $derived(byReason('outsideRoots'));
+  const ambiguous = $derived(byReason('ambiguous'));
   const COUNT_LABELS: Record<string, string> = {
     persons: 'People',
     families: 'Families',
@@ -45,7 +51,7 @@
     const folder = await platform.pickFolder('Choose the folder with your photos and files');
     if (!folder) return;
     const r = await api.relinkMedia(folder);
-    missing = r.stillMissing;
+    stillMissing = r.stillMissing;
     toasts.push({
       text: `Linked ${r.relinked} ${r.relinked === 1 ? 'file' : 'files'}; ${r.stillMissing.length} still missing`,
     });
@@ -151,12 +157,53 @@
       {#if missingList.length > 0}
         <details open>
           <summary><h2>Photos and files we could not find</h2></summary>
+          {#if notFound.length > 0}
+            <h3>Not found</h3>
+            <ul>
+              {#each notFound as m (m.path)}
+                <li><bdi dir="auto">{m.path}</bdi> <span class="why">not found</span></li>
+              {/each}
+            </ul>
+            <Button onclick={locate}>Locate media folder</Button>
+          {/if}
+          {#if outside.length > 0}
+            <h3>Outside your tree's folders</h3>
+            <ul>
+              {#each outside as m (m.path)}
+                <li>
+                  <bdi dir="auto">{m.path}</bdi>
+                  <span class="why">outside your tree's folders, so not copied for safety</span>
+                </li>
+              {/each}
+            </ul>
+            <Button onclick={locate}>Choose folder…</Button>
+          {/if}
+          {#if ambiguous.length > 0}
+            <h3>More than one match</h3>
+            <ul>
+              {#each ambiguous as m (m.path)}
+                <li>
+                  <bdi dir="auto">{m.path}</bdi>
+                  <span class="why">could be any of these:</span>
+                  <ul class="cand">
+                    {#each m.candidates as c (c)}<li><bdi dir="auto">{c}</bdi></li>{/each}
+                  </ul>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </details>
+      {/if}
+
+      {#if report.mediaUrls.length > 0}
+        <details open>
+          <summary><h2>Web links, kept as links</h2></summary>
+          <p class="note">These photos are web addresses. They are kept as links and not copied.</p>
           <ul>
-            {#each missingList as m (m)}
-              <li><bdi dir="auto">{m}</bdi></li>
+            {#each report.mediaUrls as u (u)}
+              <li><bdi dir="ltr">{u}</bdi></li>
             {/each}
           </ul>
-          <Button onclick={locate}>Locate media folder</Button>
         </details>
       {/if}
 
@@ -248,6 +295,13 @@
     gap: var(--s-3);
     align-items: center;
     padding-top: var(--s-4);
+  }
+  .why {
+    color: var(--ink-1);
+    font-size: var(--t-sm);
+  }
+  .cand {
+    margin-top: var(--s-2);
   }
   .grow {
     flex: 1;

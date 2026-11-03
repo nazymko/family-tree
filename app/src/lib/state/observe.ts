@@ -25,48 +25,81 @@ export function toastText(label: string): string {
 }
 
 /**
- * Wraps an Api so every edit anywhere in the app keeps the undo buttons current, updates the
- * "Saved" indicator and raises a toast with Undo. Views just call `getApi().apply(...)`.
+ * Wraps an Api so every change anywhere in the app updates the "Saved" indicator, bumps `project.rev`
+ * (views reload) and keeps the undo buttons current. It is the single default toaster: `apply(cmd, { silent: true })`
+ * skips the toast for editors that show their own.
  */
 export function observeApi(inner: Api): Api {
-  const wrapped: Partial<Api> = {
-    async apply(cmd) {
-      project.save = 'saving';
-      let r: EditResult;
-      try {
-        r = await inner.apply(cmd);
-      } catch (e) {
-        project.save = 'failed';
-        throw e;
-      }
+  // Counts every change that goes through this wrapper; a toast's Undo only works while its change is still the latest.
+  let seq = 0;
+
+  async function tracked<T>(work: () => Promise<T>): Promise<T> {
+    project.save = 'saving';
+    try {
+      const r = await work();
       project.save = 'saved';
       project.rev++;
+      return r;
+    } catch (e) {
+      project.save = 'failed';
+      throw e;
+    }
+  }
+
+  /** Older toasts lose their Undo button as soon as something newer changes the undo stack. */
+  function supersede(): number {
+    toasts.items = toasts.items.map((t) => (t.action ? { ...t, action: undefined } : t));
+    return ++seq;
+  }
+
+  function undoAction(mine: number) {
+    return {
+      label: 'Undo',
+      run: () => {
+        if (mine !== seq) {
+          toasts.push({ text: 'That change is no longer the latest one, so it cannot be undone from here.', kind: 'warn' });
+          return;
+        }
+        void wrapped.undo!();
+      },
+    };
+  }
+
+  const wrapped: Partial<Api> = {
+    async apply(cmd, opts) {
+      const r: EditResult = await tracked(() => inner.apply(cmd, opts));
       undoState.ingest(r);
-      toasts.push({
-        text: toastText(r.label),
-        action: {
-          label: 'Undo',
-          run: () => {
-            void wrapped.undo!();
-          },
-        },
-      });
+      const mine = supersede();
+      if (!opts?.silent) toasts.push({ text: toastText(r.label), action: undoAction(mine) });
       return r;
     },
     async undo() {
-      const r = await inner.undo();
+      const r = await tracked(() => inner.undo());
       undoState.ingest(r);
-      project.rev++;
+      supersede();
       if (r) toasts.push({ text: `Undone: ${r.label.replace(/^Undo: /, '')}` });
       return r;
     },
     async redo() {
-      const r = await inner.redo();
+      const r = await tracked(() => inner.redo());
       undoState.ingest(r);
-      project.rev++;
+      supersede();
       if (r) toasts.push({ text: `Redone: ${r.label.replace(/^Redo: /, '')}` });
       return r;
     },
+    async attachFiles(target, paths) {
+      const r = await tracked(() => inner.attachFiles(target, paths));
+      await undoState.refresh(inner);
+      if (r.attached.length > 0) {
+        const mine = supersede();
+        const n = r.attached.length;
+        toasts.push({ text: `${n} ${n === 1 ? 'file' : 'files'} attached`, action: undoAction(mine) });
+      }
+      return r;
+    },
+    relinkMedia: (folder) => tracked(() => inner.relinkMedia(folder)),
+    discardImport: () => tracked(() => inner.discardImport()),
+    setSettings: (patch) => tracked(() => inner.setSettings(patch)),
   };
   return new Proxy(inner, {
     get(target, prop) {

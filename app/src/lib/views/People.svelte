@@ -59,9 +59,11 @@
   });
 
   let token = 0;
+  let listKey = '';
   $effect(() => {
     const q = { ...applied };
     void project.rev;
+    const key = JSON.stringify(q);
     const mine = ++token;
     api
       .listPersons(q, 0, PAGE)
@@ -70,7 +72,14 @@
         failed = '';
         first = p;
         selected = Math.min(selected, Math.max(0, p.total - 1));
-        generation++;
+        if (key !== listKey) {
+          // Another query: new list, scroll back to the top.
+          listKey = key;
+          generation++;
+        } else {
+          // Same query after an edit: refresh the loaded pages in place and keep the scroll position.
+          list?.reload();
+        }
       })
       .catch((e: Error) => {
         if (mine === token) failed = e.message;
@@ -201,10 +210,12 @@
           <button
             type="button"
             class="other"
+            aria-label="Other scripts"
+            title="Other scripts"
             disabled={letterMap.other === null}
             onclick={() => letterMap.other !== null && jump(letterMap.other)}
           >
-            Other scripts
+            Other
           </button>
         </nav>
       {/if}
@@ -246,17 +257,17 @@
   .rail {
     display: flex;
     flex-direction: column;
-    width: 2rem;
-    overflow-y: auto;
-    align-items: center;
+    width: 2.75rem;
+    align-items: stretch;
+    min-height: 0;
   }
   .rail button {
-    flex: none;
-    width: 100%;
-    min-height: 1.2rem;
+    flex: 1 1 0;
+    min-height: 0;
     border: 0;
     background: transparent;
     font-size: var(--t-xs);
+    line-height: 1;
     font-weight: 700;
     color: var(--ink-0);
     cursor: pointer;
@@ -269,11 +280,6 @@
     color: var(--ink-2);
     opacity: 0.55;
     cursor: default;
-  }
-  .rail .other {
-    writing-mode: vertical-rl;
-    min-height: 5.5rem;
-    margin-top: var(--s-2);
   }
   .none {
     color: var(--ink-1);

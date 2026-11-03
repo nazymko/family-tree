@@ -89,7 +89,7 @@
   }
 
   function refocus(id: string) {
-    nav.focus(id);
+    nav.visit(id);
   }
 
   function add(relation: AddRelation, opts?: { newParentSet?: boolean }) {

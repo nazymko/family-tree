@@ -84,6 +84,28 @@ describe('Shell', () => {
     ).toBeInTheDocument();
   });
 
+  it('palette_search_failure_shows_hint', async () => {
+    const { user, raw } = await mountShell();
+    vi.spyOn(raw, 'search').mockRejectedValue(new Error('boom'));
+    await user.keyboard('{Control>}k{/Control}');
+    await user.type(screen.getByRole('combobox', { name: 'Search the tree' }), 'Weber');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Search did not work');
+  });
+
+  it('slash_and_mod_digit_ignored_while_modal_open', async () => {
+    const { user } = await mountShell();
+    const modal = document.createElement('div');
+    modal.setAttribute('aria-modal', 'true');
+    document.body.append(modal);
+    await user.keyboard('{Control>}2{/Control}');
+    expect(nav.route.name).toBe('family');
+    await user.keyboard('/');
+    expect(screen.queryByRole('combobox', { name: 'Search the tree' })).toBeNull();
+    modal.remove();
+    await user.keyboard('{Control>}2{/Control}');
+    expect(nav.route.name).not.toBe('family');
+  });
+
   it('undo_via_keyboard_and_toast', async () => {
     const { api, raw, user } = await mountShell();
     const spy = vi.spyOn(raw, 'undo');

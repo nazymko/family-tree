@@ -78,7 +78,10 @@ function onKeyDown(e: KeyboardEvent): void {
   const plat = currentPlatform();
   const editing = isEditable(document.activeElement);
   const live = [...registry].reverse();
-  const usable = (s: Shortcut) => (!editing || s.inInput === true) && (!s.when || s.when());
+  // While a modal dialog is open only shortcuts flagged `inInput` (Mod+K) still work.
+  const modal = !!document.querySelector('[aria-modal="true"]');
+  const usable = (s: Shortcut) =>
+    (!editing || s.inInput === true) && (!modal || s.inInput === true) && (!s.when || s.when());
   const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
 
   if (plain) {

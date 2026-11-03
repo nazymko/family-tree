@@ -113,6 +113,19 @@ describe('FamilyView', () => {
     expect(vi.mocked(flip.flipMove).mock.calls[0][3]).toBe(false);
   });
 
+  it('refocus_back_returns_to_previous_person', async () => {
+    const kid = ref('Greta Schmidt', { sex: 'female' });
+    const me = ref('Karl Schmidt');
+    const { user } = setup([view(me, { partnerships: [union(null, [child(kid)])] }), view(kid)]);
+    await screen.findByRole('heading', { level: 1, name: 'Karl Schmidt' });
+    await user.click(screen.getByRole('button', { name: /Greta Schmidt, 1850-1921, Daughter/ }));
+    await screen.findByRole('heading', { level: 1, name: 'Greta Schmidt' });
+    expect(nav.canBack).toBe(true);
+    nav.back();
+    await screen.findByRole('heading', { level: 1, name: 'Karl Schmidt' });
+    expect(nav.focusPerson).toBe(me.id);
+  });
+
   it('reduced_motion_skips_flip', async () => {
     window.matchMedia = ((q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {} })) as never;
     const animate = vi.fn();

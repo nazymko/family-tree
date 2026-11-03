@@ -18,6 +18,7 @@
   let text = $state('');
   let hits = $state<SearchHitDto[]>([]);
   let searched = $state(false);
+  let failed = $state(false);
   let active = $state(0);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let seq = 0;
@@ -33,6 +34,7 @@
       text = '';
       hits = [];
       searched = false;
+      failed = false;
       active = 0;
       clearTimeout(timer);
       seq++;
@@ -51,11 +53,19 @@
     }
     timer = setTimeout(async () => {
       const mine = ++seq;
-      const found = await api.search(q, 20);
-      if (mine !== seq) return;
-      hits = found;
-      searched = true;
-      active = 0;
+      try {
+        const found = await api.search(q, 20);
+        if (mine !== seq) return;
+        hits = found;
+        failed = false;
+        searched = true;
+        active = 0;
+      } catch {
+        if (mine !== seq) return;
+        hits = [];
+        failed = true;
+        searched = true;
+      }
     }, 150);
   }
 
@@ -122,7 +132,9 @@
         </div>
       {/each}
     </div>
-    {#if searched && flat.length === 0}
+    {#if failed}
+      <p class="none" role="alert">Search did not work. Try again; if it keeps failing, restart the app.</p>
+    {:else if searched && flat.length === 0}
       <p class="none">No matches. Try a different spelling; search also finds similar-sounding names.</p>
     {:else if !searched}
       <p class="hint">Type a name, a place or a source title.</p>
