@@ -165,3 +165,30 @@ fn override_wins() {
     t.persons.get_mut(&p).unwrap().living_override = Some(LivingOverride::Deceased);
     assert!(!compute_living(&t, &LivingRule::default(), today())[&p]);
 }
+
+// Run with: cargo test --release -p gt-core -- --ignored
+#[test]
+#[ignore]
+fn living_scales_linearly() {
+    let n = 50_000;
+    let mut t = Tree::new();
+    let mut prev = add_person(&mut t);
+    add_event(&mut t, prev, EventKind::Birth, Some("1900"));
+    for i in 1..n {
+        let c = add_person(&mut t);
+        family(&mut t, prev, c);
+        if i % 2 == 0 {
+            add_event(&mut t, c, EventKind::Birth, Some("1980"));
+        }
+        prev = c;
+    }
+    let start = std::time::Instant::now();
+    let m = compute_living(&t, &LivingRule::default(), today());
+    let elapsed = start.elapsed();
+    eprintln!("compute_living over {n} persons: {elapsed:?}");
+    assert_eq!(m.len(), n);
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "took {elapsed:?}"
+    );
+}
