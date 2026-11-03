@@ -41,13 +41,13 @@
     border-color: var(--ink-2);
   }
   .primary {
-    background: var(--ribbon);
-    border-color: var(--ribbon);
-    color: var(--on-ribbon);
+    background: var(--primary-bg);
+    border-color: var(--primary-bd);
+    color: var(--primary-fg);
   }
   .primary:hover:not(:disabled) {
-    background: var(--ribbon);
-    border-color: var(--ink-0);
+    background: var(--primary-hover);
+    border-color: var(--primary-bd);
     filter: brightness(0.92);
   }
   .quiet {

@@ -7,7 +7,7 @@
   // Plain browser (npm run dev): MockApi over a seeded 500-person tree. Inside Tauri: the real adapter.
   const { api, platform } = defaultApi();
   setApi(api, platform);
-  void settings.load(api);
+  settings.load(api).catch((e) => console.error('Could not load settings; using defaults.', e));
 </script>
 
 <main>

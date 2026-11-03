@@ -8,7 +8,7 @@
   --rule: #C6CABF;
   --ink-0: #1B2230;
   --ink-1: #454D5C;
-  --ink-2: #626A79;
+  --ink-2: #5A6272;
   --ribbon: #9B2C3F;
   --ribbon-wash: #F1DDE0;
   --on-ribbon: #FFFFFF;
@@ -17,6 +17,10 @@
   --foxing-wash: #F3E6C8;
   --danger: #A3262A;
   --focus: #2D5BA8;
+  --primary-bg: var(--ribbon);
+  --primary-fg: var(--on-ribbon);
+  --primary-bd: var(--ribbon);
+  --primary-hover: var(--ribbon);
   --shadow-pop: 0 8px 24px rgb(0 0 0 / 0.18);
   --scrim: rgb(27 34 48 / 0.4);
   color-scheme: light;
@@ -81,6 +85,10 @@
     --foxing-wash: #38290F;
     --danger: #F08A8C;
     --focus: #86AEF2;
+    --primary-bg: transparent;
+    --primary-fg: var(--ribbon);
+    --primary-bd: var(--ribbon);
+    --primary-hover: var(--ribbon-wash);
     --shadow-pop: 0 8px 24px rgb(0 0 0 / 0.5);
     --scrim: rgb(0 0 0 / 0.6);
     color-scheme: dark;
@@ -103,6 +111,10 @@
   --foxing-wash: #38290F;
   --danger: #F08A8C;
   --focus: #86AEF2;
+  --primary-bg: transparent;
+  --primary-fg: var(--ribbon);
+  --primary-bd: var(--ribbon);
+  --primary-hover: var(--ribbon-wash);
   --shadow-pop: 0 8px 24px rgb(0 0 0 / 0.5);
   --scrim: rgb(0 0 0 / 0.6);
   color-scheme: dark;

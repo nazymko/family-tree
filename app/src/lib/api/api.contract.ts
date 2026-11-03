@@ -43,11 +43,11 @@ export function runApiContract(make: () => Promise<Api>): void {
       const api = await make();
       const page = await api.listPersons(baseQuery, 0, 200);
       for (let i = 1; i < page.items.length; i++) {
-        expect(page.items[i - 1].surname.localeCompare(page.items[i].surname)).toBeLessThanOrEqual(0);
+        expect(page.items[i - 1].surname.localeCompare(page.items[i].surname, 'en')).toBeLessThanOrEqual(0);
       }
       const desc = await api.listPersons({ ...baseQuery, desc: true }, 0, 200);
       for (let i = 1; i < desc.items.length; i++) {
-        expect(desc.items[i - 1].surname.localeCompare(desc.items[i].surname)).toBeGreaterThanOrEqual(0);
+        expect(desc.items[i - 1].surname.localeCompare(desc.items[i].surname, 'en')).toBeGreaterThanOrEqual(0);
       }
     });
 

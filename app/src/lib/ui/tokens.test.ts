@@ -49,6 +49,12 @@ describe('tokens', () => {
         expect(contrast(t['--focus'], t['--paper-1'])).toBeGreaterThanOrEqual(3);
         expect(contrast(t['--rule'], t['--paper-1'])).toBeGreaterThanOrEqual(1.3);
       });
+      it('on_ribbon_and_wash_pairs', () => {
+        expect(contrast(t['--on-ribbon'], t['--ribbon'])).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(t['--ink-0'], t['--ribbon-wash'])).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(t['--ink-2'], t['--paper-2'])).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(t['--ribbon'], t['--ribbon-wash'])).toBeGreaterThanOrEqual(3);
+      });
       it('status_colours_readable', () => {
         expect(contrast(t['--danger'], t['--paper-1'])).toBeGreaterThanOrEqual(4.5);
         expect(contrast(t['--verdigris'], t['--paper-1'])).toBeGreaterThanOrEqual(4.5);

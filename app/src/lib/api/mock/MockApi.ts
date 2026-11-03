@@ -55,6 +55,8 @@ import { toDateDto, toPreview, yearOf } from './mockParse';
 
 export { MockApiError } from './model';
 
+/** Fixed so living/deceased results do not drift with the calendar. */
+const REFERENCE_YEAR = 2026;
 const MAX_PAGE = 200;
 const MAX_SEARCH = 50;
 
@@ -223,7 +225,7 @@ export class MockApi implements Api {
     const lim = Math.max(0, Math.min(limit, MAX_PAGE));
     const off = Math.max(0, offset);
     const sorted = this.sortedRows(q);
-    const page: Page<PersonRow> = { total: sorted.length, offset: off, items: sorted.slice(off, off + lim) };
+    const page: Page<PersonRow> = { total: sorted.length, offset: off, items: structuredClone(sorted.slice(off, off + lim)) };
     if (q.sort === 'surname' || q.sort === 'given') {
       const seen = new Set<string>();
       page.letters = [];
@@ -236,12 +238,12 @@ export class MockApi implements Api {
         }
       });
     }
-    return page;
+    return structuredClone(page);
   }
 
   async getPerson(id: Id): Promise<PersonDetail> {
     const p = this.person(id);
-    return {
+    return structuredClone({
       ref: this.ref(p),
       sex: p.sex,
       sexText: p.sexText,
@@ -256,7 +258,7 @@ export class MockApi implements Api {
       media: p.media,
       citations: p.citations,
       changed: p.changed,
-    };
+    });
   }
 
   async getFamilyView(id: Id): Promise<FamilyViewDto> {
@@ -274,13 +276,13 @@ export class MockApi implements Api {
       }
     }
     sibs.sort((a, b) => (this.birthSort(a) ?? Infinity) - (this.birthSort(b) ?? Infinity));
-    return {
+    return structuredClone({
       focus: this.ref(p),
       focusSummary: this.summary(p),
       parentSets,
       partnerships: this.partnerships(id),
       siblings: sibs.map((s) => this.ref(s)),
-    };
+    });
   }
 
   async search(query: string, limit: number): Promise<SearchHitDto[]> {
@@ -330,7 +332,7 @@ export class MockApi implements Api {
       if (!q || fold(p.name).startsWith(q) || fold(p.full).startsWith(q)) out.push(p);
       if (out.length >= Math.min(limit, MAX_SEARCH)) break;
     }
-    return out;
+    return structuredClone(out);
   }
 
   async suggestSources(prefix: string, limit: number): Promise<SourceDto[]> {
@@ -340,11 +342,11 @@ export class MockApi implements Api {
       if (!q || fold(s.title ?? '').includes(q)) out.push(s);
       if (out.length >= Math.min(limit, MAX_SEARCH)) break;
     }
-    return out;
+    return structuredClone(out);
   }
 
   async lastCitation(): Promise<CitationDto | null> {
-    return this.lastCit;
+    return this.lastCit ? structuredClone(this.lastCit) : null;
   }
 
   // ----------------------------------------------------------------- history
@@ -503,7 +505,7 @@ export class MockApi implements Api {
       }
       return x0 <= rect.x + rect.w && x1 >= rect.x && y0 <= rect.y + rect.h && y1 >= rect.y;
     });
-    return { nodes, edges };
+    return structuredClone({ nodes, edges });
   }
 
   async chartOutline(chartId: number, parentNode: number | null, limit: number): Promise<OutlineItem[]> {
@@ -689,7 +691,7 @@ export class MockApi implements Api {
     if (p.livingOverride) return p.livingOverride === 'living';
     if (this.death(p)) return false;
     const y = yearOf(this.birth(p)?.date ?? null);
-    return y !== null && new Date().getFullYear() - y < this.settings.livingMaxAge;
+    return y !== null && REFERENCE_YEAR - y < this.settings.livingMaxAge;
   }
 
   private isLiving(p: PersonRec): boolean {
@@ -769,10 +771,10 @@ export class MockApi implements Api {
       let c = 0;
       switch (q.sort) {
         case 'surname':
-          c = a.surname.localeCompare(b.surname) || a.given.localeCompare(b.given);
+          c = a.surname.localeCompare(b.surname, 'en') || a.given.localeCompare(b.given, 'en');
           break;
         case 'given':
-          c = a.given.localeCompare(b.given) || a.surname.localeCompare(b.surname);
+          c = a.given.localeCompare(b.given, 'en') || a.surname.localeCompare(b.surname, 'en');
           break;
         case 'birth':
           c = birthKey(a) - birthKey(b);
@@ -782,7 +784,7 @@ export class MockApi implements Api {
           c = a.changed - b.changed;
           break;
       }
-      return c * dir || a.id.localeCompare(b.id);
+      return c * dir || a.id.localeCompare(b.id, 'en');
     };
     out = [...out].sort(cmp);
     this.sortCache.set(key, out);
