@@ -347,3 +347,183 @@ fn shared_media_is_reported_and_exclusive_media_dropped() {
     assert!(!out.media.contains_key(&sid));
     assert_eq!(s.group_media, vec![gid]);
 }
+
+fn bare_media(path: &str) -> Media {
+    Media {
+        common: common(),
+        path: path.into(),
+        original_name: None,
+        mime: None,
+        title: None,
+        date: None,
+        description: None,
+        sha256: None,
+    }
+}
+
+#[test]
+fn include_all_with_private_is_identity() {
+    let (mut t, _, _, _, _) = family_tree();
+    let src = Source {
+        common: common(),
+        title: Some("Orphan".into()),
+        author: None,
+        publication: None,
+        abbreviation: None,
+        text: None,
+        repositories: vec![],
+    };
+    t.sources.insert(src.common.id, src);
+    let repo = Repository {
+        common: common(),
+        name: "Archive".into(),
+        address: None,
+        urls: vec![],
+    };
+    t.repositories.insert(repo.common.id, repo);
+    add_note(&mut t, "standalone");
+    let m = bare_media("orphan.jpg");
+    t.media.insert(m.common.id, m);
+    // empty family carrying an event and a note
+    let ev = add_event(&mut t, EventKind::Marriage, Some("1800"), &[]);
+    let note = add_note(&mut t, "family note");
+    let c = common();
+    let fid = c.id;
+    let mut c = c;
+    c.notes.push(note);
+    t.families.insert(
+        fid,
+        Family {
+            common: c,
+            partner1: None,
+            partner2: None,
+            kind: UnionKind::Unknown,
+            children: vec![],
+        },
+    );
+    t.events
+        .get_mut(&ev)
+        .unwrap()
+        .participants
+        .push(Participant {
+            target: ParticipantRef::Family(fid),
+            role: Role::Principal,
+        });
+    let mut pol = policy(LivingMode::IncludeAll);
+    pol.include_private = true;
+    let (out, s) = filter(&t, &pol, today());
+    assert_eq!(out, t);
+    assert_eq!(s.removed_records, 0);
+}
+
+#[test]
+fn family_with_hidden_partner_loses_family_level_data() {
+    let (mut t, dad, _mum, kid, fam) = family_tree();
+    // make a living partner: the kid becomes a parent of a new family
+    let spouse = add_person(&mut t, "Old", "Spouse");
+    add_event(
+        &mut t,
+        EventKind::Death,
+        Some("1900"),
+        &[(spouse, Role::Principal)],
+    );
+    let note = add_note(&mut t, "family secret");
+    let m = bare_media("fam.jpg");
+    let mid = m.common.id;
+    t.media.insert(mid, m);
+    let c = common();
+    let fid = c.id;
+    let mut c = c;
+    c.notes.push(note);
+    c.media.push(MediaLink {
+        media: mid,
+        region: None,
+        primary: false,
+    });
+    t.families.insert(
+        fid,
+        Family {
+            common: c,
+            partner1: Some(kid),
+            partner2: Some(spouse),
+            kind: UnionKind::Married,
+            children: vec![],
+        },
+    );
+    let _ = (dad, fam);
+    let (out, _) = filter(&t, &policy(LivingMode::Placeholder), today());
+    assert!(out.families[&fid].common.notes.is_empty());
+    assert!(out.families[&fid].common.media.is_empty());
+    assert!(!out.notes.contains_key(&note));
+    assert!(!out.media.contains_key(&mid));
+}
+
+#[test]
+fn hidden_child_link_and_placeholder_residue_cleared() {
+    let (mut t, _, _, kid, fam) = family_tree();
+    let cit = Citation {
+        common: common(),
+        source: None,
+        page: None,
+        date: None,
+        text: None,
+        quality: None,
+        evidence: Evidence {
+            original: None,
+            primary_info: None,
+            direct: None,
+        },
+    };
+    let cid = cit.common.id;
+    t.citations.insert(cid, cit);
+    let link = &mut t.families.get_mut(&fam).unwrap().children[0];
+    link.citations.push(cid);
+    link.unknown.push(gt_core::raw::RawNode {
+        tag: "_X".into(),
+        xref: None,
+        value: None,
+        pos: 0,
+        children: vec![],
+    });
+    let p = t.persons.get_mut(&kid).unwrap();
+    p.common.changed = Some(5);
+    p.living_override = Some(LivingOverride::Living);
+    let (out, _) = filter(&t, &policy(LivingMode::Placeholder), today());
+    let l = &out.families[&fam].children[0];
+    assert!(l.citations.is_empty() && l.unknown.is_empty());
+    assert_eq!(l.rel1, ParentRel::Birth);
+    assert!(!out.citations.contains_key(&cid));
+    let p = &out.persons[&kid];
+    assert_eq!(p.common.changed, None);
+    assert_eq!(p.living_override, None);
+}
+
+#[test]
+fn family_event_with_hidden_partner_is_dropped_and_counted() {
+    let (mut t, _, _, kid, _) = family_tree();
+    let ev = add_event(&mut t, EventKind::Marriage, Some("2015"), &[]);
+    let c = common();
+    let fid = c.id;
+    t.families.insert(
+        fid,
+        Family {
+            common: c,
+            partner1: Some(kid),
+            partner2: None,
+            kind: UnionKind::Married,
+            children: vec![],
+        },
+    );
+    t.events
+        .get_mut(&ev)
+        .unwrap()
+        .participants
+        .push(Participant {
+            target: ParticipantRef::Family(fid),
+            role: Role::Principal,
+        });
+    let (out, s) = filter(&t, &policy(LivingMode::Placeholder), today());
+    assert!(!out.events.contains_key(&ev));
+    assert!(out.families.contains_key(&fid));
+    assert!(s.removed_records >= 1);
+}

@@ -63,52 +63,56 @@ fn common_refs(c: &Common, notes: &mut Vec<Uuid>, cits: &mut Vec<Uuid>, media: &
     media.extend(c.media.iter().map(|m| m.media));
 }
 
-/// Remove ids that no longer exist from every reference list.
-fn scrub_dangling(t: &mut Tree) {
-    let notes: HashSet<Uuid> = t.notes.keys().copied().collect();
-    let cits: HashSet<Uuid> = t.citations.keys().copied().collect();
-    let media: HashSet<Uuid> = t.media.keys().copied().collect();
-    let places: HashSet<Uuid> = t.places.keys().copied().collect();
-    let sources: HashSet<Uuid> = t.sources.keys().copied().collect();
-    let repos: HashSet<Uuid> = t.repositories.keys().copied().collect();
+/// Remove references to ids the filter itself removed (`orig` minus `t`); references that
+/// were already dangling in the input are left as they were.
+fn scrub_dangling(t: &mut Tree, orig: &Tree) {
+    fn gone<V>(o: &indexmap::IndexMap<Uuid, V>, n: &indexmap::IndexMap<Uuid, V>) -> HashSet<Uuid> {
+        o.keys().filter(|k| !n.contains_key(*k)).copied().collect()
+    }
+    let notes = gone(&orig.notes, &t.notes);
+    let cits = gone(&orig.citations, &t.citations);
+    let media = gone(&orig.media, &t.media);
+    let places = gone(&orig.places, &t.places);
+    let sources = gone(&orig.sources, &t.sources);
+    let repos = gone(&orig.repositories, &t.repositories);
     let fix = |c: &mut Common| {
-        c.notes.retain(|i| notes.contains(i));
-        c.citations.retain(|i| cits.contains(i));
-        c.media.retain(|m| media.contains(&m.media));
+        c.notes.retain(|i| !notes.contains(i));
+        c.citations.retain(|i| !cits.contains(i));
+        c.media.retain(|m| !media.contains(&m.media));
     };
     t.persons.values_mut().for_each(|r| {
         fix(&mut r.common);
         for n in &mut r.names {
-            n.notes.retain(|i| notes.contains(i));
-            n.citations.retain(|i| cits.contains(i));
+            n.notes.retain(|i| !notes.contains(i));
+            n.citations.retain(|i| !cits.contains(i));
         }
     });
     t.families.values_mut().for_each(|r| {
         fix(&mut r.common);
         for c in &mut r.children {
-            c.citations.retain(|i| cits.contains(i));
+            c.citations.retain(|i| !cits.contains(i));
         }
     });
     t.events.values_mut().for_each(|r| {
         fix(&mut r.common);
-        if r.place.is_some_and(|p| !places.contains(&p)) {
+        if r.place.is_some_and(|p| places.contains(&p)) {
             r.place = None;
         }
     });
     t.places.values_mut().for_each(|r| {
         fix(&mut r.common);
-        if r.parent.is_some_and(|p| !places.contains(&p)) {
+        if r.parent.is_some_and(|p| places.contains(&p)) {
             r.parent = None;
         }
     });
     t.sources.values_mut().for_each(|r| {
         fix(&mut r.common);
-        r.repositories.retain(|x| repos.contains(&x.repository));
+        r.repositories.retain(|x| !repos.contains(&x.repository));
     });
     t.repositories.values_mut().for_each(|r| fix(&mut r.common));
     t.citations.values_mut().for_each(|r| {
         fix(&mut r.common);
-        if r.source.is_some_and(|s| !sources.contains(&s)) {
+        if r.source.is_some_and(|s| sources.contains(&s)) {
             r.source = None;
         }
     });
@@ -116,8 +120,9 @@ fn scrub_dangling(t: &mut Tree) {
     t.notes.values_mut().for_each(|r| fix(&mut r.common));
 }
 
-/// Keep only records reachable from persons, families and events.
-fn gc(t: &mut Tree) {
+/// Sets of record ids (notes, citations, media, places, sources, repositories) reachable
+/// from persons, families and events.
+fn reach(t: &Tree) -> [HashSet<Uuid>; 6] {
     let (mut notes, mut cits, mut media) = (vec![], vec![], vec![]);
     let (mut places, mut sources, mut repos) = (vec![], vec![], vec![]);
     for p in t.persons.values() {
@@ -189,12 +194,21 @@ fn gc(t: &mut Tree) {
             break;
         }
     }
-    t.notes.retain(|id, _| keep[0].contains(id));
-    t.citations.retain(|id, _| keep[1].contains(id));
-    t.media.retain(|id, _| keep[2].contains(id));
-    t.places.retain(|id, _| keep[3].contains(id));
-    t.sources.retain(|id, _| keep[4].contains(id));
-    t.repositories.retain(|id, _| keep[5].contains(id));
+    keep
+}
+
+/// Delete records that were reachable in `orig` but no longer are in `t`; records that
+/// were already unreferenced in the input are kept.
+fn gc(t: &mut Tree, orig: &Tree) {
+    let before = reach(orig);
+    let after = reach(t);
+    let dead = |i: usize, id: &Uuid| before[i].contains(id) && !after[i].contains(id);
+    t.notes.retain(|id, _| !dead(0, id));
+    t.citations.retain(|id, _| !dead(1, id));
+    t.media.retain(|id, _| !dead(2, id));
+    t.places.retain(|id, _| !dead(3, id));
+    t.sources.retain(|id, _| !dead(4, id));
+    t.repositories.retain(|id, _| !dead(5, id));
 }
 
 fn full_names(p: &Person) -> Vec<String> {
@@ -209,6 +223,14 @@ fn full_names(p: &Person) -> Vec<String> {
         .collect()
 }
 
+/// Filter a tree for export under `policy`.
+///
+/// Notes on behaviour: private records are removed regardless of living mode. The
+/// brief's "private ChildLink" clause is not implemented because `ChildLink` has no
+/// `private` field. Events attached to a family with any hidden partner are dropped
+/// (fail-safe, their dates would leak) and counted in `removed_records`. Only records the
+/// filter itself orphaned are garbage-collected; records already unreferenced in the
+/// input, and references already dangling in the input, are left untouched.
 pub fn filter(tree: &Tree, policy: &PrivacyPolicy, today_jdn: i32) -> (Tree, PrivacySummary) {
     let living = compute_living(tree, &policy.rule, today_jdn);
     let hidden: HashSet<Uuid> = if policy.living == LivingMode::IncludeAll {
@@ -292,26 +314,16 @@ pub fn filter(tree: &Tree, policy: &PrivacyPolicy, today_jdn: i32) -> (Tree, Pri
                 p.common.media.clear();
                 p.common.ext_ids.clear();
                 p.common.unknown.clear();
+                p.common.changed = None;
+                p.living_override = None;
             }
         }
     } else {
         t.persons.retain(|id, _| !hidden.contains(id));
     }
 
-    // Families: drop vanished people, then empty families.
-    let alive: HashSet<Uuid> = t.persons.keys().copied().collect();
-    for f in t.families.values_mut() {
-        for slot in [&mut f.partner1, &mut f.partner2] {
-            if slot.is_some_and(|p| !alive.contains(&p)) {
-                *slot = None;
-            }
-        }
-        f.children.retain(|c| alive.contains(&c.person));
-    }
-    t.families
-        .retain(|_, f| f.partner1.is_some() || f.partner2.is_some() || !f.children.is_empty());
-
-    // Families with a hidden partner lose their own events too (dates would leak).
+    // Families with a hidden partner lose their own notes, media, citations and extras
+    // (and, below, their events): family-level data would leak the living partner.
     let hidden_families: HashSet<Uuid> = tree
         .families
         .iter()
@@ -323,15 +335,63 @@ pub fn filter(tree: &Tree, policy: &PrivacyPolicy, today_jdn: i32) -> (Tree, Pri
         })
         .map(|(id, _)| *id)
         .collect();
+    let gone_persons: HashSet<Uuid> = tree
+        .persons
+        .keys()
+        .filter(|k| !t.persons.contains_key(*k))
+        .copied()
+        .collect();
+    let mut emptied = vec![];
+    for (fid, f) in &mut t.families {
+        if hidden_families.contains(fid) {
+            f.common.notes.clear();
+            f.common.media.clear();
+            f.common.citations.clear();
+            f.common.ext_ids.clear();
+            f.common.unknown.clear();
+        }
+        let (n_children, had_partner) = (
+            f.children.len(),
+            f.partner1.is_some() || f.partner2.is_some(),
+        );
+        for slot in [&mut f.partner1, &mut f.partner2] {
+            if slot.is_some_and(|p| gone_persons.contains(&p) || hidden_removed(&p)) {
+                *slot = None;
+            }
+        }
+        f.children
+            .retain(|c| !gone_persons.contains(&c.person) && !hidden_removed(&c.person));
+        if placeholder {
+            for c in f.children.iter_mut().filter(|c| hidden.contains(&c.person)) {
+                c.citations.clear();
+                c.unknown.clear();
+            }
+        }
+        let changed = f.children.len() != n_children
+            || had_partner != (f.partner1.is_some() || f.partner2.is_some());
+        if changed && f.partner1.is_none() && f.partner2.is_none() && f.children.is_empty() {
+            emptied.push(*fid);
+        }
+    }
+    for id in &emptied {
+        t.families.shift_remove(id);
+    }
+    let gone_families: HashSet<Uuid> = tree
+        .families
+        .keys()
+        .filter(|k| !t.families.contains_key(*k))
+        .copied()
+        .collect();
 
     // Events: strip participants that are gone, drop events left without a principal.
-    let families: HashSet<Uuid> = t.families.keys().copied().collect();
     let mut dropped = vec![];
     for (id, e) in &mut t.events {
         let n = e.participants.len();
         e.participants.retain(|p| match p.target {
-            ParticipantRef::Person(x) => alive.contains(&x) && !hidden.contains(&x),
-            ParticipantRef::Family(f) => families.contains(&f) && !hidden_families.contains(&f),
+            ParticipantRef::Person(x) => !gone_persons.contains(&x) && !hidden.contains(&x),
+            ParticipantRef::Family(f) => {
+                !gone_families.contains(&f) && !hidden_families.contains(&f)
+            }
         });
         let touched = e.participants.len() != n;
         let has_principal = e.participants.iter().any(|p| p.role == Role::Principal);
@@ -343,10 +403,9 @@ pub fn filter(tree: &Tree, policy: &PrivacyPolicy, today_jdn: i32) -> (Tree, Pri
         t.events.shift_remove(&id);
     }
 
-    // Dangling references, then reachability GC.
-    scrub_dangling(&mut t);
-    gc(&mut t);
-    scrub_dangling(&mut t);
+    // Reachability GC (only records this filter orphaned), then dangling references.
+    gc(&mut t, tree);
+    scrub_dangling(&mut t, tree);
 
     // Mention warnings over the notes that survived.
     for (nid, note) in &t.notes {
