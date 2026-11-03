@@ -212,3 +212,40 @@ fn parse_date_under_5ms() {
     }
     assert!(t.elapsed() < std::time::Duration::from_millis(500));
 }
+
+#[test]
+fn places_after_edit_include_new_chain() {
+    // Goes through the real edit command (plan, commit, rebuild), not a direct tree insert.
+    let (_d, mut s) = open_ged(&ged("0 @I1@ INDI
+1 NAME Eva /Meyer/
+"));
+    assert!(s.suggest_places("zug", 5).is_empty());
+    let eva = *s.tree().persons.keys().next().unwrap();
+    s.apply(EditCommand::SaveEvent {
+        owner: EventOwner {
+            kind: EventOwnerKind::Person,
+            id: eva,
+        },
+        event: EventInput {
+            id: None,
+            kind: "residence".into(),
+            date_raw: None,
+            place_text: Some("Zug, Switzerland".into()),
+            place_id: None,
+            description: None,
+            age: None,
+            cause: None,
+            negative: false,
+            private: false,
+            preferred: true,
+            participants: None,
+        },
+    })
+    .unwrap();
+    let got = s.suggest_places("zug", 5);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].full, "Zug, Switzerland");
+    // Undo removes the chain again.
+    s.undo().unwrap();
+    assert!(s.suggest_places("zug", 5).is_empty());
+}
