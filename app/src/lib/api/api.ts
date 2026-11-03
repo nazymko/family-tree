@@ -10,6 +10,7 @@ import type {
   EditResult,
   ExifSuggestion,
   ExportOptions,
+  FamilyDto,
   FamilyViewDto,
   HistoryEntry,
   Id,
@@ -51,8 +52,10 @@ export interface Api {
   listPersons(q: PersonQuery, offset: number, limit: number): Promise<Page<PersonRow>>;
   getPerson(id: Id): Promise<PersonDetail>;
   getFamilyView(id: Id): Promise<FamilyViewDto>;
+  getFamily(id: Id): Promise<FamilyDto>;
   search(query: string, limit: number): Promise<SearchHitDto[]>;
-  apply(cmd: EditCommand): Promise<EditResult>;
+  /** `silent`: the caller shows its own confirmation, so the shell must not raise a toast. */
+  apply(cmd: EditCommand, opts?: { silent?: boolean }): Promise<EditResult>;
   undo(): Promise<EditResult | null>;
   redo(): Promise<EditResult | null>;
   undoState(): Promise<UndoState>;
@@ -69,7 +72,8 @@ export interface Api {
   mediaUrl(id: Id, size: 'thumb' | 'preview' | 'original'): string;
   exifSuggestion(media: Id): Promise<ExifSuggestion | null>;
   /** add_media_file + Media record + link, one undo step. */
-  attachFiles(target: OwnerRef, paths: string[]): Promise<AttachResult>;
+  /** `silent` asks the shell's default toaster to stay quiet because the caller shows its own notice. */
+  attachFiles(target: OwnerRef, paths: string[], opts?: { silent?: boolean }): Promise<AttachResult>;
   previewExport(opts: ExportOptions): Promise<PrivacyPreview>;
   exportGedcom(opts: ExportOptions, dest: string, previewToken: string): Promise<{ bytes: number }>;
   getSettings(): Promise<Settings>;

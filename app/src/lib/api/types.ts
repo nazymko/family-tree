@@ -9,7 +9,13 @@ export type SexKind = 'male' | 'female' | 'intersex' | 'unknown' | 'other';
 export interface PersonRef {
   id: Id;
   name: string;
-  lifespan: string; // "1850-1921", "b. 1850", ""
+  /**
+   * The STATED years with a qualifier, never the range bounds of the parsed date: about/est/calc "c. 1968",
+   * before "bef. 1968", after "aft. 1968", between/from..to the first stated year with "c.". Both years:
+   * "c. 1968 – 2021" (en dash with spaces). Birth only: "b. 1850". Unknown birth with a death: "? – 2021".
+   * Empty when neither is known.
+   */
+  lifespan: string;
   sex: SexKind;
   living: boolean;
   private: boolean;
@@ -174,6 +180,15 @@ export interface FamilyViewDto {
   partnerships: PartnershipDto[];
   siblings: PersonRef[];
 }
+/** One family (union) read by id: both partner slots, union type and events, children with their per-parent relationship. */
+export interface FamilyDto {
+  id: Id;
+  partners: [PersonRef | null, PersonRef | null];
+  kind: UnionKindId;
+  summary: string | null;
+  events: EventDto[];
+  children: (ChildDto & { preferred: boolean })[];
+}
 export interface PersonDetail {
   ref: PersonRef;
   sex: SexKind;
@@ -230,6 +245,12 @@ export interface ImportRequest {
   mediaRoots: string[];
   dayOrder: DayOrder;
 }
+export interface MissingMedia {
+  path: string;
+  reason: 'notFound' | 'outsideRoots' | 'ambiguous';
+  /** Files that could be the one meant (reason 'ambiguous'). */
+  candidates: string[];
+}
 export interface ImportReportDto {
   project: ProjectInfo;
   encoding: string;
@@ -239,7 +260,9 @@ export interface ImportReportDto {
   repairs: { kind: string; line: number | null; detail: string }[];
   unmappedTags: Record<string, number>;
   unparsedDates: { line: number; text: string }[];
-  missingMedia: string[];
+  missingMedia: MissingMedia[];
+  /** Photos that are web links; they are kept as links, not copied. */
+  mediaUrls: string[];
   truncated: boolean;
   text: string;
 }
@@ -273,6 +296,7 @@ export interface ExportOptions {
 export interface PrivacyPreview {
   options: ExportOptions;
   defaultVersion: '5.5.1' | '7.0';
+  /** People written under their own name. Does NOT include placeholders: people in the file = exportedPersons + placeholderPersons. */
   exportedPersons: number;
   placeholderPersons: number;
   hiddenPersons: number;

@@ -100,6 +100,23 @@ export function runApiContract(make: () => Promise<Api>): void {
       }
     });
 
+    it('get_family_matches_partnership', async () => {
+      const api = await make();
+      const page = await api.listPersons(baseQuery, 0, 200);
+      for (const row of page.items) {
+        const p = await api.getPerson(row.id);
+        const ps = p.partnerships.find((x) => x.children.length > 0);
+        if (!ps) continue;
+        const fam = await api.getFamily(ps.familyId);
+        expect(fam.id).toBe(ps.familyId);
+        expect(fam.partners.map((x) => x?.id)).toContain(row.id);
+        expect(fam.children.map((c) => c.person.id)).toEqual(ps.children.map((c) => c.person.id));
+        expect(fam.kind).toBe(ps.kind);
+        return;
+      }
+      throw new Error('no family with children in the fixture');
+    });
+
     it('apply_then_undo', async () => {
       const api = await make();
       const before = await api.listPersons(baseQuery, 0, 1);
@@ -252,6 +269,7 @@ export function runApiContract(make: () => Promise<Api>): void {
       const api = await make();
       expect((await rejection(api.getPerson('x'))).code).toBe('not_found');
       expect((await rejection(api.getFamilyView('x'))).code).toBe('not_found');
+      expect((await rejection(api.getFamily('x'))).code).toBe('not_found');
       expect((await rejection(api.apply({ type: 'deletePerson', id: 'x' }))).code).toBe('not_found');
     });
 

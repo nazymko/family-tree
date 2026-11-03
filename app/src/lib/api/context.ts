@@ -16,6 +16,11 @@ export function setApi(api: Api, platform: Platform): void {
   setContext<ApiBundle>(KEY, { api, platform });
 }
 
+/** For tests: the `context` option of testing-library's render(). */
+export function apiContext(api: Api, platform: Platform): Map<symbol, ApiBundle> {
+  return new Map([[KEY, { api, platform }]]);
+}
+
 function bundle(): ApiBundle {
   const b = getContext<ApiBundle | undefined>(KEY);
   if (!b) throw new Error('No Api in context. Call setApi(api, platform) in the root component.');

@@ -15,6 +15,7 @@ import type {
   EventInput,
   ExifSuggestion,
   ExportOptions,
+  FamilyDto,
   FamilyViewDto,
   HistoryEntry,
   Id,
@@ -50,8 +51,10 @@ import type {
 import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } from './build';
 import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
-import { layoutDescendants, layoutPedigree, outlineOf, type Layout, type LayoutSource } from './mockLayout';
-import { toDateDto, toPreview, yearOf } from './mockParse';
+import type { Layout } from './mockLayout';
+import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } from './layout';
+import { toDateDto, yearOf } from './mockParse';
+import { lifespanText, previewDate } from './mockDate';
 
 export { MockApiError } from './model';
 
@@ -75,6 +78,7 @@ interface HistoryRecord {
 interface ChartState {
   kind: 'pedigree' | 'descendants';
   layout: Layout;
+  version: number;
 }
 
 interface OwnerBag {
@@ -112,6 +116,11 @@ const LABELS: Record<EditCommand['type'], string> = {
 
 const missing = (what: string, id: Id) => new MockApiError('not_found', `No ${what} with id "${id}" in this project.`);
 const invalid = (message: string) => new MockApiError('invalid', message);
+
+/** An unnamed person is valid in genealogy; show it as Unknown. */
+function unnamedOk(n: NameDto): NameDto {
+  return n.display ? n : { ...n, display: 'Unknown' };
+}
 
 export class MockApi implements Api {
   private db: Db;
@@ -206,7 +215,13 @@ export class MockApi implements Api {
       ],
       unmappedTags: { _FSFTID: 412, _UID: 1380 },
       unparsedDates: [{ line: 880, text: 'sometime in the 1850s?' }],
-      missingMedia: ['photos/wedding-1878.jpg', 'photos/farm.jpg'],
+      missingMedia: [
+        { path: 'photos/wedding-1878.jpg', reason: 'notFound', candidates: [] },
+        { path: 'photos/farm.jpg', reason: 'notFound', candidates: [] },
+        { path: 'D:/Scans/census-1900.jpg', reason: 'outsideRoots', candidates: [] },
+        { path: 'portrait.jpg', reason: 'ambiguous', candidates: ['photos/anna/portrait.jpg', 'photos/karl/portrait.jpg'] },
+      ],
+      mediaUrls: ['https://example.org/images/grandfather.jpg'],
       truncated: false,
       text: 'Mock import report\nPersons: ' + this.db.persons.size + '\n',
     };
@@ -285,6 +300,26 @@ export class MockApi implements Api {
     });
   }
 
+  async getFamily(id: Id): Promise<FamilyDto> {
+    const f = this.db.families.get(id);
+    if (!f) throw missing('family', id);
+    const pr = (pid: Id | null): PersonRef | null => {
+      const p = pid ? this.db.persons.get(pid) : undefined;
+      return p ? this.ref(p) : null;
+    };
+    return structuredClone({
+      id: f.id,
+      partners: [pr(f.partner1), pr(f.partner2)] as [PersonRef | null, PersonRef | null],
+      kind: f.kind,
+      summary: this.unionSummary(f),
+      events: f.events,
+      children: f.children.flatMap((c) => {
+        const cp = this.db.persons.get(c.person);
+        return cp ? [{ person: this.ref(cp), rel: c.rel, birth: this.birth(cp)?.date?.display ?? '', preferred: c.preferred }] : [];
+      }),
+    });
+  }
+
   async search(query: string, limit: number): Promise<SearchHitDto[]> {
     const q = fold(query.trim());
     const lim = Math.max(0, Math.min(limit, MAX_SEARCH));
@@ -322,7 +357,7 @@ export class MockApi implements Api {
   }
 
   async parseDate(input: string, order: DayOrder): Promise<DatePreview> {
-    return toPreview(input, order);
+    return previewDate(input, order);
   }
 
   async suggestPlaces(prefix: string, limit: number): Promise<PlaceOption[]> {
@@ -467,14 +502,14 @@ export class MockApi implements Api {
   async chartOpen(req: ChartRequest): Promise<ChartMeta> {
     this.person(req.root);
     const generations = Math.max(1, Math.min(req.generations, 20));
-    const src: LayoutSource = {
+    const src: RustLayoutSource = {
       ref: (id) => this.ref(this.person(id)),
       parents: (id) => this.preferredParents(id),
-      children: (id) => this.childrenOf(id),
+      unions: (id) => this.unionsOf(id),
     };
     const layout = req.kind === 'pedigree' ? layoutPedigree(req.root, generations, src) : layoutDescendants(req.root, generations, src);
     const chartId = this.nextChart++;
-    this.charts.set(chartId, { kind: req.kind, layout });
+    this.charts.set(chartId, { kind: req.kind, layout, version: this.version });
     return {
       chartId,
       kind: req.kind,
@@ -489,6 +524,7 @@ export class MockApi implements Api {
   async chartWindow(chartId: number, rect: Rect, zoom: number): Promise<ChartWindow> {
     void zoom;
     const c = this.chart(chartId);
+    if (c.version !== this.version) throw new MockApiError('stale', 'The tree changed since this chart was opened. Reopen the chart.');
     const nodes: ChartNode[] = c.layout.nodes.filter(
       (n) => n.x < rect.x + rect.w && n.x + n.w > rect.x && n.y < rect.y + rect.h && n.y + n.h > rect.y,
     );
@@ -699,12 +735,7 @@ export class MockApi implements Api {
   }
 
   private lifespan(p: PersonRec): string {
-    const b = yearOf(this.birth(p)?.date ?? null);
-    const d = yearOf(this.death(p)?.date ?? null);
-    if (b !== null && d !== null) return `${b}-${d}`;
-    if (b !== null) return `b. ${b}`;
-    if (d !== null) return `d. ${d}`;
-    return '';
+    return lifespanText(this.birth(p)?.date ?? null, this.death(p)?.date ?? null);
   }
 
   private ref(p: PersonRec): PersonRef {
@@ -857,6 +888,15 @@ export class MockApi implements Api {
     return best ? [best.partner1, best.partner2] : [null, null];
   }
 
+  private unionsOf(id: Id): { partner: Id | null; children: Id[] }[] {
+    const out: { partner: Id | null; children: Id[] }[] = [];
+    for (const f of this.db.families.values()) {
+      if (f.partner1 !== id && f.partner2 !== id) continue;
+      out.push({ partner: f.partner1 === id ? f.partner2 : f.partner1, children: f.children.map((c) => c.person) });
+    }
+    return out;
+  }
+
   private childrenOf(id: Id): Id[] {
     const seen = new Set<Id>();
     const out: Id[] = [];
@@ -894,7 +934,6 @@ export class MockApi implements Api {
     const id = this.ids.next();
     const given = draft.given?.trim() || undefined;
     const surnames = draft.surnames.map((s) => s.trim()).filter(Boolean);
-    if (!given && surnames.length === 0) throw invalid('Enter a given name or a surname.');
     const events: EventDto[] = [];
     if (draft.birthDateRaw?.trim() || draft.birthPlaceText?.trim()) {
       events.push(
@@ -912,7 +951,7 @@ export class MockApi implements Api {
       sexText: null,
       livingOverride: null,
       private: false,
-      names: [makeName(this.ids.next(), { kind: 'birth', preferred: true, private: false, given, surnames })],
+      names: [unnamedOk(makeName(this.ids.next(), { kind: 'birth', preferred: true, private: false, given, surnames }))],
       events,
       notes: [],
       media: [],

@@ -4,12 +4,18 @@ import { cleanup } from '@testing-library/svelte';
 
 afterEach(() => cleanup());
 
+/** Reports an 800x600 box shortly after observe(), like a browser's first layout. */
 class ResizeObserverStub {
-  observe() {}
+  constructor(private cb: ResizeObserverCallback) {}
+  observe() {
+    queueMicrotask(() =>
+      this.cb([{ contentRect: { width: 800, height: 600 } } as ResizeObserverEntry], this as unknown as ResizeObserver),
+    );
+  }
   unobserve() {}
   disconnect() {}
 }
-globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
+globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
 
 if (!window.matchMedia) {
   window.matchMedia = (query: string) =>
