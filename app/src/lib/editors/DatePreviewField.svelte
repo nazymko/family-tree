@@ -2,6 +2,7 @@
   import TextField from '../ui/TextField.svelte';
   import { getApi } from '../api/context';
   import { settings } from '../state/settings.svelte';
+  import { t } from '../i18n';
 
   let { value = $bindable(''), label = 'Date' }: { value?: string; label?: string } = $props();
   const api = getApi();
@@ -18,7 +19,7 @@
     const mine = ++seq;
     void api.parseDate(raw, order).then((p) => {
       if (mine !== seq) return;
-      hint = p.status === 'unparsed' ? 'Not understood; it is kept as you typed it.' : `Understood as ${p.understoodAs}`;
+      hint = p.status === 'unparsed' ? t('fields.notUnderstoodHint') : t('fields.understoodHint', { text: p.understoodAs });
     });
   });
 </script>

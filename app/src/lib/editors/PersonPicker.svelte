@@ -2,6 +2,7 @@
   import type { Id, PersonRef } from '../api/types';
   import { getApi } from '../api/context';
   import Combobox from '../ui/Combobox.svelte';
+  import { t } from '../i18n';
 
   let {
     label,
@@ -68,5 +69,5 @@
   render={(p) => p.name}
   detail={(p) => p.lifespan || undefined}
   {hint}
-  error={error ?? (onlyExcluded ? 'Choose a different person' : undefined)}
+  error={error ?? (onlyExcluded ? t('fields.differentPerson') : undefined)}
 />

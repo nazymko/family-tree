@@ -1,10 +1,13 @@
+
+import { t } from '../i18n';
+
 /** A readable message from an ApiError-like rejection (a plain object or an Error). */
 export function errMessage(e: unknown): string {
   if (e && typeof e === 'object' && 'message' in e && typeof (e as { message: unknown }).message === 'string') {
     const m = (e as { message: string }).message;
     if (m) return m;
   }
-  return 'The change was not saved. Check the details and try again.';
+  return t('edit.notSaved');
 }
 
 /** Drop empty optional strings so commands carry only what the user entered. */
