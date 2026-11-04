@@ -12,14 +12,18 @@
   import Minimap from './Minimap.svelte';
   import { WindowCache } from './window';
   import { drawWhole, wholeThemeFromCss, type WholeTheme } from './wholeRenderer';
+  import { founderOf } from './wholeStart';
 
   let {
     homeId = null,
+    focusId = null,
     onOpenPerson,
     onOpenInPedigree,
     onOpened,
   }: {
     homeId?: Id | null;
+    /** The person the rest of the app is centred on; the first view starts on them, else on the home person. */
+    focusId?: Id | null;
     onOpenPerson: (id: Id) => void;
     onOpenInPedigree: (id: Id) => void;
     /** Called with the chart each time it is (re)opened. */
@@ -113,22 +117,28 @@
     activeTween = tween(cam, target, TWEEN_MS, (c) => setCam(c), reduced());
   }
 
-  /** Where the camera starts: everyone when that is readable, otherwise the home person or the largest family. */
-  function place(homeRect: Rect | null): void {
+  /** The zoom the first view and "go to a person" use: big enough to read a card. */
+  const START_ZOOM = 0.8;
+  /** "Fit all" never goes below this; the minimap shows the whole tree. */
+  const FIT_MIN = 0.06;
+
+  /** Where the camera starts: on a person (focus, home, or the oldest card of the largest family), never on empty space. */
+  function place(): void {
     if (!sized || !meta) return;
-    const m = meta;
-    const f = fit(m.meta.bounds, size, 24, minZoom());
     hint = '';
-    if (f.zoom >= 0.25) cam = f;
-    else if (homeRect) cam = centerOn({ x: 0, y: 0, zoom: 0.7 }, homeRect, size);
-    else {
-      const first = m.blocks[0]?.rect;
-      cam = { zoom: 0.7, x: (first?.x ?? 0) - 24 / 0.7, y: (first?.y ?? 0) - 24 / 0.7 };
+    if (startRect) {
+      cam = centerOn({ x: 0, y: 0, zoom: START_ZOOM }, startRect, size);
+      if (startNote) hint = startNote;
+    } else {
+      cam = fit(meta.meta.bounds, size, 24, FIT_MIN);
     }
-    if (f.zoom < 0.25) hint = `${m.meta.nodeCount} people: zoom out or press F to see everyone`;
     seen = viewRect(cam, size);
     zoomPct = Math.round(cam.zoom * 100);
     cache?.need(seen, cam.zoom);
+    if (startId !== null && selected === null) {
+      selected = startId;
+      adoptSelection();
+    }
     invalidate();
   }
 
@@ -139,14 +149,16 @@
     canvas.height = Math.round(size.h * dpr);
   }
 
-  let homeRect: Rect | null = null;
+  let startRect: Rect | null = null;
+  let startId: number | null = null;
+  let startNote = '';
 
   function resize(w: number, h: number): void {
     if (w <= 0 || h <= 0 || !canvas) return;
     size = { w, h };
     sized = true;
     applySize();
-    if (!userMoved && meta) place(homeRect);
+    if (!userMoved && meta) place();
     else {
       seen = viewRect(cam, size);
       cache?.need(seen, cam.zoom);
@@ -176,7 +188,9 @@
     selNode = null;
     lineage = null;
     homeNode = null;
-    homeRect = null;
+    startRect = null;
+    startId = null;
+    startNote = '';
     let m: WholeMeta;
     try {
       m = await api.chartOpenWhole();
@@ -206,16 +220,40 @@
       invalidate();
     });
     meta = m;
-    if (homeId) {
-      try {
+    try {
+      if (homeId) {
         const loc = await api.chartLocate(id, homeId);
         if (seq !== openSeq) return;
         homeNode = loc?.nodeId ?? null;
-        homeRect = loc?.rect ?? null;
-      } catch (e) {
-        if (isStale(e) && seq === openSeq) void open();
-        return;
+        if (loc && !focusId) {
+          startRect = loc.rect;
+          startId = loc.nodeId;
+        }
       }
+      if (focusId) {
+        const loc = await api.chartLocate(id, focusId);
+        if (seq !== openSeq) return;
+        if (loc) {
+          startRect = loc.rect;
+          startId = loc.nodeId;
+        }
+      }
+      // The minimap's window knows where every card is; it also gives the oldest card of the largest family.
+      const all = await api.chartWindow(id, { x: 0, y: 0, w: m.meta.bounds.w + 1, h: m.meta.bounds.h + 1 }, 0.01);
+      if (seq !== openSeq) return;
+      miniWin = all;
+      if (!startRect) {
+        const f = founderOf(m.blocks, all.nodes);
+        if (f) {
+          startRect = f.rect;
+          startId = f.id;
+          startNote = 'Showing the oldest generation of the largest family: press F for the overview';
+        }
+      }
+    } catch (e) {
+      if (isStale(e) && seq === openSeq) void open();
+      else if (seq === openSeq) miniWin = null;
+      if (isStale(e)) return;
     }
     if (keepView && userMoved) {
       cache?.need(seen, cam.zoom);
@@ -233,20 +271,14 @@
       }
     } else {
       userMoved = false;
-      place(homeRect);
+      place();
     }
     onOpened?.(m);
-    // The minimap shows everyone at the lowest detail, fetched once per opened chart.
-    try {
-      const all = await api.chartWindow(id, { x: 0, y: 0, w: m.meta.bounds.w + 1, h: m.meta.bounds.h + 1 }, 0.01);
-      if (seq === openSeq) miniWin = all;
-    } catch {
-      // The minimap stays empty; the chart still works.
-    }
   }
 
   $effect(() => {
     void homeId;
+    void focusId;
     untrack(() => void open());
     return () => {
       openSeq++;
@@ -590,7 +622,7 @@
   }
 
   function fitAll(): void {
-    if (meta) animateTo(fit(meta.meta.bounds, size, 24, minZoom()));
+    if (meta) animateTo(fit(meta.meta.bounds, size, 24, FIT_MIN));
   }
 
   function fromMinimap(x: number, y: number): void {

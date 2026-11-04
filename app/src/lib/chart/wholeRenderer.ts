@@ -52,39 +52,62 @@ export function edgeOnLine(e: { from: number; to: number; kind: ChartEdge['kind'
   return e.kind === 'partner' ? lit(e.from) && lit(e.to) : lit(e.to);
 }
 
-/** Size (world units) of a block heading: about 14 px on screen, never smaller than 16 or larger than 80 world units. */
+/** Size (world units) of a block heading: 14 px on screen, at least 16 world units. */
 export function headingSize(zoom: number): number {
-  return Math.min(80, Math.max(16, 14 / zoom));
+  return Math.max(16, 14 / zoom);
 }
 
-function drawHeadings(ctx: CanvasRenderingContext2D, blocks: WholeBlockDto[], cam: Camera, view: { w: number; h: number }, theme: Theme) {
+/** Zoomed out, a heading is drawn over the chart on a plate at a fixed screen size; zoomed in it sits in its own band. */
+export function headingIsOverlay(zoom: number): boolean {
+  return headingSize(zoom) > 22;
+}
+
+function drawHeadings(ctx: CanvasRenderingContext2D, blocks: WholeBlockDto[], cam: Camera, view: { w: number; h: number }, theme: Theme, overlay: boolean) {
   const z = cam.zoom;
   const size = headingSize(z);
   ctx.font = `600 ${size}px ${theme.serif}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = theme.ink;
   const x1 = cam.x + view.w / z;
   const y1 = cam.y + view.h / z;
-  // A big heading would cover the people under it, so it moves up into the gap above its block.
-  const inBand = size <= 22;
+  if (!overlay) {
+    ctx.fillStyle = theme.ink;
+    for (const b of blocks) {
+      const r = b.rect;
+      if (r.x > x1 || r.x + r.w < cam.x || r.y > y1 || r.y + r.h < cam.y) continue;
+      ctx.fillText(b.title, r.x, r.y + 21);
+    }
+    // A rule under each heading keeps a block's top edge visible at any zoom.
+    ctx.beginPath();
+    for (const b of blocks) {
+      const r = b.rect;
+      if (r.x > x1 || r.x + r.w < cam.x || r.y > y1 || r.y + r.h < cam.y) continue;
+      ctx.moveTo(r.x, r.y + r.h - 2);
+      ctx.lineTo(r.x + r.w, r.y + r.h - 2);
+    }
+    ctx.strokeStyle = theme.rule;
+    ctx.lineWidth = 1 / z;
+    ctx.stroke();
+    return;
+  }
+  const pad = 4 / z;
   for (const b of blocks) {
     const r = b.rect;
-    const top = inBand ? r.y : r.y - size - 6;
-    if (r.x > x1 || r.x + r.w < cam.x || top > y1 || top + size + 8 < cam.y) continue;
-    ctx.fillText(b.title, r.x, inBand ? r.y + 21 : r.y - 8);
+    const top = r.y - size - 2 * pad;
+    if (r.x > x1 || r.x + r.w < cam.x || r.y + 2 * pad < cam.y || top > y1) continue;
+    const textW = ctx.measureText(b.title).width;
+    // The label stays on screen while its block is, so you can tell which family you are over.
+    const x = Math.min(Math.max(r.x, cam.x + 8 / z), Math.max(r.x, r.x + r.w - textW - 2 * pad));
+    ctx.globalAlpha = 0.92;
+    ctx.fillStyle = theme.paper;
+    ctx.fillRect(x - pad, top, textW + 2 * pad, size + 2 * pad);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = theme.rule;
+    ctx.lineWidth = 1 / z;
+    ctx.strokeRect(x - pad, top, textW + 2 * pad, size + 2 * pad);
+    ctx.fillStyle = theme.ink;
+    ctx.fillText(b.title, x, r.y - pad - size * 0.2);
   }
-  // A rule under each heading keeps a block's top edge visible at any zoom.
-  ctx.beginPath();
-  for (const b of blocks) {
-    const r = b.rect;
-    if (r.x > x1 || r.x + r.w < cam.x || r.y > y1 || r.y + r.h < cam.y) continue;
-    ctx.moveTo(r.x, r.y + r.h - 2);
-    ctx.lineTo(r.x + r.w, r.y + r.h - 2);
-  }
-  ctx.strokeStyle = theme.rule;
-  ctx.lineWidth = 1 / z;
-  ctx.stroke();
 }
 
 /** Draws the window: full cards when zoomed in, plain boxes in the middle, coloured bars with the surname far out. */
@@ -104,7 +127,8 @@ export function drawWhole(
   ctx.clearRect(0, 0, view.w, view.h);
   ctx.setTransform(view.dpr * z, 0, 0, view.dpr * z, -cam.x * view.dpr * z, -cam.y * view.dpr * z);
 
-  drawHeadings(ctx, blocks, cam, view, theme);
+  const overlay = headingIsOverlay(z);
+  if (!overlay) drawHeadings(ctx, blocks, cam, view, theme, false);
 
   const lit = (id: number) => lineage === null || lineage.has(id);
   const parent: ChartEdge[] = [];
@@ -234,5 +258,6 @@ export function drawWhole(
       }
     }
   }
+  if (overlay) drawHeadings(ctx, blocks, cam, view, theme, true);
   return { drawn: win.nodes.length };
 }
