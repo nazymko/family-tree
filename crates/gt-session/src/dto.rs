@@ -18,6 +18,8 @@ wire_enum!(DayOrder, "lowercase", { Dmy, Mdy });
 wire_enum!(SexKind, "lowercase", { Male, Female, Intersex, Unknown, Other });
 wire_enum!(Theme, "lowercase", { Light, Dark, System });
 wire_enum!(Language, "lowercase", { En, Uk, System });
+// Which way the tree charts grow: `reversed` puts the ancestors at the bottom (pedigree: on the left).
+wire_enum!(TreeDirection, "lowercase", { Normal, Reversed });
 wire_enum!(DateStatus, "lowercase", { Ok, Phrase, Unparsed });
 wire_enum!(HitKindDto, "lowercase", { Person, Place, Source, Note });
 wire_enum!(LivingOverrideDto, "lowercase", { Living, Deceased });
@@ -348,6 +350,8 @@ pub struct Settings {
     /// Interface language; `system` follows the OS language.
     pub language: Language,
     pub backups_to_keep: u32,
+    /// App setting: which way the tree charts and the family tree grow.
+    pub tree_direction: TreeDirection,
     /// Project setting.
     pub living_max_age: u32,
     /// Project setting.
@@ -362,6 +366,7 @@ impl Default for Settings {
             theme: Theme::System,
             language: Language::System,
             backups_to_keep: 10,
+            tree_direction: TreeDirection::Normal,
             living_max_age: 100,
             home_person: None,
         }
@@ -546,7 +551,10 @@ pub struct WholeBlockDto {
     pub people: u32,
     /// The block of people who have no family link at all.
     pub unconnected: bool,
+    /// The heading strip; the block's people sit below it (above it never, in either direction).
     pub rect: Rect,
+    /// Height of the area under the heading that holds the block's people.
+    pub body_h: f32,
 }
 
 /// The whole-tree chart: the usual chart meta plus the block headings.

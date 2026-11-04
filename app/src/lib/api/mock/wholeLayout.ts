@@ -208,7 +208,7 @@ function layoutComponent(members: number[], fams: Fam[], partnerIn: number[][], 
   return out;
 }
 
-export function layoutWhole(src: WholeSource): WholeResult {
+export function layoutWhole(src: WholeSource, reversed = false): WholeResult {
   const index = new Map(src.persons.map((p, i) => [p.id, i]));
   const n = src.persons.length;
   const fams: Fam[] = [];
@@ -310,10 +310,12 @@ export function layoutWhole(src: WholeSource): WholeResult {
       shelfH = 0;
     }
     const title = p.surname ? `${p.surname} family (${p.members.length} people)` : `Family (${p.members.length} people)`;
-    blocks.push({ title, people: p.members.length, unconnected: false, rect: { x, y, w: p.w, h: HEADING_H } });
+    blocks.push({ title, people: p.members.length, unconnected: false, rect: { x, y, w: p.w, h: HEADING_H }, bodyH: p.out.h });
     const oy = y + HEADING_H + HEADING_GAP;
-    for (const q of [...p.out.people].sort((a, b) => a.y - b.y || a.x - b.x || a.person - b.person)) addNode(q.person, x + q.x, oy + q.y, q.row);
-    for (const e of p.out.edges) rawEdges.push({ ...e, pts: e.pts.map((v, i) => (i % 2 === 0 ? v + x : v + oy)) });
+    // Reversed: each family is flipped inside its own block, so its heading stays above its people.
+    const flipY = (v: number) => (reversed ? p.out.h - v : v);
+    for (const q of [...p.out.people].sort((a, b) => a.y - b.y || a.x - b.x || a.person - b.person)) addNode(q.person, x + q.x, oy + (reversed ? p.out.h - q.y - NODE_H : q.y), q.row);
+    for (const e of p.out.edges) rawEdges.push({ ...e, pts: e.pts.map((v, i) => (i % 2 === 0 ? v + x : oy + flipY(v))) });
     x += p.w + BLOCK_GAP;
     shelfH = Math.max(shelfH, h);
   }
@@ -325,6 +327,7 @@ export function layoutWhole(src: WholeSource): WholeResult {
       people: loose.length,
       unconnected: true,
       rect: { x: 0, y, w: Math.max(MIN_BLOCK_W, cols * (NODE_W + GAP_X) - GAP_X), h: HEADING_H },
+      bodyH: Math.ceil(loose.length / cols) * (NODE_H + 12) - 12,
     });
     const oy = y + HEADING_H + HEADING_GAP;
     loose.forEach((person, i) => addNode(person, (i % cols) * (NODE_W + GAP_X), oy + Math.floor(i / cols) * (NODE_H + 12), 0));

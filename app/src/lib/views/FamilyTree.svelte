@@ -2,6 +2,8 @@
   import { tick } from 'svelte';
   import Ribbon from '../ui/Ribbon.svelte';
   import Lock from '../ui/Lock.svelte';
+  import FlipTreeButton from '../ui/FlipTreeButton.svelte';
+  import { settings } from '../state/settings.svelte';
   import { getApi } from '../api/context';
   import type { FamilyViewDto, PartnershipDto, PersonRef } from '../api/types';
   import { project } from '../state/project.svelte';
@@ -21,6 +23,8 @@
   } = $props();
 
   const api = getApi();
+  /** Ancestors at the bottom and the descendants on top: the rows are shown in reverse (the DOM order stays). */
+  const reversed = $derived(settings.value.treeDirection === 'reversed');
   const SIBLING_LIMIT = 4;
   const CHILD_LIMIT = 6;
 
@@ -190,7 +194,8 @@
       to = same[same.indexOf(from) + (e.key === 'ArrowRight' ? 1 : -1)];
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       const rows = [...new Set(all.map((el) => Number(el.dataset.row)))].sort((a, b) => a - b);
-      const next = rows[rows.indexOf(row) + (e.key === 'ArrowDown' ? 1 : -1)];
+      // Reversed, the rows run the other way up the page: Up goes to the next row number.
+      const next = rows[rows.indexOf(row) + ((e.key === 'ArrowDown') !== reversed ? 1 : -1)];
       if (next === undefined) return;
       const here = from.getBoundingClientRect();
       const mid = here.left + here.width / 2;
@@ -259,8 +264,9 @@
   </button>
 {/snippet}
 
+<div class="treebar"><FlipTreeButton /></div>
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<div class="tree" bind:this={treeEl} role="group" aria-label={t('family.treeLabel', { who: focus.name })} onkeydown={keys}>
+<div class="tree" class:reversed data-direction={reversed ? 'reversed' : 'normal'} bind:this={treeEl} role="group" aria-label={t('family.treeLabel', { who: focus.name })} onkeydown={keys}>
   {#if view.parentSets.length > 1 || bothParents}
     <div class="sets" role="group" aria-label={t('family.treeParentSets')}>
       {#each view.parentSets.length > 1 ? view.parentSets : [] as ps, i (ps.familyId)}
@@ -387,6 +393,10 @@
 </div>
 
 <style>
+  .treebar {
+    display: flex;
+    justify-content: flex-end;
+  }
   .tree {
     display: grid;
     /* safe: when a row is wider than the page it starts at the left edge, so the scrollbar reaches every box. */
@@ -395,6 +405,51 @@
     max-width: 100%;
     overflow-x: auto;
     padding-block: var(--s-3);
+  }
+  /*
+   * Reversed: the rows run bottom to top (kids, the person, parents, grandparents) and every connector sits on the
+   * side that faces the row it joins. The DOM order, and with it the tab order, is unchanged.
+   */
+  .tree.reversed {
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: safe center;
+  }
+  .reversed .anc .pcell {
+    order: -1;
+  }
+  .reversed .gcell {
+    align-content: start;
+    padding-bottom: 0;
+    padding-top: var(--s-5);
+  }
+  .reversed .gcell.has::after {
+    bottom: auto;
+    top: 0;
+  }
+  .reversed .pcell {
+    padding: var(--s-5) var(--s-3) var(--s-2);
+  }
+  .reversed .pcell::before,
+  .reversed .pcell::after {
+    bottom: auto;
+    top: 0;
+  }
+  .reversed .side.right {
+    padding-top: 0;
+    padding-bottom: var(--s-5);
+  }
+  .reversed .kid {
+    padding: 0 calc(var(--s-3) / 2) var(--s-5);
+  }
+  .reversed .kid::before,
+  .reversed .kid::after {
+    top: auto;
+    bottom: 0;
+  }
+  .reversed .sets {
+    margin-bottom: 0;
+    margin-top: var(--s-3);
   }
   .row {
     display: flex;

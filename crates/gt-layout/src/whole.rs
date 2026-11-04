@@ -53,6 +53,8 @@ pub struct Block {
     pub people: u32,
     /// The heading strip; the people sit below it.
     pub rect: Rect,
+    /// Height of the people's area under the heading (0 for an empty block).
+    pub body_h: f32,
 }
 
 /// What the whole-tree chart needs beyond a plain [`Layout`].
@@ -933,6 +935,12 @@ struct Placed {
 
 /// Lay out every person once. Deterministic for a given input.
 pub fn whole(input: &WholeInput, m: &Metrics) -> WholeLayout {
+    whole_directed(input, m, false)
+}
+
+/// Like [`whole`]; with `reversed` every family is drawn upside down (the oldest generation at the
+/// bottom of its block). Headings, block positions, node ids and navigation links stay as they are.
+pub fn whole_directed(input: &WholeInput, m: &Metrics, reversed: bool) -> WholeLayout {
     let n = input.count;
     let fams = sanitise(input);
     let mut partner_in: Vec<Vec<usize>> = vec![Vec::new(); n];
@@ -1050,6 +1058,7 @@ pub fn whole(input: &WholeInput, m: &Metrics) -> WholeLayout {
                 w: p.w as f32,
                 h: HEADING_H as f32,
             },
+            body_h: comp.map_or(0.0, |c| c.h) as f32,
         });
         if let Some(c) = comp {
             let oy = y + HEADING_H + HEADING_GAP;
@@ -1066,7 +1075,12 @@ pub fn whole(input: &WholeInput, m: &Metrics) -> WholeLayout {
                     person as Key,
                     Rect {
                         x: (x + px) as f32,
-                        y: (oy + py) as f32,
+                        y: (oy
+                            + if reversed {
+                                c.h - py - f64::from(m.node_h)
+                            } else {
+                                py
+                            }) as f32,
                         ..rect0
                     },
                     row as i16,
@@ -1077,7 +1091,10 @@ pub fn whole(input: &WholeInput, m: &Metrics) -> WholeLayout {
             for (from, to, kind, pts) in &c.edges {
                 let pts: Vec<f32> = pts
                     .chunks_exact(2)
-                    .flat_map(|q| [(x + q[0]) as f32, (oy + q[1]) as f32])
+                    .flat_map(|q| {
+                        let qy = if reversed { c.h - q[1] } else { q[1] };
+                        [(x + q[0]) as f32, (oy + qy) as f32]
+                    })
                     .collect();
                 raw_edges.push((*from, *to, *kind, pts));
             }
@@ -1103,6 +1120,7 @@ pub fn whole(input: &WholeInput, m: &Metrics) -> WholeLayout {
                 w: (cols as f64 * pitch_x - f64::from(m.gap_x)).max(MIN_BLOCK_W) as f32,
                 h: HEADING_H as f32,
             },
+            body_h: (loose.len().div_ceil(cols) as f64 * pitch_y - f64::from(m.gap_y)) as f32,
         });
         for (i, &person) in loose.iter().enumerate() {
             let id = nodes.len() as u32;

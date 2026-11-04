@@ -43,6 +43,14 @@ export const en = {
     themeDark: 'Dark',
     themeSystem: 'System',
     backups: 'Backups to keep',
+    treeDirection: 'Tree direction',
+    treeDirectionHint: 'Which way the trees grow, in every chart and in the family tree.',
+    treeNormal: 'Ancestors at the top (pedigree: on the right)',
+    treeReversed: 'Ancestors at the bottom, like a real tree (pedigree: on the left)',
+  },
+  tree: {
+    flip: 'Flip tree',
+    flipHint: 'Turn the trees upside down: ancestors at the bottom. Changes the Tree direction setting.',
   },
   edit: {
     undoPrefix: 'Undo: {label}',

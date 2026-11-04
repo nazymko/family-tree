@@ -11,6 +11,7 @@
   import OutlineMirror from '../chart/OutlineMirror.svelte';
   import { OUTLINE_GROUP_BASE } from '../chart/outline';
   import { nav } from '../state/nav.svelte';
+  import { settings } from '../state/settings.svelte';
   import Button from '../ui/Button.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
   import Tabs from '../ui/Tabs.svelte';
@@ -177,6 +178,7 @@
         {root}
         {generations}
         hidden={mode !== 'chart'}
+        reversed={settings.value.treeDirection === 'reversed'}
         onRecentre={recentre}
         onOpenPerson={openPerson}
         onGenerations={(n) => (chosenGenerations[genKey] = n)}

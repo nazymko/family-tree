@@ -1,6 +1,6 @@
 //! Project settings kept in the `meta` table, and the in-memory settings of a session.
 
-use crate::dto::{DayOrder, Language, NameOrder, Settings, Theme};
+use crate::dto::{DayOrder, Language, NameOrder, Settings, Theme, TreeDirection};
 use crate::error::ApiError;
 use gt_store::Project;
 use uuid::Uuid;
@@ -31,6 +31,7 @@ pub struct SettingsPatch {
     pub theme: Option<Theme>,
     pub language: Option<Language>,
     pub backups_to_keep: Option<u32>,
+    pub tree_direction: Option<TreeDirection>,
     pub living_max_age: Option<u32>,
     pub home_person: Option<Option<Uuid>>,
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hitHandle, hitTest, neighbor } from './hit';
+import { handleSpots, hitHandle, hitTest, neighbor } from './hit';
 import { synthChart } from './synth';
 
 describe('hit', () => {
@@ -37,5 +37,17 @@ describe('hit', () => {
     const n = { ...win.nodes[0], moreUp: true };
     expect(hitHandle({ nodes: [n], edges: [] }, 'pedigree', n.x + n.w + 2, n.y + n.h / 2)?.id).toBe(n.id);
     expect(hitHandle({ nodes: [n], edges: [] }, 'pedigree', n.x + 5, n.y + 5)).toBeNull();
+  });
+
+  it('handles_sit_on_the_opposite_edge_when_reversed', () => {
+    const n = { ...win.nodes[0], moreUp: true, moreDown: true };
+    expect(handleSpots(n, 'pedigree', true)).toEqual([{ x: n.x, y: n.y + n.h / 2 }]);
+    expect(handleSpots(n, 'descendants', true)).toEqual([{ x: n.x + n.w / 2, y: n.y }]);
+    expect(handleSpots(n, 'relatives', true)).toEqual([
+      { x: n.x + n.w / 2, y: n.y + n.h },
+      { x: n.x + n.w / 2, y: n.y },
+    ]);
+    expect(hitHandle({ nodes: [n], edges: [] }, 'pedigree', n.x - 2, n.y + n.h / 2, 1, true)?.id).toBe(n.id);
+    expect(hitHandle({ nodes: [n], edges: [] }, 'pedigree', n.x + n.w + 2, n.y + n.h / 2, 1, true)).toBeNull();
   });
 });

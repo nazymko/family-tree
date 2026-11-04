@@ -110,6 +110,7 @@ export * from './SourceRef';
 export * from './Theme';
 export * from './TraceDraftState';
 export * from './TraceImageInfo';
+export * from './TreeDirection';
 export * from './UndoState';
 export * from './UnionKindId';
 export * from './UnparsedDateDto';

@@ -549,3 +549,39 @@ fn consistent_trees_keep_partners_on_one_row_after_relaxing() {
     assert_eq!(node(&w, 0).r#gen, node(&w, 1).r#gen);
     assert_children_below_parents(&w, &i);
 }
+
+#[test]
+fn reversed_flips_each_family_but_keeps_headings_ids_and_blocks() {
+    // 0 and 1 are the parents of 2; 3 is alone.
+    let i = input(4, &[(Some(0), Some(1), &[2])]);
+    let a = run(&i);
+    let b = gt_layout::whole_directed(&i, &Metrics::default(), true);
+    assert_eq!(a.layout.nodes.len(), b.layout.nodes.len());
+    assert_eq!(a.extras.blocks.len(), b.extras.blocks.len());
+    for (x, y) in a.extras.blocks.iter().zip(&b.extras.blocks) {
+        assert_eq!(x.rect, y.rect);
+        assert_eq!(x.body_h, y.body_h);
+    }
+    // Parent above child normally, below the child when reversed; headings stay above every person.
+    assert!(node(&a, 0).rect.y < node(&a, 2).rect.y);
+    assert!(node(&b, 0).rect.y > node(&b, 2).rect.y);
+    for blk in &b.extras.blocks {
+        for n in &b.layout.nodes {
+            assert!(!overlaps(&blk.rect, &n.rect), "heading over node {}", n.id);
+        }
+    }
+    let heading = &b.extras.blocks[0];
+    assert!(node(&b, 2).rect.y >= heading.rect.y + heading.rect.h);
+    assert!(
+        node(&b, 0).rect.y + node(&b, 0).rect.h
+            <= heading.rect.y + heading.rect.h + 12.0 + heading.body_h + 0.5
+    );
+    assert_eq!(a.extras.node_of(0), b.extras.node_of(0));
+    // Every parent edge still ends on its boxes.
+    for e in b.layout.edges.iter().filter(|e| e.kind == EdgeKind::Parent) {
+        let child = &b.layout.nodes[e.to as usize].rect;
+        let last = &e.pts[e.pts.len() - 2..];
+        assert!(last[1] == child.y + child.h || last[1] == child.y);
+    }
+    assert_no_overlap(&b);
+}

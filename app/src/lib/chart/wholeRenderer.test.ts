@@ -88,7 +88,7 @@ describe('block headings', () => {
 
   it('are_drawn_on_a_plate_at_low_zoom_and_kept_on_screen', () => {
     const ctx = makeFakeContext();
-    const blocks = [{ title: 'Koval family (9 people)', people: 9, unconnected: false, rect: { x: 0, y: 1000, w: 4000, h: 28 } }];
+    const blocks = [{ title: 'Koval family (9 people)', people: 9, unconnected: false, rect: { x: 0, y: 1000, w: 4000, h: 28 }, bodyH: 600 }];
     // The view starts well inside the block, so the label slides right to stay visible.
     drawWhole(ctx as unknown as CanvasRenderingContext2D, { nodes: [], edges: [] }, blocks, { x: 1500, y: 800, zoom: 0.1 }, { w: 800, h: 600, dpr: 1 }, {
       selected: null, home: null, lineage: null, theme,

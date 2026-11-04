@@ -58,7 +58,7 @@ import type {
 import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } from './build';
 import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
-import type { Layout } from './mockLayout';
+import { mirrorLayout, type Layout } from './mockLayout';
 import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } from './layout';
 import { GROUP_BASE, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
 import { layoutWhole, lineageOf, type WholeResult } from './wholeLayout';
@@ -93,7 +93,7 @@ interface ChartState {
   reference?: Id | null;
   kin?: { ref: Id; find: (to: Id) => Kinship | null };
   /** Whole-tree charts only. */
-  whole?: { result: WholeResult; surnames: string[]; meta: WholeMeta };
+  whole?: { result: WholeResult; surnames: string[]; meta: WholeMeta; reversed: boolean };
 }
 
 interface OwnerBag {
@@ -175,6 +175,7 @@ export class MockApi implements Api {
       theme: 'system',
       language: 'system',
       backupsToKeep: 10,
+      treeDirection: 'normal',
       livingMaxAge: 100,
       homePerson: fixture.homePerson,
     };
@@ -536,12 +537,14 @@ export class MockApi implements Api {
       parents: (id) => this.preferredParents(id),
       unions: (id) => this.unionsOf(id),
     };
-    const layout =
+    const laid =
       req.kind === 'pedigree'
         ? layoutPedigree(req.root, generations, src)
         : req.kind === 'descendants'
           ? layoutDescendants(req.root, generations, src)
           : layoutRelatives(req.root, Math.min(generations, 6), req.auntsUncles ?? true, src);
+    // Reversed tree: ancestors at the bottom (the left-to-right pedigree grows leftward instead).
+    const layout = this.settings.treeDirection === 'reversed' ? mirrorLayout(laid, req.kind !== 'pedigree') : laid;
     const chartId = this.nextChart++;
     this.charts.set(chartId, { kind: req.kind, layout, version: this.version, reference: req.root });
     return {
@@ -556,7 +559,8 @@ export class MockApi implements Api {
   }
 
   async chartOpenWhole(): Promise<WholeMeta> {
-    for (const c of this.charts.values()) if (c.whole && c.version === this.version) return structuredClone(c.whole.meta);
+    const reversed = this.settings.treeDirection === 'reversed';
+    for (const c of this.charts.values()) if (c.whole && c.version === this.version && c.whole.reversed === reversed) return structuredClone(c.whole.meta);
     for (const [id, c] of [...this.charts]) if (c.whole) this.charts.delete(id);
     const persons = [...this.db.persons.values()];
     const rows = new Map(this.rows().rows.map((r) => [r.id, r]));
@@ -564,7 +568,7 @@ export class MockApi implements Api {
       persons: persons.map((p) => ({ id: p.id, surname: rows.get(p.id)?.surname ?? '', birth: this.birthSort(p) })),
       families: [...this.db.families.values()].map((f) => ({ partners: [f.partner1, f.partner2], children: f.children.map((c) => c.person) })),
       ref: (id) => this.ref(this.person(id)),
-    });
+    }, reversed);
     const surnames = result.nodes.map((n) => rows.get(n.person!.id)?.surname ?? '');
     for (const n of result.nodes) {
       const p = n.person!;
@@ -584,7 +588,7 @@ export class MockApi implements Api {
       blocks: result.blocks,
     };
     const layout: Layout = { nodes: result.nodes, edges: result.edges, bounds: result.bounds, truncated: false, kids: [], labels: [] };
-    this.charts.set(chartId, { kind: 'whole', layout, version: this.version, reference: null, whole: { result, surnames, meta } });
+    this.charts.set(chartId, { kind: 'whole', layout, version: this.version, reference: null, whole: { result, surnames, meta, reversed } });
     return structuredClone(meta);
   }
 

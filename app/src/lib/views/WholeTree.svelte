@@ -3,6 +3,7 @@
   import type { Id, WholeMeta } from '../api/types';
   import WholeCanvas from '../chart/WholeCanvas.svelte';
   import { nav } from '../state/nav.svelte';
+  import { settings } from '../state/settings.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
   import { plural, t } from '../i18n';
 
@@ -41,7 +42,7 @@
   {/if}
   {#if ready}
     <div class="body" hidden={empty}>
-      <WholeCanvas homeId={home} focusId={nav.focusPerson} onOpenPerson={openPerson} onOpenInPedigree={inPedigree} onOpened={(m) => (meta = m)} />
+      <WholeCanvas homeId={home} focusId={nav.focusPerson} onOpenPerson={openPerson} onOpenInPedigree={inPedigree} onOpened={(m) => (meta = m)} reversed={settings.value.treeDirection === 'reversed'} />
     </div>
   {/if}
 </section>

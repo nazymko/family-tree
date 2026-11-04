@@ -15,6 +15,8 @@ pub use descendants::descendants;
 pub use pedigree::pedigree;
 pub use relatives::{RelativesOptions, relatives};
 pub use types::{
-    ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Nav, Node, PartnerOf, Rect, Rel,
+    Axis, ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Nav, Node, PartnerOf, Rect, Rel,
 };
-pub use whole::{Block, BlockKind, WholeExtras, WholeFamily, WholeInput, WholeLayout, whole};
+pub use whole::{
+    Block, BlockKind, WholeExtras, WholeFamily, WholeInput, WholeLayout, whole, whole_directed,
+};

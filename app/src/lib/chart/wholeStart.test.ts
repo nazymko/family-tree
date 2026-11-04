@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { WholeBlockDto } from '../api/types';
 import { founderOf } from './wholeStart';
 
-const block = (x: number, y: number, w: number, unconnected = false): WholeBlockDto => ({ title: 't', people: 1, unconnected, rect: { x, y, w, h: 28 } });
+const block = (x: number, y: number, w: number, unconnected = false): WholeBlockDto => ({ title: 't', people: 1, unconnected, rect: { x, y, w, h: 28 }, bodyH: 400 });
 const card = (id: number, x: number, y: number) => ({ id, x, y, w: 176, h: 56 });
 
 describe('founderOf', () => {
@@ -15,5 +15,13 @@ describe('founderOf', () => {
 
   it('is_null_for_an_empty_tree', () => {
     expect(founderOf([], [])).toBeNull();
+  });
+
+  it('reversed_picks_the_bottom_row_of_the_family_not_a_block_below', () => {
+    // The family's body spans y 40..440; another block starts below it. Reversed, its oldest generation is the bottom row.
+    const blocks = [{ ...block(0, 0, 80000), bodyH: 400 }, block(0, 9000, 240, true)];
+    const cards = [card(1, 60000, 40), card(2, 100, 384), card(3, 61000, 384), card(4, 10, 9040)];
+    expect(founderOf(blocks, cards, true)?.id).toBe(2);
+    expect(founderOf(blocks, cards)?.id).toBe(1);
   });
 });

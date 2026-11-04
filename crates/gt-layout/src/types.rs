@@ -154,6 +154,15 @@ pub struct Edge {
     pub pts: Vec<f32>,
 }
 
+/// The line a layout is mirrored about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Axis {
+    /// Top and bottom swap places (top-down charts grow upward instead).
+    Vertical,
+    /// Left and right swap places (the left-to-right pedigree grows leftward instead).
+    Horizontal,
+}
+
 #[derive(Debug, Clone)]
 pub struct Layout {
     pub nodes: Vec<Node>,
@@ -180,6 +189,29 @@ impl Layout {
             truncated,
             grid,
         }
+    }
+
+    /// Mirrors the whole drawing inside its own bounds: node boxes and edge polylines move, the
+    /// bounds, ids and navigation links (which are logical, not visual) stay as they are.
+    pub fn mirror(&mut self, axis: Axis) {
+        let b = self.bounds;
+        let (lo, hi) = match axis {
+            Axis::Vertical => (b.y, b.y + b.h),
+            Axis::Horizontal => (b.x, b.x + b.w),
+        };
+        for n in &mut self.nodes {
+            match axis {
+                Axis::Vertical => n.rect.y = lo + hi - n.rect.y - n.rect.h,
+                Axis::Horizontal => n.rect.x = lo + hi - n.rect.x - n.rect.w,
+            }
+        }
+        let from = usize::from(axis == Axis::Vertical);
+        for e in &mut self.edges {
+            for p in e.pts.chunks_exact_mut(2) {
+                p[from] = lo + hi - p[from];
+            }
+        }
+        self.grid = Grid::build(&self.nodes, &self.edges);
     }
 
     /// Nodes and edges whose boxes intersect `r`, in id order.
