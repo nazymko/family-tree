@@ -101,7 +101,7 @@
   <main class="report">
     <div class="col">
       <header>
-        <h1>{plural('imp.heading', report.counts.INDI ?? report.counts.persons ?? report.project.personCount, { producer: report.producer ?? t('imp.unknownProgram') })}</h1>
+        <h1>{report.producer ? plural('imp.heading', report.counts.INDI ?? report.counts.persons ?? report.project.personCount, { producer: report.producer }) : plural('imp.headingUnknown', report.counts.INDI ?? report.counts.persons ?? report.project.personCount)}</h1>
         <p class="sub">
           {report.version ? t('imp.gedcomVersion', { version: report.version }) : ''}{report.encoding}. {t('imp.savedAs')}
           <bdi dir="auto" class="dir">{report.project.name}</bdi>.

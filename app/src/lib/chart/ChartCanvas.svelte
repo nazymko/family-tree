@@ -603,7 +603,7 @@
     if (meta) animateTo(fit(meta.bounds, size));
   }
 
-  const genOptions = $derived([3, 4, 5, 6, 7, 8].map((n) => ({ value: String(n), label: t('chartCanvas.nGenerations', { n }) })));
+  const genOptions = $derived([3, 4, 5, 6, 7, 8].map((n) => ({ value: String(n), label: plural('chartCanvas.nGenerations', n) })));
   let genValue = $derived(String(Math.min(8, Math.max(3, generations))));
 </script>
 

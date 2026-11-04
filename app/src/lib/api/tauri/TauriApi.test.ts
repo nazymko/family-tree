@@ -61,7 +61,7 @@ describe('TauriApi', () => {
       throw 'command nope not found';
     };
     await expect(new TauriApi().getSettings()).rejects.toEqual({ code: 'internal', message: 'command nope not found' });
-    expect(toApiError({ weird: true })).toEqual({ code: 'internal', message: 'Something went wrong.' });
+    expect(toApiError({ weird: true })).toEqual({ code: 'internal', message: 'Something went wrong. Try again.' });
     expect(toApiError({ code: 'bogus', message: 'm' }).code).toBe('internal');
     expect(toApiError(null).code).toBe('internal');
   });

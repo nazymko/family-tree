@@ -44,6 +44,18 @@ describe('check-i18n: the Ukrainian catalogue matches the English one', () => {
     }
   });
 
+  it('keeps_the_placeholders_of_every_Ukrainian_plural_form', () => {
+    const names = new Map(base);
+    const bad: string[] = [];
+    for (const [path, text] of other) {
+      const m = /^(.*)\.(one|few|many|other)$/.exec(path);
+      if (!m) continue;
+      const en = names.get(`${m[1]}.other`);
+      if (en !== undefined && placeholders(en).join() !== placeholders(text).join()) bad.push(path);
+    }
+    expect(bad).toEqual([]);
+  });
+
   it('English_has_no_empty_text', () => {
     expect(base.filter(([, text]) => text.trim() === '').map(([p]) => p)).toEqual([]);
   });

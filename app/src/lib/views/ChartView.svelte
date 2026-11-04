@@ -70,7 +70,6 @@
 
   const recentre = (id: Id) => nav.focus(id);
   const openPerson = (id: Id) => (onOpenPerson ? onOpenPerson(id) : nav.go({ name: 'person', id }));
-  const who = $derived(rootName || t('chart.thisPerson'));
   const isEmpty = $derived(meta !== null && meta.nodeCount <= 1);
 </script>
 
@@ -102,7 +101,7 @@
   {:else}
     {#if isEmpty}
       <EmptyState title={kind === 'pedigree' ? t('chart.noParentsTitle') : t('chart.noChildrenTitle')}>
-        {#if kind === 'pedigree'}{t('chart.noParentsFor', { who })}{:else}{t('chart.noChildrenFor', { who })}{/if}
+        {#if kind === 'pedigree'}{rootName ? t('chart.noParentsFor', { who: rootName }) : t('chart.noParentsThis')}{:else}{rootName ? t('chart.noChildrenFor', { who: rootName }) : t('chart.noChildrenThis')}{/if}
         {#snippet action()}
           <Button variant="primary" onclick={() => openPerson(root)}>{kind === 'pedigree' ? t('chart.addParent') : t('chart.addChild')}</Button>
         {/snippet}

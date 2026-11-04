@@ -45,6 +45,10 @@ describe('i18n', () => {
     expect(word(21)).toBe('21 особа');
     expect(word(11)).toBe('11 осіб');
     expect(word(24)).toBe('24 особи');
+    expect(word(22)).toBe('22 особи');
+    expect(word(25)).toBe('25 осіб');
+    expect(word(111)).toBe('111 осіб');
+    expect(word(0)).toBe('0 осіб');
   });
 
   it('plural_in_english_gives_one_and_other', () => {

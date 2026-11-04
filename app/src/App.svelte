@@ -7,8 +7,9 @@
   import Shell from './lib/views/Shell.svelte';
   import Welcome from './lib/views/Welcome.svelte';
   import ImportReport from './lib/views/ImportReport.svelte';
+  import { setLanguage } from './lib/i18n';
 
-  document.documentElement.lang = 'en';
+  setLanguage('system');
 
   // Plain browser (npm run dev): MockApi over a seeded 500-person tree. Inside Tauri: the real adapter.
   const bundle = defaultApi();

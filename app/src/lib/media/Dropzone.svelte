@@ -43,7 +43,7 @@
   let warnings = $state<string[]>([]);
   let suggestion = $state<string | null>(null);
   let looked = $state<string | null>(null);
-  const name = $derived(targetName ?? looked ?? t('media.thisRecord'));
+  const name = $derived(targetName ?? looked ?? null);
 
   $effect(() => {
     if (targetName || target.kind !== 'person') return;
@@ -134,7 +134,7 @@
 
 {#if hovering}
   <div class="overlay" data-testid="drop-overlay">
-    <p>{t('media.drop', { name })}</p>
+    <p>{name ? t('media.drop', { name }) : t('media.dropThis')}</p>
   </div>
 {/if}
 
