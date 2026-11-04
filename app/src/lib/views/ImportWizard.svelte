@@ -41,7 +41,16 @@
   let phase = $state<ImportProgress['phase'] | null>(null);
   let fraction = $state(0);
 
-  const ready = $derived(name.trim().length > 0 && !!folder && (mode === 'create' || !!file));
+  const needFile = $derived(mode === 'import' && !file);
+  const needName = $derived(name.trim().length === 0);
+  const needFolder = $derived(!folder);
+  const ready = $derived(!needFile && !needName && !needFolder);
+  // What still blocks the start button, in form order, for the note beside it.
+  const missing = $derived(
+    [needFile && t('imp.needFile'), needName && t('imp.needName'), needFolder && t('imp.needFolder')].filter(
+      (x): x is string => !!x,
+    ),
+  );
   const progress = $derived(Math.round(fraction * 100));
 
   function baseName(p: string): string {
@@ -110,19 +119,21 @@
 
   {#if error}<Banner kind="error">{error}</Banner>{/if}
 
+  <p class="req-note"><span class="req" aria-hidden="true">*</span> {t('imp.requiredNote')}</p>
+
   {#if mode === 'import'}
-    <div class="pick">
-      <span class="k" id="file-k">{t('imp.treeFile')}</span>
+    <div class="pick" data-required data-missing={needFile || undefined}>
+      <span class="k" id="file-k">{t('imp.treeFile')}<span class="req" aria-hidden="true">*</span></span>
       <Button onclick={chooseFile} disabled={busy} aria-describedby="file-k">{t('imp.chooseFile')}</Button>
       <bdi dir="auto" class="v">{file ?? t('imp.noFile')}</bdi>
       <p class="hint">{t('imp.formats')}</p>
     </div>
   {/if}
 
-  <TextField label={t('imp.treeName')} bind:value={name} autocomplete="off" disabled={busy} />
+  <TextField label={t('imp.treeName')} bind:value={name} autocomplete="off" disabled={busy} required missing={needName} />
 
-  <div class="pick">
-    <span class="k" id="folder-k">{t('imp.keepFolder')}</span>
+  <div class="pick" data-required data-missing={needFolder || undefined}>
+    <span class="k" id="folder-k">{t('imp.keepFolder')}<span class="req" aria-hidden="true">*</span></span>
     <Button onclick={chooseFolder} disabled={busy} aria-describedby="folder-k">{t('imp.chooseFolder')}</Button>
     <bdi dir="auto" class="v">{folder ?? t('imp.noFolder')}</bdi>
   </div>
@@ -174,8 +185,11 @@
   {/if}
 
   <div class="actions">
+    {#if missing.length > 0}
+      <p class="todo" id="wiz-todo">{t('imp.stillNeeded', { items: missing.join(', ') })}</p>
+    {/if}
     <Button onclick={oncancel} disabled={busy}>{t('common.cancel')}</Button>
-    <Button variant="primary" type="submit" disabled={!ready || busy}>
+    <Button variant="primary" type="submit" disabled={!ready || busy} aria-describedby={missing.length > 0 ? 'wiz-todo' : undefined}>
       {mode === 'import' ? t('imp.startImport') : t('imp.createTree')}
     </Button>
   </div>
@@ -244,7 +258,21 @@
   }
   .actions {
     display: flex;
+    flex-wrap: wrap;
     justify-content: flex-end;
+    align-items: center;
     gap: var(--s-3);
+  }
+  .todo {
+    flex: 1 1 14rem;
+    margin: 0;
+    color: var(--foxing);
+    font-size: var(--t-sm);
+    font-weight: 500;
+  }
+  .req-note {
+    margin: 0;
+    color: var(--ink-1);
+    font-size: var(--t-sm);
   }
 </style>
