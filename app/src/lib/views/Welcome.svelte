@@ -42,6 +42,28 @@
     recents = (recents ?? []).filter((r) => r.dir !== dir);
   }
 
+  // Hidden trees stay on this computer only (per-viewer preference), listed under a collapsed "Hidden trees".
+  const HIDDEN_KEY = 'gt.hiddenRecents';
+  function readHidden(): string[] {
+    try {
+      const v = JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? '[]');
+      return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+  let hidden = $state<string[]>(readHidden());
+  function setHidden(dir: string, hide: boolean) {
+    hidden = hide ? [...new Set([...hidden, dir])] : hidden.filter((d) => d !== dir);
+    try {
+      localStorage.setItem(HIDDEN_KEY, JSON.stringify(hidden));
+    } catch {
+      /* storage unavailable: the choice lasts for this session */
+    }
+  }
+  const shown = $derived((recents ?? []).filter((r) => !hidden.includes(r.dir)));
+  const hiddenRecents = $derived((recents ?? []).filter((r) => hidden.includes(r.dir)));
+
   function when(ms: number): string {
     return new Date(ms).toLocaleDateString(currentLocale(), { dateStyle: 'medium' });
   }
@@ -73,34 +95,79 @@
           {:else if recents.length === 0}
             <p class="note">{t('welcome.noneYet')}</p>
           {:else}
-            <ul class="recent">
-              {#each recents as r (r.dir)}
-                <li>
-                  {#if r.missing}
-                    <div class="gone">
-                      <span class="rname">{r.name}</span>
-                      <Banner kind="warning">{t('welcome.folderGone')}</Banner>
-                      <Button variant="quiet" onclick={() => remove(r.dir)} aria-label={t('welcome.removeNamed', { name: r.name })}>
-                        {t('common.remove')}
-                      </Button>
-                    </div>
-                  {:else}
-                    <a
-                      href="#/open"
-                      class="row"
-                      onclick={(e) => {
-                        e.preventDefault();
-                        void open(r.dir);
-                      }}
-                    >
-                      <span class="rname">{r.name}</span>
-                      <bdi dir="auto" class="rdir">{r.dir}</bdi>
-                      <span class="rwhen tnum">{t('welcome.opened', { date: when(r.openedAt) })}</span>
-                    </a>
-                  {/if}
-                </li>
-              {/each}
-            </ul>
+            {#if shown.length === 0}
+              <p class="note">{t('welcome.allHidden')}</p>
+            {:else}
+              <ul class="recent">
+                {#each shown as r (r.dir)}
+                  <li>
+                    {#if r.missing}
+                      <div class="gone">
+                        <span class="rname">{r.name}</span>
+                        <Banner kind="warning">{t('welcome.folderGone')}</Banner>
+                        <Button variant="quiet" onclick={() => remove(r.dir)} aria-label={t('welcome.removeNamed', { name: r.name })}>
+                          {t('common.remove')}
+                        </Button>
+                      </div>
+                    {:else}
+                      <div class="item">
+                        <a
+                          href="#/open"
+                          class="row"
+                          onclick={(e) => {
+                            e.preventDefault();
+                            void open(r.dir);
+                          }}
+                        >
+                          <span class="rname">{r.name}</span>
+                          <bdi dir="auto" class="rdir">{r.dir}</bdi>
+                          <span class="rwhen tnum">{t('welcome.opened', { date: when(r.openedAt) })}</span>
+                        </a>
+                        <Button variant="quiet" onclick={() => setHidden(r.dir, true)} aria-label={t('welcome.hideNamed', { name: r.name })}>
+                          {t('welcome.hide')}
+                        </Button>
+                      </div>
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            {#if hiddenRecents.length > 0}
+              <details class="hidden-trees">
+                <summary>{t('welcome.hiddenTrees', { n: hiddenRecents.length })}</summary>
+                <ul class="recent">
+                  {#each hiddenRecents as r (r.dir)}
+                    <li>
+                      <div class="item">
+                        {#if r.missing}
+                          <span class="row">
+                            <span class="rname">{r.name}</span>
+                            <span class="rdir">{t('welcome.folderGone')}</span>
+                            <span></span>
+                          </span>
+                        {:else}
+                          <a
+                            href="#/open"
+                            class="row"
+                            onclick={(e) => {
+                              e.preventDefault();
+                              void open(r.dir);
+                            }}
+                          >
+                            <span class="rname">{r.name}</span>
+                            <bdi dir="auto" class="rdir">{r.dir}</bdi>
+                            <span class="rwhen tnum">{t('welcome.opened', { date: when(r.openedAt) })}</span>
+                          </a>
+                        {/if}
+                        <Button variant="quiet" onclick={() => setHidden(r.dir, false)} aria-label={t('welcome.showNamed', { name: r.name })}>
+                          {t('welcome.show')}
+                        </Button>
+                      </div>
+                    </li>
+                  {/each}
+                </ul>
+              </details>
+            {/if}
           {/if}
         </div>
       </section>
@@ -194,6 +261,50 @@
     color: var(--ink-1);
     font-size: var(--t-sm);
     overflow-wrap: anywhere;
+  }
+  .item {
+    display: flex;
+    align-items: center;
+    gap: var(--s-4);
+  }
+  .item .row {
+    flex: 1;
+    min-width: 0;
+  }
+  .hidden-trees {
+    border-block-start: 1px solid var(--ink-2);
+    padding-block: var(--s-3);
+  }
+  .hidden-trees summary {
+    list-style: none;
+    cursor: pointer;
+    color: var(--ink-1);
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+  }
+  .hidden-trees summary::before {
+    content: '▸';
+    transition: transform 0.15s;
+  }
+  .hidden-trees[open] summary::before {
+    transform: rotate(90deg);
+  }
+  .hidden-trees summary::-webkit-details-marker {
+    display: none;
+  }
+  .hidden-trees summary:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .hidden-trees .rname {
+    color: var(--ink-1);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hidden-trees summary::before {
+      transition: none;
+    }
   }
   .gone {
     display: flex;
