@@ -446,12 +446,16 @@
     padding-bottom: 0;
     padding-top: var(--s-5);
   }
+  /* The caption goes under the couple, so it does not sit across the line from the parent. */
+  .reversed .gcell .cap {
+    order: 1;
+  }
   .reversed .gcell.has::after {
     bottom: auto;
     top: 0;
   }
   .reversed .pcell {
-    padding: var(--s-5) var(--s-3) var(--s-2);
+    padding: var(--s-5) var(--s-3) 0;
   }
   .reversed .pcell::before,
   .reversed .pcell::after {
@@ -564,7 +568,8 @@
     position: relative;
     display: flex;
     justify-content: center;
-    padding: var(--s-2) var(--s-3) var(--s-5);
+    /* No space on the grandparents' side: their line runs straight into the box. */
+    padding: 0 var(--s-3) var(--s-5);
     min-width: 0;
   }
   .pcell::before {
