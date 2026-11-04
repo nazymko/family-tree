@@ -470,8 +470,15 @@
   .page {
     display: grid;
     gap: var(--s-6);
-    max-width: 70rem;
     padding: var(--s-6);
+  }
+  /* The text sections keep a readable width; the family tree may use the whole page. */
+  .page > :not(.tree-sec) {
+    max-width: 70rem;
+  }
+  .tree-sec {
+    min-width: 0;
+    max-width: none;
   }
   .card {
     max-width: var(--measure);
