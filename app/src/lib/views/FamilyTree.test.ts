@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import FamilyView from './FamilyView.svelte';
 import { apiContext } from '../api/context';
@@ -537,5 +537,99 @@ describe('FamilyTree detaching a wrong link', () => {
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('menu')).toBeNull();
     expect(document.activeElement).toBe(b);
+  });
+});
+
+describe('FamilyTree couple end marks', () => {
+  const endEvent = (kind: string, year: string, roles: [PersonRef, string][]) => ({
+    id: 'ev1',
+    kind,
+    label: kind,
+    date: { raw: year, display: year },
+    description: null,
+    cause: null,
+    negative: false,
+    private: false,
+    preferred: true,
+    participants: roles.map(([person, role]) => ({ person, role })),
+  });
+
+  it('a_died_partner_and_the_one_who_raised_the_children_alone_are_marked', async () => {
+    const me = ref('Ivan Koval', 'male');
+    const wife = ref('Olena Koval', 'female');
+    const son = ref('Taras Koval', 'male');
+    const u = union(wife, [kid(son)]);
+    u.events = [endEvent('custom:widowed', '1944', [[wife, 'left_family'], [me, 'raised_alone']])] as never;
+    setup([view(me, { partnerships: [u] })]);
+    await tree();
+    expect(await screen.findByRole('button', { name: /^Olena Koval, .*died 1944/ })).toBeInTheDocument();
+    expect(screen.getByText('Raised alone by Ivan Koval')).toBeInTheDocument();
+    expect(document.querySelector('.join.ended')).not.toBeNull();
+  });
+
+  it('the_parents_divorce_is_shown_on_both_parent_boxes', async () => {
+    const dad = ref('Petro Koval', 'male');
+    const mum = ref('Maria Koval', 'female');
+    const me = ref('Ivan Koval', 'male');
+    const ps = sets(dad, mum);
+    const getFamily = vi.fn(async (id: string) => ({
+      id,
+      partners: [dad, mum],
+      kind: 'married',
+      summary: null,
+      events: [endEvent('divorce', '1935', [[dad, 'left_family'], [mum, 'raised_alone']])],
+      children: [],
+    }) as never);
+    setup([view(me, { parentSets: ps })], { getFamily });
+    await tree();
+    expect(await screen.findByRole('button', { name: /^Petro Koval, .*divorced 1935/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^Maria Koval, .*raised the children alone/ })).toBeInTheDocument();
+  });
+
+  it('the_menu_records_who_left_and_who_raised_the_children', async () => {
+    const me = ref('Ivan Koval', 'male');
+    const wife = ref('Olena Koval', 'female');
+    const u = union(wife, [kid(ref('Taras Koval', 'male'))]);
+    const apply = vi.fn(async (cmd: unknown) => void cmd as never);
+    const { user } = setup([view(me, { partnerships: [u] })], { apply });
+    await tree();
+    const b = await screen.findByRole('button', { name: /^Olena Koval/ });
+    await user.pointer({ keys: '[MouseRight]', target: b });
+    await user.click(await screen.findByRole('menuitem', { name: /How did this couple end/ }));
+    const dlg = await screen.findByRole('dialog');
+    await user.click(within(dlg).getByLabelText('Divorce'));
+    await user.click(within(dlg).getByLabelText('Ivan Koval'));
+    await user.click(within(dlg).getByLabelText('Olena Koval raised the children alone afterwards'));
+    await user.click(within(dlg).getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(apply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'saveEvent',
+          owner: { kind: 'family', id: u.familyId },
+          event: expect.objectContaining({
+            kind: 'divorce',
+            participants: [
+              { person: me.id, role: 'left_family' },
+              { person: wife.id, role: 'raised_alone' },
+            ],
+          }),
+        }),
+      ),
+    );
+  });
+
+  it('an_existing_mark_can_be_removed', async () => {
+    const me = ref('Ivan Koval', 'male');
+    const wife = ref('Olena Koval', 'female');
+    const u = union(wife);
+    u.events = [endEvent('separation', '1950', [[me, 'left_family']])] as never;
+    const apply = vi.fn(async (cmd: unknown) => void cmd as never);
+    const { user } = setup([view(me, { partnerships: [u] })], { apply });
+    await tree();
+    const b = await screen.findByRole('button', { name: /^Olena Koval, .*separated 1950/ });
+    await user.pointer({ keys: '[MouseRight]', target: b });
+    await user.click(await screen.findByRole('menuitem', { name: /Edit how this couple ended/ }));
+    await user.click(await screen.findByRole('button', { name: 'Remove the mark' }));
+    await waitFor(() => expect(apply).toHaveBeenCalledWith({ type: 'deleteEvent', owner: { kind: 'family', id: u.familyId }, event: 'ev1' }));
   });
 });
