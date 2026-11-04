@@ -14,6 +14,7 @@
   import { settings } from '../state/settings.svelte';
   import { ui, type AddRelation } from '../state/ui.svelte';
   import FamilyEditor from '../editors/FamilyEditor.svelte';
+  import FamilyTree from './FamilyTree.svelte';
   import { flipMove, snapshotRects } from './flip';
   import { t, type MessageKey } from '../i18n';
 
@@ -29,6 +30,24 @@
   /** The family editor dialog: a family id to edit, 'new' to start one with the focus person. */
   let familyDialog = $state<string | null>(null);
   let token = 0;
+
+  const MODE_KEY = 'gt.familyMode';
+  function initialMode(): 'tree' | 'cards' {
+    try {
+      return localStorage.getItem(MODE_KEY) === 'cards' ? 'cards' : 'tree';
+    } catch {
+      return 'tree';
+    }
+  }
+  let mode = $state<'tree' | 'cards'>(initialMode());
+  function setMode(m: 'tree' | 'cards') {
+    mode = m;
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      // Not remembered; the page still works.
+    }
+  }
 
   const homeId = $derived(project.info?.homePerson ?? settings.value.homePerson ?? null);
 
@@ -179,6 +198,11 @@
     </EmptyState>
   {:else if view}
     {@const focus = view.focus}
+    <div class="modes" role="group" aria-label={t('family.viewMode')}>
+      <button type="button" class="mode" aria-pressed={mode === 'tree'} onclick={() => setMode('tree')}>{t('family.modeTree')}</button>
+      <button type="button" class="mode" aria-pressed={mode === 'cards'} onclick={() => setMode('cards')}>{t('family.modeCards')}</button>
+    </div>
+    {#if mode === 'cards'}
     <section class="band" aria-label={t('family.parents')}>
       <h2>{t('family.parents')}</h2>
       <div class="cards">
@@ -233,8 +257,9 @@
         </details>
       {/if}
     </section>
+    {/if}
 
-    <div class="mid">
+    <div class="mid" class:solo={mode === 'tree'}>
       <IndexCard as="section" ribbon={focus.id === homeId} flipKey={focus.id}>
         <h1 class="fname"><bdi dir="auto">{focus.name}</bdi></h1>
         <p class="flife tnum">
@@ -249,6 +274,7 @@
         </div>
       </IndexCard>
 
+      {#if mode === 'cards'}
       <section class="band partners" aria-label={t('family.partners')}>
         <h2>{t('family.partners')}</h2>
         {#if view.partnerships.length === 0}
@@ -298,8 +324,12 @@
           {/if}
         {/if}
       </section>
+      {/if}
     </div>
 
+    {#if mode === 'tree'}
+      <FamilyTree {view} {homeId} onopen={refocus} onadd={(rel, anchor) => ui.requestAdd(rel, anchor)} />
+    {:else}
     <section class="band" aria-label={t('family.children')}>
       <h2>{t('family.children')}</h2>
       {#if union && union.children.length > 0}
@@ -346,6 +376,7 @@
           {/each}
         </ul>
       </details>
+    {/if}
     {/if}
   {/if}
 </div>
@@ -510,6 +541,33 @@
   }
   .gap {
     margin-top: var(--s-4);
+  }
+  .mid.solo {
+    grid-template-columns: minmax(18rem, 30rem);
+  }
+  .modes {
+    display: inline-flex;
+    justify-self: start;
+    border: 1px solid var(--ink-2);
+    border-radius: var(--r-1);
+    overflow: hidden;
+  }
+  .mode {
+    padding: var(--s-2) var(--s-5);
+    border: 0;
+    background: transparent;
+    color: var(--ink-1);
+    font: inherit;
+    cursor: pointer;
+  }
+  .mode[aria-pressed='true'] {
+    background: var(--ribbon-wash);
+    color: var(--ink-0);
+    font-weight: 600;
+  }
+  .mode:focus-visible {
+    outline: 2px solid var(--ribbon);
+    outline-offset: -2px;
   }
   @media (max-width: 1100px) {
     .mid {

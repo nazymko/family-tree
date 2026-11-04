@@ -53,6 +53,7 @@ function setup(views: FamilyViewDto[], start?: string, extra: Partial<Api> = {})
 }
 
 beforeEach(() => {
+  localStorage.setItem('gt.familyMode', 'cards');
   vi.mocked(flip.flipMove).mockClear();
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as never;
 });
