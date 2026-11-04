@@ -95,6 +95,27 @@ describe('mock relatives layout (port of gt-layout relatives)', () => {
     expect(back.label).toMatch(/also shown above/);
   });
 
+  it('outline_items_carry_the_relation_and_reference_only_people_have_no_expander', async () => {
+    const root = await richest();
+    const meta = await api.chartOpen({ kind: 'relatives', root, generations: 3 });
+    const top = (await api.chartOutline(meta.chartId, null, 10))[0];
+    expect(top.relation).toBeUndefined();
+    const groups = await api.chartOutline(meta.chartId, top.nodeId, 50);
+    const parents = await api.chartOutline(meta.chartId, groups.find((g) => g.label === 'Parents')!.nodeId, 50);
+    expect(parents.every((p) => /^(father|mother|parent)$/.test(p.relation ?? ''))).toBe(true);
+    // No row may open into nothing but references.
+    for (const p of parents) {
+      if (!p.hasChildren) continue;
+      const gs = await api.chartOutline(meta.chartId, p.nodeId, 50);
+      let fresh = 0;
+      for (const g of gs) {
+        const rows = await api.chartOutline(meta.chartId, g.nodeId, 50);
+        fresh += rows.filter((r) => !/also shown above/.test(r.label)).length;
+      }
+      expect(fresh).toBeGreaterThan(0);
+    }
+  });
+
   it('terminates_on_the_cycle_fixture', async () => {
     const meta = await api.chartOpen({ kind: 'relatives', root: fx.specials.cycleA!, generations: 5 });
     const win = await api.chartWindow(meta.chartId, BIG, 1);

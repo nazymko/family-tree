@@ -553,6 +553,7 @@ impl Session {
                         || n.more_up
                         || n.more_down
                         || c.partners.contains_key(&id),
+                    relation: None,
                 })
             })
             .collect()
@@ -604,10 +605,17 @@ impl Session {
                 node_id: id,
                 person: person_of(id)?,
                 label,
+                // Only a person with someone not listed elsewhere can be opened.
                 has_children: first
-                    && RelGroup::ALL
-                        .iter()
-                        .any(|g| !relatives_group(c, id, *g).is_empty()),
+                    && RelGroup::ALL.iter().any(|g| {
+                        relatives_group(c, id, *g)
+                            .iter()
+                            .any(|m| places.get(m) == Some(&(id, g.index())))
+                    }),
+                relation: n
+                    .rel
+                    .filter(|r| *r != Rel::Focus)
+                    .map(|r| relation_label(r, sex)),
             })
         };
         let Some(p) = parent else {
@@ -623,6 +631,7 @@ impl Session {
                     person: None,
                     label: g.title().to_string(),
                     has_children: true,
+                    relation: None,
                 })
                 .collect());
         }

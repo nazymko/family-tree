@@ -51,7 +51,7 @@ describe('OutlineMirror', () => {
     const { onPick, root } = await setup();
     const [first] = screen.getAllByRole('treeitem');
     await fireEvent.keyDown(first, { key: 'Enter' });
-    expect(onPick).toHaveBeenCalledWith(root, expect.any(String));
+    expect(onPick).toHaveBeenCalledWith(root, undefined);
   });
 
   it('ahnentafel_labels_in_pedigree', async () => {

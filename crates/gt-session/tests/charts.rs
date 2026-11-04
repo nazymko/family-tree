@@ -764,3 +764,33 @@ fn relatives_outline_father_children_is_a_reference() {
     assert!(!kids[0].has_children);
     assert!(kids[0].label.contains("also shown above"));
 }
+
+/// A person whose only relatives are listed elsewhere has no expander; the relation is also carried as data.
+#[test]
+fn relatives_outline_has_no_expander_for_references_only_and_carries_relation() {
+    let (_d, mut s) = open_ged(&relatives_cousins_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 3)).unwrap();
+    let root = s.chart_outline(m.chart_id, None, 50).unwrap().remove(0);
+    assert_eq!(root.relation, None);
+    let groups = s.chart_outline(m.chart_id, Some(root.node_id), 50).unwrap();
+    let parents = s
+        .chart_outline(m.chart_id, Some(groups[0].node_id), 50)
+        .unwrap();
+    let father = parents
+        .iter()
+        .find(|p| p.label.starts_with("Father"))
+        .unwrap();
+    let mother = parents
+        .iter()
+        .find(|p| p.label.starts_with("Mother"))
+        .unwrap();
+    assert_eq!(father.relation.as_deref(), Some("father"));
+    assert!(father.has_children, "his parents are not listed elsewhere");
+    assert_eq!(mother.relation.as_deref(), Some("mother"));
+    assert!(
+        !mother.has_children,
+        "her partner and child are listed above"
+    );
+    let v = serde_json::to_value(mother).unwrap();
+    assert_eq!(v["relation"], "mother");
+}

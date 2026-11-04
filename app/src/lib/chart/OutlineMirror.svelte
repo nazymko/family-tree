@@ -11,7 +11,7 @@
     onSelect,
   }: {
     chartId: number;
-    onPick: (personId: Id, label?: string) => void;
+    onPick: (personId: Id, relation?: string) => void;
     label?: string;
     /** Selected chart node, shared with the canvas. Roving focus is tracked separately. */
     selected?: number | null;
@@ -136,7 +136,7 @@
         break;
       case 'Enter':
       case ' ':
-        if (it.person) onPick(it.person.id, it.label);
+        if (it.person) onPick(it.person.id, it.relation);
         break;
       default:
         return;
@@ -176,7 +176,7 @@
           <span class="twist"></span>
         {/if}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <span class="text" ondblclick={() => it.person && onPick(it.person.id, it.label)}>
+        <span class="text" ondblclick={() => it.person && onPick(it.person.id, it.relation)}>
           <span class="rel">{it.label}</span>
           {#if it.person}
             <bdi dir="auto" class="nm">{it.person.name}</bdi>

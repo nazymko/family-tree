@@ -178,27 +178,29 @@ describe('Relatives view', () => {
     await waitFor(() => expect(within(trail).getAllByRole('listitem')).toHaveLength(2));
   });
 
-  it('outline_expands_parents_father_children_without_overflowing', async () => {
+  it('outline_expands_everything_without_overflowing', async () => {
     const { api, fx } = makeApi();
     nav.focus(await richestRoot(api, fx, 'relatives'));
     render(Host, { props: { api, view: Relatives } });
     await fireEvent.click(await screen.findByRole('tab', { name: 'Outline' }));
     const tree = await screen.findByRole('tree');
-    const open = async (row: Element) => fireEvent.click(row.querySelector('.twist')!);
-    await open(within(tree).getByText('Starting person').closest('li')!);
-    const parents = (await within(tree).findByText('Parents')).closest('li')!;
-    await open(parents);
-    await waitFor(() => expect(within(parents).getAllByRole('treeitem').length).toBeGreaterThan(0));
-    const dad = within(parents).getAllByRole('treeitem')[0];
-    await open(dad);
-    const kids = (await within(dad).findByText('Children')).closest('li')!;
-    await open(kids);
-    const again = await waitFor(() => within(kids).getAllByRole('treeitem'));
-    // The focus person is listed again as a reference, which cannot be opened.
-    expect(again[0].textContent).toMatch(/also shown above/);
-    expect(again[0].hasAttribute('aria-expanded')).toBe(false);
-    const ids = Array.from(tree.querySelectorAll('[role=treeitem]')).map((e) => e.id);
+    // Open every row that can be opened, round after round; it must come to an end.
+    let rounds = 0;
+    for (; rounds < 12; rounds++) {
+      const closed = Array.from(tree.querySelectorAll('li[aria-expanded="false"]'));
+      if (closed.length === 0) break;
+      for (const li of closed) await fireEvent.click(li.querySelector(':scope > .row .twist')!);
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(rounds).toBeLessThan(12);
+    const items = Array.from(tree.querySelectorAll('[role=treeitem]'));
+    expect(items.length).toBeGreaterThan(3);
+    const ids = items.map((e) => e.id);
     expect(new Set(ids).size).toBe(ids.length);
+    // A person listed again is only a reference: it cannot be opened.
+    const refs = items.filter((e) => /also shown above/.test(e.querySelector(':scope > .row')!.textContent ?? ''));
+    expect(refs.length).toBeGreaterThan(0);
+    for (const r of refs) expect(r.hasAttribute('aria-expanded')).toBe(false);
   });
 });
 

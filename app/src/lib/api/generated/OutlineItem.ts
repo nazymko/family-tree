@@ -5,4 +5,9 @@ export type OutlineItem = { nodeId: number, person: PersonRef | null,
 /**
  * "2 Father", "Child 3".
  */
-label: string, hasChildren: boolean, };
+label: string, hasChildren: boolean, 
+/**
+ * Relatives chart only: how the person is related to the centred one, as the plain label ("brother"),
+ * for callers that need it as data rather than inside `label`. Absent for the centred person and headings.
+ */
+relation?: string, };

@@ -90,11 +90,6 @@
     pendingCrumb = null;
   }
 
-  /** "Brother" from the outline label "Brother (also shown above)"; the starting person has no relation. */
-  const relationOf = (label?: string): string | undefined => {
-    const r = (label ?? '').replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase();
-    return r && r !== 'starting person' ? r : undefined;
-  };
 
   const crumbText = (c: Crumb) => (c.relation ? `${c.name} (${c.relation})` : c.name);
 
@@ -198,7 +193,7 @@
             label="{title} outline"
             selected={selectedNode}
             onSelect={select}
-            onPick={(id, label) => recentre(id, relationOf(label))}
+            onPick={(id, relation) => recentre(id, relation)}
           />
         </div>
       {/if}

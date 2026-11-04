@@ -330,6 +330,49 @@ fn twelve_siblings_three_generations_each_way_do_not_overlap() {
 }
 
 #[test]
+fn no_parent_line_passes_over_a_box_it_does_not_connect() {
+    // 30 children, wider than the parents' span, and cousins on both sides.
+    let mut s = MapSource::default();
+    let kids: Vec<u32> = (500..530).collect();
+    s.family(Some(1), Some(2), &kids);
+    s.family(Some(3), Some(4), &[1, 20]);
+    s.family(Some(5), Some(6), &[2, 30]);
+    for (i, p) in [20u32, 30].into_iter().enumerate() {
+        let c0 = 100 + i as u32 * 2;
+        s.family(Some(p), Some(900 + i as u32), &[c0, c0 + 1]);
+    }
+    let l = run(&s, 500, 3, true);
+    assert!(
+        l.nodes
+            .iter()
+            .filter(|n| n.rel == Some(Rel::Cousin))
+            .count()
+            == 4
+    );
+    let inside = |x: f32, y: f32, r: &gt_layout::Rect| {
+        x > r.x + 0.01 && x < r.x + r.w - 0.01 && y > r.y + 0.01 && y < r.y + r.h - 0.01
+    };
+    for e in l.edges.iter().filter(|e| e.kind == EdgeKind::Parent) {
+        for w in e.pts.chunks(2).collect::<Vec<_>>().windows(2) {
+            let (a, b) = ((w[0][0], w[0][1]), (w[1][0], w[1][1]));
+            for n in l.nodes.iter().filter(|n| n.id != e.from && n.id != e.to) {
+                for i in 0..=40 {
+                    let f = i as f32 / 40.0;
+                    let (x, y) = (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
+                    assert!(
+                        !inside(x, y, &n.rect),
+                        "edge {} -> {} crosses node {}",
+                        e.from,
+                        e.to,
+                        n.id
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn query_finds_the_focus() {
     let l = run(&big_family(), 0, 3, true);
     let (nodes, _) = l.query(&l.nodes[0].rect);

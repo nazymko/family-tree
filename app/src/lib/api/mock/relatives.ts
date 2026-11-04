@@ -461,8 +461,11 @@ export function relativesOutline(l: RelLayout, parent: number | null, limit: num
     const n = l.nodes[id];
     const first = places.get(id) === place;
     const label = cap(n.relation ?? '') + (n.dupOf !== null ? ' (appears earlier)' : '') + (first ? '' : ' (also shown above)');
-    const hasChildren = first && GROUPS.some((_, g) => groupOf(l, id, g).length > 0);
-    return { nodeId: id, person: n.person, label, hasChildren };
+    // Only a person with someone not listed elsewhere can be opened.
+    const hasChildren = first && GROUPS.some((_, g) => groupOf(l, id, g).some((m) => places.get(m) === `${id}:${g}`));
+    const out: OutlineItem = { nodeId: id, person: n.person, label, hasChildren };
+    if (id !== 0 && n.relation) out.relation = n.relation;
+    return out;
   };
   if (parent === null) return [item(0, 'root')];
   if (parent < GROUP_BASE) {

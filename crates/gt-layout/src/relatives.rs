@@ -550,6 +550,13 @@ pub fn relatives(
     }
     // Parents to their group: one bar per family, drawn at its own height so a half sibling
     // does not look like a full one.
+    // With cousins, the bar into the centred person's row runs below the cousin row, so a parent's
+    // vertical line passes that row at the parent's own x, never over a cousin.
+    let cousin_bottom = nodes
+        .iter()
+        .filter(|n| n.rel == Some(Rel::Cousin))
+        .map(|n| n.rect.bottom())
+        .fold(f32::NEG_INFINITY, f32::max);
     for blk in &blocks {
         for &r in &blk.group {
             let t = nodes[units[r].person as usize].rect;
@@ -565,7 +572,12 @@ pub fn relatives(
                 let Some(ub) = blk.slots[s] else { continue };
                 let pn = units[blocks[ub].anchor].person;
                 let a = nodes[pn as usize].rect;
-                let mid = a.bottom() + m.gap_y * k;
+                let top = if has_cousins && units[r].row == 0 {
+                    cousin_bottom
+                } else {
+                    a.bottom()
+                };
+                let mid = top + m.gap_y * k;
                 edges.push(Edge {
                     from: pn,
                     to: units[r].person,

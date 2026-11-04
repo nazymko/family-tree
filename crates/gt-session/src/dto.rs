@@ -475,6 +475,11 @@ pub struct OutlineItem {
     /// "2 Father", "Child 3".
     pub label: String,
     pub has_children: bool,
+    /// Relatives chart only: how the person is related to the centred one, as the plain label ("brother"),
+    /// for callers that need it as data rather than inside `label`. Absent for the centred person and headings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub relation: Option<String>,
 }
 
 /// A child in a `FamilyDto`: the child plus whether this family is the child's preferred one.
