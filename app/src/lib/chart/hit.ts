@@ -1,4 +1,4 @@
-import type { ChartNode, ChartWindow } from '../api/types';
+import type { ChartKind, ChartNode, ChartWindow } from '../api/types';
 
 export type Dir = 'up' | 'down' | 'left' | 'right' | 'parent' | 'child';
 
@@ -15,20 +15,32 @@ export function hitTest(win: ChartWindow, worldX: number, worldY: number): Chart
 export const HANDLE_R = 9;
 
 /** Centre of the "+" handle: right edge for pedigrees (ancestors go right), bottom edge for descendants. */
-export function handlePos(n: ChartNode, kind: 'pedigree' | 'descendants'): { x: number; y: number } {
+export function handlePos(n: ChartNode, kind: ChartKind): { x: number; y: number } {
   return kind === 'pedigree' ? { x: n.x + n.w, y: n.y + n.h / 2 } : { x: n.x + n.w / 2, y: n.y + n.h };
+}
+
+/**
+ * Where the "+" handles of a node sit. Pedigree: right edge when ancestors are hidden. Descendants: bottom edge when
+ * children are hidden. Relatives: top edge for hidden ancestors and bottom edge for hidden children.
+ */
+export function handleSpots(n: ChartNode, kind: ChartKind): { x: number; y: number }[] {
+  if (kind === 'relatives') {
+    const out: { x: number; y: number }[] = [];
+    if (n.moreUp) out.push({ x: n.x + n.w / 2, y: n.y });
+    if (n.moreDown) out.push({ x: n.x + n.w / 2, y: n.y + n.h });
+    return out;
+  }
+  return (kind === 'pedigree' ? n.moreUp : n.moreDown) ? [handlePos(n, kind)] : [];
 }
 
 /** Screen radius (px) a handle must be hittable at, converted to world units. */
 export const HANDLE_HIT_PX = 8;
 
-export function hitHandle(win: ChartWindow, kind: 'pedigree' | 'descendants', wx: number, wy: number, zoom = 1): ChartNode | null {
+export function hitHandle(win: ChartWindow, kind: ChartKind, wx: number, wy: number, zoom = 1): ChartNode | null {
   if (zoom < 0.25) return null; // dots LOD draws no handles
   const r = Math.max(HANDLE_R, HANDLE_HIT_PX / zoom);
   for (const n of win.nodes) {
-    if (!(kind === 'pedigree' ? n.moreUp : n.moreDown)) continue;
-    const h = handlePos(n, kind);
-    if ((wx - h.x) ** 2 + (wy - h.y) ** 2 <= r * r) return n;
+    for (const h of handleSpots(n, kind)) if ((wx - h.x) ** 2 + (wy - h.y) ** 2 <= r * r) return n;
   }
   return null;
 }

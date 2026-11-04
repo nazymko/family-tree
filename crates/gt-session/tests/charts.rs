@@ -80,6 +80,7 @@ fn pedigree_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
         kind: ChartKind::Pedigree,
         root: id_of(s, name),
         generations,
+        aunts_uncles: None,
     }
 }
 
@@ -88,6 +89,7 @@ fn descendants_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
         kind: ChartKind::Descendants,
         root: id_of(s, name),
         generations,
+        aunts_uncles: None,
     }
 }
 
@@ -237,6 +239,7 @@ fn open_unknown_person_is_not_found() {
         kind: ChartKind::Pedigree,
         root: Uuid::nil(),
         generations: 3,
+        aunts_uncles: None,
     };
     assert_eq!(s.chart_open(&req).unwrap_err().code, ErrorCode::NotFound);
 }
@@ -530,4 +533,264 @@ fn chart_window_under_8ms_10k() {
         worst < std::time::Duration::from_millis(8),
         "worst window {worst:?}"
     );
+}
+
+// ---- relatives ----
+
+/// Ivan Koval (1) and Olena Koval (2) with sons Petro (3), Andriy (4) and daughter Maria (5); Ivan's
+/// earlier marriage to Halyna (6) gave Taras (7); Petro and Sofia (8) have Danylo (9).
+fn relatives_ged() -> String {
+    ged(&[
+        indi(1, "Ivan /Koval/", "M", ""),
+        indi(2, "Olena /Koval/", "F", ""),
+        indi(3, "Petro /Koval/", "M", "1 BIRT\n2 DATE 1980\n"),
+        indi(4, "Andriy /Koval/", "M", "1 BIRT\n2 DATE 1975\n"),
+        indi(5, "Maria /Koval/", "F", "1 BIRT\n2 DATE 1985\n"),
+        indi(6, "Halyna /Bondar/", "F", ""),
+        indi(7, "Taras /Koval/", "M", "1 BIRT\n2 DATE 1970\n"),
+        indi(8, "Sofia /Koval/", "F", ""),
+        indi(9, "Danylo /Koval/", "M", ""),
+        fam(1, 1, 2, &[3, 4, 5]),
+        fam(2, 1, 6, &[7]),
+        fam(3, 3, 8, &[9]),
+    ])
+}
+
+fn relatives_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
+    ChartRequest {
+        kind: ChartKind::Relatives,
+        root: id_of(s, name),
+        generations,
+        aunts_uncles: None,
+    }
+}
+
+#[test]
+fn relatives_window_labels_each_person() {
+    let (_d, mut s) = open_ged(&relatives_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 2)).unwrap();
+    assert_eq!(m.kind, ChartKind::Relatives);
+    assert_eq!(m.root_node, 0);
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    let rel = |name: &str| {
+        w.nodes
+            .iter()
+            .find(|n| n.person.as_ref().is_some_and(|p| p.name == name))
+            .unwrap_or_else(|| panic!("no {name}"))
+            .relation
+            .clone()
+    };
+    assert_eq!(rel("Petro Koval").as_deref(), Some("starting person"));
+    assert_eq!(rel("Andriy Koval").as_deref(), Some("brother"));
+    assert_eq!(rel("Maria Koval").as_deref(), Some("sister"));
+    assert_eq!(rel("Taras Koval").as_deref(), Some("half brother"));
+    assert_eq!(rel("Ivan Koval").as_deref(), Some("father"));
+    assert_eq!(rel("Olena Koval").as_deref(), Some("mother"));
+    assert_eq!(rel("Sofia Koval").as_deref(), Some("partner"));
+    assert_eq!(rel("Danylo Koval").as_deref(), Some("son"));
+    // Brothers and sisters are ordered by birth: Taras 1970, Andriy 1975, Petro 1980, Maria 1985.
+    let x = |name: &str| {
+        w.nodes
+            .iter()
+            .find(|n| n.person.as_ref().is_some_and(|p| p.name == name))
+            .unwrap()
+            .x
+    };
+    assert!(x("Taras Koval") < x("Andriy Koval"));
+    assert!(x("Andriy Koval") < x("Petro Koval"));
+    assert!(x("Petro Koval") < x("Maria Koval"));
+    let focus = w.nodes.iter().find(|n| n.id == 0).unwrap();
+    assert!(focus.label.contains("Petro Koval") && focus.label.contains("starting person"));
+    // Dots-only zoom carries no text.
+    let low = s.chart_window(m.chart_id, &everything(), 0.2).unwrap();
+    assert!(low.nodes.iter().all(|n| n.relation.is_none()));
+}
+
+#[test]
+fn relatives_can_hide_aunts_and_wire_shape_has_relation() {
+    let (_d, mut s) = open_ged(&relatives_ged());
+    let mut req = relatives_req(&s, "Petro Koval", 2);
+    req.aunts_uncles = Some(false);
+    let m = s.chart_open(&req).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    let v = serde_json::to_value(&w).unwrap();
+    assert!(v["nodes"][0]["relation"].is_string());
+    let r = serde_json::to_value(&req).unwrap();
+    assert_eq!(r["auntsUncles"], false);
+    assert_eq!(r["kind"], "relatives");
+}
+
+#[test]
+fn relatives_outline_groups_the_related_people() {
+    let (_d, mut s) = open_ged(&relatives_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 2)).unwrap();
+    let root = s.chart_outline(m.chart_id, None, 10).unwrap();
+    assert_eq!(root.len(), 1);
+    assert_eq!(root[0].label, "Starting person");
+    assert!(root[0].has_children);
+    let groups = s
+        .chart_outline(m.chart_id, Some(root[0].node_id), 50)
+        .unwrap();
+    let titles: Vec<&str> = groups.iter().map(|g| g.label.as_str()).collect();
+    assert_eq!(titles, ["Parents", "Siblings", "Partners", "Children"]);
+    assert!(groups.iter().all(|g| g.person.is_none() && g.has_children));
+    let names = |g: &OutlineItem| -> Vec<String> {
+        s.chart_outline(m.chart_id, Some(g.node_id), 50)
+            .unwrap()
+            .into_iter()
+            .map(|i| format!("{} {}", i.label, i.person.unwrap().name))
+            .collect()
+    };
+    assert_eq!(
+        names(&groups[0]),
+        ["Father Ivan Koval", "Mother Olena Koval"]
+    );
+    assert_eq!(
+        names(&groups[1]),
+        [
+            "Half brother Taras Koval",
+            "Brother Andriy Koval",
+            "Sister Maria Koval"
+        ]
+    );
+    assert_eq!(names(&groups[2]), ["Partner Sofia Koval"]);
+    assert_eq!(names(&groups[3]), ["Son Danylo Koval"]);
+    // Unknown group rows are refused.
+    assert!(
+        s.chart_outline(
+            m.chart_id,
+            Some(gt_session::chart::GROUP_BASE | (9999 << 3)),
+            5
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn relatives_generations_are_clamped() {
+    let (_d, mut s) = open_ged(&relatives_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 99)).unwrap();
+    assert_eq!(m.node_count, 8);
+    let m0 = s.chart_open(&relatives_req(&s, "Petro Koval", 0)).unwrap();
+    assert!(m0.node_count >= 1);
+}
+
+/// Petro's father Ivan has a sister Zoya (11) with a daughter Nina (12); their parents are Mykola and Hanna.
+fn relatives_cousins_ged() -> String {
+    ged(&[
+        indi(1, "Ivan /Koval/", "M", ""),
+        indi(2, "Olena /Koval/", "F", ""),
+        indi(3, "Petro /Koval/", "M", "1 BIRT\n2 DATE 1980\n"),
+        indi(10, "Mykola /Koval/", "M", ""),
+        indi(13, "Hanna /Koval/", "F", ""),
+        indi(11, "Zoya /Koval/", "F", ""),
+        indi(12, "Nina /Shevchuk/", "F", ""),
+        fam(1, 1, 2, &[3]),
+        fam(2, 10, 13, &[1, 11]),
+        fam(3, 11, 0, &[12]),
+    ])
+}
+
+#[test]
+fn relatives_label_cousins() {
+    let (_d, mut s) = open_ged(&relatives_cousins_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 3)).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    let rel = |name: &str| {
+        w.nodes
+            .iter()
+            .find(|n| n.person.as_ref().is_some_and(|p| p.name == name))
+            .and_then(|n| n.relation.clone())
+    };
+    assert_eq!(rel("Zoya Koval").as_deref(), Some("aunt"));
+    assert_eq!(rel("Nina Shevchuk").as_deref(), Some("cousin"));
+}
+
+/// Expanding every row of the outline, with a path guard, must end and never list a person twice as expandable.
+#[test]
+fn relatives_outline_expands_fully_and_terminates() {
+    let (_d, mut s) = open_ged(&relatives_cousins_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 3)).unwrap();
+    let mut stack: Vec<(u32, usize)> = s
+        .chart_outline(m.chart_id, None, 50)
+        .unwrap()
+        .into_iter()
+        .map(|i| (i.node_id, 0))
+        .collect();
+    let mut expandable_people = std::collections::HashSet::new();
+    let mut rows = 0;
+    while let Some((id, depth)) = stack.pop() {
+        rows += 1;
+        assert!(rows < 500 && depth < 40, "the outline does not end");
+        for it in s.chart_outline(m.chart_id, Some(id), 50).unwrap() {
+            if it.person.is_some() && it.has_children {
+                assert!(
+                    expandable_people.insert(it.node_id),
+                    "node {} is expandable in two places",
+                    it.node_id
+                );
+            }
+            if it.has_children {
+                stack.push((it.node_id, depth + 1));
+            }
+        }
+    }
+}
+
+/// Focus > Parents > Father > Children lists the focus again, as a reference that cannot be expanded.
+#[test]
+fn relatives_outline_father_children_is_a_reference() {
+    let (_d, mut s) = open_ged(&relatives_cousins_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 3)).unwrap();
+    let root = s.chart_outline(m.chart_id, None, 50).unwrap().remove(0);
+    let groups = s.chart_outline(m.chart_id, Some(root.node_id), 50).unwrap();
+    let parents = s
+        .chart_outline(m.chart_id, Some(groups[0].node_id), 50)
+        .unwrap();
+    let father = parents
+        .iter()
+        .find(|p| p.label.starts_with("Father"))
+        .unwrap();
+    assert!(father.has_children);
+    let fg = s
+        .chart_outline(m.chart_id, Some(father.node_id), 50)
+        .unwrap();
+    let children = fg.iter().find(|g| g.label == "Children").unwrap();
+    let kids = s
+        .chart_outline(m.chart_id, Some(children.node_id), 50)
+        .unwrap();
+    assert_eq!(kids.len(), 1);
+    assert_eq!(kids[0].node_id, root.node_id);
+    assert!(!kids[0].has_children);
+    assert!(kids[0].label.contains("also shown above"));
+}
+
+/// A person whose only relatives are listed elsewhere has no expander; the relation is also carried as data.
+#[test]
+fn relatives_outline_has_no_expander_for_references_only_and_carries_relation() {
+    let (_d, mut s) = open_ged(&relatives_cousins_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 3)).unwrap();
+    let root = s.chart_outline(m.chart_id, None, 50).unwrap().remove(0);
+    assert_eq!(root.relation, None);
+    let groups = s.chart_outline(m.chart_id, Some(root.node_id), 50).unwrap();
+    let parents = s
+        .chart_outline(m.chart_id, Some(groups[0].node_id), 50)
+        .unwrap();
+    let father = parents
+        .iter()
+        .find(|p| p.label.starts_with("Father"))
+        .unwrap();
+    let mother = parents
+        .iter()
+        .find(|p| p.label.starts_with("Mother"))
+        .unwrap();
+    assert_eq!(father.relation.as_deref(), Some("father"));
+    assert!(father.has_children, "his parents are not listed elsewhere");
+    assert_eq!(mother.relation.as_deref(), Some("mother"));
+    assert!(
+        !mother.has_children,
+        "her partner and child are listed above"
+    );
+    let v = serde_json::to_value(mother).unwrap();
+    assert_eq!(v["relation"], "mother");
 }

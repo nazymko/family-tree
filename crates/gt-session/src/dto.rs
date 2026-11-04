@@ -377,7 +377,7 @@ pub struct DatePreview {
 
 // ---- Charts (mirrors ChartRequest .. OutlineItem in types.ts) ----
 
-wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants });
+wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants, Relatives });
 wire_enum!(EdgeKindDto, "lowercase", { Parent, Partner, Dup });
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -386,6 +386,10 @@ pub struct ChartRequest {
     pub kind: ChartKind,
     pub root: Uuid,
     pub generations: u32,
+    /// Relatives chart only: show the parents' brothers and sisters (default on).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub aunts_uncles: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
@@ -442,6 +446,10 @@ pub struct ChartNode {
     pub more_down: bool,
     pub nav: ChartNav,
     pub label: String,
+    /// Relatives chart only: how this person is related to the centred one ("brother", "half sister").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub relation: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -467,6 +475,11 @@ pub struct OutlineItem {
     /// "2 Father", "Child 3".
     pub label: String,
     pub has_children: bool,
+    /// Relatives chart only: how the person is related to the centred one, as the plain label ("brother"),
+    /// for callers that need it as data rather than inside `label`. Absent for the centred person and headings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub relation: Option<String>,
 }
 
 /// A child in a `FamilyDto`: the child plus whether this family is the child's preferred one.

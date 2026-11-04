@@ -209,6 +209,7 @@ fn chart_window_under_8ms() {
             kind: ChartKind::Pedigree,
             root,
             generations: DEEP_GENERATIONS,
+            aunts_uncles: None,
         })
         .unwrap();
     let rect = Rect {
@@ -241,6 +242,7 @@ fn chart_open_pedigree_8_gens_under_50ms() {
         kind: ChartKind::Pedigree,
         root,
         generations: DEEP_GENERATIONS,
+        aunts_uncles: None,
     };
     let mut nodes = 0;
     let took = median(9, || {

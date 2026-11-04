@@ -7,9 +7,10 @@ use crate::dto::{
 };
 use crate::error::{ApiError, ErrorCode};
 use crate::index::{Links, PersonIndex};
+use crate::relation::relation_label;
 use crate::session::Session;
 use gt_core::tree::Tree;
-use gt_layout::{ChartSource, EdgeKind, Key, Layout, Metrics};
+use gt_layout::{ChartSource, EdgeKind, Key, Layout, Metrics, Rel, RelativesOptions};
 use std::cell::Cell;
 use std::collections::HashMap;
 
@@ -69,6 +70,13 @@ impl ChartSource for TreeSource<'_> {
         [a, b]
     }
 
+    fn birth_sort(&self, p: Key) -> Option<i32> {
+        self.index
+            .summaries
+            .get(p as usize)
+            .and_then(|s| s.birth_sort)
+    }
+
     fn unions(&self, p: Key) -> Vec<(Option<Key>, Vec<Key>)> {
         let Some(s) = self.index.summaries.get(p as usize) else {
             return Vec::new();
@@ -103,6 +111,95 @@ impl ChartSource for TreeSource<'_> {
     }
 }
 
+/// Outline row ids from here up are group headings ("Siblings"), not chart nodes.
+pub const GROUP_BASE: u32 = 1 << 31;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RelGroup {
+    Parents,
+    Siblings,
+    Partners,
+    Children,
+    AuntsUncles,
+}
+
+impl RelGroup {
+    const ALL: [RelGroup; 5] = [
+        RelGroup::Parents,
+        RelGroup::Siblings,
+        RelGroup::Partners,
+        RelGroup::Children,
+        RelGroup::AuntsUncles,
+    ];
+
+    fn index(self) -> u32 {
+        Self::ALL.iter().position(|g| *g == self).unwrap_or(0) as u32
+    }
+
+    fn from_index(i: u32) -> Option<Self> {
+        Self::ALL.get(i as usize).copied()
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            RelGroup::Parents => "Parents",
+            RelGroup::Siblings => "Siblings",
+            RelGroup::Partners => "Partners",
+            RelGroup::Children => "Children",
+            RelGroup::AuntsUncles => "Aunts and uncles",
+        }
+    }
+}
+
+/// The nodes in `group` of `id` on a relatives chart, in display order.
+fn relatives_group(c: &OpenChart, id: u32, group: RelGroup) -> Vec<u32> {
+    let on_row = |pred: &dyn Fn(Rel) -> bool| -> Vec<u32> {
+        if id != c.layout.root {
+            return Vec::new();
+        }
+        let mut v: Vec<&gt_layout::Node> = c
+            .layout
+            .nodes
+            .iter()
+            .filter(|n| n.rel.is_some_and(pred) && n.dup_of.is_none())
+            .collect();
+        v.sort_by(|a, b| a.rect.x.total_cmp(&b.rect.x));
+        v.into_iter().map(|n| n.id).collect()
+    };
+    match group {
+        RelGroup::Parents => c.parents_of.get(&id).cloned().unwrap_or_default(),
+        RelGroup::Partners => c.partners.get(&id).cloned().unwrap_or_default(),
+        RelGroup::Children => c.kids_of.get(&id).cloned().unwrap_or_default(),
+        RelGroup::Siblings => on_row(&|r| matches!(r, Rel::Sibling { .. })),
+        RelGroup::AuntsUncles => on_row(&|r| matches!(r, Rel::AuntUncle { .. })),
+    }
+}
+
+/// Where each node is first met when the outline is read top to bottom: `(owner node, group index)`.
+/// A node met again elsewhere is only a reference there, so the outline is a tree and cannot loop.
+fn first_places(c: &OpenChart) -> HashMap<u32, (u32, u32)> {
+    fn walk(c: &OpenChart, id: u32, seen: &mut HashMap<u32, (u32, u32)>) {
+        // Claim everyone listed under this person first, so a mother is listed under "Parents" of the
+        // person she is the parent of, not under her partner; then go into the newly claimed people.
+        let mut fresh = Vec::new();
+        for g in RelGroup::ALL {
+            for m in relatives_group(c, id, g) {
+                if let std::collections::hash_map::Entry::Vacant(v) = seen.entry(m) {
+                    v.insert((id, g.index()));
+                    fresh.push(m);
+                }
+            }
+        }
+        for m in fresh {
+            walk(c, m, seen);
+        }
+    }
+    let mut seen = HashMap::new();
+    seen.insert(c.layout.root, (u32::MAX, 0));
+    walk(c, c.layout.root, &mut seen);
+    seen
+}
+
 struct OpenChart {
     id: u32,
     kind: ChartKind,
@@ -112,6 +209,9 @@ struct OpenChart {
     partners: HashMap<u32, Vec<u32>>,
     /// Partner node -> the person it sits beside.
     partner_owner: HashMap<u32, u32>,
+    /// Relatives chart: parent edges as node -> parents and node -> children, in edge order.
+    parents_of: HashMap<u32, Vec<u32>>,
+    kids_of: HashMap<u32, Vec<u32>>,
     last_used: Cell<u64>,
 }
 
@@ -237,6 +337,13 @@ impl Session {
                 let g = u8::try_from(req.generations.clamp(1, 8)).unwrap_or(8);
                 gt_layout::descendants(&src, root, g, &m, MAX_NODES)
             }
+            ChartKind::Relatives => {
+                let o = RelativesOptions {
+                    generations: u8::try_from(req.generations.clamp(1, 6)).unwrap_or(6),
+                    aunts: req.aunts_uncles.unwrap_or(true),
+                };
+                gt_layout::relatives(&src, root, &o, &m, MAX_NODES)
+            }
         };
         let charts = &mut self.charts;
         while charts.open.len() >= MAX_CHARTS {
@@ -262,6 +369,14 @@ impl Session {
             version: charts.revision,
         };
         let (partners, partner_owner) = partner_maps(&layout);
+        let mut parents_of: HashMap<u32, Vec<u32>> = HashMap::new();
+        let mut kids_of: HashMap<u32, Vec<u32>> = HashMap::new();
+        if req.kind == ChartKind::Relatives {
+            for e in layout.edges.iter().filter(|e| e.kind == EdgeKind::Parent) {
+                parents_of.entry(e.to).or_default().push(e.from);
+                kids_of.entry(e.from).or_default().push(e.to);
+            }
+        }
         let chart = OpenChart {
             id: meta.chart_id,
             kind: req.kind,
@@ -269,6 +384,8 @@ impl Session {
             layout,
             partners,
             partner_owner,
+            parents_of,
+            kids_of,
             last_used: Cell::new(0),
         };
         charts.touch(&chart);
@@ -301,12 +418,18 @@ impl Session {
                 } else {
                     None
                 };
+                let relation = match (c.kind, s, n.rel) {
+                    (ChartKind::Relatives, Some(s), Some(r)) => Some(relation_label(r, s.sex)),
+                    _ => None,
+                };
                 let label = s.map_or_else(String::new, |s| {
                     let mut l = s.name.clone();
                     if !s.lifespan.is_empty() {
                         l = format!("{l}, {}", s.lifespan);
                     }
-                    let role = if c.partner_owner.contains_key(&n.id) {
+                    let role = if let Some(r) = &relation {
+                        r.clone()
+                    } else if c.partner_owner.contains_key(&n.id) {
                         "partner".to_string()
                     } else if n.r#gen == 0 && n.ahnen.is_none_or(|a| a == 1) {
                         "starting person".to_string()
@@ -341,6 +464,7 @@ impl Session {
                         next: n.nav.next,
                     },
                     label,
+                    relation,
                 }
             })
             .collect();
@@ -371,6 +495,9 @@ impl Session {
     ) -> Result<Vec<OutlineItem>, ApiError> {
         let c = self.charts.live(chart)?;
         let limit = limit.min(MAX_OUTLINE);
+        if c.kind == ChartKind::Relatives {
+            return self.relatives_outline(c, parent, limit);
+        }
         let nodes = &c.layout.nodes;
         let node = |id: u32| {
             nodes
@@ -426,8 +553,95 @@ impl Session {
                         || n.more_up
                         || n.more_down
                         || c.partners.contains_key(&id),
+                    relation: None,
                 })
             })
+            .collect()
+    }
+
+    /// Outline of the relatives chart: the centred person, then under each person the groups
+    /// Parents, Siblings, Partners, Children and Aunts and uncles, then the people in a group.
+    /// Group rows get ids from `GROUP_BASE` up, packing the owner node and the group number.
+    fn relatives_outline(
+        &self,
+        c: &OpenChart,
+        parent: Option<u32>,
+        limit: usize,
+    ) -> Result<Vec<OutlineItem>, ApiError> {
+        let nodes = &c.layout.nodes;
+        let node = |id: u32| {
+            nodes
+                .get(id as usize)
+                .ok_or_else(|| ApiError::not_found("chart node", id))
+        };
+        let person_of = |id: u32| {
+            node(id).map(|n| {
+                self.index
+                    .summaries
+                    .get(n.key as usize)
+                    .map(|s| s.person_ref())
+            })
+        };
+        let places = first_places(c);
+        // `place` is the (owner, group) the row is listed under; `None` for the centred person.
+        let item = |id: u32, place: Option<(u32, u32)>| -> Result<OutlineItem, ApiError> {
+            let n = node(id)?;
+            let first = place.is_none() || places.get(&id).copied() == place;
+            let sex = self
+                .index
+                .summaries
+                .get(n.key as usize)
+                .map_or(SexKind::Unknown, |s| s.sex);
+            let mut label = n
+                .rel
+                .map_or_else(String::new, |r| capitalise(&relation_label(r, sex)));
+            if n.dup_of.is_some() {
+                label.push_str(" (appears earlier)");
+            }
+            if !first {
+                label.push_str(" (also shown above)");
+            }
+            Ok(OutlineItem {
+                node_id: id,
+                person: person_of(id)?,
+                label,
+                // Only a person with someone not listed elsewhere can be opened.
+                has_children: first
+                    && RelGroup::ALL.iter().any(|g| {
+                        relatives_group(c, id, *g)
+                            .iter()
+                            .any(|m| places.get(m) == Some(&(id, g.index())))
+                    }),
+                relation: n
+                    .rel
+                    .filter(|r| *r != Rel::Focus)
+                    .map(|r| relation_label(r, sex)),
+            })
+        };
+        let Some(p) = parent else {
+            return Ok(vec![item(c.layout.root, None)?]);
+        };
+        if p < GROUP_BASE {
+            node(p)?;
+            return Ok(RelGroup::ALL
+                .iter()
+                .filter(|g| !relatives_group(c, p, **g).is_empty())
+                .map(|g| OutlineItem {
+                    node_id: GROUP_BASE | (p << 3) | g.index(),
+                    person: None,
+                    label: g.title().to_string(),
+                    has_children: true,
+                    relation: None,
+                })
+                .collect());
+        }
+        let owner = (p & !GROUP_BASE) >> 3;
+        let g = RelGroup::from_index(p & 7).ok_or_else(|| ApiError::not_found("chart node", p))?;
+        node(owner)?;
+        relatives_group(c, owner, g)
+            .into_iter()
+            .take(limit)
+            .map(|m| item(m, Some((owner, g.index()))))
             .collect()
     }
 

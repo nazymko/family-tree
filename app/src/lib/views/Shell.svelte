@@ -16,6 +16,7 @@
   import Settings from './Settings.svelte';
   import Pedigree from './Pedigree.svelte';
   import Descendants from './Descendants.svelte';
+  import Relatives from './Relatives.svelte';
   import ExportDialog from './ExportDialog.svelte';
   import QuickAdd from '../editors/QuickAdd.svelte';
   import CitationList from '../editors/CitationList.svelte';
@@ -36,12 +37,13 @@
 
   const api = getApi();
 
-  type NavName = 'family' | 'people' | 'pedigree' | 'descendants' | 'sources' | 'media' | 'settings';
+  type NavName = 'family' | 'people' | 'pedigree' | 'descendants' | 'relatives' | 'sources' | 'media' | 'settings';
   const ITEMS: { name: NavName; label: string; icon: IconName }[] = [
     { name: 'family', label: 'Family', icon: 'family' },
     { name: 'people', label: 'People', icon: 'people' },
     { name: 'pedigree', label: 'Pedigree', icon: 'pedigree' },
     { name: 'descendants', label: 'Descendants', icon: 'descendants' },
+    { name: 'relatives', label: 'Relatives', icon: 'relatives' },
     { name: 'sources', label: 'Sources', icon: 'sources' },
     { name: 'media', label: 'Media', icon: 'media' },
   ];
@@ -107,6 +109,7 @@
     { id: 'n4', keys: 'Mod+4', label: 'Descendants', run: () => go('descendants') },
     { id: 'n5', keys: 'Mod+5', label: 'Sources', run: () => go('sources') },
     { id: 'n6', keys: 'Mod+6', label: 'Media', run: () => go('media') },
+    { id: 'n7', keys: 'Mod+7', label: 'Relatives', run: () => go('relatives') },
     { id: 'export', keys: 'Mod+Shift+E', label: 'Export GEDCOM', run: () => (exportOpen = true) },
     { id: 'settings', keys: 'Mod+,', label: 'Settings', run: () => go('settings') },
     { id: 'save', keys: 'Mod+S', label: 'Save', run: () => {
@@ -277,7 +280,7 @@
       </div>
     </header>
     <main id="content" class="main">
-      <div class="page" class:chart={current === 'pedigree' || current === 'descendants'}>
+      <div class="page" class:chart={current === 'pedigree' || current === 'descendants' || current === 'relatives'}>
         {#if nav.route.name === 'family'}
           <FamilyView />
         {:else if nav.route.name === 'people'}
@@ -286,6 +289,8 @@
           <Pedigree onOpenPerson={openPerson} />
         {:else if nav.route.name === 'descendants'}
           <Descendants onOpenPerson={openPerson} />
+        {:else if nav.route.name === 'relatives'}
+          <Relatives onOpenPerson={openPerson} />
         {:else if nav.route.name === 'person'}
           {#key nav.route.id}
             <PersonEditor id={nav.route.id} {mediaSection} {sourcesSection} />

@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 import { MockApi } from '../../api/mock/MockApi';
 import { fixtureTree } from '../../api/mock/fixtures';
-import type { ChartNode, Id } from '../../api/types';
+import type { ChartKind, ChartNode, Id } from '../../api/types';
 import { makeFakeContext } from '../../../test-setup';
 
 export const BIG = { x: -1e6, y: -1e6, w: 2e6, h: 2e6 };
@@ -12,7 +12,7 @@ export function makeApi(n = 500) {
 }
 
 /** The person whose pedigree has the most nodes (the mock tree is shallow). */
-export async function richestRoot(api: MockApi, fx: ReturnType<typeof fixtureTree>, kind: 'pedigree' | 'descendants'): Promise<Id> {
+export async function richestRoot(api: MockApi, fx: ReturnType<typeof fixtureTree>, kind: ChartKind): Promise<Id> {
   let best = fx.persons[0].id;
   let count = 0;
   for (const p of fx.persons) {

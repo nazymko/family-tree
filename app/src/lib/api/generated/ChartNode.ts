@@ -2,4 +2,8 @@
 import type { ChartNav } from "./ChartNav";
 import type { PersonRef } from "./PersonRef";
 
-export type ChartNode = { id: number, person: PersonRef | null, x: number, y: number, w: number, h: number, gen: number, ahnen: number | null, dupOf: number | null, moreUp: boolean, moreDown: boolean, nav: ChartNav, label: string, };
+export type ChartNode = { id: number, person: PersonRef | null, x: number, y: number, w: number, h: number, gen: number, ahnen: number | null, dupOf: number | null, moreUp: boolean, moreDown: boolean, nav: ChartNav, label: string, 
+/**
+ * Relatives chart only: how this person is related to the centred one ("brother", "half sister").
+ */
+relation?: string, };
