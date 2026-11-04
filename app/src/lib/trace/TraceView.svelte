@@ -8,12 +8,14 @@
   import { notices } from '../ui/notices.svelte';
   import { undoNotice } from '../ui/undoable';
   import { getApi, getPlatform } from '../api/context';
-  import type { TraceImageInfo } from '../api/types';
+  import type { AiReadResult, TraceImageInfo } from '../api/types';
   import { nav } from '../state/nav.svelte';
+  import AiReadDialog from './AiReadDialog.svelte';
   import TraceCanvas from './TraceCanvas.svelte';
   import TraceCardForm from './TraceCardForm.svelte';
   import {
     acceptAll,
+    addSuggestions,
     acceptCard,
     addCard,
     addLink,
@@ -45,6 +47,20 @@
   let error = $state('');
   let busy = $state(false);
   let discardOpen = $state(false);
+  let aiOpen = $state(false);
+
+  function aiDone(r: AiReadResult) {
+    aiOpen = false;
+    const res = addSuggestions(draft, r);
+    if (res.cards === 0) {
+      error = 'The AI reader did not find any names on this picture. Mark them by hand instead.';
+      return;
+    }
+    error = '';
+    notices.show({
+      message: `The AI reader suggested ${res.cards} ${res.cards === 1 ? 'person' : 'people'}${res.skipped ? ` and skipped ${res.skipped} unclear ${res.skipped === 1 ? 'entry' : 'entries'}` : ''}. Check them, then accept.`,
+    });
+  }
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let pending: string | null = null;
 
@@ -254,7 +270,10 @@
         <section>
           <h2>Picture</h2>
           <p class="file" title={image.name}>{image.name}</p>
-          <Button onclick={() => void choosePicture()}>Choose another picture…</Button>
+          <div class="row">
+            <Button onclick={() => void choosePicture()}>Choose another picture…</Button>
+            <Button onclick={() => (aiOpen = true)}>Read names with AI…</Button>
+          </div>
         </section>
 
         <section aria-labelledby="sum-h">
@@ -330,6 +349,8 @@
     </div>
   {/if}
 </div>
+
+<AiReadDialog open={aiOpen} onclose={() => (aiOpen = false)} onresult={aiDone} />
 
 <Dialog open={discardOpen} title="Discard this trace?" onclose={() => (discardOpen = false)}>
   <p>This removes every card and link and the saved copy of the picture. Nothing in your tree changes.</p>

@@ -47,6 +47,7 @@ import type {
   Settings,
   SexKind,
   SourceDto,
+  AiReadResult,
   TraceDraftState,
   TraceImageInfo,
   UndoState,
@@ -601,6 +602,43 @@ export class MockApi implements Api {
   async discardTraceDraft(): Promise<void> {
     this.trace.json = null;
     this.trace.image = null;
+  }
+
+  /** Mock keychain and reader: no network. Sends are counted so tests can check consent. */
+  aiKeyStored = false;
+  aiSends = 0;
+
+  async aiKeyStatus(): Promise<boolean> {
+    return this.aiKeyStored;
+  }
+
+  async aiRemoveKey(): Promise<void> {
+    this.aiKeyStored = false;
+  }
+
+  async aiReadPicture(consent: boolean, key: string | null): Promise<AiReadResult> {
+    if (!consent) throw invalid('Tick "I understand" before sending the picture.');
+    if (!this.aiKeyStored && !key?.trim()) throw invalid('Enter your Anthropic API key first.');
+    if (!this.trace.image) throw invalid('There is no picture to trace.');
+    this.aiSends += 1;
+    if (key?.trim()) this.aiKeyStored = true;
+    const p = (id: string, given: string, surname: string, x: number, y: number, extra: Partial<AiReadResult['people'][number]> = {}) => ({
+      id, given, surname, patronymic: '', sex: null, birth: null, death: null, x, y, w: 0.14, h: 0.05, confidence: 0.9, ...extra,
+    });
+    return {
+      people: [
+        p('p1', 'Ivan', 'Koval', 0.18, 0.15, { patronymic: 'Petrovych', sex: 'male', birth: '1901' }),
+        p('p2', 'Olena', 'Koval', 0.53, 0.15, { sex: 'female', confidence: 0.8 }),
+        p('p3', 'Petro', 'Koval', 0.35, 0.52, { sex: 'male', confidence: 0.6 }),
+      ],
+      relations: [
+        { kind: 'partner', from: 'p1', to: 'p2' },
+        { kind: 'parent', from: 'p1', to: 'p3' },
+        { kind: 'parent', from: 'p2', to: 'p3' },
+      ],
+      skipped: 0,
+      truncated: false,
+    };
   }
 
   mediaUrl(id: Id, size: 'thumb' | 'preview' | 'original'): string {

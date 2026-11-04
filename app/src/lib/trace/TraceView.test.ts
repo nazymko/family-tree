@@ -246,4 +246,75 @@ describe('TraceView', () => {
     await user.click(screen.getByRole('button', { name: 'Fit' }));
     expect(screen.getByText('67%')).toBeInTheDocument();
   });
+
+  describe('Read names with AI', () => {
+    async function openDialog() {
+      const ctx = await setup();
+      await ctx.user.click(await screen.findByRole('button', { name: 'Read names with AI…' }));
+      const dlg = await screen.findByRole('dialog');
+      return { ...ctx, dlg };
+    }
+
+    it('says_where_the_picture_goes_and_cannot_send_without_the_tick', async () => {
+      const { api, user, dlg } = await openDialog();
+      expect(dlg).toHaveTextContent(/sent over the internet to Anthropic/);
+      expect(dlg).toHaveTextContent(/Living relatives/);
+      const send = within(dlg).getByRole('button', { name: 'Send picture' });
+      expect(send).toBeDisabled();
+      await user.type(within(dlg).getByLabelText('Anthropic API key'), 'invented-key-for-tests');
+      // A key alone is not enough.
+      expect(send).toBeDisabled();
+      await user.click(send);
+      expect(api.aiSends).toBe(0);
+      await user.click(within(dlg).getByRole('checkbox', { name: /I understand/ }));
+      expect(send).toBeEnabled();
+    });
+
+    it('asks_again_every_time_and_forgets_the_typed_key', async () => {
+      const { api, user, dlg } = await openDialog();
+      await user.type(within(dlg).getByLabelText('Anthropic API key'), 'invented-key-for-tests');
+      await user.click(within(dlg).getByRole('checkbox', { name: /I understand/ }));
+      await user.click(within(dlg).getByRole('button', { name: 'Send picture' }));
+      await waitFor(() => expect(api.aiSends).toBe(1));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: 'Read names with AI…' }));
+      const again = await screen.findByRole('dialog');
+      expect(within(again).getByRole('checkbox', { name: /I understand/ })).not.toBeChecked();
+      expect(within(again).getByRole('button', { name: 'Send picture' })).toBeDisabled();
+      // The key is now stored, so there is no key field, and it can be removed.
+      await within(again).findByRole('button', { name: 'Remove key' });
+      expect(within(again).queryByLabelText('Anthropic API key')).not.toBeInTheDocument();
+      await user.click(within(again).getByRole('button', { name: 'Remove key' }));
+      expect(await within(again).findByLabelText('Anthropic API key')).toBeInTheDocument();
+      expect(await api.aiKeyStatus()).toBe(false);
+    });
+
+    it('results_are_suggestions_that_need_accepting_before_they_count', async () => {
+      const { api, user, dlg } = await openDialog();
+      await user.type(within(dlg).getByLabelText('Anthropic API key'), 'invented-key-for-tests');
+      await user.click(within(dlg).getByRole('checkbox', { name: /I understand/ }));
+      await user.click(within(dlg).getByRole('button', { name: 'Send picture' }));
+      await waitFor(() => expect(api.aiSends).toBe(1));
+      const vp = await screen.findByRole('application');
+      expect(await within(vp).findByRole('button', { name: /Ivan Petrovych Koval/ })).toBeInTheDocument();
+      // Nothing is added yet.
+      expect(screen.getByText(/0 new people/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Add to tree' })).toBeDisabled();
+      await user.click(screen.getByRole('button', { name: /Accept all/ }));
+      expect(await screen.findByText(/3 new people, 1 family, 3 links/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Add to tree' })).toBeEnabled();
+    });
+
+    it('a_refused_send_shows_what_to_do', async () => {
+      const { api, user, dlg } = await openDialog();
+      api.aiReadPicture = async () => {
+        throw new Error('Anthropic did not accept the key. Remove the key and enter it again.');
+      };
+      await user.type(within(dlg).getByLabelText('Anthropic API key'), 'invented-key-for-tests');
+      await user.click(within(dlg).getByRole('checkbox', { name: /I understand/ }));
+      await user.click(within(dlg).getByRole('button', { name: 'Send picture' }));
+      expect(await within(dlg).findByRole('alert')).toHaveTextContent('Remove the key');
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+  });
 });

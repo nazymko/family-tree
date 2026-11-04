@@ -1,5 +1,6 @@
 //! Gene Tree desktop shell.
 
+pub mod ai;
 pub mod commands;
 #[cfg(debug_assertions)]
 pub mod e2e_hooks;

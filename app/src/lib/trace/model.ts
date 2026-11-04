@@ -1,7 +1,7 @@
 // The trace draft: cards marked on a picture, the links between them, and the step that turns them into one
 // `importDraft` command. Pure functions on plain objects, so the screen and the tests share them.
 
-import type { DraftFamily, DraftPerson, EditCommand, SexKind } from '../api/types';
+import type { AiReadResult, DraftFamily, DraftPerson, EditCommand, SexKind } from '../api/types';
 
 /** A box on the picture, as fractions (0..1) of its width and height. */
 export interface TraceBox {
@@ -254,6 +254,39 @@ export function rejectAll(d: TraceDraft): void {
   const gone = new Set(d.cards.filter((c) => c.suggested).map((c) => c.id));
   d.cards = d.cards.filter((c) => !c.suggested);
   d.links = d.links.filter((l) => !l.suggested && !gone.has(l.from) && !gone.has(l.to));
+}
+
+/** Adds what the AI reader found as suggested (dashed) cards and links. Nothing is real until accepted. */
+export function addSuggestions(d: TraceDraft, r: AiReadResult): { cards: number; links: number; skipped: number } {
+  const byAiId = new Map<string, string>();
+  let skipped = r.skipped;
+  let links = 0;
+  for (const p of r.people) {
+    const card = addCard(d, { x: p.x, y: p.y, w: p.w, h: p.h });
+    if (!card) {
+      skipped += 1;
+      continue;
+    }
+    card.given = p.given;
+    card.surname = p.surname;
+    card.patronymic = p.patronymic;
+    card.sex = p.sex === 'male' || p.sex === 'female' ? p.sex : 'unknown';
+    card.birth = p.birth ?? '';
+    card.death = p.death ?? '';
+    card.notes = p.confidence < 0.5 ? 'The AI reader was not sure about this one. Check the name.' : '';
+    card.suggested = true;
+    byAiId.set(p.id, card.id);
+  }
+  for (const rel of r.relations) {
+    const a = byAiId.get(rel.from);
+    const b = byAiId.get(rel.to);
+    const res = a && b ? addLink(d, rel.kind === 'partner' ? 'partner' : 'parent', a, b) : null;
+    if (res?.ok) {
+      res.link.suggested = true;
+      links += 1;
+    } else skipped += 1;
+  }
+  return { cards: byAiId.size, links, skipped };
 }
 
 const SEXES: SexKind[] = ['male', 'female', 'intersex', 'unknown', 'other'];

@@ -72,6 +72,9 @@ command_list!(
     save_trace_draft,
     load_trace_draft,
     discard_trace_draft,
+    ai_key_status,
+    ai_remove_key,
+    ai_read_picture,
     open_media_externally,
     preview_export,
     export_gedcom,
@@ -486,6 +489,35 @@ pub fn load_trace_draft(state: State<'_, AppState>) -> ApiResult<TraceDraftState
 #[tauri::command(async)]
 pub fn discard_trace_draft(state: State<'_, AppState>) -> ApiResult<()> {
     state.with_session(|s| s.discard_trace_draft())
+}
+
+#[tauri::command(async)]
+pub fn ai_key_status() -> bool {
+    crate::ai::key_status(&crate::ai::Keychain)
+}
+
+#[tauri::command(async)]
+pub fn ai_remove_key() -> ApiResult<()> {
+    crate::ai::remove_key(&crate::ai::Keychain)
+}
+
+/// Sends the traced picture to Anthropic. `consent` must be true on every call. The picture is read
+/// while the session is locked; the lock is released before the (slow) network call.
+#[tauri::command(async)]
+pub fn ai_read_picture(
+    state: State<'_, AppState>,
+    consent: bool,
+    key: Option<String>,
+) -> ApiResult<gt_session::AiReadResult> {
+    let (bytes, _) = state.with_session(|s| s.trace_image_bytes())?;
+    crate::ai::read_picture(
+        &crate::ai::ReqwestHttp,
+        &crate::ai::Keychain,
+        consent,
+        key.as_deref(),
+        &bytes,
+        crate::ai::DEFAULT_MODEL,
+    )
 }
 
 /// The original file of a media item, but only when its CONTENT is an image or a PDF. The type is

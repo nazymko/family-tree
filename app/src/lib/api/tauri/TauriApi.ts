@@ -36,6 +36,7 @@ import type {
   SearchHitDto,
   Settings,
   SourceDto,
+  AiReadResult,
   TraceDraftState,
   TraceImageInfo,
   UndoState,
@@ -171,6 +172,15 @@ export class TauriApi implements Api {
   }
   discardTraceDraft(): Promise<void> {
     return call('discard_trace_draft');
+  }
+  aiKeyStatus(): Promise<boolean> {
+    return call('ai_key_status');
+  }
+  aiRemoveKey(): Promise<void> {
+    return call('ai_remove_key');
+  }
+  aiReadPicture(consent: boolean, key: string | null): Promise<AiReadResult> {
+    return call('ai_read_picture', { consent, key });
   }
   previewExport(opts: ExportOptions): Promise<PrivacyPreview> {
     return call('preview_export', { opts });

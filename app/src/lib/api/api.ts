@@ -33,6 +33,7 @@ import type {
   SearchHitDto,
   Settings,
   SourceDto,
+  AiReadResult,
   TraceDraftState,
   TraceImageInfo,
   UndoState,
@@ -88,6 +89,14 @@ export interface Api {
   loadTraceDraft(): Promise<TraceDraftState>;
   /** Forgets the draft and deletes the picture copy. */
   discardTraceDraft(): Promise<void>;
+  /** Is an Anthropic API key stored in the system keychain? */
+  aiKeyStatus(): Promise<boolean>;
+  aiRemoveKey(): Promise<void>;
+  /**
+   * Sends the traced picture to Anthropic's Claude service. `consent` must be true on every call.
+   * `key` is a key typed into the dialog; it is kept in the keychain once Anthropic accepts it.
+   */
+  aiReadPicture(consent: boolean, key: string | null): Promise<AiReadResult>;
   previewExport(opts: ExportOptions): Promise<PrivacyPreview>;
   exportGedcom(opts: ExportOptions, dest: string, previewToken: string): Promise<{ bytes: number }>;
   getSettings(): Promise<Settings>;
