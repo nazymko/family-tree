@@ -30,6 +30,7 @@
   import NoteEditor from '../editors/NoteEditor.svelte';
   import QuickAdd from '../editors/QuickAdd.svelte';
   import EventEditor from '../editors/EventEditor.svelte';
+  import SurnamesEditor from '../editors/SurnamesEditor.svelte';
   import FamilyEditor from '../editors/FamilyEditor.svelte';
   import { errMessage } from '../editors/errors';
   import { t, plural, currentLocale, type MessageKey } from '../i18n';
@@ -65,7 +66,8 @@
     | null
     | { kind: 'name'; name?: NameDto }
     | { kind: 'note'; note?: NoteDto }
-    | { kind: 'event'; event?: EventDto }
+    | { kind: 'event'; event?: EventDto; newKind?: string }
+    | { kind: 'surnames' }
     | { kind: 'family'; family?: Id }
     | { kind: 'quick'; relation: 'father' | 'mother' | 'partner' | 'child' | 'sibling' }
     | { kind: 'delete' }
@@ -161,12 +163,28 @@
     }),
   );
 
+  const birthEvent = $derived(detail?.events.find((x) => x.kind === 'birth'));
+  const deathEvent = $derived(detail?.events.find((x) => x.kind === 'death'));
+  const preferredName = $derived(detail ? (detail.names.find((n) => n.preferred) ?? detail.names[0]) : undefined);
+  /** Shown on the card only when the surname changed with marriage. */
+  const surnameLines = $derived.by(() => {
+    const married = detail?.names.find((n) => n.kind === 'married' && n.surnames.length > 0);
+    const birth = detail?.names.find((n) => n.kind === 'birth' && n.surnames.length > 0);
+    if (!married) return [];
+    return [
+      ...(birth ? [{ label: t('surnames.atBirth'), text: birth.surnames.join(', ') }] : []),
+      { label: t('surnames.afterMarriage'), text: married.surnames.join(', ') },
+    ];
+  });
   const cardLines = $derived(
     detail
-      ? (['birth', 'death'] as const).flatMap((k) => {
-          const e = detail!.events.find((x) => x.kind === k);
-          return e ? [{ label: k === 'birth' ? t('person.born') : t('person.died'), text: eventLine(e) || t('person.noDateOrPlace') }] : [];
-        })
+      ? [
+          ...surnameLines,
+          ...(['birth', 'death'] as const).flatMap((k) => {
+            const e = k === 'birth' ? birthEvent : deathEvent;
+            return e ? [{ label: k === 'birth' ? t('person.born') : t('person.died'), text: eventLine(e) || t('person.noDateOrPlace') }] : [];
+          }),
+        ]
       : [],
   );
 
@@ -218,7 +236,18 @@
       <div class="head">
         <h1><bdi dir="auto">{detail.ref.name}</bdi></h1>
         <p class="life">{detail.ref.lifespan || t('person.noDates')}</p>
-        <div class="head-actions">
+        <div class="head-actions" role="group" aria-label={t('person.quickEdit')}>
+          <Button
+            variant="primary"
+            onclick={() => (dialog = preferredName ? { kind: 'name', name: preferredName } : { kind: 'name' })}>{t('edit.editName')}</Button
+          >
+          <Button onclick={() => (dialog = { kind: 'surnames' })}>{t('surnames.button')}</Button>
+          <Button onclick={() => (dialog = { kind: 'event', event: birthEvent, newKind: 'birth' })}>
+            {birthEvent ? t('person.editBirth') : t('person.addBirth')}
+          </Button>
+          <Button onclick={() => (dialog = { kind: 'event', event: deathEvent, newKind: 'death' })}>
+            {deathEvent ? t('person.editDeath') : t('person.addDeath')}
+          </Button>
           <Button onclick={toggleHome} aria-pressed={isHome}>
             <Ribbon size="1rem" />
             {isHome ? t('common.homePerson') : t('person.makeHome')}
@@ -227,7 +256,7 @@
       </div>
       {#snippet body()}
         {#each cardLines as l (l.label)}
-          <p class="card-line"><span class="card-label">{l.label}</span> {l.text}</p>
+          <p class="card-line"><span class="card-label" class:wide={surnameLines.length > 0}>{l.label}</span> {l.text}</p>
         {/each}
       {/snippet}
     </IndexCard>
@@ -429,9 +458,12 @@
   <EventEditor
     owner={{ kind: 'person', id }}
     event={dialog.event}
+    newKind={dialog.newKind}
     onCancel={closeDialog}
     onSaved={(r) => saved(r)}
   />
+{:else if detail && dialog?.kind === 'surnames'}
+  <SurnamesEditor person={id} names={detail.names} onCancel={closeDialog} onSaved={(r) => saved(r)} />
 {:else if detail && dialog?.kind === 'family'}
   <FamilyEditor
     family={dialog.family}
@@ -496,10 +528,10 @@
     font-variant-numeric: tabular-nums;
   }
   .head-actions {
-    padding-top: var(--s-3);
-  }
-  .head-actions :global(.btn) {
-    margin-inline-start: calc(-1 * var(--s-5)); /* the ribbon glyph aligns with the name */
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    padding-top: var(--s-4);
   }
   .card-line {
     white-space: nowrap;
@@ -511,6 +543,10 @@
     min-width: 4rem;
     color: var(--ink-1);
     font-size: var(--t-sm);
+  }
+  /* With the surname lines the labels are longer; keep one aligned column. */
+  .card-label.wide {
+    min-width: 12rem;
   }
   section {
     display: grid;
