@@ -64,6 +64,11 @@ describe('relationship words in Ukrainian', () => {
     } as unknown as ChartNode;
     expect(nodeLabel(node)).toBe('Олена Петренко, 1950–2010, сестра');
     expect(nodeLabel({ ...node, dupOf: 3 })).toContain('з’являється раніше');
+    // A pedigree or descendants person also gets how they are related to the starting person.
+    const ancestorNo = { ...node, role: role('ancestor_no', 'male', { n: 2 }), kinship: { kind: 'blood', up: 1, down: 0, half: false, married: false, sex: 'male', via: 'unknown' } } as unknown as ChartNode;
+    expect(nodeLabel(ancestorNo)).toBe('Олена Петренко, 1950–2010, предок № 2, батько');
+    // The relatives chart already says it in the role.
+    expect(nodeLabel({ ...node, kinship: { kind: 'blood', up: 1, down: 1, half: false, married: false, sex: 'female', via: 'unknown' } } as ChartNode)).toBe('Олена Петренко, 1950–2010, сестра');
     const item = { nodeId: 1, person: null, label: 'English', hasChildren: false, appearsEarlier: false, alsoAbove: true, role: role('sibling', 'male') } as OutlineItem;
     expect(outlineLabel(item)).toMatch(/^Брат \(/);
     expect(outlineLabel({ ...item, role: undefined, group: 'siblings' })).toBe('Брати й сестри');

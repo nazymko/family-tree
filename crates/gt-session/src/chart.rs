@@ -3,11 +3,12 @@
 
 use crate::dto::{
     ChartEdge, ChartKind, ChartLocation, ChartMeta, ChartNav, ChartNode, ChartRequest, ChartSize,
-    ChartWindow, EdgeKindDto, OutlineGroupKind, OutlineItem, PersonRef, Rect, RoleDto, RoleKind,
-    SexKind, WholeBlockDto, WholeMeta,
+    ChartWindow, EdgeKindDto, Kinship, KinshipKind, OutlineGroupKind, OutlineItem, PersonRef, Rect,
+    RoleDto, RoleKind, SexKind, WholeBlockDto, WholeMeta,
 };
 use crate::error::{ApiError, ErrorCode};
 use crate::index::{Links, PersonIndex};
+use crate::kinship::{Kin, KinMemo};
 use crate::relation::{relation_label, relation_role};
 use crate::session::Session;
 use gt_core::tree::Tree;
@@ -15,7 +16,7 @@ use gt_layout::{
     BlockKind, ChartSource, EdgeKind, Key, Layout, Metrics, Rel, RelativesOptions, WholeExtras,
     WholeFamily, WholeInput,
 };
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -228,6 +229,8 @@ struct OpenChart {
     parents_of: HashMap<u32, Vec<u32>>,
     kids_of: HashMap<u32, Vec<u32>>,
     last_used: Cell<u64>,
+    /// How people are related to the reference person: the root, or whoever `chart_set_reference` named.
+    kin: RefCell<Option<KinMemo>>,
     /// Whole-tree charts only.
     whole: Option<Whole>,
 }
@@ -463,6 +466,7 @@ impl Session {
             parents_of,
             kids_of,
             last_used: Cell::new(0),
+            kin: RefCell::new(Some(KinMemo::new(root))),
             whole: None,
         };
         charts.touch(&chart);
@@ -535,6 +539,7 @@ impl Session {
             parents_of: HashMap::new(),
             kids_of: HashMap::new(),
             last_used: Cell::new(0),
+            kin: RefCell::new(None),
             whole: Some(Whole { extras, blocks }),
         };
         charts.touch(&chart);
@@ -578,6 +583,36 @@ impl Session {
         Ok(located)
     }
 
+    /// Chooses the person every box's `kinship` is worded against (default: the chart's starting person;
+    /// the whole-tree chart has none until this is called). `None` removes the kinship labels.
+    pub fn chart_set_reference(&self, chart: u32, person: Option<Uuid>) -> Result<(), ApiError> {
+        let c = self.charts.live(chart)?;
+        let slot = match person {
+            Some(id) => Some(
+                self.index
+                    .slot(id)
+                    .ok_or_else(|| ApiError::not_found("person", id))?,
+            ),
+            None => None,
+        };
+        let mut memo = c.kin.borrow_mut();
+        if memo.as_ref().map(KinMemo::from) != slot {
+            *memo = slot.map(KinMemo::new);
+        }
+        Ok(())
+    }
+
+    /// How `to` is related to `from`, or `None` when no relation is found.
+    pub fn kinship_between(&self, from: Uuid, to: Uuid) -> Option<Kinship> {
+        let (f, t) = (self.index.slot(from)?, self.index.slot(to)?);
+        let kin = Kin {
+            tree: &self.tree,
+            links: &self.links,
+            index: &self.index,
+        };
+        kin.relationship(&mut KinMemo::new(f), t)
+    }
+
     /// Nodes and edges intersecting `rect`. Below zoom 0.25 nodes carry no person and no label.
     /// `Stale` once the tree has been rebuilt since the chart was opened.
     pub fn chart_window(
@@ -596,6 +631,12 @@ impl Session {
         };
         let (nodes, edges) = c.layout.query(&r);
         let whole = c.kind == ChartKind::Whole;
+        let kin = Kin {
+            tree: &self.tree,
+            links: &self.links,
+            index: &self.index,
+        };
+        let mut memo = c.kin.borrow_mut();
         let nodes = nodes
             .into_iter()
             .map(|n| {
@@ -651,6 +692,12 @@ impl Session {
                     };
                     format!("{l}, {role}{tail}")
                 });
+                let kinship = match (&mut *memo, s) {
+                    (Some(m), Some(_)) if text => kin
+                        .relationship(m, n.key)
+                        .filter(|k| k.kind != KinshipKind::SelfPerson),
+                    _ => None,
+                };
                 ChartNode {
                     id: n.id,
                     person: s.map(|s| {
@@ -683,6 +730,7 @@ impl Session {
                     label,
                     relation,
                     role: role_dto,
+                    kinship,
                 }
             })
             .collect();
@@ -784,6 +832,12 @@ impl Session {
             }
         }
         items.truncate(limit);
+        let kin = Kin {
+            tree: &self.tree,
+            links: &self.links,
+            index: &self.index,
+        };
+        let mut memo = c.kin.borrow_mut();
         items
             .into_iter()
             .map(|(id, mut label, role)| {
@@ -791,6 +845,10 @@ impl Session {
                 if n.dup_of.is_some() {
                     label.push_str(" (appears earlier)");
                 }
+                let kinship = memo
+                    .as_mut()
+                    .and_then(|m| kin.relationship(m, n.key))
+                    .filter(|k| k.kind != KinshipKind::SelfPerson);
                 Ok(OutlineItem {
                     node_id: id,
                     person: self
@@ -805,6 +863,7 @@ impl Session {
                         || c.partners.contains_key(&id),
                     relation: None,
                     role: Some(role),
+                    kinship,
                     group: None,
                     appears_earlier: n.dup_of.is_some(),
                     also_above: false,
@@ -871,6 +930,7 @@ impl Session {
                     .filter(|r| *r != Rel::Focus)
                     .map(|r| relation_label(r, sex)),
                 role: n.rel.map(|r| relation_role(r, sex)),
+                kinship: None,
                 group: None,
                 appears_earlier: n.dup_of.is_some(),
                 also_above: !first,
@@ -891,6 +951,7 @@ impl Session {
                     has_children: true,
                     relation: None,
                     role: None,
+                    kinship: None,
                     group: Some(g.kind()),
                     appears_earlier: false,
                     also_above: false,

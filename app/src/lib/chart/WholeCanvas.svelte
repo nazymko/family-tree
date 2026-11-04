@@ -188,6 +188,29 @@
     return typeof e === 'object' && e !== null && (e as { code?: string }).code === 'stale';
   }
 
+  /** The person the boxes' relations are worded against. */
+  let refId: Id | null = null;
+
+  /** Boxes follow the selection: name the selected person as the reference and fetch the boxes again. */
+  async function followSelection(pid: Id | null): Promise<void> {
+    const m = meta;
+    if (!m || !pid || pid === refId) return;
+    const seq = openSeq;
+    const previous = refId;
+    refId = pid;
+    try {
+      await api.chartSetReference(m.meta.chartId, pid);
+      if (seq === openSeq) cache?.refetch(seen, cam.zoom);
+    } catch {
+      refId = previous;
+    }
+  }
+
+  $effect(() => {
+    const pid = selNode?.person?.id ?? null;
+    untrack(() => void followSelection(pid));
+  });
+
   async function open(keepView = false): Promise<void> {
     const seq = ++openSeq;
     // After an edit the view stays where it is and the selected person stays selected when still there.
@@ -232,6 +255,16 @@
       invalidate();
     });
     meta = m;
+    // Boxes say how each person is related to the selected person (at first the focus or home person).
+    refId = keptPerson ?? focusId ?? homeId ?? null;
+    if (refId) {
+      try {
+        await api.chartSetReference(id, refId);
+      } catch {
+        refId = null;
+      }
+      if (seq !== openSeq) return;
+    }
     try {
       if (homeId) {
         const loc = await api.chartLocate(id, homeId);

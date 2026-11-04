@@ -67,6 +67,7 @@ command_list!(
     chart_open_whole,
     chart_lineage,
     chart_locate,
+    chart_set_reference,
     chart_window,
     chart_outline,
     chart_close,
@@ -446,6 +447,15 @@ pub fn chart_locate(
     person: Uuid,
 ) -> ApiResult<Option<ChartLocation>> {
     state.with_session(|s| s.chart_locate(chart_id, person))
+}
+
+#[tauri::command(async)]
+pub fn chart_set_reference(
+    state: State<'_, AppState>,
+    chart_id: u32,
+    person: Option<Uuid>,
+) -> ApiResult<()> {
+    state.with_session(|s| s.chart_set_reference(chart_id, person))
 }
 
 #[tauri::command(async)]

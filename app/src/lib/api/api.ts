@@ -80,6 +80,8 @@ export interface Api {
   chartLineage(chartId: number, nodeId: number): Promise<number[]>;
   /** Where a person sits in a whole-tree chart; null when the person is not in the project. */
   chartLocate(chartId: number, person: Id): Promise<ChartLocation | null>;
+  /** Names the person every box's `kinship` is worded against (default: the chart's starting person; none for the whole tree). */
+  chartSetReference(chartId: number, person: Id | null): Promise<void>;
   /** Synchronous: a gtmedia: URL. */
   /** Opens the media item's original file with the system viewer; Rust resolves the path (no path crosses the IPC). */
   openMediaExternally(id: Id): Promise<void>;

@@ -5,6 +5,7 @@ import type {
   ChartLocation,
   ChartMeta,
   ChartNode,
+  Kinship,
   ChartRequest,
   ChartWindow,
   CitationDto,
@@ -61,6 +62,7 @@ import type { Layout } from './mockLayout';
 import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } from './layout';
 import { GROUP_BASE, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
 import { layoutWhole, lineageOf, type WholeResult } from './wholeLayout';
+import { kinshipFinder } from './kinship';
 import { toDateDto, yearOf } from './mockParse';
 import { lifespanText, previewDate } from './mockDate';
 
@@ -87,6 +89,9 @@ interface ChartState {
   kind: ChartRequest['kind'];
   layout: Layout | RelLayout;
   version: number;
+  /** Who every box's kinship is worded against: the starting person, or the one named by chartSetReference. */
+  reference?: Id | null;
+  kin?: { ref: Id; find: (to: Id) => Kinship | null };
   /** Whole-tree charts only. */
   whole?: { result: WholeResult; surnames: string[]; meta: WholeMeta };
 }
@@ -538,7 +543,7 @@ export class MockApi implements Api {
           ? layoutDescendants(req.root, generations, src)
           : layoutRelatives(req.root, Math.min(generations, 6), req.auntsUncles ?? true, src);
     const chartId = this.nextChart++;
-    this.charts.set(chartId, { kind: req.kind, layout, version: this.version });
+    this.charts.set(chartId, { kind: req.kind, layout, version: this.version, reference: req.root });
     return {
       chartId,
       kind: req.kind,
@@ -579,7 +584,7 @@ export class MockApi implements Api {
       blocks: result.blocks,
     };
     const layout: Layout = { nodes: result.nodes, edges: result.edges, bounds: result.bounds, truncated: false, kids: [], labels: [] };
-    this.charts.set(chartId, { kind: 'whole', layout, version: this.version, whole: { result, surnames, meta } });
+    this.charts.set(chartId, { kind: 'whole', layout, version: this.version, reference: null, whole: { result, surnames, meta } });
     return structuredClone(meta);
   }
 
@@ -594,6 +599,13 @@ export class MockApi implements Api {
     const id = c.whole!.result.nodeOf.get(person);
     const n = id === undefined ? undefined : c.layout.nodes[id];
     return n ? { nodeId: n.id, rect: { x: n.x, y: n.y, w: n.w, h: n.h } } : null;
+  }
+
+  async chartSetReference(chartId: number, person: Id | null): Promise<void> {
+    const c = this.chart(chartId);
+    if (c.version !== this.version) throw new MockApiError('stale', 'The tree changed since this chart was opened. Reopen the chart.');
+    if (person) this.person(person);
+    c.reference = person;
   }
 
   async chartWindow(chartId: number, rect: Rect, zoom: number): Promise<ChartWindow> {
@@ -623,6 +635,16 @@ export class MockApi implements Api {
         edges,
       });
     }
+    const ref = c.reference;
+    if (ref && zoom >= 0.25) {
+      if (c.kin?.ref !== ref) c.kin = { ref, find: kinshipFinder({ families: () => this.db.families.values(), sex: (id) => this.db.persons.get(id)?.sex ?? 'unknown' }, ref) };
+      const find = c.kin.find;
+      const stamped = nodes.map((n) => {
+        const k = n.person ? find(n.person.id) : null;
+        return k && k.kind !== 'self_person' ? { ...n, kinship: k } : n;
+      });
+      return structuredClone({ nodes: stamped, edges });
+    }
     return structuredClone({ nodes, edges });
   }
 
@@ -636,7 +658,14 @@ export class MockApi implements Api {
       return relativesOutline(rl, parentNode, lim);
     }
     if (parentNode !== null && !c.layout.nodes[parentNode]) throw missing('chart node', String(parentNode));
-    return outlineOf(c.kind, c.layout, parentNode, lim);
+    const items = outlineOf(c.kind, c.layout, parentNode, lim);
+    const ref = c.reference;
+    if (!ref) return items;
+    const find = kinshipFinder({ families: () => this.db.families.values(), sex: (id) => this.db.persons.get(id)?.sex ?? 'unknown' }, ref);
+    return items.map((it) => {
+      const k = it.person ? find(it.person.id) : null;
+      return k && k.kind !== 'self_person' ? { ...it, kinship: k } : it;
+    });
   }
 
   async chartClose(chartId: number): Promise<void> {

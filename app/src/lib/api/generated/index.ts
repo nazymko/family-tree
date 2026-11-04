@@ -51,6 +51,8 @@ export * from './ImportPhase';
 export * from './ImportProgress';
 export * from './ImportReportDto';
 export * from './ImportRequest';
+export * from './Kinship';
+export * from './KinshipKind';
 export * from './Language';
 export * from './LetterOffset';
 export * from './LivingExport';
