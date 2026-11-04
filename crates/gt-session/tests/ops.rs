@@ -1012,7 +1012,7 @@ fn plan_does_not_mutate() {
 fn edit_command_json_matches_ts_fixtures() {
     let json = include_str!("../../../app/src/lib/api/__fixtures__/commands.json");
     let cmds: Vec<EditCommand> = serde_json::from_str(json).unwrap();
-    assert_eq!(cmds.len(), 24);
+    assert_eq!(cmds.len(), 25);
     // Absent and null differ for livingOverride.
     let EditCommand::UpdatePerson {
         living_override, ..

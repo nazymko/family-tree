@@ -6,6 +6,7 @@
 <script lang="ts">
   import Combobox from '../ui/Combobox.svelte';
   import { getApi } from '../api/context';
+  import { t } from '../i18n';
 
   let { value = $bindable(null), allowCreate = true }: { value?: SourceChoice | null; allowCreate?: boolean } = $props();
 
@@ -26,7 +27,7 @@
 </script>
 
 <Combobox
-  label="Source"
+  label={t('citation.source')}
   {items}
   value={selected}
   {text}
@@ -38,13 +39,13 @@
     value = s;
     text = s.title ?? '';
   }}
-  render={(s) => s.title ?? '(untitled source)'}
-  createLabel={allowCreate ? (t) => `Create source "${t}"` : undefined}
+  render={(s) => s.title ?? t('citation.untitled')}
+  createLabel={allowCreate ? (x) => t('citation.createSource', { title: x }) : undefined}
   onCreate={allowCreate
     ? (t) => {
         value = { title: t };
         text = t;
       }
     : undefined}
-  hint={value && !('id' in value) ? 'New source, created when you save.' : undefined}
+  hint={value && !('id' in value) ? t('citation.newSourceHint') : undefined}
 />

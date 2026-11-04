@@ -11,6 +11,7 @@
   import { settings } from '../state/settings.svelte';
   import EditorDialog from './EditorDialog.svelte';
   import { errMessage, opt, splitList } from './errors';
+  import { t } from '../i18n';
 
   type Relation = 'father' | 'mother' | 'partner' | 'child' | 'sibling';
   let {
@@ -33,13 +34,16 @@
   const api = getApi();
   // svelte-ignore state_referenced_locally
   const rel = relation;
-  const SEXES = [
-    ['male', 'Male'],
-    ['female', 'Female'],
-    ['intersex', 'Intersex'],
-    ['unknown', 'Unknown'],
-    ['other', 'Other'],
-  ].map(([value, label]) => ({ value, label }));
+  const SEXES = $derived(
+    (['male', 'female', 'intersex', 'unknown', 'other'] as const).map((value) => ({ value, label: t(`sexOption.${value}`) })),
+  );
+  const ADD_KEY = {
+    father: 'edit.addFather',
+    mother: 'edit.addMother',
+    partner: 'edit.addPartner',
+    child: 'edit.addChild',
+    sibling: 'edit.addSibling',
+  } as const;
 
   let given = $state('');
   let surnames = $state('');
@@ -105,8 +109,8 @@
 </script>
 
 <EditorDialog
-  title="Add {rel} of {anchor.name}"
-  saveLabel="Add {rel}"
+  title={t(`editor.quickTitle.${rel}`, { name: anchor.name })}
+  saveLabel={t(ADD_KEY[rel])}
   {dirty}
   {saving}
   {error}
@@ -116,24 +120,24 @@
 >
   {#if needsChoice}
     <Select
-      label="With which partner?"
+      label={t('editor.withWhichPartner')}
       options={[
-        { value: '', label: 'Choose a partner', disabled: true },
-        ...choices.map((p) => ({ value: p.familyId, label: p.partner?.name ?? 'Unknown partner' })),
+        { value: '', label: t('editor.choosePartner'), disabled: true },
+        ...choices.map((p) => ({ value: p.familyId, label: p.partner?.name ?? t('editor.unknownPartner') })),
       ]}
       bind:value={chosenFamily}
     />
   {/if}
-  <TextField label="Given name" bind:value={given} />
+  <TextField label={t('editor.givenName')} bind:value={given} />
   <TextField
-    label="Surname(s)"
-    hint="Separate several surnames with a comma"
+    label={t('editor.surnamesShort')}
+    hint={t('editor.surnamesHint')}
     bind:value={surnames}
     oninput={() => (touchedSurname = true)}
   />
-  <Select label="Sex" options={SEXES} bind:value={sex} />
-  <DateField label="Birth date" value={birthDate} onChange={(r) => (birthDate = r)} order={settings.value.dayOrder} />
-  <PlacePicker label="Birth place" value={null} text="" onChange={(v) => (birthPlace = v?.placeText ?? '')} onOption={(p) => (birthPlace = p.full)} />
-  <Checkbox label="Open new person afterwards" bind:checked={openAfter} />
-  {#if unnamed}<Banner kind="warning">No name entered: saved as Unknown</Banner>{/if}
+  <Select label={t('editor.sex')} options={SEXES} bind:value={sex} />
+  <DateField label={t('editor.birthDate')} value={birthDate} onChange={(r) => (birthDate = r)} order={settings.value.dayOrder} />
+  <PlacePicker label={t('editor.birthPlace')} value={null} text="" onChange={(v) => (birthPlace = v?.placeText ?? '')} onOption={(p) => (birthPlace = p.full)} />
+  <Checkbox label={t('editor.openAfter')} bind:checked={openAfter} />
+  {#if unnamed}<Banner kind="warning">{t('editor.unnamed')}</Banner>{/if}
 </EditorDialog>

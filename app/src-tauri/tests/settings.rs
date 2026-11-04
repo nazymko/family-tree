@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use gt_app_lib::settings_file::*;
-use gt_session::{DayOrder, NameOrder, Theme};
+use gt_session::{DayOrder, Language, NameOrder, Theme, TreeDirection};
 
 #[test]
 fn settings_atomic_write_and_defaults() {
@@ -13,18 +13,22 @@ fn settings_atomic_write_and_defaults() {
     assert_eq!(d.day_order, DayOrder::Dmy);
     assert_eq!(d.name_order, NameOrder::GivenFirst);
     assert_eq!(d.theme, Theme::System);
+    assert_eq!(d.language, Language::System);
     assert_eq!(d.backups_to_keep, 10);
+    assert_eq!(d.tree_direction, TreeDirection::Normal);
 
     let mut s = d.clone();
+    s.language = Language::Uk;
     s.theme = Theme::Dark;
     s.backups_to_keep = 3;
     s.day_order = DayOrder::Mdy;
+    s.tree_direction = TreeDirection::Reversed;
     save_settings(&cfg, &s).unwrap();
     assert_eq!(load_settings(&cfg), s);
     // The temp file was renamed away, and the JSON is camelCase on disk.
     assert!(!cfg.join("settings.json.tmp").exists());
     let text = std::fs::read_to_string(cfg.join(SETTINGS_FILE)).unwrap();
-    assert!(text.contains("\"dayOrder\"") && text.contains("\"backupsToKeep\""));
+    assert!(text.contains("\"dayOrder\"") && text.contains("\"treeDirection\": \"reversed\""));
 
     // A partial file keeps the other defaults; a corrupt one falls back entirely.
     std::fs::write(cfg.join(SETTINGS_FILE), r#"{"theme":"light"}"#).unwrap();

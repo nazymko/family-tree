@@ -3,6 +3,7 @@
   import Dialog from '../ui/Dialog.svelte';
   import Button from '../ui/Button.svelte';
   import Banner from '../ui/Banner.svelte';
+  import { t } from '../i18n';
 
   let {
     title,
@@ -59,11 +60,11 @@
   {#snippet footer()}
     {#if extra && !confirming}<div class="extra">{@render extra()}</div>{/if}
     {#if confirming}
-      <span class="ask">Discard changes?</span>
-      <Button onclick={() => (confirming = false)}>Keep editing</Button>
-      <Button variant="danger" onclick={oncancel}>Discard changes</Button>
+      <span class="ask">{t('editor.discardAsk')}</span>
+      <Button onclick={() => (confirming = false)}>{t('editor.keepEditing')}</Button>
+      <Button variant="danger" onclick={oncancel}>{t('editor.discard')}</Button>
     {:else}
-      <Button onclick={requestCancel}>Cancel</Button>
+      <Button onclick={requestCancel}>{t('common.cancel')}</Button>
       <Button variant="primary" disabled={!canSave || saving} onclick={submit}>{saveLabel}</Button>
     {/if}
   {/snippet}

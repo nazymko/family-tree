@@ -154,6 +154,7 @@ describe('Shell', () => {
       'People',
       'Pedigree',
       'Descendants',
+      'Relatives',
       'Sources',
       'Settings',
       'Save',

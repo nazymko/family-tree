@@ -12,6 +12,8 @@
   import PersonPicker from './PersonPicker.svelte';
   import EditorDialog from './EditorDialog.svelte';
   import { errMessage, opt } from './errors';
+  import { t, type MessageKey } from '../i18n';
+  import { eventKindLabel } from '../i18n/backend';
 
   let {
     owner,
@@ -19,9 +21,12 @@
     onSaved,
     onCancel,
     citations,
+    newKind,
   }: {
     owner: { kind: 'person' | 'family'; id: Id };
     event?: EventDto;
+    /** The kind a NEW event starts with (default birth for a person, marriage for a family). */
+    newKind?: string;
     onSaved: (r: EditResult) => void;
     onCancel: () => void;
     /** Task 12 renders the citations section here. */
@@ -49,30 +54,32 @@
     'will',
     'military',
   ];
-  const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
-  const opts = (list: string[], group: string) => list.map((v) => ({ value: v, label: cap(v), group }));
-  const KINDS = [
-    ...(ownerKind === 'person' ? opts(LIFE, 'Life') : opts(FAMILY, 'Family')),
-    ...opts(FACTS, 'Facts'),
-    { value: 'custom', label: 'Other…', group: 'Facts' },
-  ];
+  const opts = (list: string[], group: MessageKey) =>
+    list.map((v) => ({ value: v, label: eventKindLabel(v), group: t(group) }));
+  const KINDS = $derived([
+    ...(ownerKind === 'person' ? opts(LIFE, 'editor.groupLife') : opts(FAMILY, 'editor.groupFamily')),
+    ...opts(FACTS, 'editor.groupFacts'),
+    { value: 'custom', label: t('editor.otherKind'), group: t('editor.groupFacts') },
+  ]);
   const KNOWN = new Set([...LIFE, ...FAMILY, ...FACTS]);
-  const ROLES = [
-    'principal',
-    'witness',
-    'godparent',
-    'clergy',
-    'officiator',
-    'informant',
-    'parent',
-    'father',
-    'mother',
-    'child',
-    'spouse',
-    'friend',
-    'neighbor',
-    'other',
-  ].map((r) => ({ value: r, label: cap(r) }));
+  const ROLES = $derived(
+    [
+      'principal',
+      'witness',
+      'godparent',
+      'clergy',
+      'officiator',
+      'informant',
+      'parent',
+      'father',
+      'mother',
+      'child',
+      'spouse',
+      'friend',
+      'neighbor',
+      'other',
+    ].map((r) => ({ value: r, label: t(`eventRole.${r}` as MessageKey) })),
+  );
 
   function splitKind(k: string | undefined): { kind: string; custom: string } {
     if (!k) return { kind: ownerKind === 'family' ? 'marriage' : 'birth', custom: '' };
@@ -82,7 +89,7 @@
   }
 
   // svelte-ignore state_referenced_locally
-  const k0 = splitKind(event?.kind);
+  const k0 = splitKind(event?.kind ?? newKind);
   // svelte-ignore state_referenced_locally
   const init = {
     kind: k0.kind,
@@ -163,8 +170,8 @@
 </script>
 
 <EditorDialog
-  title={event ? `Edit ${event.label.toLowerCase()}` : 'Add event'}
-  saveLabel="Save event"
+  title={event ? t('editor.editEvent', { kind: eventKindLabel(event.kind, event.label).toLowerCase() }) : t('editor.addEvent')}
+  saveLabel={t('edit.saveEvent')}
   {dirty}
   {saving}
   {error}
@@ -172,13 +179,13 @@
   onsave={save}
   oncancel={onCancel}
 >
-  <Select label="Kind of event" options={KINDS} bind:value={f.kind} />
+  <Select label={t('editor.kindOfEvent')} options={KINDS} bind:value={f.kind} />
   {#if f.kind === 'custom'}
-    <TextField label="Name of the event or fact" bind:value={f.custom} />
+    <TextField label={t('editor.customName')} bind:value={f.custom} />
   {/if}
-  <DateField label="Date" value={f.date} onChange={(raw) => (f.date = raw)} order={settings.value.dayOrder} />
+  <DateField label={t('editor.date')} value={f.date} onChange={(raw) => (f.date = raw)} order={settings.value.dayOrder} />
   <PlacePicker
-    label="Place"
+    label={t('editor.place')}
     value={startPlace}
     text=""
     onChange={(v) => {
@@ -186,25 +193,25 @@
       f.placeText = v?.placeText ?? '';
     }}
   />
-  <TextField label="Description" bind:value={f.description} />
-  <TextField label="Age" hint="As written on the record, for example 72 or 3 months" bind:value={f.age} />
-  {#if showCause}<TextField label="Cause" bind:value={f.cause} />{/if}
+  <TextField label={t('editor.description')} bind:value={f.description} />
+  <TextField label={t('editor.age')} hint={t('editor.ageHint')} bind:value={f.age} />
+  {#if showCause}<TextField label={t('editor.cause')} bind:value={f.cause} />{/if}
 
   <fieldset class="parts">
-    <legend>Participants</legend>
+    <legend>{t('editor.participants')}</legend>
     {#if f.participants.length > 0}
       <table>
         <thead>
-          <tr><th scope="col">Person</th><th scope="col">Role</th><th scope="col"><span class="sr">Actions</span></th></tr>
+          <tr><th scope="col">{t('editor.person')}</th><th scope="col">{t('editor.role')}</th><th scope="col"><span class="sr">{t('editor.actions')}</span></th></tr>
         </thead>
         <tbody>
           {#each f.participants as p, i (p.person.id)}
             <tr>
               <td><bdi dir="auto">{p.person.name}</bdi></td>
-              <td><Select label="Role of {p.person.name}" options={ROLES} bind:value={p.role} /></td>
+              <td><Select label={t('editor.roleOf', { name: p.person.name })} options={ROLES} bind:value={p.role} /></td>
               <td>
-                <Button variant="quiet" aria-label="Remove {p.person.name}" onclick={() => f.participants.splice(i, 1)}
-                  >Remove</Button
+                <Button variant="quiet" aria-label={t('editor.removeNamed', { name: p.person.name })} onclick={() => f.participants.splice(i, 1)}
+                  >{t('common.remove')}</Button
                 >
               </td>
             </tr>
@@ -214,7 +221,7 @@
     {/if}
     {#key pickerKey}
       <PersonPicker
-        label="Add participant"
+        label={t('editor.addParticipant')}
         value={null}
         exclude={f.participants.map((p) => p.person.id)}
         onPick={addParticipant}
@@ -223,17 +230,17 @@
   </fieldset>
 
   <Checkbox
-    label="This event did not happen"
-    hint="Records that the person never married, had no children, and so on"
+    label={t('editor.negative')}
+    hint={t('editor.negativeHint')}
     bind:checked={f.negative}
   />
-  <Checkbox label="Private" bind:checked={f.isPrivate} />
-  <Checkbox label="Preferred when there are several" bind:checked={f.preferred} />
+  <Checkbox label={t('editor.private')} bind:checked={f.isPrivate} />
+  <Checkbox label={t('editor.preferred')} bind:checked={f.preferred} />
 
   {#if citations}{@render citations(event)}{/if}
 
   {#snippet extra()}
-    {#if event}<Button variant="danger" onclick={remove}>Delete event</Button>{/if}
+    {#if event}<Button variant="danger" onclick={remove}>{t('editor.deleteEvent')}</Button>{/if}
   {/snippet}
 </EditorDialog>
 

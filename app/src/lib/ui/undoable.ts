@@ -2,6 +2,7 @@ import type { Api, UndoState } from '../api/api';
 import { undoState } from '../state/undo.svelte';
 import { undoIfMine } from '../state/ownUndo';
 import { notices, type Notice } from './notices.svelte';
+import { t } from '../i18n';
 
 /**
  * A notice whose Undo only undoes the command that produced `state` (its undo label is on top of the stack).
@@ -13,7 +14,7 @@ export function undoNotice(api: Api, message: string, state: UndoState, after?: 
   const label = state.undoLabel;
   return {
     message,
-    actionLabel: 'Undo',
+    actionLabel: t('shell.undo'),
     actionValid: () => undoState.canUndo && undoState.undoLabel === label,
     onaction: () => {
       void undoIfMine(
@@ -22,7 +23,7 @@ export function undoNotice(api: Api, message: string, state: UndoState, after?: 
           const now = await api.undoState();
           return now.canUndo && now.undoLabel === label;
         },
-        () => notices.show({ message: 'That change is no longer the latest one, so it cannot be undone from here. Use Undo in the top bar.' }),
+        () => notices.show({ message: `${t('edit.notLatest')} ${t('edit.useTopBar')}` }),
         () => after?.(),
       );
     },

@@ -1,6 +1,9 @@
-import type { ChartEdge, ChartNode, ChartWindow } from '../api/types';
+import type { ChartEdge, ChartKind, ChartNode, ChartWindow } from '../api/types';
 import type { Camera } from './camera';
-import { HANDLE_R, handlePos } from './hit';
+import { HANDLE_R, handleSpots } from './hit';
+import { t } from '../i18n';
+import { relationText } from '../i18n/relation';
+import { kinshipText } from '../family/kinship';
 
 export type Lod = 'full' | 'boxes' | 'dots';
 
@@ -27,7 +30,11 @@ export interface DrawOpts {
   focus: number | null;
   theme: Theme;
   /** Where the "+" handle sits; defaults to pedigree (right edge). */
-  kind?: 'pedigree' | 'descendants';
+  kind?: ChartKind;
+  /** The tree grows the other way (ancestors at the bottom / on the left): the handles sit on the opposite edge. */
+  reversed?: boolean;
+  /** Draw the "+" handles of boxes with more people hidden (default true; a saved picture leaves them out). */
+  handles?: boolean;
 }
 
 /** Theme from the CSS custom properties on <html> (re-read when the colour scheme changes). */
@@ -61,7 +68,7 @@ function strokeEdges(ctx: CanvasRenderingContext2D, edges: ChartEdge[], color: s
   ctx.stroke();
 }
 
-function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
+export function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
   if (ctx.measureText(text).width <= maxW) return text;
   let lo = 0;
   let hi = text.length;
@@ -104,8 +111,7 @@ export function nameLines(measure: (s: string) => number, name: string, maxW: nu
   return [cut(name)];
 }
 
-function drawHandle(ctx: CanvasRenderingContext2D, n: ChartNode, kind: 'pedigree' | 'descendants', theme: Theme, zoom: number) {
-  const h = handlePos(n, kind);
+function drawHandle(ctx: CanvasRenderingContext2D, h: { x: number; y: number }, theme: Theme, zoom: number) {
   ctx.beginPath();
   ctx.arc(h.x, h.y, Math.max(HANDLE_R, 6 / zoom), 0, Math.PI * 2);
   ctx.fillStyle = theme.paper;
@@ -220,7 +226,7 @@ export function draw(
     }
   }
 
-  for (const n of win.nodes) if (kind === 'pedigree' ? n.moreUp : n.moreDown) drawHandle(ctx, n, kind, theme, z);
+  if (opts.handles !== false) for (const n of win.nodes) for (const h of handleSpots(n, kind, opts.reversed ?? false)) drawHandle(ctx, h, theme, z);
 
   if (lod === 'full') {
     ctx.textBaseline = 'alphabetic';
@@ -231,12 +237,24 @@ export function draw(
       ctx.textAlign = 'left';
       ctx.fillStyle = isDup ? theme.ink2 : theme.ink;
       ctx.font = `600 13px ${theme.serif}`;
-      const sub = isDup ? 'also shown elsewhere' : (n.person?.lifespan ?? '');
-      const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '');
+      const sub = isDup ? t('role.shownElsewhere') : (n.person?.lifespan ?? '');
+      // How this person is related to the centred one, at the right of the second line.
+      const rel = isDup || n.id === focus ? '' : kind === 'relatives' ? relationText(n) : kinshipText(n.kinship);
+      const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '' || rel !== '');
       lines.forEach((line, i) => ctx.fillText(line, left, n.y + 23 + i * 18));
       ctx.fillStyle = theme.ink2;
       ctx.font = `11px ${theme.font}`;
-      if (sub) ctx.fillText(fit(ctx, sub, n.w - 20), n.x + 10, n.y + 43);
+      let relW = 0;
+      if (rel) {
+        ctx.font = `italic 11px ${theme.font}`;
+        const text = fit(ctx, rel, n.w * 0.5);
+        relW = ctx.measureText(text).width + 8;
+        ctx.textAlign = 'right';
+        ctx.fillText(text, n.x + n.w - 8, n.y + 43);
+        ctx.textAlign = 'left';
+        ctx.font = `11px ${theme.font}`;
+      }
+      if (sub) ctx.fillText(fit(ctx, sub, n.w - 20 - relW), n.x + 10, n.y + 43);
       if (n.ahnen !== null) {
         ctx.font = `10px ${theme.font}`;
         ctx.textAlign = 'right';

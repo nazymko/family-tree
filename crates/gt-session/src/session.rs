@@ -281,8 +281,14 @@ impl Session {
         if let Some(v) = patch.theme {
             self.settings.theme = v;
         }
+        if let Some(v) = patch.language {
+            self.settings.language = v;
+        }
         if let Some(v) = patch.backups_to_keep {
             self.settings.backups_to_keep = v;
+        }
+        if let Some(v) = patch.tree_direction {
+            self.settings.tree_direction = v;
         }
         if let Some(v) = patch.name_order {
             rebuild |= v != self.settings.name_order;

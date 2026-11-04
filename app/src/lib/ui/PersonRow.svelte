@@ -1,6 +1,7 @@
 <script lang="ts">
   import Ribbon from './Ribbon.svelte';
   import type { PersonRow } from '../api/types';
+  import { t, plural } from '../i18n';
 
   let {
     row,
@@ -14,13 +15,13 @@
     <bdi dir="auto" class="name">{row.name}</bdi>
     <span class="life tnum">{row.lifespan}</span>
     <span class="flags">
-      {#if row.living}<span class="living"><span class="dot" aria-hidden="true"></span><span>Living</span></span>{/if}
-      {#if row.private}<span class="priv">Private</span>{/if}
+      {#if row.living}<span class="living"><span class="dot" aria-hidden="true"></span><span>{t('common.living')}</span></span>{/if}
+      {#if row.private}<span class="priv">{t('common.private')}</span>{/if}
     </span>
     <span class="src tnum">
-      {#if row.sourceCount > 0}{row.sourceCount} {row.sourceCount === 1 ? 'source' : 'sources'}{:else}No source{/if}
+      {#if row.sourceCount > 0}{plural('common.sources', row.sourceCount)}{:else}{t('common.noSource')}{/if}
     </span>
-    <span class="rb">{#if home}<Ribbon title="Home person" size="1.1rem" />{/if}</span>
+    <span class="rb">{#if home}<Ribbon size="1.1rem" />{/if}</span>
   {:else}
     <span class="name ghost" aria-hidden="true"></span>
   {/if}

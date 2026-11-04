@@ -27,6 +27,21 @@ export interface Layout {
   labels: string[];
 }
 
+/**
+ * Mirrors a layout inside its own extent, like the real `Layout::mirror`: `vertical` swaps top and bottom
+ * (descendants, relatives), otherwise left and right (the left-to-right pedigree). Ids and nav links stay.
+ */
+export function mirrorLayout<T extends { nodes: ChartNode[]; edges: ChartEdge[] }>(layout: T, vertical: boolean): T {
+  const lo = Math.min(...layout.nodes.map((n) => (vertical ? n.y : n.x)));
+  const hi = Math.max(...layout.nodes.map((n) => (vertical ? n.y + n.h : n.x + n.w)));
+  for (const n of layout.nodes) {
+    if (vertical) n.y = lo + hi - n.y - n.h;
+    else n.x = lo + hi - n.x - n.w;
+  }
+  for (const e of layout.edges) e.pts = e.pts.map((v, i) => (i % 2 === (vertical ? 1 : 0) ? lo + hi - v : v));
+  return layout;
+}
+
 function label(p: PersonRef, extra: string): string {
   return `${p.name}${p.lifespan ? `, ${p.lifespan}` : ''}${extra ? `, ${extra}` : ''}`;
 }
@@ -248,6 +263,8 @@ export function outlineOf(
       person: n.person,
       label: text,
       hasChildren: layout.kids[id].length > 0 || n.moreUp || n.moreDown,
+      appearsEarlier: false,
+      alsoAbove: false,
     };
   });
 }

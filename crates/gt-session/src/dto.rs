@@ -17,6 +17,9 @@ macro_rules! wire_enum {
 wire_enum!(DayOrder, "lowercase", { Dmy, Mdy });
 wire_enum!(SexKind, "lowercase", { Male, Female, Intersex, Unknown, Other });
 wire_enum!(Theme, "lowercase", { Light, Dark, System });
+wire_enum!(Language, "lowercase", { En, Uk, System });
+// Which way the tree charts grow: `reversed` puts the ancestors at the bottom (pedigree: on the left).
+wire_enum!(TreeDirection, "lowercase", { Normal, Reversed });
 wire_enum!(DateStatus, "lowercase", { Ok, Phrase, Unparsed });
 wire_enum!(HitKindDto, "lowercase", { Person, Place, Source, Note });
 wire_enum!(LivingOverrideDto, "lowercase", { Living, Deceased });
@@ -344,7 +347,11 @@ pub struct Settings {
     pub day_order: DayOrder,
     pub name_order: NameOrder,
     pub theme: Theme,
+    /// Interface language; `system` follows the OS language.
+    pub language: Language,
     pub backups_to_keep: u32,
+    /// App setting: which way the tree charts and the family tree grow.
+    pub tree_direction: TreeDirection,
     /// Project setting.
     pub living_max_age: u32,
     /// Project setting.
@@ -357,7 +364,9 @@ impl Default for Settings {
             day_order: DayOrder::Dmy,
             name_order: NameOrder::GivenFirst,
             theme: Theme::System,
+            language: Language::System,
             backups_to_keep: 10,
+            tree_direction: TreeDirection::Normal,
             living_max_age: 100,
             home_person: None,
         }
@@ -377,7 +386,12 @@ pub struct DatePreview {
 
 // ---- Charts (mirrors ChartRequest .. OutlineItem in types.ts) ----
 
-wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants });
+wire_enum!(RoleKind, "snake_case", {
+    SelfPerson, Focus, Ancestor, Descendant, Sibling, AuntUncle, NieceNephew, Cousin, Partner,
+    PartnerOfSibling, PartnerOfAuntUncle, PartnerOfDescendant, AncestorNo, DescendantNo, Generation
+});
+wire_enum!(OutlineGroupKind, "snake_case", { Parents, Siblings, Partners, Children, AuntsUncles });
+wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants, Relatives, Whole });
 wire_enum!(EdgeKindDto, "lowercase", { Parent, Partner, Dup });
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -386,6 +400,10 @@ pub struct ChartRequest {
     pub kind: ChartKind,
     pub root: Uuid,
     pub generations: u32,
+    /// Relatives chart only: show the parents' brothers and sisters (default on).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub aunts_uncles: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
@@ -442,6 +460,71 @@ pub struct ChartNode {
     pub more_down: bool,
     pub nav: ChartNav,
     pub label: String,
+    /// Relatives chart only: how this person is related to the centred one ("brother", "half sister").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub relation: Option<String>,
+    /// The same information as `relation` / the role inside `label`, as data, so the UI can word it in its own language.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub role: Option<RoleDto>,
+    /// How this person is related to the chart's reference person, as data (see `Kinship`); absent for the
+    /// reference person, for unrelated people and when the boxes carry no text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kinship: Option<Kinship>,
+}
+
+wire_enum!(
+    /// The shape of a `Kinship`.
+    KinshipKind, "snake_case", {
+        SelfPerson, Blood, Partner, PartnerOfRelative, RelativeOfPartner
+    }
+);
+
+/// How `to` is related to `from`, structured so the UI words it in its own language.
+/// `up` and `down` count generations from `from` up to the nearest common ancestor and from there down to the
+/// person described. Meaning by `kind`:
+/// - `blood`: `to` is that blood relative of `from`; `half` when only one parent is shared at the junction.
+/// - `partner`: `to` is a partner of `from` (`married` when the union is a marriage).
+/// - `partner_of_relative`: `to` is the partner of the blood relative described by `up`/`down`/`half`.
+/// - `relative_of_partner`: `to` is the blood relative described by `up`/`down`/`half` of a partner of `from`
+///   whose sex is `via` (husband or wife; the Ukrainian words depend on it).
+///
+/// `sex` is the sex of `to`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Kinship {
+    pub kind: KinshipKind,
+    pub up: u8,
+    pub down: u8,
+    pub half: bool,
+    pub married: bool,
+    pub sex: SexKind,
+    pub via: SexKind,
+}
+
+/// What a chart person is: how they are related, or which generation / ancestor number they are.
+/// `n` is the number of generations (or the ancestor or generation number), `k` the position among children
+/// in a descendant outline, `sex` the sex of the person described.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct RoleDto {
+    pub kind: RoleKind,
+    pub n: i32,
+    pub half: bool,
+    pub sex: SexKind,
+    pub k: u32,
+}
+
+impl RoleDto {
+    pub fn new(kind: RoleKind, n: i32, sex: SexKind) -> Self {
+        Self {
+            kind,
+            n,
+            half: false,
+            sex,
+            k: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -459,6 +542,37 @@ pub struct ChartWindow {
     pub edges: Vec<ChartEdge>,
 }
 
+/// A heading above one family (connected group of people) in the whole-tree chart.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WholeBlockDto {
+    /// "Koval family (34 people)" or "Unconnected people (12)".
+    pub title: String,
+    pub people: u32,
+    /// The block of people who have no family link at all.
+    pub unconnected: bool,
+    /// The heading strip; the block's people sit below it (above it never, in either direction).
+    pub rect: Rect,
+    /// Height of the area under the heading that holds the block's people.
+    pub body_h: f32,
+}
+
+/// The whole-tree chart: the usual chart meta plus the block headings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WholeMeta {
+    pub meta: ChartMeta,
+    pub blocks: Vec<WholeBlockDto>,
+}
+
+/// Where a person sits in a whole-tree chart.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartLocation {
+    pub node_id: u32,
+    pub rect: Rect,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct OutlineItem {
@@ -467,6 +581,30 @@ pub struct OutlineItem {
     /// "2 Father", "Child 3".
     pub label: String,
     pub has_children: bool,
+    /// Relatives chart only: how the person is related to the centred one, as the plain label ("brother"),
+    /// for callers that need it as data rather than inside `label`. Absent for the centred person and headings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub relation: Option<String>,
+    /// The role as data (see `ChartNode::role`); absent for group headings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub role: Option<RoleDto>,
+    /// How the person is related to the chart's reference person (see `ChartNode::kinship`); pedigree and
+    /// descendants outlines only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kinship: Option<Kinship>,
+    /// Set on the heading rows of the relatives outline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub group: Option<OutlineGroupKind>,
+    /// The person is also drawn earlier on the chart.
+    #[serde(default)]
+    pub appears_earlier: bool,
+    /// The person is also listed higher up in the relatives outline.
+    #[serde(default)]
+    pub also_above: bool,
 }
 
 /// A child in a `FamilyDto`: the child plus whether this family is the child's preferred one.

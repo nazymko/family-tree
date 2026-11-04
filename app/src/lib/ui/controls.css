@@ -23,3 +23,33 @@
   opacity: 0.55;
   background: var(--paper-2);
 }
+
+/* Required fields: a star after the label; a still-missing one gets an amber bar and wash until it is filled. */
+.req {
+  color: var(--ribbon);
+  font-weight: 700;
+  margin-inline-start: 0.2em;
+}
+[data-required][data-missing] {
+  border-inline-start: 3px solid var(--foxing);
+  background: var(--foxing-wash);
+  padding: var(--s-3) var(--s-4);
+  /* Negative margins cancel the padding, so nothing moves when the highlight goes away. */
+  margin: calc(-1 * var(--s-3)) calc(-1 * var(--s-4)) calc(-1 * var(--s-3)) calc(-1 * var(--s-4) - 3px);
+  border-radius: var(--r-1);
+  transition: background var(--dur-fast) var(--ease);
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-required][data-missing] {
+    animation: need-pulse 1.6s var(--ease) 1;
+  }
+}
+@keyframes need-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  40% {
+    box-shadow: 0 0 0 4px var(--foxing-wash);
+  }
+}

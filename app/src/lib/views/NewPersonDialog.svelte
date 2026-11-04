@@ -6,6 +6,7 @@
   import { getApi } from '../api/context';
   import type { Id, SexKind } from '../api/types';
   import type { AddRelation as Relation } from '../state/ui.svelte';
+  import { t, type MessageKey } from '../i18n';
 
   let {
     open,
@@ -25,6 +26,13 @@
   } = $props();
 
   const api = getApi();
+  const RELATION_KEY: Record<Relation, MessageKey> = {
+    father: 'edit.addFather',
+    mother: 'edit.addMother',
+    partner: 'edit.addPartner',
+    child: 'edit.addChild',
+    sibling: 'edit.addSibling',
+  };
   let given = $state('');
   let surname = $state('');
   let sex = $state<string>('unknown');
@@ -32,7 +40,7 @@
   let error = $state('');
   let busy = $state(false);
 
-  const title = $derived(relation ? `Add ${relation}` : 'Add person');
+  const title = $derived(t(relation ? RELATION_KEY[relation] : 'edit.addPerson'));
 
   $effect(() => {
     if (open) {
@@ -47,7 +55,7 @@
   async function save(e: SubmitEvent) {
     e.preventDefault();
     if (!given.trim() && !surname.trim()) {
-      error = 'Enter a given name or a surname.';
+      error = t('newPerson.enterName');
       return;
     }
     busy = true;
@@ -73,23 +81,23 @@
 
 <Dialog {open} {title} {onclose}>
   <form id="new-person" onsubmit={save}>
-    <TextField label="Given names" bind:value={given} autocomplete="off" />
-    <TextField label="Surname" bind:value={surname} autocomplete="off" error={error || undefined} />
+    <TextField label={t('newPerson.givenNames')} bind:value={given} autocomplete="off" />
+    <TextField label={t('newPerson.surname')} bind:value={surname} autocomplete="off" error={error || undefined} />
     <Select
-      label="Sex"
+      label={t('newPerson.sex')}
       bind:value={sex}
       options={[
-        { value: 'unknown', label: 'Unknown' },
-        { value: 'female', label: 'Female' },
-        { value: 'male', label: 'Male' },
-        { value: 'intersex', label: 'Intersex' },
-        { value: 'other', label: 'Other' },
+        { value: 'unknown', label: t('sexOption.unknown') },
+        { value: 'female', label: t('sexOption.female') },
+        { value: 'male', label: t('sexOption.male') },
+        { value: 'intersex', label: t('sexOption.intersex') },
+        { value: 'other', label: t('sexOption.other') },
       ]}
     />
-    <TextField label="Birth date" bind:value={birth} hint="For example 3 Apr 1901, or about 1850. Optional." />
+    <TextField label={t('newPerson.birthDate')} bind:value={birth} hint={t('newPerson.birthHint')} />
   </form>
   {#snippet footer()}
-    <Button onclick={onclose}>Cancel</Button>
+    <Button onclick={onclose}>{t('common.cancel')}</Button>
     <Button variant="primary" type="submit" form="new-person" disabled={busy}>{title}</Button>
   {/snippet}
 </Dialog>

@@ -14,11 +14,11 @@ interface Size {
   h: number;
 }
 
-const clampZoom = (z: number): number => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+const clampZoom = (z: number, min = ZOOM_MIN): number => Math.min(ZOOM_MAX, Math.max(min, z));
 
-/** Zoom by `factor` keeping the world point under `anchorPx` (viewport pixels) fixed. */
-export function zoomAt(c: Camera, factor: number, anchorPx: { x: number; y: number }): Camera {
-  const zoom = clampZoom(c.zoom * factor);
+/** Zoom by `factor` keeping the world point under `anchorPx` (viewport pixels) fixed. `minZoom` lets a huge chart zoom out further. */
+export function zoomAt(c: Camera, factor: number, anchorPx: { x: number; y: number }, minZoom = ZOOM_MIN): Camera {
+  const zoom = clampZoom(c.zoom * factor, minZoom);
   const wx = c.x + anchorPx.x / c.zoom;
   const wy = c.y + anchorPx.y / c.zoom;
   return { x: wx - anchorPx.x / zoom, y: wy - anchorPx.y / zoom, zoom };
@@ -51,10 +51,14 @@ export function centerOn(c: Camera, node: Rect, view: Size): Camera {
   };
 }
 
+/** The zoom at which all of `bounds` fits the view, unclamped. */
+export function fitZoom(bounds: Size, view: Size, margin = 24): number {
+  return Math.min((view.w - 2 * margin) / Math.max(1, bounds.w), (view.h - 2 * margin) / Math.max(1, bounds.h));
+}
+
 /** Camera that shows all of `bounds` with a margin (zoom capped at 1 so small charts stay readable). */
-export function fit(bounds: Size, view: Size, margin = 24): Camera {
-  const raw = Math.min((view.w - 2 * margin) / Math.max(1, bounds.w), (view.h - 2 * margin) / Math.max(1, bounds.h));
-  const zoom = clampZoom(Math.min(1, raw));
+export function fit(bounds: Size, view: Size, margin = 24, minZoom = ZOOM_MIN): Camera {
+  const zoom = clampZoom(Math.min(1, fitZoom(bounds, view, margin)), minZoom);
   return {
     zoom,
     x: bounds.w / 2 - view.w / zoom / 2,

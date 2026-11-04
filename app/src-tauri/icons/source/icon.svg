@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#357F74"/>
+      <stop offset="1" stop-color="#1F534C"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="216" fill="url(#bg)"/>
+  <!-- connectors: grandparents -> parents -> person (a pedigree growing upward) -->
+  <g fill="none" stroke="#F2F3EE" stroke-width="40" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M512 760 V600 M332 600 H692 M332 600 V470 M692 600 V470"/>
+    <path d="M332 470 V420 M232 420 H432 M232 420 V330 M432 420 V330"/>
+    <path d="M692 470 V420 M592 420 H792 M592 420 V330 M792 420 V330"/>
+  </g>
+  <!-- grandparents -->
+  <g fill="#F2F3EE">
+    <circle cx="232" cy="270" r="66"/>
+    <circle cx="432" cy="270" r="66"/>
+    <circle cx="592" cy="270" r="66"/>
+    <circle cx="792" cy="270" r="66"/>
+    <!-- parents -->
+    <circle cx="332" cy="470" r="82"/>
+    <circle cx="692" cy="470" r="82"/>
+  </g>
+  <!-- the person: the root of the tree, in the app's ribbon colour -->
+  <circle cx="512" cy="780" r="104" fill="#E58A98" stroke="#F2F3EE" stroke-width="28"/>
+</svg>

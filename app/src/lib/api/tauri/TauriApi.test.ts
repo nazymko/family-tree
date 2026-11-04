@@ -46,6 +46,22 @@ describe('TauriApi', () => {
     expect(page.total).toBe(0);
   });
 
+  it('save_picture_sends_the_bytes_as_the_raw_body', async () => {
+    reply = () => ({ bytes: 4 });
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    await expect(new TauriApi().savePicture('C:/Pictures/Pedigree - Ivan Koval.png', bytes)).resolves.toEqual({ bytes: 4 });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].cmd).toBe('save_picture');
+    expect(calls[0].args).toBe(bytes);
+  });
+
+  it('save_picture_failure_is_a_plain_api_error', async () => {
+    reply = () => {
+      throw { code: 'io', message: 'Could not save the picture: the disk is full. Choose another place and try again.' };
+    };
+    await expect(new TauriApi().savePicture('C:/x.png', new Uint8Array([1]))).rejects.toMatchObject({ code: 'io' });
+  });
+
   it('apply_passes_command_object_unchanged', async () => {
     const cmd = { type: 'deletePerson', id: 'p1' } as const;
     reply = () => ({ label: 'x', focus: null, touched: [], undo: {} });
@@ -61,7 +77,7 @@ describe('TauriApi', () => {
       throw 'command nope not found';
     };
     await expect(new TauriApi().getSettings()).rejects.toEqual({ code: 'internal', message: 'command nope not found' });
-    expect(toApiError({ weird: true })).toEqual({ code: 'internal', message: 'Something went wrong.' });
+    expect(toApiError({ weird: true })).toEqual({ code: 'internal', message: 'Something went wrong. Try again.' });
     expect(toApiError({ code: 'bogus', message: 'm' }).code).toBe('internal');
     expect(toApiError(null).code).toBe('internal');
   });
@@ -103,6 +119,12 @@ describe('TauriApi', () => {
     expect(new TauriApi().mediaUrl(id, 'preview')).not.toContain('%2F');
   });
 
+  it('trace_image_url_uses_gtmedia_scheme', () => {
+    expect(new TauriApi().traceImageUrl(3)).toBe('http://gtmedia.localhost/trace/picture?v=3');
+    mockConvertFileSrc('linux');
+    expect(new TauriApi().traceImageUrl(1)).toBe('gtmedia://localhost/trace/picture?v=1');
+  });
+
   it('open_media_externally_sends_only_the_media_id', async () => {
     await new TauriApi().openMediaExternally('m1');
     expect(calls).toEqual([{ cmd: 'open_media_externally', args: { id: 'm1' } }]);
@@ -124,7 +146,7 @@ describe('TauriApi', () => {
 
   it('every_method_calls_its_snake_case_command', async () => {
     const api = new TauriApi() as unknown as Record<string, (...a: unknown[]) => unknown>;
-    const skip = new Set(['constructor', 'mediaUrl', 'importGedcom']);
+    const skip = new Set(['constructor', 'mediaUrl', 'traceImageUrl', 'importGedcom']);
     for (const name of Object.getOwnPropertyNames(TauriApi.prototype).filter((n) => !skip.has(n))) {
       calls = [];
       await api[name]();

@@ -5,6 +5,7 @@
   import { notices } from '../ui/notices.svelte';
   import { undoNotice } from '../ui/undoable';
   import type { CitationDto, EditResult, OwnerRef } from '../api/api';
+  import { t } from '../i18n';
 
   let { target, onDone, onError }: { target: OwnerRef; onDone: (r: EditResult) => void; onError?: (m: string) => void } = $props();
   const api = getApi();
@@ -21,7 +22,7 @@
     busy = true;
     try {
       const r = await api.apply({ type: 'addCitation', target, citation: { reuseLast: true } }, { silent: true });
-      notices.show(undoNotice(api, 'Citation added', r.undo));
+      notices.show(undoNotice(api, t('edit.doneCitationAdded'), r.undo));
       onDone(r);
     } catch (e) {
       onError?.(e instanceof Error ? e.message : String(e));
@@ -42,9 +43,9 @@
 <svelte:window {onkeydown} />
 
 <div class="last">
-  <Button aria-disabled={last ? undefined : 'true'} aria-describedby="{uid}-hint" onclick={use}>Use the last citation</Button>
+  <Button aria-disabled={last ? undefined : 'true'} aria-describedby="{uid}-hint" onclick={use}>{t('citation.useLast')}</Button>
   <span id="{uid}-hint" class="hint">
-    {#if last}{last.source?.title ?? 'Untitled source'}{last.page ? `, ${last.page}` : ''}{:else}No citation yet{/if}
+    {#if last}{last.source?.title ?? t('citation.untitled')}{last.page ? `, ${last.page}` : ''}{:else}{t('citation.noneYet')}{/if}
   </span>
 </div>
 

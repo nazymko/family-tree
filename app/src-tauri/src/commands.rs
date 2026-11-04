@@ -4,12 +4,13 @@
 use crate::settings_file;
 use crate::state::{AppState, no_project};
 use gt_session::{
-    ApiError, AttachResult, ChartMeta, ChartRequest, ChartWindow, CitationDto, DatePreview,
-    DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion, ExportOptions, FamilyDto,
-    FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto, ImportRequest, LocationKind,
-    LocationWarningDto, OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery, PersonRow,
-    PlaceOption, PrivacyPreview, ProjectInfo, RecentProject, Rect, RelinkResult, SearchHitDto,
-    Session, Settings, SettingsPatch, SourceDto, UndoState,
+    ApiError, AttachResult, ChartLocation, ChartMeta, ChartRequest, ChartWindow, CitationDto,
+    DatePreview, DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion, ExportOptions,
+    FamilyDto, FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto, ImportRequest,
+    LocationKind, LocationWarningDto, OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery,
+    PersonRow, PlaceOption, PrivacyPreview, ProjectInfo, RecentProject, Rect, RelinkResult,
+    SearchHitDto, Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo,
+    UndoState, WholeMeta,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -63,14 +64,27 @@ command_list!(
     suggest_sources,
     last_citation,
     chart_open,
+    chart_open_whole,
+    chart_lineage,
+    chart_locate,
+    chart_set_reference,
     chart_window,
     chart_outline,
     chart_close,
     exif_suggestion,
     attach_files,
+    stage_trace_image,
+    save_trace_draft,
+    load_trace_draft,
+    discard_trace_draft,
+    ai_key_status,
+    ai_remove_key,
+    ai_read_picture,
+    ai_cancel_read,
     open_media_externally,
     preview_export,
     export_gedcom,
+    save_picture,
     get_settings,
     set_settings,
 );
@@ -105,15 +119,18 @@ fn app_patch(state: &AppState) -> SettingsPatch {
         day_order: Some(s.day_order),
         name_order: Some(s.name_order),
         theme: Some(s.theme),
+        language: Some(s.language),
         backups_to_keep: Some(s.backups_to_keep),
+        tree_direction: Some(s.tree_direction),
         ..SettingsPatch::default()
     }
 }
 
-fn now_secs() -> i64 {
+/// Unix milliseconds, the unit `RecentProject::opened_at` documents.
+fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| i64::try_from(d.as_secs()).unwrap_or(0))
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(0))
         .unwrap_or(0)
 }
 
@@ -155,7 +172,7 @@ fn install(state: &AppState, mut session: Session) -> ApiResult<ProjectInfo> {
     let info = session.info();
     // A recent-list write failure must not block opening.
     if let Err(e) =
-        settings_file::touch_recent(&state.config_dir, &info.dir, &info.name, now_secs())
+        settings_file::touch_recent(&state.config_dir, &info.dir, &info.name, now_millis())
     {
         eprintln!("gene-tree: could not update the recent list: {}", e.message);
     }
@@ -410,6 +427,39 @@ pub async fn chart_open<R: Runtime>(app: AppHandle<R>, req: ChartRequest) -> Api
     blocking(&app, move |s| s.with_session(|se| se.chart_open(&req))).await
 }
 
+/// The whole-tree chart. The layout is kept per tree revision, so reopening the view is instant.
+#[tauri::command]
+pub async fn chart_open_whole<R: Runtime>(app: AppHandle<R>) -> ApiResult<WholeMeta> {
+    blocking(&app, move |s| s.with_session(|se| se.chart_open_whole())).await
+}
+
+#[tauri::command(async)]
+pub fn chart_lineage(
+    state: State<'_, AppState>,
+    chart_id: u32,
+    node_id: u32,
+) -> ApiResult<Vec<u32>> {
+    state.with_session(|s| s.chart_lineage(chart_id, node_id))
+}
+
+#[tauri::command(async)]
+pub fn chart_locate(
+    state: State<'_, AppState>,
+    chart_id: u32,
+    person: Uuid,
+) -> ApiResult<Option<ChartLocation>> {
+    state.with_session(|s| s.chart_locate(chart_id, person))
+}
+
+#[tauri::command(async)]
+pub fn chart_set_reference(
+    state: State<'_, AppState>,
+    chart_id: u32,
+    person: Option<Uuid>,
+) -> ApiResult<()> {
+    state.with_session(|s| s.chart_set_reference(chart_id, person))
+}
+
 #[tauri::command(async)]
 pub fn chart_window(
     state: State<'_, AppState>,
@@ -459,6 +509,66 @@ pub async fn attach_files<R: Runtime>(
         s.with_session(|se| se.attach_files(target, &paths))
     })
     .await
+}
+
+// ------------------------------------------------------------ trace a tree picture
+
+/// Copies the picked picture into the open project as the one being traced.
+#[tauri::command(async)]
+pub fn stage_trace_image(state: State<'_, AppState>, path: String) -> ApiResult<TraceImageInfo> {
+    state.with_session(|s| s.stage_trace_image(Path::new(&path)))
+}
+
+#[tauri::command(async)]
+pub fn save_trace_draft(state: State<'_, AppState>, json: String) -> ApiResult<()> {
+    state.with_session(|s| s.save_trace_draft(&json))
+}
+
+#[tauri::command(async)]
+pub fn load_trace_draft(state: State<'_, AppState>) -> ApiResult<TraceDraftState> {
+    state.with_session(|s| s.load_trace_draft())
+}
+
+#[tauri::command(async)]
+pub fn discard_trace_draft(state: State<'_, AppState>) -> ApiResult<()> {
+    state.with_session(|s| s.discard_trace_draft())
+}
+
+#[tauri::command(async)]
+pub fn ai_key_status() -> bool {
+    crate::ai::key_status(&crate::ai::Keychain)
+}
+
+#[tauri::command(async)]
+pub fn ai_remove_key() -> ApiResult<()> {
+    crate::ai::remove_key(&crate::ai::Keychain)
+}
+
+/// Sends the traced picture to Anthropic. `consent` must be true on every call. The picture is read
+/// while the session is locked; the lock is released before the (slow) network call.
+#[tauri::command]
+pub async fn ai_read_picture(
+    state: State<'_, AppState>,
+    consent: bool,
+    key: Option<String>,
+) -> ApiResult<gt_session::AiReadResult> {
+    let (bytes, _) = state.with_session(|s| s.trace_image_bytes())?;
+    crate::ai::CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
+    crate::ai::read_picture_async(
+        std::sync::Arc::new(crate::ai::ReqwestHttp),
+        std::sync::Arc::new(crate::ai::Keychain),
+        consent,
+        key,
+        bytes,
+        crate::ai::DEFAULT_MODEL.to_string(),
+    )
+    .await
+}
+
+/// Stops the read that is in flight; the request is aborted.
+#[tauri::command(async)]
+pub fn ai_cancel_read() {
+    crate::ai::CANCEL.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// The original file of a media item, but only when its CONTENT is an image or a PDF. The type is
@@ -554,6 +664,89 @@ pub async fn export_gedcom<R: Runtime>(
     .await
 }
 
+// ------------------------------------------------------------ chart pictures
+
+const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+
+/// Writes a finished chart picture. The caller has already had the replace-file question answered by the
+/// native save dialog, so an existing file is replaced.
+pub fn save_picture_impl(path: &str, bytes: &[u8]) -> ApiResult<BytesWritten> {
+    let invalid = |m: &str| ApiError::new(ErrorCode::Invalid, m);
+    if path.trim().is_empty() {
+        return Err(invalid(
+            "There is no file name to save the picture to. Choose where to save it and try again.",
+        ));
+    }
+    let ext = Path::new(path)
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let content_ok = match ext.as_str() {
+        "png" => bytes.len() > PNG_SIGNATURE.len() && bytes[..PNG_SIGNATURE.len()] == PNG_SIGNATURE,
+        "svg" => std::str::from_utf8(bytes).is_ok_and(|s| {
+            let s = s.trim_start();
+            s.starts_with("<svg") || s.starts_with("<?xml")
+        }),
+        _ => {
+            return Err(invalid(
+                "Pictures are saved as .png or .svg files. Add one of those endings to the file name and try again.",
+            ));
+        }
+    };
+    if !content_ok {
+        return Err(invalid(
+            "The picture could not be made. Try saving it again.",
+        ));
+    }
+    let dest = Path::new(path);
+    if dest.is_dir() {
+        return Err(invalid(
+            "That is a folder, not a file. Choose a file name and try again.",
+        ));
+    }
+    let parent_ok = dest
+        .parent()
+        .is_none_or(|p| p.as_os_str().is_empty() || p.is_dir());
+    if !parent_ok {
+        return Err(invalid(
+            "That folder does not exist. Choose another folder and try again.",
+        ));
+    }
+    settings_file::write_atomic(dest, bytes).map_err(|e| {
+        ApiError::new(
+            ErrorCode::Io,
+            format!("Could not save the picture: {e}. Choose another place and try again."),
+        )
+    })?;
+    Ok(BytesWritten {
+        bytes: bytes.len() as u64,
+    })
+}
+
+/// Saves a chart picture. The body is the raw PNG bytes (no JSON array of numbers); the destination travels in the
+/// `x-gt-path` header as base64 of its UTF-8 text, so any file name survives the header.
+#[tauri::command(async)]
+pub fn save_picture(request: tauri::ipc::Request<'_>) -> ApiResult<BytesWritten> {
+    use base64::Engine as _;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(ApiError::new(
+            ErrorCode::Invalid,
+            "The picture could not be made. Try saving it again.",
+        ));
+    };
+    let path = request
+        .headers()
+        .get("x-gt-path")
+        .and_then(|v| {
+            base64::engine::general_purpose::STANDARD
+                .decode(v.as_bytes())
+                .ok()
+        })
+        .and_then(|b| String::from_utf8(b).ok())
+        .unwrap_or_default();
+    save_picture_impl(&path, bytes)
+}
+
 // ------------------------------------------------------------ settings
 
 /// `Partial<Settings>` from the UI. `homePerson: null` clears it; absent leaves it alone.
@@ -563,7 +756,9 @@ pub struct SettingsPatchWire {
     pub day_order: Option<DayOrder>,
     pub name_order: Option<gt_session::NameOrder>,
     pub theme: Option<gt_session::Theme>,
+    pub language: Option<gt_session::Language>,
     pub backups_to_keep: Option<u32>,
+    pub tree_direction: Option<gt_session::TreeDirection>,
     pub living_max_age: Option<u32>,
     #[serde(deserialize_with = "some_or_null")]
     pub home_person: Option<Option<Uuid>>,
@@ -582,7 +777,9 @@ pub fn get_settings_impl(state: &AppState) -> Settings {
         day_order: a.day_order,
         name_order: a.name_order,
         theme: a.theme,
+        language: a.language,
         backups_to_keep: a.backups_to_keep,
+        tree_direction: a.tree_direction,
         ..Settings::default()
     }
 }
@@ -604,7 +801,9 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
             day_order: patch.day_order,
             name_order: patch.name_order,
             theme: patch.theme,
+            language: patch.language,
             backups_to_keep: patch.backups_to_keep,
+            tree_direction: patch.tree_direction,
             living_max_age: patch.living_max_age,
             home_person: patch.home_person,
         };
@@ -621,8 +820,14 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
         if let Some(v) = patch.theme {
             a.theme = v;
         }
+        if let Some(v) = patch.language {
+            a.language = v;
+        }
         if let Some(v) = patch.backups_to_keep {
             a.backups_to_keep = v;
+        }
+        if let Some(v) = patch.tree_direction {
+            a.tree_direction = v;
         }
         a.clone()
     };

@@ -69,7 +69,8 @@ export async function importSynthetic(name: string): Promise<string> {
   await click('Choose file…');
   await pushDialog(parent);
   await click('Choose folder…');
-  const field = await $('aria/Tree name');
+  // Matched by the label's start: required labels end in a "*" mark that wdio's aria/ selector counts.
+  const field = await $(`//input[@id=//label[starts-with(normalize-space(.),"Tree name")]/@for]`);
   await field.setValue(name);
   await click('Start import');
   await $('h1*=Imported').waitForExist({ timeout: 180000 });

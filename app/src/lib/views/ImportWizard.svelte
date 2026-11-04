@@ -11,21 +11,22 @@
   import { project } from '../state/project.svelte';
   import { settings } from '../state/settings.svelte';
   import { enterProject } from '../state/openTree';
+  import { t } from '../i18n';
+  import type { MessageKey } from '../i18n';
 
-  let { mode, oncancel }: { mode: 'import' | 'create'; oncancel: () => void } = $props();
+  let { mode, oncancel, thenTrace = false }: { mode: 'import' | 'create'; oncancel: () => void; thenTrace?: boolean } = $props();
 
   const api = getApi();
   const platform = getPlatform();
 
   const PHASES: ImportProgress['phase'][] = ['reading', 'parsing', 'copying_media', 'saving', 'indexing'];
-  const PHASE_TEXT: Record<ImportProgress['phase'], string> = {
-    reading: 'Reading the file',
-    parsing: 'Reading people and families',
-    copying_media: 'Copying photos and files',
-    saving: 'Saving the tree',
-    indexing: 'Building the search index',
+  const PHASE_KEYS: Record<ImportProgress['phase'], MessageKey> = {
+    reading: 'imp.phaseReading',
+    parsing: 'imp.phaseParsing',
+    copying_media: 'imp.phaseCopying',
+    saving: 'imp.phaseSaving',
+    indexing: 'imp.phaseIndexing',
   };
-
   // The backend detects the format from the file itself; the filter only narrows the picker.
   const IMPORT_EXTENSIONS = ['ged', 'gedcom', 'atdb', 'gramps', 'gdz'];
 
@@ -40,7 +41,16 @@
   let phase = $state<ImportProgress['phase'] | null>(null);
   let fraction = $state(0);
 
-  const ready = $derived(name.trim().length > 0 && !!folder && (mode === 'create' || !!file));
+  const needFile = $derived(mode === 'import' && !file);
+  const needName = $derived(name.trim().length === 0);
+  const needFolder = $derived(!folder);
+  const ready = $derived(!needFile && !needName && !needFolder);
+  // What still blocks the start button, in form order, for the note beside it.
+  const missing = $derived(
+    [needFile && t('imp.needFile'), needName && t('imp.needName'), needFolder && t('imp.needFolder')].filter(
+      (x): x is string => !!x,
+    ),
+  );
   const progress = $derived(Math.round(fraction * 100));
 
   function baseName(p: string): string {
@@ -49,21 +59,21 @@
   }
 
   async function chooseFile() {
-    const f = await platform.pickFile({ title: 'Choose a family tree file', extensions: IMPORT_EXTENSIONS });
+    const f = await platform.pickFile({ title: t('imp.pickFileTitle'), extensions: IMPORT_EXTENSIONS });
     if (!f) return;
     file = f;
     if (!name.trim()) name = baseName(f);
   }
 
   async function chooseFolder() {
-    const f = await platform.pickFolder('Choose where to keep the tree');
+    const f = await platform.pickFolder(t('imp.pickKeepFolder'));
     if (!f) return;
     folder = f;
     warning = await api.checkLocation(f);
   }
 
   async function addMedia() {
-    const f = await platform.pickFolder('Choose a folder with photos and files');
+    const f = await platform.pickFolder(t('imp.pickPhotoFolder'));
     if (f && !mediaRoots.includes(f)) mediaRoots = [...mediaRoots, f];
   }
 
@@ -83,6 +93,7 @@
       if (mode === 'create') {
         const info = await api.createProject(dir, name.trim());
         await enterProject(api, info);
+        if (thenTrace) nav.go({ name: 'trace' });
       } else {
         phase = 'reading';
         fraction = 0;
@@ -104,56 +115,57 @@
 </script>
 
 <form class="wiz" onsubmit={start} aria-labelledby="wiz-title">
-  <h2 id="wiz-title">{mode === 'import' ? 'Import a family tree file' : 'Create a new tree'}</h2>
+  <h2 id="wiz-title">{mode === 'import' ? t('imp.wizImport') : thenTrace ? t('imp.wizTrace') : t('imp.wizCreate')}</h2>
 
   {#if error}<Banner kind="error">{error}</Banner>{/if}
 
+  <p class="req-note"><span class="req" aria-hidden="true">*</span> {t('imp.requiredNote')}</p>
+
   {#if mode === 'import'}
-    <div class="pick">
-      <span class="k" id="file-k">Family tree file</span>
-      <Button onclick={chooseFile} disabled={busy} aria-describedby="file-k">Choose file…</Button>
-      <bdi dir="auto" class="v">{file ?? 'No file chosen'}</bdi>
-      <p class="hint">GEDCOM (.ged), GEDZIP (.gdz), Gramps (.gramps) or Древо Жизни (.atdb).</p>
+    <div class="pick" data-required data-missing={needFile || undefined}>
+      <span class="k" id="file-k">{t('imp.treeFile')}<span class="req" aria-hidden="true">*</span></span>
+      <Button onclick={chooseFile} disabled={busy} aria-describedby="file-k">{t('imp.chooseFile')}</Button>
+      <bdi dir="auto" class="v">{file ?? t('imp.noFile')}</bdi>
+      <p class="hint">{t('imp.formats')}</p>
     </div>
   {/if}
 
-  <TextField label="Tree name" bind:value={name} autocomplete="off" disabled={busy} />
+  <TextField label={t('imp.treeName')} bind:value={name} autocomplete="off" disabled={busy} required missing={needName} />
 
-  <div class="pick">
-    <span class="k" id="folder-k">Folder to keep the tree in</span>
-    <Button onclick={chooseFolder} disabled={busy} aria-describedby="folder-k">Choose folder…</Button>
-    <bdi dir="auto" class="v">{folder ?? 'No folder chosen'}</bdi>
+  <div class="pick" data-required data-missing={needFolder || undefined}>
+    <span class="k" id="folder-k">{t('imp.keepFolder')}<span class="req" aria-hidden="true">*</span></span>
+    <Button onclick={chooseFolder} disabled={busy} aria-describedby="folder-k">{t('imp.chooseFolder')}</Button>
+    <bdi dir="auto" class="v">{folder ?? t('imp.noFolder')}</bdi>
   </div>
 
   {#if warning}
     <Banner kind="warning">
-      This folder is inside {warning.provider ?? 'a network share'}. Syncing can corrupt the database. Keep the tree
-      outside synced folders and use backups to move it.
+      {t('imp.syncWarning', { provider: warning.provider ?? t('imp.networkShare') })}
     </Banner>
   {/if}
 
   {#if mode === 'import'}
     <div>
       <RadioGroup
-        legend="Date order"
+        legend={t('settings.dateOrder')}
         bind:value={dayOrder}
         options={[
-          { value: 'dmy', label: 'Day, month, year' },
-          { value: 'mdy', label: 'Month, day, year' },
+          { value: 'dmy', label: t('imp.dayFirst') },
+          { value: 'mdy', label: t('imp.monthFirst') },
         ]}
       />
-      <p class="hint">Used only for dates like 03/04/1901</p>
+      <p class="hint">{t('imp.dateOrderHint')}</p>
     </div>
 
     <div class="media">
-      <span class="k">Photos and files (optional)</span>
+      <span class="k">{t('imp.photosOptional')}</span>
       {#if mediaRoots.length > 0}
         <ul>
           {#each mediaRoots as m (m)}
             <li>
               <bdi dir="auto">{m}</bdi>
               <IconButton
-                label="Remove {m}"
+                label={t('imp.removeFolder', { path: m })}
                 icon="x"
                 onclick={() => (mediaRoots = mediaRoots.filter((x) => x !== m))}
               />
@@ -161,21 +173,24 @@
           {/each}
         </ul>
       {/if}
-      <div><Button onclick={addMedia} disabled={busy}>Add a media folder…</Button></div>
+      <div><Button onclick={addMedia} disabled={busy}>{t('imp.addMediaFolder')}</Button></div>
     </div>
   {/if}
 
   {#if busy && mode === 'import'}
     <div class="prog">
-      <ProgressBar label="Import progress" value={progress} />
-      <p role="status">{phase ? PHASE_TEXT[phase] : ''}…</p>
+      <ProgressBar label={t('imp.progress')} value={progress} />
+      <p role="status">{phase ? t(PHASE_KEYS[phase]) : ''}…</p>
     </div>
   {/if}
 
   <div class="actions">
-    <Button onclick={oncancel} disabled={busy}>Cancel</Button>
-    <Button variant="primary" type="submit" disabled={!ready || busy}>
-      {mode === 'import' ? 'Start import' : 'Create tree'}
+    {#if missing.length > 0}
+      <p class="todo" id="wiz-todo">{t('imp.stillNeeded', { items: missing.join(', ') })}</p>
+    {/if}
+    <Button onclick={oncancel} disabled={busy}>{t('common.cancel')}</Button>
+    <Button variant="primary" type="submit" disabled={!ready || busy} aria-describedby={missing.length > 0 ? 'wiz-todo' : undefined}>
+      {mode === 'import' ? t('imp.startImport') : t('imp.createTree')}
     </Button>
   </div>
 </form>
@@ -243,7 +258,21 @@
   }
   .actions {
     display: flex;
+    flex-wrap: wrap;
     justify-content: flex-end;
+    align-items: center;
     gap: var(--s-3);
+  }
+  .todo {
+    flex: 1 1 14rem;
+    margin: 0;
+    color: var(--foxing);
+    font-size: var(--t-sm);
+    font-weight: 500;
+  }
+  .req-note {
+    margin: 0;
+    color: var(--ink-1);
+    font-size: var(--t-sm);
   }
 </style>

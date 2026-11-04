@@ -5,6 +5,7 @@
   import Banner from '../ui/Banner.svelte';
   import { getApi } from '../api/context';
   import { settings } from '../state/settings.svelte';
+  import { t, LANGUAGES } from '../i18n';
   import type { Id, SearchHitDto, Settings } from '../api/api';
 
   const api = getApi();
@@ -87,58 +88,78 @@
 </script>
 
 <section class="settings">
-  <h1>Settings</h1>
+  <h1>{t('settings.title')}</h1>
   {#if error}<Banner kind="error">{error}</Banner>{/if}
   <div class="form">
     <Select
-      label="Date order"
-      hint="How 03/04/1901 is read when you type it"
+      label={t('settings.dateOrder')}
+      hint={t('settings.dateOrderHint')}
       options={[
-        { value: 'dmy', label: 'Day, month, year (3 April 1901)' },
-        { value: 'mdy', label: 'Month, day, year (March 4, 1901)' },
+        { value: 'dmy', label: t('settings.dayMonthYear') },
+        { value: 'mdy', label: t('settings.monthDayYear') },
       ]}
       value={settings.value.dayOrder}
       onchange={(v) => change({ dayOrder: v as Settings['dayOrder'] })}
     />
     <Select
-      label="Name order"
+      label={t('settings.nameOrder')}
       options={[
-        { value: 'given-first', label: 'Given name first (Anna Schmidt)' },
-        { value: 'surname-first', label: 'Surname first (Schmidt, Anna)' },
+        { value: 'given-first', label: t('settings.givenFirst') },
+        { value: 'surname-first', label: t('settings.surnameFirst') },
       ]}
       value={settings.value.nameOrder}
       onchange={(v) => change({ nameOrder: v as Settings['nameOrder'] })}
     />
     <TextField
-      label="Living threshold"
+      label={t('settings.livingThreshold')}
       type="number"
       min="1"
       max="150"
-      hint="People born more than {settings.value.livingMaxAge} years ago with no other information are treated as deceased"
+      hint={t('settings.livingThresholdHint', { age: settings.value.livingMaxAge })}
       bind:value={threshold}
       onchange={commitThreshold}
     />
     <Combobox
-      label="Home person"
+      label={t('settings.homePerson')}
       items={homeItems}
       value={null}
       text={homeText}
       onText={(s) => (homeText = s)}
       onPick={pickHome}
       render={(h) => h.person?.name ?? h.label}
-      hint="The person the family view opens on."
+      hint={t('settings.homePersonHint')}
     />
     <Select
-      label="Theme"
+      label={t('settings.language')}
+      hint={t('settings.languageHint')}
       options={[
-        { value: 'light', label: 'Light' },
-        { value: 'dark', label: 'Dark' },
-        { value: 'system', label: 'System' },
+        { value: 'system', label: t('settings.languageSystem') },
+        ...LANGUAGES.map((l) => ({ value: l.code, label: l.name })),
+      ]}
+      value={settings.value.language}
+      onchange={(v) => change({ language: v as Settings['language'] })}
+    />
+    <Select
+      label={t('settings.theme')}
+      options={[
+        { value: 'light', label: t('settings.themeLight') },
+        { value: 'dark', label: t('settings.themeDark') },
+        { value: 'system', label: t('settings.themeSystem') },
       ]}
       value={settings.value.theme}
       onchange={(v) => change({ theme: v as Settings['theme'] })}
     />
-    <TextField label="Backups to keep" type="number" min="1" max="50" bind:value={backups} onchange={commitBackups} />
+    <Select
+      label={t('settings.treeDirection')}
+      hint={t('settings.treeDirectionHint')}
+      options={[
+        { value: 'normal', label: t('settings.treeNormal') },
+        { value: 'reversed', label: t('settings.treeReversed') },
+      ]}
+      value={settings.value.treeDirection}
+      onchange={(v) => change({ treeDirection: v as Settings['treeDirection'] })}
+    />
+    <TextField label={t('settings.backups')} type="number" min="1" max="50" bind:value={backups} onchange={commitBackups} />
   </div>
 </section>
 

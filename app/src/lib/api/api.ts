@@ -1,5 +1,6 @@
 import type {
   AttachResult,
+  ChartLocation,
   ChartMeta,
   ChartRequest,
   ChartWindow,
@@ -33,7 +34,11 @@ import type {
   SearchHitDto,
   Settings,
   SourceDto,
+  AiReadResult,
+  TraceDraftState,
+  TraceImageInfo,
   UndoState,
+  WholeMeta,
 } from './types';
 
 export type * from './types';
@@ -69,6 +74,14 @@ export interface Api {
   chartWindow(chartId: number, rect: Rect, zoom: number): Promise<ChartWindow>;
   chartOutline(chartId: number, parentNode: number | null, limit: number): Promise<OutlineItem[]>;
   chartClose(chartId: number): Promise<void>;
+  /** Every person of the project in one chart. The layout is kept per tree revision, so asking again is cheap. */
+  chartOpenWhole(): Promise<WholeMeta>;
+  /** The node, its ancestors and its descendants in a whole-tree chart. */
+  chartLineage(chartId: number, nodeId: number): Promise<number[]>;
+  /** Where a person sits in a whole-tree chart; null when the person is not in the project. */
+  chartLocate(chartId: number, person: Id): Promise<ChartLocation | null>;
+  /** Names the person every box's `kinship` is worded against (default: the chart's starting person; none for the whole tree). */
+  chartSetReference(chartId: number, person: Id | null): Promise<void>;
   /** Synchronous: a gtmedia: URL. */
   /** Opens the media item's original file with the system viewer; Rust resolves the path (no path crosses the IPC). */
   openMediaExternally(id: Id): Promise<void>;
@@ -77,8 +90,29 @@ export interface Api {
   /** add_media_file + Media record + link, one undo step. */
   /** `silent` asks the shell's default toaster to stay quiet because the caller shows its own notice. */
   attachFiles(target: OwnerRef, paths: string[], opts?: { silent?: boolean }): Promise<AttachResult>;
+  /** Copies a picture into the open tree as the one being traced. */
+  stageTraceImage(path: string): Promise<TraceImageInfo>;
+  /** Synchronous: a gtmedia: URL of the picture being traced; `version` changes when a new picture is staged. */
+  traceImageUrl(version: number): string;
+  /** Saves the trace draft (opaque text) inside the project. */
+  saveTraceDraft(json: string): Promise<void>;
+  loadTraceDraft(): Promise<TraceDraftState>;
+  /** Forgets the draft and deletes the picture copy. */
+  discardTraceDraft(): Promise<void>;
+  /** Is an Anthropic API key stored in the system keychain? */
+  aiKeyStatus(): Promise<boolean>;
+  aiRemoveKey(): Promise<void>;
+  /**
+   * Sends the traced picture to Anthropic's Claude service. `consent` must be true on every call.
+   * `key` is a key typed into the dialog; it is kept in the keychain once Anthropic accepts it.
+   */
+  aiReadPicture(consent: boolean, key: string | null): Promise<AiReadResult>;
+  /** Stops the read in flight; the request is aborted. */
+  aiCancelRead(): Promise<void>;
   previewExport(opts: ExportOptions): Promise<PrivacyPreview>;
   exportGedcom(opts: ExportOptions, dest: string, previewToken: string): Promise<{ bytes: number }>;
+  /** Writes a chart picture (PNG bytes) to `dest`, replacing the file when it exists (the save dialog already asked). */
+  savePicture(dest: string, bytes: Uint8Array): Promise<{ bytes: number }>;
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;
 }
@@ -88,7 +122,7 @@ export interface Platform {
   pickFile(opts: { title: string; extensions?: string[] }): Promise<string | null>;
   pickFiles(opts: { title: string; extensions?: string[] }): Promise<string[]>;
   pickFolder(title: string): Promise<string | null>;
-  pickSavePath(opts: { title: string; defaultName: string; extensions: string[] }): Promise<string | null>;
+  pickSavePath(opts: { title: string; defaultName: string; extensions: string[]; filters?: { name: string; extensions: string[] }[] }): Promise<string | null>;
   onFilesDropped(cb: (paths: string[]) => void, onHover?: (over: boolean) => void): () => void;
   reveal(path: string): Promise<void>;
 }

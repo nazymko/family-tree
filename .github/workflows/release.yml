@@ -1,0 +1,76 @@
+name: Release
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: '--bundles nsis'
+          - os: macos-latest
+            args: '--target universal-apple-darwin --bundles dmg'
+          - os: ubuntu-22.04
+            args: '--bundles appimage'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux webview dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+        working-directory: app
+      - name: Build release bundles
+        run: npm run tauri -- build ${{ matrix.args }}
+        working-directory: app
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+      - name: Collect shareable files
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
+          mkdir -p dist-release
+          case "$RUNNER_OS" in
+            Windows)
+              cp target/release/gene-tree.exe "dist-release/Gene-Tree-$VERSION-windows-x64.exe"
+              cp target/release/bundle/nsis/*-setup.exe "dist-release/Gene-Tree-$VERSION-windows-x64-setup.exe" ;;
+            macOS)
+              cp target/universal-apple-darwin/release/bundle/dmg/*.dmg "dist-release/Gene-Tree-$VERSION-macos-universal.dmg" ;;
+            Linux)
+              cp target/release/bundle/appimage/*.AppImage "dist-release/Gene-Tree-$VERSION-linux-x86_64.AppImage" ;;
+          esac
+          ls -l dist-release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gene-tree-${{ runner.os }}
+          path: dist-release/*
+          if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-release
+          merge-multiple: true
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist-release/* --repo "$GITHUB_REPOSITORY" \
+            --draft --title "Gene Tree $GITHUB_REF_NAME" --notes "Unsigned builds. See docs/release.md for the first-run warnings."

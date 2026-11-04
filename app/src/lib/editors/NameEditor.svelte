@@ -8,6 +8,7 @@
   import { settings } from '../state/settings.svelte';
   import EditorDialog from './EditorDialog.svelte';
   import { errMessage, opt, splitList } from './errors';
+  import { t } from '../i18n';
 
   let {
     person,
@@ -17,16 +18,12 @@
   }: { person: Id; name?: NameDto; onSaved: (r: EditResult) => void; onCancel: () => void } = $props();
 
   const api = getApi();
-  const KINDS = [
-    ['birth', 'Birth name'],
-    ['married', 'Married name'],
-    ['aka', 'Also known as'],
-    ['religious', 'Religious name'],
-    ['nickname', 'Nickname'],
-    ['immigrant', 'Immigrant name'],
-    ['professional', 'Professional name'],
-    ['other', 'Other'],
-  ].map(([value, label]) => ({ value, label }));
+  const KINDS = $derived(
+    (['birth', 'married', 'aka', 'religious', 'nickname', 'immigrant', 'professional', 'other'] as const).map((value) => ({
+      value,
+      label: t(`nameKind.${value}`),
+    })),
+  );
 
   // svelte-ignore state_referenced_locally
   const init = {
@@ -84,26 +81,26 @@
 </script>
 
 <EditorDialog
-  title={name ? 'Edit name' : 'Add name'}
-  saveLabel="Save name"
+  title={name ? t('edit.editName') : t('editor.addName')}
+  saveLabel={t('editor.saveName')}
   {dirty}
   {saving}
   {error}
   onsave={save}
   oncancel={onCancel}
 >
-  <Select label="Kind of name" options={KINDS} bind:value={f.kind} />
-  {#if f.kind === 'other'}<TextField label="Describe the kind" bind:value={f.kindText} />{/if}
-  <TextField label="Title or prefix" hint="For example Dr or Rev" bind:value={f.prefix} />
-  <TextField label="Given name" bind:value={f.given} />
-  <TextField label="Call name" hint="The given name the person was known by" bind:value={f.call} />
-  <TextField label="Surname prefix" hint="For example van, de or von" bind:value={f.surnamePrefix} />
-  <TextField label="Surnames" hint="Separate several surnames with a comma" bind:value={f.surnames} />
-  <TextField label="Patronymic" bind:value={f.patronymic} />
-  <TextField label="Suffix" hint="For example Jr or III" bind:value={f.suffix} />
-  <TextField label="Nickname" bind:value={f.nickname} />
-  <TextField label="Language" hint="A language code such as de or ru" bind:value={f.lang} />
-  <DateField label="Date in use" value={f.dateRaw} onChange={(r) => (f.dateRaw = r)} order={settings.value.dayOrder} />
-  <Checkbox label="Preferred name" bind:checked={f.preferred} />
-  <Checkbox label="Private" bind:checked={f.isPrivate} />
+  <Select label={t('editor.kindOfName')} options={KINDS} bind:value={f.kind} />
+  {#if f.kind === 'other'}<TextField label={t('editor.describeKind')} bind:value={f.kindText} />{/if}
+  <TextField label={t('editor.prefix')} hint={t('editor.prefixHint')} bind:value={f.prefix} />
+  <TextField label={t('editor.given')} bind:value={f.given} />
+  <TextField label={t('editor.call')} hint={t('editor.callHint')} bind:value={f.call} />
+  <TextField label={t('editor.surnamePrefix')} hint={t('editor.surnamePrefixHint')} bind:value={f.surnamePrefix} />
+  <TextField label={t('editor.surnames')} hint={t('editor.surnamesHint')} bind:value={f.surnames} />
+  <TextField label={t('editor.patronymic')} bind:value={f.patronymic} />
+  <TextField label={t('editor.suffix')} hint={t('editor.suffixHint')} bind:value={f.suffix} />
+  <TextField label={t('editor.nickname')} bind:value={f.nickname} />
+  <TextField label={t('editor.language')} hint={t('editor.languageHint')} bind:value={f.lang} />
+  <DateField label={t('editor.dateInUse')} value={f.dateRaw} onChange={(r) => (f.dateRaw = r)} order={settings.value.dayOrder} />
+  <Checkbox label={t('editor.preferredName')} bind:checked={f.preferred} />
+  <Checkbox label={t('editor.private')} bind:checked={f.isPrivate} />
 </EditorDialog>

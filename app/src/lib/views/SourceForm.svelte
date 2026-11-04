@@ -13,6 +13,7 @@
   import TextArea from '../ui/TextArea.svelte';
   import Button from '../ui/Button.svelte';
   import type { SourceDto } from '../api/api';
+  import { t } from '../i18n';
 
   let {
     source,
@@ -37,11 +38,11 @@
     onSubmit({ title, author, publication, abbreviation, text });
   }}
 >
-  <TextField label="Title" bind:value={title} />
-  <TextField label="Author" bind:value={author} />
-  <TextField label="Publication" bind:value={publication} />
-  <TextField label="Short title" bind:value={abbreviation} />
-  <TextArea label="Text" bind:value={text} rows={3} />
+  <TextField label={t('sources.formTitle')} bind:value={title} />
+  <TextField label={t('sources.formAuthor')} bind:value={author} />
+  <TextField label={t('sources.formPublication')} bind:value={publication} />
+  <TextField label={t('sources.formShortTitle')} bind:value={abbreviation} />
+  <TextArea label={t('sources.formText')} bind:value={text} rows={3} />
   <div><Button type="submit" variant="primary">{submitLabel}</Button></div>
 </form>
 

@@ -9,6 +9,10 @@ pub type Key = u32;
 pub trait ChartSource {
     /// Preferred parents, upper slot first (callers put the male parent first when only one is male).
     fn parents(&self, p: Key) -> [Option<Key>; 2];
+    /// Sortable birth date of `p` (earlier is smaller), `None` when unknown. Used to order siblings.
+    fn birth_sort(&self, _p: Key) -> Option<i32> {
+        None
+    }
     /// Partnerships of `p` in display order: (partner or None, children in birth order).
     fn unions(&self, p: Key) -> Vec<(Option<Key>, Vec<Key>)>;
 }
@@ -76,6 +80,38 @@ impl Rect {
     }
 }
 
+/// Whose partner a partner box is (relatives chart only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartnerOf {
+    Focus,
+    Sibling,
+    AuntUncle,
+    /// A descendant of the focus person, this many generations down.
+    Descendant(u8),
+}
+
+/// How a person on the relatives chart is related to the centred person.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rel {
+    Focus,
+    /// Parent is 1, grandparent 2, and so on.
+    Ancestor(u8),
+    /// Child is 1, grandchild 2, and so on.
+    Descendant(u8),
+    Sibling {
+        half: bool,
+    },
+    /// A brother or sister of a parent.
+    AuntUncle {
+        half: bool,
+    },
+    /// A child of a brother or sister.
+    NieceNephew,
+    /// A child of a parent's brother or sister.
+    Cousin,
+    Partner(PartnerOf),
+}
+
 /// Keyboard-navigation links between nodes (ids into `Layout::nodes`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Nav {
@@ -97,6 +133,8 @@ pub struct Node {
     pub dup_of: Option<u32>,
     pub more_up: bool,
     pub more_down: bool,
+    /// Relationship to the centred person (relatives chart only).
+    pub rel: Option<Rel>,
     pub nav: Nav,
 }
 
@@ -114,6 +152,15 @@ pub struct Edge {
     pub to: u32,
     pub kind: EdgeKind,
     pub pts: Vec<f32>,
+}
+
+/// The line a layout is mirrored about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Axis {
+    /// Top and bottom swap places (top-down charts grow upward instead).
+    Vertical,
+    /// Left and right swap places (the left-to-right pedigree grows leftward instead).
+    Horizontal,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +191,29 @@ impl Layout {
         }
     }
 
+    /// Mirrors the whole drawing inside its own bounds: node boxes and edge polylines move, the
+    /// bounds, ids and navigation links (which are logical, not visual) stay as they are.
+    pub fn mirror(&mut self, axis: Axis) {
+        let b = self.bounds;
+        let (lo, hi) = match axis {
+            Axis::Vertical => (b.y, b.y + b.h),
+            Axis::Horizontal => (b.x, b.x + b.w),
+        };
+        for n in &mut self.nodes {
+            match axis {
+                Axis::Vertical => n.rect.y = lo + hi - n.rect.y - n.rect.h,
+                Axis::Horizontal => n.rect.x = lo + hi - n.rect.x - n.rect.w,
+            }
+        }
+        let from = usize::from(axis == Axis::Vertical);
+        for e in &mut self.edges {
+            for p in e.pts.chunks_exact_mut(2) {
+                p[from] = lo + hi - p[from];
+            }
+        }
+        self.grid = Grid::build(&self.nodes, &self.edges);
+    }
+
     /// Nodes and edges whose boxes intersect `r`, in id order.
     pub fn query(&self, r: &Rect) -> (Vec<&Node>, Vec<&Edge>) {
         let (n, e) = self.grid.query(r);
@@ -164,6 +234,7 @@ pub(crate) fn new_node(id: u32, key: Key, rect: Rect, r#gen: i16) -> Node {
         dup_of: None,
         more_up: false,
         more_down: false,
+        rel: None,
         nav: Nav::default(),
     }
 }

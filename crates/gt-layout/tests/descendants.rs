@@ -224,3 +224,59 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn mirror_vertical_moves_nodes_edges_and_grid() {
+    use gt_layout::{Axis, Rect};
+    let s = MapSource::plain_tree(&[(0, vec![1, 2]), (1, vec![3])]);
+    let l = run(&s, 0);
+    let mut m = l.clone();
+    m.mirror(Axis::Vertical);
+    let (top, bottom) = (l.bounds.y, l.bounds.y + l.bounds.h);
+    assert_eq!(m.bounds, l.bounds);
+    for (a, b) in l.nodes.iter().zip(&m.nodes) {
+        assert_eq!(a.id, b.id);
+        assert_eq!(b.rect.x, a.rect.x);
+        assert!((b.rect.y - (top + bottom - a.rect.y - a.rect.h)).abs() < 1e-3);
+        assert_eq!(a.nav, b.nav);
+    }
+    // The root was on top, now it is below its children.
+    assert!(node_of(&m, 0).rect.y > node_of(&m, 1).rect.y);
+    for (a, b) in l.edges.iter().zip(&m.edges) {
+        for (p, q) in a.pts.chunks_exact(2).zip(b.pts.chunks_exact(2)) {
+            assert_eq!(p[0], q[0]);
+            assert!((q[1] - (top + bottom - p[1])).abs() < 1e-3);
+        }
+    }
+    // The spatial index follows: querying where the root now sits finds it, and the old spot does not.
+    let at = |n: &Node| Rect {
+        x: n.rect.x + 1.0,
+        y: n.rect.y + 1.0,
+        w: 1.0,
+        h: 1.0,
+    };
+    let root_now = node_of(&m, 0).clone();
+    let (nodes, _) = m.query(&at(&root_now));
+    assert!(nodes.iter().any(|n| n.key == 0));
+    let (nodes, _) = m.query(&at(node_of(&l, 0)));
+    assert!(nodes.iter().all(|n| n.key != 0));
+    // Mirroring twice restores the original.
+    m.mirror(Axis::Vertical);
+    for (a, b) in l.nodes.iter().zip(&m.nodes) {
+        assert!((a.rect.y - b.rect.y).abs() < 1e-3);
+    }
+}
+
+#[test]
+fn mirror_horizontal_flips_left_right_only() {
+    use gt_layout::Axis;
+    let s = MapSource::plain_tree(&[(0, vec![1, 2, 3])]);
+    let l = run(&s, 0);
+    let mut m = l.clone();
+    m.mirror(Axis::Horizontal);
+    let (left, right) = (l.bounds.x, l.bounds.x + l.bounds.w);
+    for (a, b) in l.nodes.iter().zip(&m.nodes) {
+        assert_eq!(b.rect.y, a.rect.y);
+        assert!((b.rect.x - (left + right - a.rect.x - a.rect.w)).abs() < 1e-3);
+    }
+}
