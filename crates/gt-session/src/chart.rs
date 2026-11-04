@@ -4,7 +4,7 @@
 use crate::dto::{
     ChartEdge, ChartKind, ChartLocation, ChartMeta, ChartNav, ChartNode, ChartRequest, ChartSize,
     ChartWindow, EdgeKindDto, Kinship, KinshipKind, OutlineGroupKind, OutlineItem, PersonRef, Rect,
-    RoleDto, RoleKind, SexKind, WholeBlockDto, WholeMeta,
+    RoleDto, RoleKind, SexKind, TreeDirection, WholeBlockDto, WholeMeta,
 };
 use crate::error::{ApiError, ErrorCode};
 use crate::index::{Links, PersonIndex};
@@ -13,8 +13,8 @@ use crate::relation::{relation_label, relation_role};
 use crate::session::Session;
 use gt_core::tree::Tree;
 use gt_layout::{
-    BlockKind, ChartSource, EdgeKind, Key, Layout, Metrics, Rel, RelativesOptions, WholeExtras,
-    WholeFamily, WholeInput,
+    Axis, BlockKind, ChartSource, EdgeKind, Key, Layout, Metrics, Rel, RelativesOptions,
+    WholeExtras, WholeFamily, WholeInput,
 };
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -220,6 +220,8 @@ struct OpenChart {
     id: u32,
     kind: ChartKind,
     version: u64,
+    /// Laid out with the ancestors at the bottom (the tree-direction setting at open time).
+    reversed: bool,
     layout: Layout,
     /// Partner boxes of each descendants node, in order.
     partners: HashMap<u32, Vec<u32>>,
@@ -409,7 +411,8 @@ impl Session {
             index: &self.index,
         };
         let m = Metrics::default();
-        let layout = match req.kind {
+        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
+        let mut layout = match req.kind {
             ChartKind::Pedigree => {
                 let g = u8::try_from(req.generations.clamp(1, 12)).unwrap_or(12);
                 gt_layout::pedigree(&src, root, g, &m, MAX_NODES)
@@ -432,6 +435,14 @@ impl Session {
                 ));
             }
         };
+        if reversed {
+            // Ancestors at the bottom; the left-to-right pedigree grows leftward instead.
+            layout.mirror(if req.kind == ChartKind::Pedigree {
+                Axis::Horizontal
+            } else {
+                Axis::Vertical
+            });
+        }
         let charts = &mut self.charts;
         charts.make_room();
         charts.next_id += 1;
@@ -460,6 +471,7 @@ impl Session {
             id: meta.chart_id,
             kind: req.kind,
             version: charts.revision,
+            reversed,
             layout,
             partners,
             partner_owner,
@@ -479,11 +491,11 @@ impl Session {
     /// lay it out twice. An edit makes it stale and the next call lays it out again.
     pub fn chart_open_whole(&mut self) -> Result<WholeMeta, ApiError> {
         let revision = self.charts.revision;
-        if let Some(c) = self
-            .charts
-            .open
-            .iter()
-            .find(|c| c.kind == ChartKind::Whole && c.version == revision)
+        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
+        if let Some(c) =
+            self.charts.open.iter().find(|c| {
+                c.kind == ChartKind::Whole && c.version == revision && c.reversed == reversed
+            })
         {
             self.charts.touch(c);
             return Ok(whole_meta(c));
@@ -510,7 +522,7 @@ impl Session {
             surname: summaries.iter().map(|s| s.surname.clone()).collect(),
         };
         let gt_layout::WholeLayout { layout, extras } =
-            gt_layout::whole(&input, &Metrics::default());
+            gt_layout::whole_directed(&input, &Metrics::default(), reversed);
         let blocks = extras
             .blocks
             .iter()
@@ -524,6 +536,7 @@ impl Session {
                     w: b.rect.w,
                     h: b.rect.h,
                 },
+                body_h: b.body_h,
             })
             .collect();
         let charts = &mut self.charts;
@@ -533,6 +546,7 @@ impl Session {
             id: charts.next_id,
             kind: ChartKind::Whole,
             version: revision,
+            reversed,
             layout,
             partners: HashMap::new(),
             partner_owner: HashMap::new(),

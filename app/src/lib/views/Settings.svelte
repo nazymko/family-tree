@@ -149,6 +149,16 @@
       value={settings.value.theme}
       onchange={(v) => change({ theme: v as Settings['theme'] })}
     />
+    <Select
+      label={t('settings.treeDirection')}
+      hint={t('settings.treeDirectionHint')}
+      options={[
+        { value: 'normal', label: t('settings.treeNormal') },
+        { value: 'reversed', label: t('settings.treeReversed') },
+      ]}
+      value={settings.value.treeDirection}
+      onchange={(v) => change({ treeDirection: v as Settings['treeDirection'] })}
+    />
     <TextField label={t('settings.backups')} type="number" min="1" max="50" bind:value={backups} onchange={commitBackups} />
   </div>
 </section>

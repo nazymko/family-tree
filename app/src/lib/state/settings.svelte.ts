@@ -9,6 +9,7 @@ const DEFAULTS: Settings = {
   theme: 'system',
   language: 'system',
   backupsToKeep: 10,
+  treeDirection: 'normal',
   livingMaxAge: 100,
   homePerson: null,
 };

@@ -31,6 +31,8 @@ export interface DrawOpts {
   theme: Theme;
   /** Where the "+" handle sits; defaults to pedigree (right edge). */
   kind?: ChartKind;
+  /** The tree grows the other way (ancestors at the bottom / on the left): the handles sit on the opposite edge. */
+  reversed?: boolean;
   /** Draw the "+" handles of boxes with more people hidden (default true; a saved picture leaves them out). */
   handles?: boolean;
 }
@@ -224,7 +226,7 @@ export function draw(
     }
   }
 
-  if (opts.handles !== false) for (const n of win.nodes) for (const h of handleSpots(n, kind)) drawHandle(ctx, h, theme, z);
+  if (opts.handles !== false) for (const n of win.nodes) for (const h of handleSpots(n, kind, opts.reversed ?? false)) drawHandle(ctx, h, theme, z);
 
   if (lod === 'full') {
     ctx.textBaseline = 'alphabetic';

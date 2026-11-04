@@ -12,4 +12,12 @@ title: string, people: number,
 /**
  * The block of people who have no family link at all.
  */
-unconnected: boolean, rect: Rect, };
+unconnected: boolean, 
+/**
+ * The heading strip; the block's people sit below it (above it never, in either direction).
+ */
+rect: Rect, 
+/**
+ * Height of the area under the heading that holds the block's people.
+ */
+bodyH: number, };

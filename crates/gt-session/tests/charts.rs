@@ -942,3 +942,74 @@ fn whole_tree_of_an_empty_project_is_empty() {
     assert_eq!(w.meta.node_count, 0);
     assert!(w.blocks.is_empty());
 }
+
+fn set_direction(s: &mut Session, d: TreeDirection) {
+    s.set_settings(SettingsPatch {
+        tree_direction: Some(d),
+        ..SettingsPatch::default()
+    })
+    .unwrap();
+}
+
+fn node_named(w: &ChartWindow, name: &str) -> ChartNode {
+    w.nodes
+        .iter()
+        .find(|n| n.person.as_ref().is_some_and(|p| p.name == name))
+        .unwrap_or_else(|| panic!("no node {name}"))
+        .clone()
+}
+
+#[test]
+fn reversed_pedigree_puts_the_parents_left_of_the_root() {
+    let (_d, mut s) = open_ged(&pedigree_ged());
+    let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    assert!(node_named(&w, "Fred X").x > node_named(&w, "Me X").x);
+    set_direction(&mut s, TreeDirection::Reversed);
+    let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    assert!(node_named(&w, "Fred X").x < node_named(&w, "Me X").x);
+    assert!(node_named(&w, "Gus X").x < node_named(&w, "Fred X").x);
+    assert_eq!(w.edges.len(), 6);
+}
+
+#[test]
+fn reversed_descendants_put_the_child_above_the_parent() {
+    let (_d, mut s) = open_ged(&pedigree_ged());
+    let m = s.chart_open(&descendants_req(&s, "Gus X", 3)).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    assert!(node_named(&w, "Fred X").y > node_named(&w, "Gus X").y);
+    set_direction(&mut s, TreeDirection::Reversed);
+    let m = s.chart_open(&descendants_req(&s, "Gus X", 3)).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    assert!(node_named(&w, "Fred X").y < node_named(&w, "Gus X").y);
+    assert!(node_named(&w, "Me X").y < node_named(&w, "Fred X").y);
+}
+
+#[test]
+fn reversed_whole_tree_is_reopened_and_keeps_headings_above_their_people() {
+    let (_d, mut s) = open_ged(&whole_ged());
+    let a = s.chart_open_whole().unwrap();
+    let w = s.chart_window(a.meta.chart_id, &everything(), 1.0).unwrap();
+    assert!(node_named(&w, "Mary Y").y < node_named(&w, "Me X").y);
+    set_direction(&mut s, TreeDirection::Reversed);
+    let b = s.chart_open_whole().unwrap();
+    assert_ne!(a.meta.chart_id, b.meta.chart_id);
+    let w = s.chart_window(b.meta.chart_id, &everything(), 1.0).unwrap();
+    assert!(node_named(&w, "Mary Y").y > node_named(&w, "Me X").y);
+    assert_eq!(a.blocks[0].rect, b.blocks[0].rect);
+    let h = &b.blocks[0].rect;
+    for n in w
+        .nodes
+        .iter()
+        .filter(|n| n.person.as_ref().is_some_and(|p| p.name != "Zed Solo"))
+    {
+        assert!(n.y >= h.y + h.h, "{} above its heading", n.id);
+    }
+    // Locating a person follows the flip.
+    let me = id_of(&s, "Me X");
+    let loc = s.chart_locate(b.meta.chart_id, me).unwrap().unwrap();
+    assert_eq!(loc.rect.y, node_named(&w, "Me X").y);
+    // Asking again with the same direction reuses the chart.
+    assert_eq!(s.chart_open_whole().unwrap(), b);
+}

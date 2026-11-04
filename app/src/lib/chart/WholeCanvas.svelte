@@ -7,6 +7,7 @@
   import { undoState as undo } from '../state/undo.svelte';
   import Button from '../ui/Button.svelte';
   import Combobox from '../ui/Combobox.svelte';
+  import FlipTreeButton from '../ui/FlipTreeButton.svelte';
   import IconButton from '../ui/IconButton.svelte';
   import { centerOn, fit, fitZoom, panBy, tween, viewRect, ZOOM_MIN, zoomAt, type Camera } from './camera';
   import { hitTest, neighbor, type Dir } from './hit';
@@ -27,6 +28,7 @@
     onOpenPerson,
     onOpenInPedigree,
     onOpened,
+    reversed = false,
   }: {
     homeId?: Id | null;
     /** The person the rest of the app is centred on; the first view starts on them, else on the home person. */
@@ -35,6 +37,8 @@
     onOpenInPedigree: (id: Id) => void;
     /** Called with the chart each time it is (re)opened. */
     onOpened?: (meta: WholeMeta) => void;
+    /** Every family is drawn upside down: its oldest generation at the bottom (headings stay above their people). */
+    reversed?: boolean;
   } = $props();
 
   const api = getApi();
@@ -256,7 +260,7 @@
     });
     meta = m;
     // Boxes say how each person is related to the selected person (at first the focus or home person).
-    refId = keptPerson ?? focusId ?? homeId ?? null;
+    refId = keptPerson ?? flipKeep ?? focusId ?? homeId ?? null;
     if (refId) {
       try {
         await api.chartSetReference(id, refId);
@@ -283,12 +287,21 @@
           startId = loc.nodeId;
         }
       }
+      // Flipped: the person that was selected stays selected and in the middle of the view.
+      if (flipKeep) {
+        const loc = await api.chartLocate(id, flipKeep);
+        if (seq !== openSeq) return;
+        if (loc) {
+          startRect = loc.rect;
+          startId = loc.nodeId;
+        }
+      }
       // The minimap's window knows where every card is; it also gives the oldest card of the largest family.
       const all = await api.chartWindow(id, { x: 0, y: 0, w: m.meta.bounds.w + 1, h: m.meta.bounds.h + 1 }, 0.01);
       if (seq !== openSeq) return;
       miniWin = all;
       if (!startRect) {
-        const f = founderOf(m.blocks, all.nodes);
+        const f = founderOf(m.blocks, all.nodes, reversed);
         if (f) {
           startRect = f.rect;
           startId = f.id;
@@ -319,6 +332,7 @@
       userMoved = false;
       place();
     }
+    flipKeep = null;
     onOpened?.(m);
     if (seq === openSeq) {
       await trySelectAdded();
@@ -372,10 +386,17 @@
     });
   });
 
+  let lastReversed = untrack(() => reversed);
+  let flipKeep: Id | null = null;
   $effect(() => {
     void homeId;
     void focusId;
-    untrack(() => void open());
+    const flipped = reversed !== lastReversed;
+    lastReversed = reversed;
+    untrack(() => {
+      flipKeep = flipped ? (selNode?.person?.id ?? null) : null;
+      void open();
+    });
     return () => {
       openSeq++;
       closeChart();
@@ -731,7 +752,10 @@
   // ------------------------------------------------------------ keyboard
 
   function dirFor(key: string): Dir | null {
-    return key === 'ArrowDown' ? 'child' : key === 'ArrowUp' ? 'parent' : key === 'ArrowLeft' ? 'up' : key === 'ArrowRight' ? 'down' : null;
+    // Reversed, the children are above their parents: Up goes to a child, Down to a parent.
+    const down = reversed ? 'ArrowUp' : 'ArrowDown';
+    const up = reversed ? 'ArrowDown' : 'ArrowUp';
+    return key === down ? 'child' : key === up ? 'parent' : key === 'ArrowLeft' ? 'up' : key === 'ArrowRight' ? 'down' : null;
   }
 
   const PAN_STEP = 80;
@@ -840,6 +864,7 @@
     <Button onclick={fitAll}>{t('whole.fitAll')}</Button>
     <Button disabled={selected === null} onclick={actualSize}>{t('whole.actualSize')}</Button>
     <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={homeNode === null} onclick={goHome} />
+    <FlipTreeButton />
     <Button aria-pressed={lineageOn} onclick={() => (lineageOn = !lineageOn)}>{t('whole.lineage')}</Button>
     <Button disabled={!selNode?.person} onclick={() => selNode?.person && onOpenPerson(selNode.person.id)}>{t('whole.openPerson')}</Button>
     <Button disabled={!selNode?.person} onclick={() => selNode?.person && onOpenInPedigree(selNode.person.id)}>{t('whole.showInPedigree')}</Button>

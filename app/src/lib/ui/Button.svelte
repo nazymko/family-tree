@@ -40,6 +40,10 @@
     background: var(--paper-2);
     border-color: var(--ink-2);
   }
+  .btn[aria-pressed='true'] {
+    background: var(--ribbon-wash, var(--paper-2));
+    border-color: var(--ribbon, var(--ink-2));
+  }
   .primary {
     background: var(--primary-bg);
     border-color: var(--primary-bd);

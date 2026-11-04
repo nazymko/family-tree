@@ -3,12 +3,17 @@ import type { DayOrder } from "./DayOrder";
 import type { Language } from "./Language";
 import type { NameOrder } from "./NameOrder";
 import type { Theme } from "./Theme";
+import type { TreeDirection } from "./TreeDirection";
 
 export type Settings = { dayOrder: DayOrder, nameOrder: NameOrder, theme: Theme, 
 /**
  * Interface language; `system` follows the OS language.
  */
 language: Language, backupsToKeep: number, 
+/**
+ * App setting: which way the tree charts and the family tree grow.
+ */
+treeDirection: TreeDirection, 
 /**
  * Project setting.
  */

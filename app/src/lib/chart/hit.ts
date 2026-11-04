@@ -14,33 +14,39 @@ export function hitTest(win: ChartWindow, worldX: number, worldY: number): Chart
 /** Radius (world units) of the "+" handle drawn on nodes with more ancestors/descendants. */
 export const HANDLE_R = 9;
 
-/** Centre of the "+" handle: right edge for pedigrees (ancestors go right), bottom edge for descendants. */
-export function handlePos(n: ChartNode, kind: ChartKind): { x: number; y: number } {
-  return kind === 'pedigree' ? { x: n.x + n.w, y: n.y + n.h / 2 } : { x: n.x + n.w / 2, y: n.y + n.h };
+/**
+ * Centre of the "+" handle: right edge for pedigrees (ancestors go right), bottom edge for descendants.
+ * Reversed tree: left edge and top edge.
+ */
+export function handlePos(n: ChartNode, kind: ChartKind, reversed = false): { x: number; y: number } {
+  if (kind === 'pedigree') return { x: reversed ? n.x : n.x + n.w, y: n.y + n.h / 2 };
+  return { x: n.x + n.w / 2, y: reversed ? n.y : n.y + n.h };
 }
 
 /**
  * Where the "+" handles of a node sit. Pedigree: right edge when ancestors are hidden. Descendants: bottom edge when
  * children are hidden. Relatives: top edge for hidden ancestors and bottom edge for hidden children.
  */
-export function handleSpots(n: ChartNode, kind: ChartKind): { x: number; y: number }[] {
+export function handleSpots(n: ChartNode, kind: ChartKind, reversed = false): { x: number; y: number }[] {
   if (kind === 'relatives') {
     const out: { x: number; y: number }[] = [];
-    if (n.moreUp) out.push({ x: n.x + n.w / 2, y: n.y });
-    if (n.moreDown) out.push({ x: n.x + n.w / 2, y: n.y + n.h });
+    const top = { x: n.x + n.w / 2, y: n.y };
+    const bottom = { x: n.x + n.w / 2, y: n.y + n.h };
+    if (n.moreUp) out.push(reversed ? bottom : top);
+    if (n.moreDown) out.push(reversed ? top : bottom);
     return out;
   }
-  return (kind === 'pedigree' ? n.moreUp : n.moreDown) ? [handlePos(n, kind)] : [];
+  return (kind === 'pedigree' ? n.moreUp : n.moreDown) ? [handlePos(n, kind, reversed)] : [];
 }
 
 /** Screen radius (px) a handle must be hittable at, converted to world units. */
 export const HANDLE_HIT_PX = 8;
 
-export function hitHandle(win: ChartWindow, kind: ChartKind, wx: number, wy: number, zoom = 1): ChartNode | null {
+export function hitHandle(win: ChartWindow, kind: ChartKind, wx: number, wy: number, zoom = 1, reversed = false): ChartNode | null {
   if (zoom < 0.25) return null; // dots LOD draws no handles
   const r = Math.max(HANDLE_R, HANDLE_HIT_PX / zoom);
   for (const n of win.nodes) {
-    for (const h of handleSpots(n, kind)) if ((wx - h.x) ** 2 + (wy - h.y) ** 2 <= r * r) return n;
+    for (const h of handleSpots(n, kind, reversed)) if ((wx - h.x) ** 2 + (wy - h.y) ** 2 <= r * r) return n;
   }
   return null;
 }
