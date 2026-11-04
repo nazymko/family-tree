@@ -15,6 +15,7 @@
   import MediaView from './MediaView.svelte';
   import Settings from './Settings.svelte';
   import Pedigree from './Pedigree.svelte';
+  import WholeTree from './WholeTree.svelte';
   import Descendants from './Descendants.svelte';
   import Relatives from './Relatives.svelte';
   import ExportDialog from './ExportDialog.svelte';
@@ -37,10 +38,11 @@
 
   const api = getApi();
 
-  type NavName = 'family' | 'people' | 'pedigree' | 'descendants' | 'relatives' | 'sources' | 'media' | 'settings';
+  type NavName = 'family' | 'people' | 'whole' | 'pedigree' | 'descendants' | 'relatives' | 'sources' | 'media' | 'settings';
   const ITEMS: { name: NavName; label: string; icon: IconName }[] = [
     { name: 'family', label: 'Family', icon: 'family' },
     { name: 'people', label: 'People', icon: 'people' },
+    { name: 'whole', label: 'Whole tree', icon: 'whole' },
     { name: 'pedigree', label: 'Pedigree', icon: 'pedigree' },
     { name: 'descendants', label: 'Descendants', icon: 'descendants' },
     { name: 'relatives', label: 'Relatives', icon: 'relatives' },
@@ -110,6 +112,7 @@
     { id: 'n5', keys: 'Mod+5', label: 'Sources', run: () => go('sources') },
     { id: 'n6', keys: 'Mod+6', label: 'Media', run: () => go('media') },
     { id: 'n7', keys: 'Mod+7', label: 'Relatives', run: () => go('relatives') },
+    { id: 'n8', keys: 'Mod+8', label: 'Whole tree', run: () => go('whole') },
     { id: 'export', keys: 'Mod+Shift+E', label: 'Export GEDCOM', run: () => (exportOpen = true) },
     { id: 'settings', keys: 'Mod+,', label: 'Settings', run: () => go('settings') },
     { id: 'save', keys: 'Mod+S', label: 'Save', run: () => {
@@ -280,11 +283,13 @@
       </div>
     </header>
     <main id="content" class="main">
-      <div class="page" class:chart={current === 'pedigree' || current === 'descendants' || current === 'relatives'}>
+      <div class="page" class:chart={current === 'pedigree' || current === 'descendants' || current === 'relatives' || current === 'whole'}>
         {#if nav.route.name === 'family'}
           <FamilyView />
         {:else if nav.route.name === 'people'}
           <People />
+        {:else if nav.route.name === 'whole'}
+          <WholeTree onOpenPerson={openPerson} />
         {:else if nav.route.name === 'pedigree'}
           <Pedigree onOpenPerson={openPerson} />
         {:else if nav.route.name === 'descendants'}

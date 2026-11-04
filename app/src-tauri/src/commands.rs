@@ -4,12 +4,12 @@
 use crate::settings_file;
 use crate::state::{AppState, no_project};
 use gt_session::{
-    ApiError, AttachResult, ChartMeta, ChartRequest, ChartWindow, CitationDto, DatePreview,
-    DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion, ExportOptions, FamilyDto,
-    FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto, ImportRequest, LocationKind,
-    LocationWarningDto, OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery, PersonRow,
-    PlaceOption, PrivacyPreview, ProjectInfo, RecentProject, Rect, RelinkResult, SearchHitDto,
-    Session, Settings, SettingsPatch, SourceDto, UndoState,
+    ApiError, AttachResult, ChartLocation, ChartMeta, ChartRequest, ChartWindow, CitationDto,
+    DatePreview, DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion, ExportOptions,
+    FamilyDto, FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto, ImportRequest,
+    LocationKind, LocationWarningDto, OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery,
+    PersonRow, PlaceOption, PrivacyPreview, ProjectInfo, RecentProject, Rect, RelinkResult,
+    SearchHitDto, Session, Settings, SettingsPatch, SourceDto, UndoState, WholeMeta,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -63,6 +63,9 @@ command_list!(
     suggest_sources,
     last_citation,
     chart_open,
+    chart_open_whole,
+    chart_lineage,
+    chart_locate,
     chart_window,
     chart_outline,
     chart_close,
@@ -408,6 +411,30 @@ pub fn last_citation(state: State<'_, AppState>) -> ApiResult<Option<CitationDto
 #[tauri::command]
 pub async fn chart_open<R: Runtime>(app: AppHandle<R>, req: ChartRequest) -> ApiResult<ChartMeta> {
     blocking(&app, move |s| s.with_session(|se| se.chart_open(&req))).await
+}
+
+/// The whole-tree chart. The layout is kept per tree revision, so reopening the view is instant.
+#[tauri::command]
+pub async fn chart_open_whole<R: Runtime>(app: AppHandle<R>) -> ApiResult<WholeMeta> {
+    blocking(&app, move |s| s.with_session(|se| se.chart_open_whole())).await
+}
+
+#[tauri::command(async)]
+pub fn chart_lineage(
+    state: State<'_, AppState>,
+    chart_id: u32,
+    node_id: u32,
+) -> ApiResult<Vec<u32>> {
+    state.with_session(|s| s.chart_lineage(chart_id, node_id))
+}
+
+#[tauri::command(async)]
+pub fn chart_locate(
+    state: State<'_, AppState>,
+    chart_id: u32,
+    person: Uuid,
+) -> ApiResult<Option<ChartLocation>> {
+    state.with_session(|s| s.chart_locate(chart_id, person))
 }
 
 #[tauri::command(async)]

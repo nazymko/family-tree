@@ -2,17 +2,21 @@
 //! chart, served as viewport windows. At most two charts stay open (least recently used goes).
 
 use crate::dto::{
-    ChartEdge, ChartKind, ChartMeta, ChartNav, ChartNode, ChartRequest, ChartSize, ChartWindow,
-    EdgeKindDto, OutlineItem, Rect, SexKind,
+    ChartEdge, ChartKind, ChartLocation, ChartMeta, ChartNav, ChartNode, ChartRequest, ChartSize,
+    ChartWindow, EdgeKindDto, OutlineItem, PersonRef, Rect, SexKind, WholeBlockDto, WholeMeta,
 };
 use crate::error::{ApiError, ErrorCode};
 use crate::index::{Links, PersonIndex};
 use crate::relation::relation_label;
 use crate::session::Session;
 use gt_core::tree::Tree;
-use gt_layout::{ChartSource, EdgeKind, Key, Layout, Metrics, Rel, RelativesOptions};
+use gt_layout::{
+    BlockKind, ChartSource, EdgeKind, Key, Layout, Metrics, Rel, RelativesOptions, WholeExtras,
+    WholeFamily, WholeInput,
+};
 use std::cell::Cell;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Node cap per chart.
 pub const MAX_NODES: usize = 20_000;
@@ -213,6 +217,13 @@ struct OpenChart {
     parents_of: HashMap<u32, Vec<u32>>,
     kids_of: HashMap<u32, Vec<u32>>,
     last_used: Cell<u64>,
+    /// Whole-tree charts only.
+    whole: Option<Whole>,
+}
+
+struct Whole {
+    extras: WholeExtras,
+    blocks: Vec<WholeBlockDto>,
 }
 
 /// Open charts and the tree revision they are checked against.
@@ -225,6 +236,20 @@ pub struct Charts {
 }
 
 impl Charts {
+    /// Closes the least recently used chart while two (not counting the whole tree) are open.
+    fn make_room(&mut self) {
+        while self.open.iter().filter(|c| c.whole.is_none()).count() >= MAX_CHARTS {
+            let oldest = self
+                .open
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.whole.is_none())
+                .min_by_key(|(_, c)| c.last_used.get())
+                .map_or(0, |(i, _)| i);
+            self.open.remove(oldest);
+        }
+    }
+
     /// Called on every rebuild of the session data: open charts become stale.
     pub(crate) fn bump_revision(&mut self) {
         self.revision += 1;
@@ -300,6 +325,48 @@ fn capitalise(s: &str) -> String {
         .unwrap_or_default()
 }
 
+fn not_whole() -> ApiError {
+    ApiError::new(
+        ErrorCode::Invalid,
+        "This chart is not the whole tree. Open the whole tree first.",
+    )
+}
+
+fn block_title(kind: BlockKind, surname: &str, people: u32) -> String {
+    match kind {
+        BlockKind::Unconnected => format!("Unconnected people ({people})"),
+        BlockKind::Family if surname.is_empty() => format!("Family ({people} people)"),
+        BlockKind::Family => format!("{surname} family ({people} people)"),
+    }
+}
+
+fn whole_meta(c: &OpenChart) -> WholeMeta {
+    let b = c.layout.bounds;
+    let blocks_right = c.whole.as_ref().map_or(0.0, |w| right_of(&w.blocks));
+    WholeMeta {
+        meta: ChartMeta {
+            chart_id: c.id,
+            kind: ChartKind::Whole,
+            bounds: ChartSize {
+                w: (b.x + b.w).max(blocks_right),
+                h: b.y + b.h,
+            },
+            node_count: u32::try_from(c.layout.nodes.len()).unwrap_or(u32::MAX),
+            root_node: c.layout.root,
+            truncated: false,
+            version: c.version,
+        },
+        blocks: c.whole.as_ref().map_or_else(Vec::new, |w| w.blocks.clone()),
+    }
+}
+
+fn right_of(blocks: &[WholeBlockDto]) -> f32 {
+    blocks
+        .iter()
+        .map(|b| b.rect.x + b.rect.w)
+        .fold(0.0, f32::max)
+}
+
 fn descendant_label(depth: i16, k: usize) -> String {
     match depth {
         ..=1 => format!("Child {k}"),
@@ -344,17 +411,15 @@ impl Session {
                 };
                 gt_layout::relatives(&src, root, &o, &m, MAX_NODES)
             }
+            ChartKind::Whole => {
+                return Err(ApiError::new(
+                    ErrorCode::Invalid,
+                    "The whole tree has no starting person. Open it with the whole-tree command.",
+                ));
+            }
         };
         let charts = &mut self.charts;
-        while charts.open.len() >= MAX_CHARTS {
-            let oldest = charts
-                .open
-                .iter()
-                .enumerate()
-                .min_by_key(|(_, c)| c.last_used.get())
-                .map_or(0, |(i, _)| i);
-            charts.open.remove(oldest);
-        }
+        charts.make_room();
         charts.next_id += 1;
         let meta = ChartMeta {
             chart_id: charts.next_id,
@@ -387,10 +452,119 @@ impl Session {
             parents_of,
             kids_of,
             last_used: Cell::new(0),
+            whole: None,
         };
         charts.touch(&chart);
         charts.open.push(chart);
         Ok(meta)
+    }
+
+    /// Lays out every person of the project in one chart. The layout is kept for the current tree
+    /// revision: asking again returns the same chart, so panning and reopening the view never
+    /// lay it out twice. An edit makes it stale and the next call lays it out again.
+    pub fn chart_open_whole(&mut self) -> Result<WholeMeta, ApiError> {
+        let revision = self.charts.revision;
+        if let Some(c) = self
+            .charts
+            .open
+            .iter()
+            .find(|c| c.kind == ChartKind::Whole && c.version == revision)
+        {
+            self.charts.touch(c);
+            return Ok(whole_meta(c));
+        }
+        self.charts.open.retain(|c| c.kind != ChartKind::Whole);
+        let summaries = &self.index.summaries;
+        let input = WholeInput {
+            count: summaries.len(),
+            families: self
+                .tree
+                .families
+                .values()
+                .map(|f| WholeFamily {
+                    partners: [f.partner1, f.partner2]
+                        .map(|p| p.and_then(|id| self.index.slot(id))),
+                    children: f
+                        .children
+                        .iter()
+                        .filter_map(|c| self.index.slot(c.person))
+                        .collect(),
+                })
+                .collect(),
+            birth: summaries.iter().map(|s| s.birth_sort).collect(),
+            surname: summaries.iter().map(|s| s.surname.clone()).collect(),
+        };
+        let gt_layout::WholeLayout { layout, extras } =
+            gt_layout::whole(&input, &Metrics::default());
+        let blocks = extras
+            .blocks
+            .iter()
+            .map(|b| WholeBlockDto {
+                title: block_title(b.kind, &b.surname, b.people),
+                people: b.people,
+                unconnected: b.kind == BlockKind::Unconnected,
+                rect: Rect {
+                    x: b.rect.x,
+                    y: b.rect.y,
+                    w: b.rect.w,
+                    h: b.rect.h,
+                },
+            })
+            .collect();
+        let charts = &mut self.charts;
+        charts.make_room();
+        charts.next_id += 1;
+        let chart = OpenChart {
+            id: charts.next_id,
+            kind: ChartKind::Whole,
+            version: revision,
+            layout,
+            partners: HashMap::new(),
+            partner_owner: HashMap::new(),
+            parents_of: HashMap::new(),
+            kids_of: HashMap::new(),
+            last_used: Cell::new(0),
+            whole: Some(Whole { extras, blocks }),
+        };
+        charts.touch(&chart);
+        let meta = whole_meta(&chart);
+        charts.open.push(chart);
+        Ok(meta)
+    }
+
+    /// The node, its ancestors and its descendants in a whole-tree chart (the highlighted line).
+    pub fn chart_lineage(&self, chart: u32, node: u32) -> Result<Vec<u32>, ApiError> {
+        let c = self.charts.live(chart)?;
+        let w = c.whole.as_ref().ok_or_else(not_whole)?;
+        if c.layout.nodes.get(node as usize).is_none() {
+            return Err(ApiError::not_found("chart node", node));
+        }
+        Ok(w.extras.lineage(node))
+    }
+
+    /// Where a person sits in a whole-tree chart; `None` when the person is not in the project.
+    pub fn chart_locate(
+        &self,
+        chart: u32,
+        person: Uuid,
+    ) -> Result<Option<ChartLocation>, ApiError> {
+        let c = self.charts.live(chart)?;
+        let w = c.whole.as_ref().ok_or_else(not_whole)?;
+        let located = self
+            .index
+            .slot(person)
+            .and_then(|k| w.extras.node_of(k))
+            .and_then(|id| c.layout.nodes.get(id as usize))
+            .map(|n| ChartLocation {
+                node_id: n.id,
+                rect: Rect {
+                    x: n.rect.x,
+                    y: n.rect.y,
+                    w: n.rect.w,
+                    h: n.rect.h,
+                },
+            });
+        Ok(located)
     }
 
     /// Nodes and edges intersecting `rect`. Below zoom 0.25 nodes carry no person and no label.
@@ -410,24 +584,29 @@ impl Session {
             h: rect.h,
         };
         let (nodes, edges) = c.layout.query(&r);
+        let whole = c.kind == ChartKind::Whole;
         let nodes = nodes
             .into_iter()
             .map(|n| {
-                let s = if text {
+                let s = if text || whole {
                     self.index.summaries.get(n.key as usize)
                 } else {
                     None
                 };
                 let relation = match (c.kind, s, n.rel) {
-                    (ChartKind::Relatives, Some(s), Some(r)) => Some(relation_label(r, s.sex)),
+                    (ChartKind::Relatives, Some(s), Some(r)) if text => {
+                        Some(relation_label(r, s.sex))
+                    }
                     _ => None,
                 };
-                let label = s.map_or_else(String::new, |s| {
+                let label = s.filter(|_| text).map_or_else(String::new, |s| {
                     let mut l = s.name.clone();
                     if !s.lifespan.is_empty() {
                         l = format!("{l}, {}", s.lifespan);
                     }
-                    let role = if let Some(r) = &relation {
+                    let role = if whole {
+                        format!("generation {}", n.r#gen + 1)
+                    } else if let Some(r) = &relation {
                         r.clone()
                     } else if c.partner_owner.contains_key(&n.id) {
                         "partner".to_string()
@@ -447,7 +626,18 @@ impl Session {
                 });
                 ChartNode {
                     id: n.id,
-                    person: s.map(|s| s.person_ref()),
+                    person: s.map(|s| {
+                        if text {
+                            s.person_ref()
+                        } else {
+                            // Far out the canvas draws the surname on a coloured bar and nothing else.
+                            PersonRef {
+                                name: s.surname.clone(),
+                                lifespan: String::new(),
+                                ..s.person_ref()
+                            }
+                        }
+                    }),
                     x: n.rect.x,
                     y: n.rect.y,
                     w: n.rect.w,
@@ -494,6 +684,12 @@ impl Session {
         limit: usize,
     ) -> Result<Vec<OutlineItem>, ApiError> {
         let c = self.charts.live(chart)?;
+        if c.whole.is_some() {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "The whole tree has no outline. Use Find a person to move around it.",
+            ));
+        }
         let limit = limit.min(MAX_OUTLINE);
         if c.kind == ChartKind::Relatives {
             return self.relatives_outline(c, parent, limit);

@@ -1,0 +1,67 @@
+import { describe, expect, it } from 'vitest';
+import type { ChartEdge, ChartNode, ChartWindow } from '../api/types';
+import { makeFakeContext } from '../../test-setup';
+import { drawWhole, edgeOnLine, type WholeTheme } from './wholeRenderer';
+
+const theme: WholeTheme = {
+  paper: '#fff', rule: '#ccc', ink: '#000', ink2: '#555', ribbon: '#900', wash: '#fdd', font: 'sans', serif: 'serif',
+  male: '#060', female: '#900', other: '#850',
+};
+
+function node(id: number, x: number, y: number, sex: 'male' | 'female'): ChartNode {
+  return {
+    id, x, y, w: 176, h: 56, gen: 0, ahnen: null, dupOf: null, moreUp: false, moreDown: false, label: `n${id}`,
+    nav: { parent: null, child: null, prev: null, next: null },
+    person: { id: `p${id}`, name: `Person ${id}`, lifespan: '', sex, living: false, private: false },
+  };
+}
+
+// Family 2 + 3 has children 4 and 5; every child line starts at the first partner (node 2).
+const edge = (from: number, to: number, kind: ChartEdge['kind'], y: number): ChartEdge => ({ from, to, kind, pts: [from * 10, y, to * 10, y + 40] });
+const win: ChartWindow = {
+  nodes: [node(2, 0, 0, 'male'), node(3, 200, 0, 'female'), node(4, 0, 200, 'male'), node(5, 200, 200, 'female'), node(6, 600, 200, 'male')],
+  edges: [edge(2, 3, 'partner', 1), edge(2, 4, 'parent', 2), edge(2, 5, 'parent', 3), edge(6, 6, 'parent', 4)],
+};
+
+describe('edgeOnLine', () => {
+  const lit = (ids: number[]) => (id: number) => ids.includes(id);
+
+  it('keeps_a_child_line_when_the_line_runs_through_the_second_partner', () => {
+    // Selected: the mother (3). The line to her children starts at the father (2), who is not on the line.
+    const l = lit([3, 4, 5]);
+    expect(edgeOnLine(edge(2, 4, 'parent', 0), l)).toBe(true);
+    expect(edgeOnLine(edge(2, 5, 'parent', 0), l)).toBe(true);
+  });
+
+  it('keeps_every_line_through_a_daughter', () => {
+    // Selected: a grandparent (1) down through daughter 3 (second partner of 2) to grandchild 5.
+    const l = lit([1, 3, 5]);
+    expect(edgeOnLine(edge(0, 3, 'parent', 0), l)).toBe(true);
+    expect(edgeOnLine(edge(2, 5, 'parent', 0), l)).toBe(true);
+    expect(edgeOnLine(edge(2, 4, 'parent', 0), l)).toBe(false);
+  });
+
+  it('needs_both_people_for_a_partner_line', () => {
+    expect(edgeOnLine(edge(2, 3, 'partner', 0), lit([2, 3]))).toBe(true);
+    expect(edgeOnLine(edge(2, 3, 'partner', 0), lit([3]))).toBe(false);
+  });
+});
+
+describe('drawWhole highlight', () => {
+  it('draws_the_selected_mothers_child_lines_at_full_strength', () => {
+    const ctx = makeFakeContext();
+    drawWhole(ctx as unknown as CanvasRenderingContext2D, win, [], { x: 0, y: 0, zoom: 1 }, { w: 800, h: 600, dpr: 1 }, {
+      selected: 3, home: null, lineage: new Set([3, 4, 5]), theme,
+    });
+    const calls = ctx.calls;
+    const faded = calls.findIndex((c) => c.op === 'set:globalAlpha' && c.args[0] === 0.25);
+    const restored = calls.findIndex((c, i) => i > faded && c.op === 'set:globalAlpha' && c.args[0] === 1);
+    const dimmed = calls.slice(faded, restored).filter((c) => c.op === 'moveTo').map((c) => c.args[1]);
+    // Only the unrelated edge (6 -> 6) and the partner line to the unlit father are dim; the child lines from node 2 are not.
+    expect(dimmed).toEqual(expect.arrayContaining([1, 4]));
+    expect(dimmed).not.toContain(2);
+    expect(dimmed).not.toContain(3);
+    const hot = calls.slice(restored).filter((c) => c.op === 'set:strokeStyle' && c.args[0] === theme.ribbon);
+    expect(hot.length).toBeGreaterThan(0);
+  });
+});

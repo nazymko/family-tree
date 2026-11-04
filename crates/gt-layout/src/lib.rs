@@ -9,6 +9,7 @@ mod grid;
 mod pedigree;
 mod relatives;
 mod types;
+mod whole;
 
 pub use descendants::descendants;
 pub use pedigree::pedigree;
@@ -16,3 +17,4 @@ pub use relatives::{RelativesOptions, relatives};
 pub use types::{
     ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Nav, Node, PartnerOf, Rect, Rel,
 };
+pub use whole::{Block, BlockKind, WholeExtras, WholeFamily, WholeInput, WholeLayout, whole};

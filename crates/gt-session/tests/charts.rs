@@ -794,3 +794,151 @@ fn relatives_outline_has_no_expander_for_references_only_and_carries_relation() 
     let v = serde_json::to_value(mother).unwrap();
     assert_eq!(v["relation"], "mother");
 }
+
+// ---- whole tree ----
+
+/// The pedigree family (7 people) plus a lone Zed.
+fn whole_ged() -> String {
+    let mut g = pedigree_ged();
+    g.truncate(g.len() - "0 TRLR\n".len());
+    g.push_str(&indi(8, "Zed /Solo/", "M", ""));
+    g.push_str("0 TRLR\n");
+    g
+}
+
+#[test]
+fn whole_tree_has_everyone_once_headings_and_an_unconnected_block() {
+    let (_d, mut s) = open_ged(&whole_ged());
+    let w = s.chart_open_whole().unwrap();
+    assert_eq!(w.meta.kind, ChartKind::Whole);
+    assert_eq!(w.meta.node_count, 8);
+    assert_eq!(w.meta.version, s.revision());
+    let titles: Vec<&str> = w.blocks.iter().map(|b| b.title.as_str()).collect();
+    assert_eq!(titles, ["X family (7 people)", "Unconnected people (1)"]);
+    assert!(w.blocks[1].unconnected && !w.blocks[0].unconnected);
+    let all = s.chart_window(w.meta.chart_id, &everything(), 1.0).unwrap();
+    assert_eq!(all.nodes.len(), 8);
+    assert_eq!(
+        all.edges
+            .iter()
+            .filter(|e| e.kind == EdgeKindDto::Parent)
+            .count(),
+        3
+    );
+    assert!(
+        all.nodes
+            .iter()
+            .all(|n| n.dup_of.is_none() && !n.label.is_empty())
+    );
+    let me = all
+        .nodes
+        .iter()
+        .find(|n| n.person.as_ref().is_some_and(|p| p.name == "Me X"))
+        .unwrap();
+    assert_eq!(me.generation, 2);
+    assert!(me.label.ends_with("generation 3"), "{}", me.label);
+    let v = serde_json::to_value(&w).unwrap();
+    assert!(v["meta"]["chartId"].is_u64() && v["blocks"][0]["rect"]["w"].is_number());
+}
+
+#[test]
+fn whole_tree_is_cached_per_revision() {
+    let (_d, mut s) = open_ged(&whole_ged());
+    let a = s.chart_open_whole().unwrap();
+    let b = s.chart_open_whole().unwrap();
+    assert_eq!(a, b);
+    // Other charts do not push it out.
+    for name in ["Me X", "Fred X", "Mary Y"] {
+        s.chart_open(&pedigree_req(&s, name, 3)).unwrap();
+    }
+    assert!(s.chart_window(a.meta.chart_id, &everything(), 1.0).is_ok());
+    // A change makes it stale; asking again lays it out again.
+    s.set_settings(SettingsPatch {
+        living_max_age: Some(90),
+        ..SettingsPatch::default()
+    })
+    .unwrap();
+    let e = s
+        .chart_window(a.meta.chart_id, &everything(), 1.0)
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Stale);
+    let c = s.chart_open_whole().unwrap();
+    assert_ne!(c.meta.chart_id, a.meta.chart_id);
+    assert_eq!(c.meta.version, s.revision());
+}
+
+#[test]
+fn whole_tree_far_out_sends_surnames_and_sex_only() {
+    let (_d, mut s) = open_ged(&whole_ged());
+    let w = s.chart_open_whole().unwrap();
+    let all = s
+        .chart_window(w.meta.chart_id, &everything(), 0.05)
+        .unwrap();
+    assert_eq!(all.nodes.len(), 8);
+    for n in &all.nodes {
+        assert!(n.label.is_empty());
+        let p = n.person.as_ref().unwrap();
+        assert!(p.lifespan.is_empty());
+        assert!(["X", "Y", "Solo"].contains(&p.name.as_str()), "{}", p.name);
+    }
+    assert!(
+        all.nodes
+            .iter()
+            .any(|n| n.person.as_ref().unwrap().sex == SexKind::Female)
+    );
+}
+
+#[test]
+fn whole_tree_lineage_and_locate() {
+    let (_d, mut s) = open_ged(&whole_ged());
+    let w = s.chart_open_whole().unwrap();
+    let id = w.meta.chart_id;
+    let me = s.chart_locate(id, id_of(&s, "Me X")).unwrap().unwrap();
+    let fred = s.chart_locate(id, id_of(&s, "Fred X")).unwrap().unwrap();
+    assert_ne!(me.node_id, fred.node_id);
+    assert!(me.rect.y > fred.rect.y);
+    // Me: self, two parents, four grandparents. Fred's line: Fred, Me, his parents.
+    assert_eq!(s.chart_lineage(id, me.node_id).unwrap().len(), 7);
+    assert_eq!(s.chart_lineage(id, fred.node_id).unwrap().len(), 4);
+    assert!(s.chart_locate(id, Uuid::nil()).unwrap().is_none());
+    assert_eq!(
+        s.chart_lineage(id, 999).unwrap_err().code,
+        ErrorCode::NotFound
+    );
+}
+
+#[test]
+fn whole_tree_commands_refuse_other_charts_and_other_charts_refuse_whole() {
+    let (_d, mut s) = open_ged(&whole_ged());
+    let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    assert_eq!(
+        s.chart_lineage(m.chart_id, 0).unwrap_err().code,
+        ErrorCode::Invalid
+    );
+    assert_eq!(
+        s.chart_locate(m.chart_id, id_of(&s, "Me X"))
+            .unwrap_err()
+            .code,
+        ErrorCode::Invalid
+    );
+    let req = ChartRequest {
+        kind: ChartKind::Whole,
+        root: id_of(&s, "Me X"),
+        generations: 3,
+        aunts_uncles: None,
+    };
+    assert_eq!(s.chart_open(&req).unwrap_err().code, ErrorCode::Invalid);
+    let w = s.chart_open_whole().unwrap();
+    assert_eq!(
+        s.chart_outline(w.meta.chart_id, None, 5).unwrap_err().code,
+        ErrorCode::Invalid
+    );
+}
+
+#[test]
+fn whole_tree_of_an_empty_project_is_empty() {
+    let (_d, mut s) = open_ged(&ged(&[]));
+    let w = s.chart_open_whole().unwrap();
+    assert_eq!(w.meta.node_count, 0);
+    assert!(w.blocks.is_empty());
+}
