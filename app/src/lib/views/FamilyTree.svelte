@@ -16,6 +16,8 @@
   import { isKeyboardMenu } from '../chart/picture';
   import { toasts } from '../state/toast.svelte';
   import { errMessage } from '../editors/errors';
+  import CoupleEndDialog from './CoupleEndDialog.svelte';
+  import { coupleEnd, type CoupleEnd } from './coupleEnd';
 
   let {
     view,
@@ -107,6 +109,26 @@
       })
       .catch(() => {
         if (mine === fullToken) fullIds = null;
+      });
+  });
+  // How the shown parents' couple ended (divorce, separation, death), from their family's events.
+  let parentEnd = $state<CoupleEnd | null>(null);
+  let parentEndToken = 0;
+  $effect(() => {
+    const famId = primary?.familyId;
+    void project.rev;
+    const mine = ++parentEndToken;
+    if (!famId) {
+      parentEnd = null;
+      return;
+    }
+    api
+      .getFamily(famId)
+      .then((f) => {
+        if (mine === parentEndToken) parentEnd = coupleEnd(f.events);
+      })
+      .catch(() => {
+        if (mine === parentEndToken) parentEnd = null;
       });
   });
   const isHalf = (s: PersonRef) => !!fullIds && !fullIds.has(s.id);
@@ -241,6 +263,40 @@
       treeEl.scrollLeft += mr.left + mr.width / 2 - (tr.left + tr.width / 2);
     });
   });
+
+  // ------------------------------------------------------------ how a couple ended
+  /**
+   * The mark on a parent's or partner's box: who left or died and when, who then raised the children alone, or
+   * just "divorced" / "separated" when nobody is named.
+   */
+  function endNote(end: CoupleEnd | null, p: PersonRef): string | null {
+    if (!end) return null;
+    const sx = p.sex === 'male' ? 'M' : p.sex === 'female' ? 'F' : 'X';
+    const dated = (s: string) => (end.when ? `${s} ${end.when}` : s);
+    if (end.left?.id === p.id) {
+      if (end.reason === 'death') return dated(t(`family.endTagDied${sx}`));
+      if (end.reason === 'divorce') return dated(t('family.endTagDivorced'));
+      return dated(t(`family.endTagLeft${sx}`));
+    }
+    if (end.alone?.id === p.id) return t(`family.endTagAlone${sx}`);
+    if (end.reason === 'divorce') return dated(t('family.endTagDivorced'));
+    if (end.reason === 'separation') return dated(t('family.endTagSeparated'));
+    return null;
+  }
+  const partnerEnd = (u: PartnershipDto) => coupleEnd(u.events);
+  function aloneCaption(end: CoupleEnd | null): string | null {
+    const a = end?.alone;
+    if (!a) return null;
+    return t(a.sex === 'male' ? 'family.endKidsAloneM' : a.sex === 'female' ? 'family.endKidsAloneF' : 'family.endKidsAloneX', { who: a.name });
+  }
+
+  let ending = $state<{ family: string; partners: PersonRef[]; end: CoupleEnd | null } | null>(null);
+  function endItem(family: string, partners: (PersonRef | null)[], end: CoupleEnd | null): MenuItem {
+    return {
+      label: t(end ? 'family.endEdit' : 'family.endAdd'),
+      onselect: () => (ending = { family, partners: partners.filter((x): x is PersonRef => !!x), end }),
+    };
+  }
 
   // ------------------------------------------------------------ detaching a wrongly linked relative
   // Right-click (or the menu key) on a parent, partner, child or sibling offers to undo that link. Nobody is
@@ -429,7 +485,7 @@
   }
 </script>
 
-{#snippet box(p: PersonRef, role: Role, row: number, current = false, acts: (() => (MenuItem | null)[]) | null = null)}
+{#snippet box(p: PersonRef, role: Role, row: number, current = false, acts: (() => (MenuItem | null)[]) | null = null, note: string | null = null)}
   <button
     type="button"
     class="box"
@@ -440,7 +496,7 @@
     data-row={row}
     tabindex={activeKey === `p:${p.id}` ? 0 : -1}
     aria-current={current ? 'true' : undefined}
-    aria-label={[p.name, p.lifespan, role ? t(roleKey(role)) : ''].filter(Boolean).join(', ')}
+    aria-label={[p.name, p.lifespan, role ? t(roleKey(role)) : '', note ?? ''].filter(Boolean).join(', ')}
     onfocus={() => (active = `p:${p.id}`)}
     onclick={() => {
       if (!current) onopen(p.id);
@@ -448,7 +504,7 @@
     oncontextmenu={acts ? (e) => openMenu(e, p, acts) : undefined}
     aria-haspopup={acts ? 'menu' : undefined}
   >
-    {#if role}<span class="kin" aria-hidden="true">{t(roleKey(role))}</span>{/if}
+    {#if role}<span class="kin" aria-hidden="true">{t(roleKey(role))}{#if note}<span class="endtag">{` · ${note}`}</span>{/if}</span>{/if}
     <bdi dir="auto" class="nm">{p.name}</bdi>
     <span class="meta tnum">
       {#if p.living}<span class="living">{t('common.living')}</span>{/if}
@@ -531,7 +587,7 @@
     {#each [0, 1] as i (i)}
       <div class="pcell" class:left={i === 0} class:right={i === 1}>
         {#if parents[i]}
-          {@render box(parents[i]!, parentRole(parents[i]!, i), 1, false, () => [detachFromParents(focus), removeParent(parents[i]!)])}
+          {@render box(parents[i]!, parentRole(parents[i]!, i), 1, false, () => [bothParents && primary ? endItem(primary.familyId, primary.parents, parentEnd) : null, detachFromParents(focus), removeParent(parents[i]!)], endNote(parentEnd, parents[i]!))}
         {:else}
           {@render slot(i === 0 ? 'father' : 'mother', focus, 1)}
         {/if}
@@ -568,7 +624,8 @@
     <div class="side right" bind:this={rightEl}>
       {#each view.partnerships as u (u.familyId)}
         {#if u.partner}
-          <div class="mate"><span class="join" aria-hidden="true"></span>{@render box(u.partner, partnerRole(u), 2, false, () => [removePartner(u, u.partner!)])}</div>
+          {@const end = partnerEnd(u)}
+          <div class="mate"><span class="join" class:ended={!!end} aria-hidden="true"></span>{@render box(u.partner, partnerRole(u), 2, false, () => [endItem(u.familyId, [focus, u.partner], end), removePartner(u, u.partner!)], endNote(end, u.partner))}</div>
         {/if}
       {/each}
       <div class="mate"><span class="join" aria-hidden="true"></span>{@render slot('partner', focus, 2)}</div>
@@ -580,6 +637,7 @@
     {#each kidGroups as u, gi (u.familyId)}
       {@const shown = kidsOpen[u.familyId] ? u.children : u.children.slice(0, CHILD_LIMIT)}
       {@const hidden = u.children.length - shown.length}
+          {@const alone = aloneCaption(partnerEnd(u))}
       <div class="kids" role="group" aria-label={u.partner ? t('family.treeChildrenWith', { who: u.partner.name }) : t('family.children')}>
         {#each shown as c (c.person.id)}
           <div class="kid">{@render box(c.person, kidRole(c.person), 3, false, () => [detachChild(u, c.person)])}</div>
@@ -600,8 +658,9 @@
         {#if gi === kidGroups.length - 1}
           <div class="kid">{@render slot('child', focus, 3)}</div>
         {/if}
-        {#if captioned && u.children.length > 0}
-          <span class="kcap" style:grid-column="1 / span {shown.length + (hidden > 0 ? 1 : 0)}" title={otherParent(u)}>{otherParent(u)}</span>
+        {#if (captioned || alone) && u.children.length > 0}
+          {@const cap = [captioned ? otherParent(u) : '', alone ?? ''].filter(Boolean).join(' · ')}
+          <span class="kcap" style:grid-column="1 / span {shown.length + (hidden > 0 ? 1 : 0)}" title={cap}>{cap}</span>
         {/if}
       </div>
     {:else}
@@ -613,6 +672,10 @@
 
 {#if menu}
   <ContextMenu label={t('family.treeMenu', { who: menu.who.name })} items={menu.items} x={menu.x} y={menu.y} onclose={closeMenu} />
+{/if}
+
+{#if ending}
+  <CoupleEndDialog family={ending.family} partners={ending.partners} end={ending.end} onclose={() => (ending = null)} />
 {/if}
 
 <Dialog open={ask !== null} title={ask?.title ?? ''} onclose={() => !busy && (ask = null)}>
@@ -868,6 +931,16 @@
   .mate .join {
     width: var(--s-4);
   }
+  /* A couple that ended (divorce, separation, death): a broken line to the partner. */
+  .join.ended {
+    border-top-style: dashed;
+  }
+  .endtag {
+    white-space: pre;
+    text-transform: none;
+    letter-spacing: 0;
+    font-style: italic;
+  }
   .kidsrow {
     align-items: flex-start;
     gap: 0;
@@ -1005,6 +1078,11 @@
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--ink-1);
+    /* One line, always: an end mark ("died 1944") must not make a box taller than its row. */
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .meta {
     display: flex;
