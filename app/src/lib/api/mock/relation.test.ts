@@ -33,9 +33,15 @@ describe('relationLabel', () => {
   it('names_partners_and_the_starting_person', () => {
     expect(l({ t: 'focus' }, 'male')).toBe('starting person');
     expect(l({ t: 'partner', of: 'focus' }, 'female')).toBe('partner');
-    expect(l({ t: 'partner', of: 'sibling' }, 'female')).toBe("sibling's partner");
-    expect(l({ t: 'partner', of: 'aunt' }, 'male')).toBe("aunt or uncle's partner");
-    expect(l({ t: 'partner', of: 1 }, 'male')).toBe("child's partner");
-    expect(l({ t: 'partner', of: 2 }, 'male')).toBe("grandchild's partner");
+    expect(l({ t: 'partner', of: 'sibling' }, 'female')).toBe('sister-in-law');
+    expect(l({ t: 'partner', of: 'sibling' }, 'male')).toBe('brother-in-law');
+    expect(l({ t: 'partner', of: 'sibling' }, 'unknown')).toBe('in-law');
+    expect(l({ t: 'partner', of: 'aunt' }, 'male')).toBe('uncle by marriage');
+    expect(l({ t: 'partner', of: 'aunt' }, 'female')).toBe('aunt by marriage');
+    expect(l({ t: 'partner', of: 1 }, 'male')).toBe('son-in-law');
+    expect(l({ t: 'partner', of: 1 }, 'female')).toBe('daughter-in-law');
+    expect(l({ t: 'partner', of: 2 }, 'male')).toBe('grandson-in-law');
+    expect(l({ t: 'partner', of: 2 }, 'female')).toBe('granddaughter-in-law');
+    expect(l({ t: 'partner', of: 1 }, 'unknown')).toBe('in-law');
   });
 });

@@ -372,6 +372,83 @@ fn no_parent_line_passes_over_a_box_it_does_not_connect() {
     }
 }
 
+/// How far the nearest sibling box is from the focus unit (the focus and its partner), edge to edge.
+fn nearest_sibling_gap(l: &Layout) -> f32 {
+    let focus = &l.nodes[0];
+    let partner = &l.nodes[1];
+    assert_eq!(partner.rel, Some(Rel::Partner(PartnerOf::Focus)));
+    let (left, right) = (focus.rect.x, partner.rect.x + partner.rect.w);
+    l.nodes
+        .iter()
+        .filter(|n| matches!(n.rel, Some(Rel::Sibling { .. })))
+        .map(|n| {
+            if n.rect.x >= right {
+                n.rect.x - right
+            } else {
+                left - (n.rect.x + n.rect.w)
+            }
+        })
+        .fold(f32::INFINITY, f32::min)
+}
+
+/// 12 siblings with partners and two children each; the focus has one child, grandchild and
+/// great-grandchild, each with a partner.
+fn chain_family() -> MapSource {
+    let mut s = MapSource::default();
+    let sibs: Vec<u32> = (0..12).map(|i| 1000 + i).collect();
+    s.family(Some(1), Some(2), &sibs);
+    for (i, &k) in sibs.iter().enumerate() {
+        s.births.insert(k, i as i32);
+        let partner = 2000 + i as u32;
+        s.family(
+            Some(k),
+            Some(partner),
+            &[3000 + 2 * i as u32, 3001 + 2 * i as u32],
+        );
+    }
+    let mut prev = 1000u32;
+    for d in 0..3u32 {
+        s.family(Some(prev), Some(5000 + d), &[6000 + d]);
+        prev = 6000 + d;
+    }
+    s
+}
+
+#[test]
+fn the_nearest_sibling_sits_within_two_box_widths_of_the_centred_unit() {
+    let l = run(&chain_family(), 1000, 3, true);
+    let m = Metrics::default();
+    assert_eq!(
+        l.nodes
+            .iter()
+            .filter(|n| matches!(n.rel, Some(Rel::Sibling { .. })))
+            .count(),
+        11
+    );
+    assert_eq!(l.nodes.iter().map(|n| n.r#gen).max(), Some(3));
+    let nearest = nearest_sibling_gap(&l);
+    assert!(
+        nearest <= 2.0 * m.node_w,
+        "nearest sibling is {nearest} away, box width {}",
+        m.node_w
+    );
+    assert_no_overlap(&l);
+}
+
+#[test]
+fn a_wide_descendant_tree_does_not_push_siblings_a_whole_subtree_away() {
+    // The focus has two children with partners, then four, then eight: its subtree is 16 boxes wide,
+    // but only the rows that meet the nephews and nieces matter.
+    let l = run(&big_family(), 0, 3, true);
+    let m = Metrics::default();
+    let nearest = nearest_sibling_gap(&l);
+    assert!(
+        nearest <= 2.5 * m.node_w,
+        "nearest sibling is {nearest} away"
+    );
+    assert_no_overlap(&l);
+}
+
 #[test]
 fn query_finds_the_focus() {
     let l = run(&big_family(), 0, 3, true);

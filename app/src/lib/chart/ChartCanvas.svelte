@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { getApi } from '../api/context';
-  import type { ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
+  import type { ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
   import { project } from '../state/project.svelte';
   import { undoState as undo } from '../state/undo.svelte';
   import Button from '../ui/Button.svelte';
@@ -69,6 +69,9 @@
   let sized = false;
   let userMoved = false;
   let childrenRect: Rect | null = null;
+  /** Relatives: the centred person with partners, parents and children, for the first view. */
+  let frameRect: Rect | null = null;
+  let parentsRect: Rect | null = null;
   let childCount = 0;
   let hint = $state('');
   let rootRect: Rect | null = null;
@@ -136,10 +139,25 @@
         hint = `${childCount} ${childCount === 1 ? 'child' : 'children'}, wider than the window: drag or press F to fit all`;
       }
     } else if (kind === 'relatives') {
-      // Whole hourglass when it fits at a readable size, otherwise centred on the starting person.
-      if (f.zoom >= 0.55) cam = f;
+      // The centred person with parents and children, fully visible and centred at a readable zoom (about 1:1).
+      // If that is too wide, keep the parents and at least the person; if even that is wider than the
+      // window at a readable zoom, start at the readable zoom, centred on the person.
+      const m = 32;
+      const tryFrame = (u: Rect | null): Camera | null => {
+        if (!u) return null;
+        const z = Math.min(1, (size.w - 2 * m) / u.w, (size.h - 2 * m) / u.h);
+        return z >= 0.55 ? { zoom: z, x: u.x + u.w / 2 - size.w / z / 2, y: u.y + u.h / 2 - size.h / z / 2 } : null;
+      };
+      const union = (a: Rect, b: Rect | null): Rect => {
+        if (!b) return a;
+        const x0 = Math.min(a.x, b.x);
+        const y0 = Math.min(a.y, b.y);
+        return { x: x0, y: y0, w: Math.max(a.x + a.w, b.x + b.w) - x0, h: Math.max(a.y + a.h, b.y + b.h) - y0 };
+      };
+      const c = tryFrame(frameRect) ?? tryFrame(union(rootRect, parentsRect)) ?? tryFrame(rootRect);
+      if (c) cam = c;
       else {
-        const z = 0.75;
+        const z = 0.55;
         cam = { zoom: z, x: rootRect.x + rootRect.w / 2 - size.w / z / 2, y: rootRect.y + rootRect.h / 2 - size.h / z / 2 };
       }
     } else if (f.zoom >= 0.55 && kind === 'pedigree') cam = f;
@@ -253,6 +271,27 @@
     } else rootRect = null;
     childrenRect = null;
     childCount = 0;
+    frameRect = null;
+    parentsRect = null;
+    if (kind === 'relatives' && rn && rootRect) {
+      const byId = new Map(first.nodes.map((n) => [n.id, n]));
+      const box = (ns: ChartNode[], extra: Rect | null): Rect | null => {
+        if (!ns.length) return extra;
+        const x0 = Math.min(...ns.map((n) => n.x), extra?.x ?? Infinity);
+        const y0 = Math.min(...ns.map((n) => n.y), extra?.y ?? Infinity);
+        const x1 = Math.max(...ns.map((n) => n.x + n.w), extra ? extra.x + extra.w : -Infinity);
+        const y1 = Math.max(...ns.map((n) => n.y + n.h), extra ? extra.y + extra.h : -Infinity);
+        return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+      };
+      const of = (pred: (e: ChartEdge) => boolean, pick: (e: ChartEdge) => number): ChartNode[] =>
+        first.edges.filter(pred).map((e) => byId.get(pick(e))).filter((n): n is ChartNode => !!n);
+      const partners = of((e) => e.kind === 'partner' && e.from === rn.id, (e) => e.to);
+      const parents = of((e) => e.kind === 'parent' && e.to === rn.id, (e) => e.from);
+      const kids = of((e) => e.kind === 'parent' && e.from === rn.id, (e) => e.to);
+      rootRect = box(partners, rootRect) ?? rootRect;
+      parentsRect = box(parents, null);
+      frameRect = box(kids, box(parents, rootRect));
+    }
     if (kind === 'descendants' && rn && rootRect) {
       try {
         const band = await api.chartWindow(m.chartId, { x: -1, y: rn.y + rn.h + 1, w: Math.max(1, m.bounds.w + 2), h: 400 }, 1);
