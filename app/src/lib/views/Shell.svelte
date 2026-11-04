@@ -21,6 +21,7 @@
   import ExportDialog from './ExportDialog.svelte';
   import TraceView from '../trace/TraceView.svelte';
   import QuickAdd from '../editors/QuickAdd.svelte';
+  import { added as addedPerson } from '../state/added.svelte';
   import CitationList from '../editors/CitationList.svelte';
   import MediaGrid from '../media/MediaGrid.svelte';
   import People from './People.svelte';
@@ -219,6 +220,7 @@
   function added(id: Id | null) {
     ui.closeAdd();
     if (id) {
+      addedPerson.note(id);
       nav.focus(id);
       nav.go({ name: 'family' });
     }
@@ -388,7 +390,10 @@
     anchor={quickAnchor}
     relation={quickWanted.relation}
     newParentSet={quickWanted.newParentSet}
-    onDone={() => ui.closeAdd()}
+    onDone={(r) => {
+      ui.closeAdd();
+      if (r.focus) addedPerson.note(r.focus);
+    }}
     onCancel={() => ui.closeAdd()}
   />
 {/if}

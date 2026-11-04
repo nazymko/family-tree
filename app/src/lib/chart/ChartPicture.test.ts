@@ -54,8 +54,13 @@ async function setupChart(kind: ChartKind = 'pedigree') {
 }
 
 const selectedLabel = () => screen.getByRole('option').textContent;
-const menu = () => screen.getByRole('menu', { name: 'Save as picture' });
-const rightClick = (el: Element, at = { clientX: 400, clientY: 300 }) => fireEvent.contextMenu(el, { button: 2, ...at });
+// The menu is named for the pictures alone, or for the person and the pictures when it starts with the add items.
+const menu = () => screen.getByRole('menu', { name: /^(Save as picture|Person and picture options)$/ });
+async function rightClick(el: Element, at = { clientX: 400, clientY: 300 }) {
+  await fireEvent.contextMenu(el, { button: 2, ...at });
+  // Opening on a person first reads that person's parents.
+  await waitFor(() => expect(menu()).toBeTruthy());
+}
 
 beforeEach(() => {
   notices.dismiss();
@@ -67,10 +72,10 @@ afterEach(() => {
 });
 
 describe('picture menu on a chart', () => {
-  it('right_click_opens_a_menu_with_the_three_items', async () => {
+  it('right_click_on_empty_space_opens_a_menu_with_only_the_three_save_items', async () => {
     const s = await setupChart();
     expect(screen.queryByRole('menu')).toBeNull();
-    await rightClick(s.canvas);
+    await rightClick(s.canvas, { clientX: 5, clientY: 5 });
     const items = within(menu()).getAllByRole('menuitem');
     expect(items.map((i) => i.textContent?.trim())).toEqual([
       'Save the whole chart as a picture…',
@@ -109,23 +114,25 @@ describe('picture menu on a chart', () => {
     const s = await setupChart();
     s.canvas.focus();
     await fireEvent.keyDown(s.canvas, { key: 'F10', shiftKey: true });
+    await waitFor(() => expect(within(menu()).getAllByRole('menuitem').length).toBeGreaterThan(3));
     const m = menu();
     const items = within(m).getAllByRole('menuitem');
+    const last = items.length - 1;
     expect(items[0]).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'ArrowDown' });
     expect(items[1]).toHaveFocus();
-    await fireEvent.keyDown(m, { key: 'ArrowDown' });
-    expect(items[2]).toHaveFocus();
+    await fireEvent.keyDown(m, { key: 'End' });
+    expect(items[last]).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'ArrowDown' });
     expect(items[0]).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'ArrowUp' });
-    expect(items[2]).toHaveFocus();
+    expect(items[last]).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(s.canvas).toHaveFocus();
 
     await fireEvent.keyDown(s.canvas, { key: 'ContextMenu' });
-    expect(menu()).toBeTruthy();
+    await waitFor(() => expect(menu()).toBeTruthy());
     await fireEvent.keyDown(menu(), { key: 'Escape' });
     expect(s.canvas).toHaveFocus();
   });

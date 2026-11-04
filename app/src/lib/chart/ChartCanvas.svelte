@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
   import type { ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
+  import { added } from '../state/added.svelte';
   import { project } from '../state/project.svelte';
   import { undoState as undo } from '../state/undo.svelte';
   import Button from '../ui/Button.svelte';
@@ -12,6 +13,7 @@
   import { hitHandle, hitTest, neighbor, type Dir } from './hit';
   import { draw, themeFromCss, type Theme } from './renderer';
   import { WindowCache } from './window';
+  import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
@@ -67,7 +69,7 @@
   let selNode = $state<ChartNode | null>(null);
   let announcement = $state('');
   let homeId = $state<Id | null>(null);
-  let pictureMenu = $state<{ openAt(x: number, y: number): void }>();
+  let pictureMenu = $state<{ openAt(x: number, y: number, person?: Id | null): void }>();
   let savingPicture = $state(false);
   let rootName = '';
 
@@ -213,8 +215,11 @@
     return typeof e === 'object' && e !== null && (e as { code?: string }).code === 'stale';
   }
 
-  async function open(): Promise<void> {
+  /** `keepView`: reopened after an edit. The camera stays where it was and the selected person stays selected. */
+  async function open(keepView = false): Promise<void> {
     const seq = ++openSeq;
+    const keptPerson = keepView ? (selNode?.person?.id ?? null) : null;
+    const keepCam = keepView && sized && rootRect !== null;
     closeChart();
     errorText = '';
     rootRect = null;
@@ -324,9 +329,15 @@
         return;
       }
     }
-    userMoved = false;
+    if (keepCam) {
+      userMoved = true;
+      cache?.need(viewRect(cam, size), cam.zoom);
+      invalidate();
+    } else {
+      userMoved = false;
+      place();
+    }
     pendingAnnounce = true;
-    place();
     // Re-centred on another person: start from where the previous centre is in the new chart and glide to the new one.
     const before = lastRoot;
     lastRoot = root;
@@ -340,7 +351,55 @@
       }
     }
     onOpened?.(m);
+    if (keptPerson && keptPerson !== rn?.person?.id) await selectPerson(keptPerson, seq);
+    if (seq === openSeq) void trySelectAdded();
   }
+
+  /** Selects the box of a person, wherever it is in the chart. The camera does not move. False when the chart does not show them. */
+  async function selectPerson(personId: Id, seq: number): Promise<boolean> {
+    const m = meta;
+    if (!m) return false;
+    const shown = (w: ChartWindow) => w.nodes.find((x) => x.person?.id === personId && x.dupOf === null);
+    let n = cache?.current() ? shown(cache.current()!.win) : undefined;
+    if (!n) {
+      try {
+        n = shown(await api.chartWindow(m.chartId, { x: 0, y: 0, w: m.bounds.w, h: m.bounds.h }, 0.2));
+      } catch {
+        return false;
+      }
+    }
+    if (!n || seq !== openSeq) return false;
+    selected = n.id;
+    selNode = n;
+    onSelect?.(n.id);
+    pendingAnnounce = true;
+    invalidate();
+    return true;
+  }
+
+  // A person added from a dialog: select them once the chart shows them. The edit and this note can arrive in either order.
+  let pendingAdd: { id: Id; at: number } | null = null;
+  let seenAdd = untrack(() => added.n);
+  async function trySelectAdded(): Promise<void> {
+    const p = pendingAdd;
+    if (!p) return;
+    if (Date.now() - p.at > 5000) {
+      pendingAdd = null;
+      return;
+    }
+    if (await selectPerson(p.id, openSeq)) {
+      if (pendingAdd === p) pendingAdd = null;
+    }
+  }
+  $effect(() => {
+    const n = added.n;
+    untrack(() => {
+      if (n === seenAdd || !added.id) return;
+      seenAdd = n;
+      pendingAdd = { id: added.id, at: added.at };
+      void trySelectAdded();
+    });
+  });
 
   $effect(() => {
     void kind;
@@ -362,7 +421,7 @@
     if (k !== undoKey) {
       undoKey = k;
       untrack(() => {
-        if (meta) void open();
+        if (meta) void open(true);
       });
     }
   });
@@ -701,7 +760,7 @@
     const inside = n && n.x < v.x + v.w && n.x + n.w > v.x && n.y < v.y + v.h && n.y + n.h > v.y;
     const x = inside ? r.left + (n.x + n.w / 2 - cam.x) * cam.zoom : r.left + r.width / 2;
     const y = inside ? r.top + (n.y + n.h / 2 - cam.y) * cam.zoom : r.top + r.height / 2;
-    pictureMenu?.openAt(x, y);
+    void pictureMenu?.openAt(x, y, selNode?.person?.id ?? null);
   }
 
   function oncontextmenu(e: MouseEvent): void {
@@ -709,13 +768,17 @@
     canvas?.focus();
     if (isKeyboardMenu(e as PointerEvent)) return pictureMenuAtSelection();
     const cur = cache?.current();
+    let person: Id | null = null;
     if (cur) {
       // A right-click on a box selects that person first; a box shown elsewhere selects the original.
       const hit = hitTest(cur.win, toWorld(e).x, toWorld(e).y);
       const n = hit && hit.dupOf !== null ? (cur.win.nodes.find((x) => x.id === hit.dupOf) ?? hit) : hit;
-      if (n) select(n);
+      if (n) {
+        select(n);
+        person = n.person?.id ?? null;
+      }
     }
-    pictureMenu?.openAt(e.clientX, e.clientY);
+    void pictureMenu?.openAt(e.clientX, e.clientY, person);
   }
 
   // ------------------------------------------------------------ keyboard
@@ -794,7 +857,8 @@
     {#if onAunts}
       <Checkbox label={t('chartCanvas.showAunts')} checked={auntsUncles} onchange={onAunts} />
     {/if}
-    <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} />
+    <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
+    <AddRelativeMenu person={selNode?.person?.id ?? null} />
     {#if onGenerations}
       <div class="gens">
         <Select label={t('chartCanvas.generations')} options={genOptions} bind:value={genValue} onchange={(v) => onGenerations(Number(v))} />

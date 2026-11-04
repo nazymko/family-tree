@@ -6,6 +6,8 @@
     disabled?: boolean;
     /** Tooltip; use it to say why an item is disabled. */
     title?: string;
+    /** A thin line above this item, to start a new group (shown by the context menu). */
+    separatorBefore?: boolean;
   }
 </script>
 
