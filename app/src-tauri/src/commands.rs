@@ -124,10 +124,11 @@ fn app_patch(state: &AppState) -> SettingsPatch {
     }
 }
 
-fn now_secs() -> i64 {
+/// Unix milliseconds, the unit `RecentProject::opened_at` documents.
+fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| i64::try_from(d.as_secs()).unwrap_or(0))
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(0))
         .unwrap_or(0)
 }
 
@@ -169,7 +170,7 @@ fn install(state: &AppState, mut session: Session) -> ApiResult<ProjectInfo> {
     let info = session.info();
     // A recent-list write failure must not block opening.
     if let Err(e) =
-        settings_file::touch_recent(&state.config_dir, &info.dir, &info.name, now_secs())
+        settings_file::touch_recent(&state.config_dir, &info.dir, &info.name, now_millis())
     {
         eprintln!("gene-tree: could not update the recent list: {}", e.message);
     }
