@@ -38,14 +38,14 @@ const sets = (a: PersonRef | null, b: PersonRef | null) => [
   },
 ];
 
-function setup(views: FamilyViewDto[]) {
+function setup(views: FamilyViewDto[], over: Partial<Api> = {}) {
   const byId = new Map(views.map((v) => [v.focus.id, v]));
   const getFamilyView = vi.fn(async (id: string) => {
     const v = byId.get(id);
     if (!v) throw new Error('none');
     return structuredClone(v);
   });
-  const api = Object.assign(Object.create(base), { getFamilyView }) as Api;
+  const api = Object.assign(Object.create(base), { getFamilyView }, over) as Api;
   project.open({ dir: 'C:/x', name: 'x', personCount: 5, homePerson: null, sourceVersion: null, locationWarning: null });
   nav.reset();
   nav.go({ name: 'family' });
@@ -403,5 +403,139 @@ describe('FamilyTree', () => {
     setup([view(me, { partnerships: [union(ref('Olena Koval', 'female'), [kid(ref('Petro Koval', 'male'))])] })]);
     await tree();
     expect(document.querySelector('.kcap')).toBeNull();
+  });
+});
+
+describe('FamilyTree detaching a wrong link', () => {
+  const famDto = (id: string, partners: [PersonRef | null, PersonRef | null], kids: PersonRef[]) => ({
+    id,
+    partners,
+    kind: 'married' as const,
+    summary: null,
+    events: [],
+    children: kids.map((p) => ({ person: p, rel: ['birth', 'birth'] as never, preferred: true, birth: '' })),
+  });
+
+  function family() {
+    const dad = ref('Petro Koval', 'male');
+    const mum = ref('Maria Koval', 'female');
+    const me = ref('Ivan Koval', 'male');
+    const sis = ref('Anna Koval', 'female');
+    const wife = ref('Olena Koval', 'female');
+    const son = ref('Taras Koval', 'male');
+    const ex = ref('Iryna Bondar', 'female');
+    const u = union(wife, [kid(son)]);
+    const empty = union(ex);
+    const ps = sets(dad, mum);
+    const v = view(me, { parentSets: ps, siblings: [sis], partnerships: [u, empty] });
+    const fams: Record<string, ReturnType<typeof famDto>> = {
+      [ps[0].familyId]: famDto(ps[0].familyId, [dad, mum], [me, sis]),
+      [u.familyId]: famDto(u.familyId, [me, wife], [son]),
+    };
+    const apply = vi.fn(async (cmd: unknown) => void cmd as never);
+    const getFamily = vi.fn(async (id: string) => structuredClone(fams[id]) as never);
+    return { dad, mum, me, sis, wife, son, ex, u, empty, ps, v, apply, getFamily };
+  }
+
+  async function choose(user: ReturnType<typeof userEvent.setup>, box: RegExp, item: RegExp) {
+    const b = await screen.findByRole('button', { name: box });
+    await user.pointer({ keys: '[MouseRight]', target: b });
+    await user.click(await screen.findByRole('menuitem', { name: item }));
+    return screen.findByRole('dialog');
+  }
+
+  it('a_child_is_detached_from_the_person_and_partner_after_confirming', async () => {
+    const f = family();
+    const { user } = setup([f.v], { apply: f.apply, getFamily: f.getFamily });
+    await tree();
+    const dlg = await choose(user, /^Taras Koval/, /Not a child of Ivan Koval/);
+    expect(dlg).toHaveTextContent('Taras Koval will no longer be a child of Ivan Koval and Olena Koval.');
+    expect(f.apply).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Detach' }));
+    await waitFor(() => expect(f.apply).toHaveBeenCalledWith({ type: 'unlinkChild', family: f.u.familyId, child: f.son.id }));
+  });
+
+  it('cancel_changes_nothing', async () => {
+    const f = family();
+    const { user } = setup([f.v], { apply: f.apply, getFamily: f.getFamily });
+    await tree();
+    await choose(user, /^Taras Koval/, /Not a child of/);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(f.apply).not.toHaveBeenCalled();
+  });
+
+  it('the_person_is_detached_from_wrong_parents', async () => {
+    const f = family();
+    const { user } = setup([f.v], { apply: f.apply, getFamily: f.getFamily });
+    await tree();
+    await choose(user, /^Petro Koval/, /Not a child of these parents: detach Ivan Koval/);
+    await user.click(screen.getByRole('button', { name: 'Detach' }));
+    await waitFor(() => expect(f.apply).toHaveBeenCalledWith({ type: 'unlinkChild', family: f.ps[0].familyId, child: f.me.id }));
+  });
+
+  it('a_wrong_parent_leaves_the_couple_and_the_dialog_names_the_other_children', async () => {
+    const f = family();
+    const { user } = setup([f.v], { apply: f.apply, getFamily: f.getFamily });
+    await tree();
+    const dlg = await choose(user, /^Maria Koval/, /Not a parent: remove Maria Koval/);
+    expect(dlg).toHaveTextContent('other children of this couple: Anna Koval');
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    await waitFor(() =>
+      expect(f.apply).toHaveBeenCalledWith({ type: 'saveFamily', id: f.ps[0].familyId, partner1: f.dad.id, partner2: null, kind: 'married' }),
+    );
+  });
+
+  it('a_partner_with_children_leaves_them_with_the_person_and_one_without_children_drops_the_family', async () => {
+    const f = family();
+    const { user } = setup([f.v], { apply: f.apply, getFamily: f.getFamily });
+    await tree();
+    await choose(user, /^Olena Koval/, /Not a partner: remove Olena Koval/);
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    await waitFor(() =>
+      expect(f.apply).toHaveBeenCalledWith({ type: 'saveFamily', id: f.u.familyId, partner1: f.me.id, partner2: null, kind: 'married' }),
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await choose(user, /^Iryna Bondar/, /Not a partner: remove Iryna Bondar/);
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(f.apply).toHaveBeenCalledWith({ type: 'deleteFamily', id: f.empty.familyId }));
+  });
+
+  it('a_sibling_can_be_detached_and_the_person_box_has_no_menu', async () => {
+    const f = family();
+    const { user } = setup([f.v], { apply: f.apply, getFamily: f.getFamily });
+    await tree();
+    await choose(user, /^Anna Koval/, /detach Anna Koval/);
+    await user.click(screen.getByRole('button', { name: 'Detach' }));
+    await waitFor(() => expect(f.apply).toHaveBeenCalledWith({ type: 'unlinkChild', family: f.ps[0].familyId, child: f.sis.id }));
+    expect(document.querySelector('.box.current')).not.toHaveAttribute('aria-haspopup');
+  });
+
+  it('the_only_child_of_a_single_parent_takes_the_empty_family_with_it', async () => {
+    const dad = ref('Petro Koval', 'male');
+    const me = ref('Ivan Koval', 'male');
+    const ps = sets(dad, null);
+    const apply = vi.fn(async (cmd: unknown) => void cmd as never);
+    const getFamily = vi.fn(async () => famDto(ps[0].familyId, [dad, null], [me]) as never);
+    const { user } = setup([view(me, { parentSets: ps })], { apply, getFamily });
+    await tree();
+    const b = await screen.findByRole('button', { name: /^Petro Koval/ });
+    await user.pointer({ keys: '[MouseRight]', target: b });
+    expect(screen.queryByRole('menuitem', { name: /Not a parent/ })).toBeNull();
+    await user.click(screen.getByRole('menuitem', { name: /Not a child of these parents/ }));
+    await user.click(await screen.findByRole('button', { name: 'Detach' }));
+    await waitFor(() => expect(apply).toHaveBeenCalledWith({ type: 'deleteFamily', id: ps[0].familyId }));
+  });
+
+  it('the_menu_also_opens_from_the_keyboard_and_escape_returns_focus', async () => {
+    const f = family();
+    const { user } = setup([f.v], { apply: f.apply, getFamily: f.getFamily });
+    await tree();
+    const b = await screen.findByRole('button', { name: /^Taras Koval/ });
+    b.focus();
+    b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(await screen.findByRole('menu', { name: 'Actions for Taras Koval' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(b);
   });
 });
