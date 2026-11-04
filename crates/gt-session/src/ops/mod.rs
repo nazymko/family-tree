@@ -358,6 +358,20 @@ pub fn plan_with(
             *family,
             new_parent_set.unwrap_or(false),
         )?,
+        C::LinkExisting {
+            anchor,
+            relation,
+            person,
+            family,
+            new_parent_set,
+        } => quick_add::link_existing(
+            &mut p,
+            *anchor,
+            *relation,
+            *person,
+            *family,
+            new_parent_set.unwrap_or(false),
+        )?,
         C::SaveFamily {
             id,
             partner1,

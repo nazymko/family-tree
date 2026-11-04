@@ -415,6 +415,18 @@ pub enum EditCommand {
         #[ts(optional)]
         new_parent_set: Option<bool>,
     },
+    /// Like QuickAdd, with someone already in the tree as the relative.
+    LinkExisting {
+        anchor: Uuid,
+        relation: Relation,
+        person: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        family: Option<Uuid>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        new_parent_set: Option<bool>,
+    },
     SaveFamily {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
@@ -513,7 +525,9 @@ impl EditCommand {
             EditCommand::DeleteName { .. } => "Delete name".into(),
             EditCommand::SaveEvent { .. } => "Save event".into(),
             EditCommand::DeleteEvent { .. } => "Delete event".into(),
-            EditCommand::QuickAdd { relation, .. } => format!("Add {}", relation.as_str()),
+            EditCommand::QuickAdd { relation, .. } | EditCommand::LinkExisting { relation, .. } => {
+                format!("Add {}", relation.as_str())
+            }
             EditCommand::SaveFamily { .. } => "Save family".into(),
             EditCommand::DeleteFamily { .. } => "Delete family".into(),
             EditCommand::LinkChild { .. } => "Add child to family".into(),

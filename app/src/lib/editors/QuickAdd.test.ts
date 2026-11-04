@@ -95,6 +95,47 @@ describe('QuickAdd', () => {
     expect(screen.getByText('Discard changes?')).toBeInTheDocument();
   });
 
+  /** A child whose birth names only the father, while the father has a wife: what an import can leave behind. */
+  async function fatherOnly() {
+    const dad = (await api.apply({ type: 'createPerson', draft: { given: 'Petro', surnames: ['Koval'], sex: 'male' } })).focus!;
+    const kid = (await api.apply({ type: 'quickAdd', anchor: dad, relation: 'child', draft: { given: 'Ivan', surnames: ['Koval'], sex: 'male' } })).focus!;
+    const wife = (await api.apply({ type: 'quickAdd', anchor: dad, relation: 'partner', draft: { given: 'Hanna', surnames: ['Koval'], sex: 'female' } })).focus!;
+    return { dad, kid: await api.getPerson(kid), wife };
+  }
+
+  it('an_existing_person_can_be_linked_and_the_fathers_wife_is_suggested_as_mother', async () => {
+    const user = userEvent.setup();
+    const { dad, kid, wife } = await fatherOnly();
+    const { onDone } = show(kid, 'mother');
+    expect(screen.getByRole('button', { name: 'Add mother' })).toBeEnabled();
+    await user.click(screen.getByRole('radio', { name: 'Someone already in the tree' }));
+    expect(screen.queryByRole('textbox', { name: 'Given name' })).toBeNull();
+    // Nothing picked yet: nothing to save.
+    expect(screen.getByRole('button', { name: 'Add mother' })).toBeDisabled();
+    await user.click(await screen.findByRole('button', { name: /^Hanna Koval/ }));
+    await user.click(screen.getByRole('button', { name: 'Add mother' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    const sets = (await api.getPerson(kid.ref.id)).parentSets;
+    expect(sets).toHaveLength(1);
+    expect(sets[0].parents.map((p) => p?.id).sort()).toEqual([dad, wife].sort());
+    // The couple is recorded once: the father-only family went away.
+    expect((await api.getPerson(dad)).partnerships).toHaveLength(1);
+  });
+
+  it('the_person_search_finds_someone_already_in_the_tree', async () => {
+    const user = userEvent.setup();
+    const { kid } = await fatherOnly();
+    const other = (await api.apply({ type: 'createPerson', draft: { given: 'Zinovia', surnames: ['Ostapenko'], sex: 'female' } })).focus!;
+    const { onDone } = show(kid, 'mother');
+    await user.click(screen.getByRole('radio', { name: 'Someone already in the tree' }));
+    await user.type(screen.getByRole('combobox', { name: /Find the person/ }), 'Zinovia');
+    await user.click(await screen.findByRole('option', { name: /Zinovia Ostapenko/ }));
+    await user.click(screen.getByRole('button', { name: 'Add mother' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    const set = (await api.getPerson(kid.ref.id)).parentSets[0];
+    expect(set.parents.some((p) => p?.id === other)).toBe(true);
+  });
+
   it('cancel_does_not_call_api', async () => {
     const user = userEvent.setup();
     const spy = vi.spyOn(api, 'apply');

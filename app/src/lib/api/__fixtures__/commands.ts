@@ -44,6 +44,7 @@ export const commandFixtureMap = {
   detachMedia: { type: 'detachMedia', target: { kind: 'person', id: `${ID}1` }, media: `${ID}9` },
   setPrimaryMedia: { type: 'setPrimaryMedia', person: `${ID}1`, media: `${ID}9` },
   updateMedia: { type: 'updateMedia', id: `${ID}9`, title: 'Wedding photograph', description: 'Outside the church', dateRaw: 'abt 1878' },
+  linkExisting: { type: 'linkExisting', anchor: `${ID}1`, relation: 'mother', person: `${ID}3`, family: `${ID}4`, newParentSet: false },
   importDraft: {
     type: 'importDraft',
     persons: [

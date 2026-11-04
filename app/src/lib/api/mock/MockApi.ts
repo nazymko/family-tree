@@ -111,6 +111,7 @@ const LABELS: Record<EditCommand['type'], string> = {
   saveEvent: 'Save event',
   deleteEvent: 'Delete event',
   quickAdd: 'Add person',
+  linkExisting: 'Add person',
   saveFamily: 'Save family',
   deleteFamily: 'Delete family',
   linkChild: 'Add child to family',
@@ -448,7 +449,7 @@ export class MockApi implements Api {
   // ------------------------------------------------------------------- edits
 
   async apply(cmd: EditCommand): Promise<EditResult> {
-    const label = cmd.type === 'quickAdd' ? `Add ${cmd.relation}` : LABELS[cmd.type];
+    const label = cmd.type === 'quickAdd' || cmd.type === 'linkExisting' ? `Add ${cmd.relation}` : LABELS[cmd.type];
     const before = this.db;
     this.db = structuredClone(before);
     let outcome: { focus: Id | null; touched: Id[] };
@@ -1423,6 +1424,9 @@ export class MockApi implements Api {
       case 'quickAdd':
         return this.quickAdd(cmd);
 
+      case 'linkExisting':
+        return this.linkExisting(cmd);
+
       case 'saveFamily': {
         if (cmd.partner1 && cmd.partner1 === cmd.partner2) throw invalid('A family needs two different people.');
         if (cmd.partner1) this.person(cmd.partner1);
@@ -1748,6 +1752,113 @@ export class MockApi implements Api {
       touched.push(fam.id);
     }
     return { focus, touched };
+  }
+
+  /** Mirrors gt-session's link_existing: quickAdd with someone already in the tree. */
+  private linkExisting(cmd: Extract<EditCommand, { type: 'linkExisting' }>): { focus: Id; touched: Id[] } {
+    const anchor = this.person(cmd.anchor).id;
+    const person = this.person(cmd.person).id;
+    if (person === anchor) throw invalid('A person cannot be their own relative.');
+    const descendants = (root: Id) => {
+      const seen = new Set<Id>();
+      const todo = [root];
+      while (todo.length) {
+        const id = todo.pop()!;
+        for (const f of this.partnerFamilies(id))
+          for (const c of f.children)
+            if (!seen.has(c.person)) {
+              seen.add(c.person);
+              todo.push(c.person);
+            }
+      }
+      return seen;
+    };
+    const couple = (a: Id, b: Id) => this.partnerFamilies(a).find((f) => f.partner1 === b || f.partner2 === b);
+    const link = (p: Id, preferred: boolean) => ({ person: p, rel: ['birth', 'birth'] as FamilyRec['children'][number]['rel'], preferred });
+    const has = (f: FamilyRec, p: Id) => f.partner1 === p || f.partner2 === p;
+    const touched: Id[] = [anchor, person];
+    switch (cmd.relation) {
+      case 'father':
+      case 'mother': {
+        if (descendants(anchor).has(person)) throw invalid('A descendant cannot also be a parent.');
+        if (this.parentFamilies(anchor).some((f) => has(f, person))) throw new MockApiError('conflict', 'This person is already a parent.');
+        const current = this.preferredParentFamily(anchor);
+        const f = cmd.newParentSet ? undefined : current;
+        if (f) {
+          if (f.partner1 && f.partner2)
+            throw new MockApiError('conflict', 'Both parents are already recorded. Add another set of parents to record a second pair.');
+          const other = f.partner1 ?? f.partner2;
+          const target = other ? couple(other, person) : undefined;
+          if (target) {
+            const i = f.children.findIndex((c) => c.person === anchor);
+            if (i >= 0) {
+              const [l] = f.children.splice(i, 1);
+              if (!target.children.some((c) => c.person === anchor)) target.children.push(l);
+            }
+            if (f.children.length === 0) this.db.families.delete(f.id);
+            touched.push(f.id, target.id);
+          } else {
+            if (!f.partner1) f.partner1 = person;
+            else f.partner2 = person;
+            touched.push(f.id);
+          }
+        } else {
+          const nf = this.newFamily(person, null);
+          nf.children.push(link(anchor, !current));
+          touched.push(nf.id);
+        }
+        break;
+      }
+      case 'partner': {
+        if (couple(anchor, person)) throw new MockApiError('conflict', 'These two are already partners.');
+        if (cmd.family) {
+          const f = this.family(cmd.family);
+          if (f.partner1 && f.partner2) throw new MockApiError('conflict', 'This family already has two partners.');
+          if (f.children.some((c) => c.person === person)) throw invalid('A partner cannot also be a child of the same family.');
+          if (!f.partner1) f.partner1 = person;
+          else f.partner2 = person;
+          touched.push(f.id);
+        } else touched.push(this.newFamily(anchor, person).id);
+        break;
+      }
+      case 'child': {
+        if (descendants(person).has(anchor)) throw invalid('An ancestor cannot also be a child.');
+        let f: FamilyRec;
+        if (cmd.family) {
+          f = this.family(cmd.family);
+          if (!has(f, anchor)) throw invalid('That family does not include this person.');
+        } else {
+          const fams = this.partnerFamilies(anchor);
+          if (fams.length > 1) throw invalid('Choose which family the child belongs to.');
+          f = fams[0] ?? this.newFamily(anchor, null);
+        }
+        if (has(f, person)) throw invalid('A partner cannot also be a child of the same family.');
+        if (f.children.some((c) => c.person === person)) throw new MockApiError('conflict', 'This person is already a child in the family.');
+        f.children.push(link(person, !this.preferredParentFamily(person)));
+        touched.push(f.id);
+        break;
+      }
+      case 'sibling': {
+        const mine = this.preferredParentFamily(anchor);
+        const theirs = this.preferredParentFamily(person);
+        if (mine && theirs && mine.id === theirs.id) throw new MockApiError('conflict', 'These two are already siblings.');
+        if (mine) {
+          if (has(mine, person)) throw invalid('A parent cannot also be a sibling.');
+          mine.children.push(link(person, !theirs));
+          touched.push(mine.id);
+        } else if (theirs) {
+          if (has(theirs, anchor)) throw invalid('A parent cannot also be a sibling.');
+          theirs.children.push(link(anchor, true));
+          touched.push(theirs.id);
+        } else {
+          const nf = this.newFamily(null, null);
+          nf.children.push(link(anchor, true), link(person, true));
+          touched.push(nf.id);
+        }
+        break;
+      }
+    }
+    return { focus: person, touched };
   }
 
   private quickAdd(cmd: Extract<EditCommand, { type: 'quickAdd' }>): { focus: Id; touched: Id[] } {
