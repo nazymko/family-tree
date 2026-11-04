@@ -87,7 +87,7 @@ describe('FamilyTree', () => {
     expect(has('Oksana Koval, 1850-1921, Sister')).toBeInTheDocument();
     expect(has('Halyna Koval, 1850-1921, Partner')).toBeInTheDocument();
     expect(has('Andriy Koval, 1850-1921, Son')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Taras Koval, 1850-1921, Child' })).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('button', { name: 'Taras Koval, 1850-1921' })).toHaveAttribute('aria-current', 'true');
   });
 
   it('empty_slots_appear_only_where_data_is_missing', async () => {
@@ -205,6 +205,98 @@ describe('FamilyTree', () => {
     v.partnerships = [union(ref('Halyna Koval', 'female'))];
     project.rev++;
     await screen.findByRole('button', { name: /^Halyna Koval/ });
+  });
+
+  it('no_grandparent_slots_when_the_lookup_fails_or_is_pending', async () => {
+    const f = ref('Ivan Koval', 'male');
+    const me = ref('Taras Koval', 'male');
+    // The father has no family view, so his lookup throws.
+    setup([view(me, { parentSets: sets(f, null) })]);
+    await tree();
+    expect(has('Add father of Ivan Koval')).not.toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(has('Add father of Ivan Koval')).not.toBeInTheDocument();
+    expect(has('Add mother of Ivan Koval')).not.toBeInTheDocument();
+  });
+
+  it('places_parents_by_sex_whatever_the_stored_order', async () => {
+    const m = ref('Olena Koval', 'female');
+    const me = ref('Taras Koval', 'male');
+    setup([view(me, { parentSets: sets(m, null) }), view(m)]);
+    await tree();
+    expect(has('Add father of Taras Koval')).toBeInTheDocument();
+    expect(has('Add mother of Taras Koval')).not.toBeInTheDocument();
+    const boxes = screen.getAllByRole('button').filter((b) => b.getAttribute('data-row') === '1');
+    expect(boxes[0]).toHaveAccessibleName('Add father of Taras Koval');
+    expect(boxes[1]).toHaveAccessibleName(/^Olena Koval/);
+  });
+
+  it('unknown_sex_parent_takes_the_free_place', async () => {
+    const f = ref('Ivan Koval', 'male');
+    const x = ref('Sasha Koval');
+    const me = ref('Taras Koval', 'male');
+    setup([view(me, { parentSets: sets(x, f) }), view(f), view(x)]);
+    await tree();
+    expect(has('Sasha Koval, 1850-1921, Mother')).toBeInTheDocument();
+    expect(has('Add father of Taras Koval')).not.toBeInTheDocument();
+    expect(has('Add mother of Taras Koval')).not.toBeInTheDocument();
+  });
+
+  it('focus_box_is_not_announced_as_a_child', async () => {
+    setup([view(ref('Taras Koval'))]);
+    await tree();
+    expect(screen.getByRole('button', { name: 'Taras Koval, 1850-1921' })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('keeps_a_tab_stop_after_more_is_used', async () => {
+    const me = ref('Taras Koval');
+    const sibs = Array.from({ length: 7 }, (_, i) => ref(`Sib${i}`));
+    const { user } = setup([view(me, { siblings: sibs })]);
+    await tree();
+    await user.click(screen.getByRole('button', { name: 'Show 3 more brothers and sisters' }));
+    await waitFor(() => expect(document.querySelectorAll('[data-nav][tabindex="0"]')).toHaveLength(1));
+  });
+
+  it('marks_half_siblings_and_offers_another_set_of_parents', async () => {
+    const f = ref('Ivan Koval', 'male');
+    const m = ref('Olena Koval', 'female');
+    const f2 = ref('Bohdan Koval', 'male');
+    const me = ref('Taras Koval', 'male');
+    const full = ref('Oksana Koval', 'female');
+    const half = ref('Dmytro Koval', 'male');
+    const parentSets = [
+      { ...sets(f, m)[0], familyId: 'fa', preferred: true },
+      { ...sets(f2, null)[0], familyId: 'fb', preferred: false },
+    ];
+    const getFamily = vi.fn(async (id: string) => ({
+      id,
+      partners: [null, null],
+      kind: 'married',
+      summary: '',
+      events: [],
+      children: [me, full].map((p) => ({ preferred: true, person: p, rel: ['birth', 'birth'], birth: '' })),
+    }));
+    const byId = new Map([[me.id, view(me, { parentSets, siblings: [full, half] })], [f.id, view(f)], [m.id, view(m)], [f2.id, view(f2)]]);
+    const api = Object.assign(Object.create(base), {
+      getFamilyView: vi.fn(async (id: string) => structuredClone(byId.get(id)!)),
+      getFamily,
+    }) as Api;
+    project.open({ dir: 'C:/x', name: 'x', personCount: 5, homePerson: null, sourceVersion: null, locationWarning: null });
+    nav.reset();
+    nav.go({ name: 'family' });
+    nav.focus(me.id);
+    const user = userEvent.setup();
+    render(FamilyView, { context: apiContext(api, new MockPlatform()) });
+    await tree();
+    await screen.findByRole('button', { name: 'Dmytro Koval, 1850-1921, Half-brother' });
+    expect(has('Oksana Koval, 1850-1921, Sister')).toBeInTheDocument();
+    const spy = vi.spyOn(ui, 'requestAdd');
+    await user.click(screen.getByRole('button', { name: 'Add another set of parents' }));
+    expect(spy).toHaveBeenLastCalledWith('father', me.id, true);
+    await user.click(screen.getByRole('button', { name: /Parents: Bohdan Koval/ }));
+    expect(has('Bohdan Koval, 1850-1921, Father')).toBeInTheDocument();
+    expect(has('Add mother of Taras Koval')).toBeInTheDocument();
+    expect(has('Add another set of parents')).not.toBeInTheDocument();
   });
 
   it('en_and_uk_have_the_same_tree_keys', () => {

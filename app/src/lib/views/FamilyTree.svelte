@@ -17,7 +17,7 @@
     view: FamilyViewDto;
     homeId?: string | null;
     onopen: (id: string) => void;
-    onadd: (relation: AddRelation, anchor: string) => void;
+    onadd: (relation: AddRelation, anchor: string, newParentSet?: boolean) => void;
   } = $props();
 
   const api = getApi();
@@ -26,14 +26,30 @@
 
   type Pair = [PersonRef | null, PersonRef | null];
 
-  const primary = $derived(view.parentSets.find((s) => s.preferred) ?? view.parentSets[0] ?? null);
-  const parents = $derived<Pair>(primary ? [primary.parents[0] ?? null, primary.parents[1] ?? null] : [null, null]);
+  /** Father on the left, mother on the right; a parent of unknown sex takes the free place. */
+  function place(pair: Pair): Pair {
+    const f = pair.find((p) => p?.sex === 'male') ?? null;
+    const m = pair.find((p) => p?.sex === 'female') ?? null;
+    const rest = pair.filter((p): p is PersonRef => !!p && p !== f && p !== m);
+    return [f ?? rest.shift() ?? null, m ?? rest.shift() ?? null];
+  }
+
+  let pickedSet = $state<number | null>(null);
+  const setIndex = $derived.by(() => {
+    if (pickedSet !== null && pickedSet < view.parentSets.length) return pickedSet;
+    const i = view.parentSets.findIndex((s) => s.preferred);
+    return i >= 0 ? i : 0;
+  });
+  const primary = $derived(view.parentSets[setIndex] ?? null);
+  const parents = $derived<Pair>(primary ? place([primary.parents[0] ?? null, primary.parents[1] ?? null]) : [null, null]);
   const hasParent = $derived(!!parents[0] || !!parents[1]);
+  const bothParents = $derived(!!parents[0] && !!parents[1]);
   const hasAnyParent = $derived(view.parentSets.some((s) => s.parents[0] || s.parents[1]));
 
   // The family view only lists the focus person's own relatives, so the grandparents come from one more
   // lookup per parent. A failed lookup just leaves the slots empty.
-  let grand = $state<Record<string, Pair>>({});
+  // A parent with no entry yet (still loading) or a null entry (lookup failed) shows no grandparent boxes or slots.
+  let grand = $state<Record<string, Pair | null>>({});
   let grandToken = 0;
   $effect(() => {
     const ids = parents.filter((p): p is PersonRef => !!p).map((p) => p.id);
@@ -44,13 +60,14 @@
       return;
     }
     Promise.all(
-      ids.map(async (id): Promise<[string, Pair]> => {
+      ids.map(async (id): Promise<[string, Pair | null]> => {
         try {
           const v = await api.getFamilyView(id);
           const set = v.parentSets.find((s) => s.preferred) ?? v.parentSets[0];
-          return [id, [set?.parents[0] ?? null, set?.parents[1] ?? null]];
+          return [id, place([set?.parents[0] ?? null, set?.parents[1] ?? null])];
         } catch {
-          return [id, [null, null]];
+          // Unknown: show nothing, so no "add" slot can duplicate a grandparent who does exist.
+          return [id, null];
         }
       }),
     ).then((rows) => {
@@ -58,28 +75,65 @@
     });
   });
 
+  // With several parent sets the sibling list mixes full and half siblings: the shown set's family tells them apart.
+  let fullIds = $state<Set<string> | null>(null);
+  let fullToken = 0;
+  $effect(() => {
+    const famId = primary?.familyId;
+    const several = view.parentSets.length > 1;
+    void project.rev;
+    const mine = ++fullToken;
+    if (!several || !famId) {
+      fullIds = null;
+      return;
+    }
+    api
+      .getFamily(famId)
+      .then((f) => {
+        if (mine === fullToken) fullIds = new Set(f.children.map((c) => c.person.id));
+      })
+      .catch(() => {
+        if (mine === fullToken) fullIds = null;
+      });
+  });
+  const isHalf = (s: PersonRef) => !!fullIds && !fullIds.has(s.id);
+  const orderedSibs = $derived([...view.siblings.filter((s) => !isHalf(s)), ...view.siblings.filter(isHalf)]);
+
   let sibsOpen = $state(false);
   let kidsOpen = $state<Record<string, boolean>>({});
   $effect(() => {
     void view.focus.id;
     sibsOpen = false;
     kidsOpen = {};
+    pickedSet = null;
   });
 
-  const sibs = $derived(sibsOpen ? view.siblings : view.siblings.slice(0, SIBLING_LIMIT));
-  const sibsHidden = $derived(view.siblings.length - sibs.length);
+  const sibs = $derived(sibsOpen ? orderedSibs : orderedSibs.slice(0, SIBLING_LIMIT));
+  const sibsHidden = $derived(orderedSibs.length - sibs.length);
 
   const focus = $derived(view.focus);
 
-  type Role = 'father' | 'mother' | 'son' | 'daughter' | 'child' | 'brother' | 'sister' | 'sibling' | 'partner' | 'grandfather' | 'grandmother';
-  const roleKey = (r: Role): MessageKey =>
-    r === 'grandfather' ? 'family.treeGrandfather' : r === 'grandmother' ? 'family.treeGrandmother' : (`kin.${r}` as MessageKey);
+  type Role =
+    | 'father' | 'mother' | 'son' | 'daughter' | 'child' | 'brother' | 'sister' | 'sibling' | 'partner'
+    | 'grandfather' | 'grandmother' | 'halfBrother' | 'halfSister' | 'halfSibling' | null;
+  const HALF = { halfBrother: 'family.treeHalfBrother', halfSister: 'family.treeHalfSister', halfSibling: 'family.treeHalfSibling' } as const;
+  const roleKey = (r: NonNullable<Role>): MessageKey =>
+    r === 'grandfather'
+      ? 'family.treeGrandfather'
+      : r === 'grandmother'
+        ? 'family.treeGrandmother'
+        : r in HALF
+          ? HALF[r as keyof typeof HALF]
+          : (`kin.${r}` as MessageKey);
   function parentRole(p: PersonRef, slot: number, up = false): Role {
     const father = p.sex === 'male' || (p.sex !== 'female' && slot === 0);
     return up ? (father ? 'grandfather' : 'grandmother') : father ? 'father' : 'mother';
   }
   const kidRole = (p: PersonRef): Role => (p.sex === 'male' ? 'son' : p.sex === 'female' ? 'daughter' : 'child');
-  const sibRole = (p: PersonRef): Role => (p.sex === 'male' ? 'brother' : p.sex === 'female' ? 'sister' : 'sibling');
+  const sibRole = (p: PersonRef): Role => {
+    const k = p.sex === 'male' ? 'Brother' : p.sex === 'female' ? 'Sister' : 'Sibling';
+    return (isHalf(p) ? `half${k}` : k.toLowerCase()) as Role;
+  };
 
   const SLOT_LABEL: Record<AddRelation, MessageKey> = {
     father: 'family.addFatherOf',
@@ -104,6 +158,17 @@
     active = null;
   });
   const activeKey = $derived(active ?? `p:${focus.id}`);
+  // If the remembered box left the page (a slot was filled, "+N more" was used), fall back to the person's own box.
+  $effect(() => {
+    void view;
+    void grand;
+    void sibsOpen;
+    void kidsOpen;
+    void active;
+    void tick().then(() => {
+      if (treeEl && !treeEl.querySelector('[data-nav][tabindex="0"]')) active = null;
+    });
+  });
 
   function keys(e: KeyboardEvent) {
     if (!treeEl) return;
@@ -154,7 +219,8 @@
     data-row={row}
     tabindex={activeKey === `p:${p.id}` ? 0 : -1}
     aria-current={current ? 'true' : undefined}
-    aria-label={[p.name, p.lifespan, t(roleKey(role))].filter(Boolean).join(', ')}
+    aria-label={[p.name, p.lifespan, role ? t(roleKey(role)) : ''].filter(Boolean).join(', ')}
+    onfocus={() => (active = `p:${p.id}`)}
     onclick={() => {
       if (!current) onopen(p.id);
     }}
@@ -177,6 +243,7 @@
     data-row={row}
     tabindex={activeKey === `s:${relation}:${anchor.id}` ? 0 : -1}
     aria-label={t(SLOT_LABEL[relation], { who: anchor.name })}
+    onfocus={() => (active = `s:${relation}:${anchor.id}`)}
     onclick={() => onadd(relation, anchor.id)}
   >
     <span aria-hidden="true" class="plus">+</span>
@@ -191,7 +258,8 @@
       {#each [0, 1] as i (i)}
         {@const p = parents[i]}
         {#if p}
-          {@const gp = grand[p.id] ?? [null, null]}
+          {@const gp = grand[p.id]}
+          {#if gp}
           <div class="couple">
             {#each [0, 1] as j (j)}
               {#if j === 1}<span class="join" aria-hidden="true"></span>{/if}
@@ -202,12 +270,22 @@
               {/if}
             {/each}
           </div>
+          {/if}
         {/if}
       {/each}
     </div>
     <div class="drop" aria-hidden="true"></div>
   {/if}
 
+  {#if view.parentSets.length > 1}
+    <div class="sets" role="group" aria-label={t('family.treeParentSets')}>
+      {#each view.parentSets as ps, i (ps.familyId)}
+        <button type="button" class="setbtn" aria-pressed={i === setIndex} onclick={() => (pickedSet = i)}
+          >{t('family.treeParentSet', { who: ps.parents.filter(Boolean).map((x) => x!.name).join(' + ') })}</button
+        >
+      {/each}
+    </div>
+  {/if}
   <div class="row">
     <div class="couple">
       {#each [0, 1] as i (i)}
@@ -219,6 +297,20 @@
         {/if}
       {/each}
     </div>
+    {#if bothParents}
+      <button
+        type="button"
+        class="box slot"
+        data-nav="s:newset:{focus.id}"
+        data-row="1"
+        tabindex={activeKey === `s:newset:${focus.id}` ? 0 : -1}
+        onfocus={() => (active = `s:newset:${focus.id}`)}
+        onclick={() => onadd('father', focus.id, true)}
+      >
+        <span aria-hidden="true" class="plus">+</span>
+        <span class="nm">{t('family.addAnotherParents')}</span>
+      </button>
+    {/if}
   </div>
   <div class="drop" aria-hidden="true"></div>
 
@@ -240,7 +332,7 @@
     {#if hasAnyParent}
       {@render slot('sibling', focus, 2)}
     {/if}
-    {@render box(focus, 'child', 2, true)}
+    {@render box(focus, null, 2, true)}
     {#each view.partnerships as u (u.familyId)}
       {#if u.partner}
         {@render box(u.partner, 'partner', 2)}
@@ -304,6 +396,31 @@
     align-items: center;
     justify-content: center;
     gap: var(--s-2);
+  }
+  .sets {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--s-2);
+    margin-bottom: var(--s-3);
+  }
+  .setbtn {
+    padding: var(--s-1) var(--s-4);
+    border: 1px solid var(--ink-2);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ink-1);
+    font: inherit;
+    cursor: pointer;
+  }
+  .setbtn[aria-pressed='true'] {
+    background: var(--ribbon-wash);
+    color: var(--ink-0);
+    font-weight: 600;
+  }
+  .setbtn:focus-visible {
+    outline: 2px solid var(--ribbon);
+    outline-offset: 2px;
   }
   .join {
     width: var(--s-4);

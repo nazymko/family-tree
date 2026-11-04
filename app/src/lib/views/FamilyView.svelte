@@ -328,7 +328,7 @@
     </div>
 
     {#if mode === 'tree'}
-      <FamilyTree {view} {homeId} onopen={refocus} onadd={(rel, anchor) => ui.requestAdd(rel, anchor)} />
+      <FamilyTree {view} {homeId} onopen={refocus} onadd={(rel, anchor, newSet) => (newSet ? ui.requestAdd(rel, anchor, true) : ui.requestAdd(rel, anchor))} />
     {:else}
     <section class="band" aria-label={t('family.children')}>
       <h2>{t('family.children')}</h2>
@@ -543,7 +543,7 @@
     margin-top: var(--s-4);
   }
   .mid.solo {
-    grid-template-columns: minmax(18rem, 30rem);
+    grid-template-columns: minmax(min(18rem, 100%), 30rem);
   }
   .modes {
     display: inline-flex;
