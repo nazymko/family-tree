@@ -24,7 +24,7 @@ export class MockPlatform implements Platform {
     return this.next.folder !== undefined ? this.next.folder : 'C:/Mock/Genealogy';
   }
 
-  async pickSavePath(opts: { title: string; defaultName: string; extensions: string[] }): Promise<string | null> {
+  async pickSavePath(opts: { title: string; defaultName: string; extensions: string[]; filters?: { name: string; extensions: string[] }[] }): Promise<string | null> {
     this.calls.push({ method: 'pickSavePath', args: [opts] });
     return this.next.save !== undefined ? this.next.save : `C:/Mock/${opts.defaultName}`;
   }

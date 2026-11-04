@@ -83,6 +83,7 @@ command_list!(
     open_media_externally,
     preview_export,
     export_gedcom,
+    save_picture,
     get_settings,
     set_settings,
 );
@@ -649,6 +650,89 @@ pub async fn export_gedcom<R: Runtime>(
         })
     })
     .await
+}
+
+// ------------------------------------------------------------ chart pictures
+
+const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+
+/// Writes a finished chart picture. The caller has already had the replace-file question answered by the
+/// native save dialog, so an existing file is replaced.
+pub fn save_picture_impl(path: &str, bytes: &[u8]) -> ApiResult<BytesWritten> {
+    let invalid = |m: &str| ApiError::new(ErrorCode::Invalid, m);
+    if path.trim().is_empty() {
+        return Err(invalid(
+            "There is no file name to save the picture to. Choose where to save it and try again.",
+        ));
+    }
+    let ext = Path::new(path)
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let content_ok = match ext.as_str() {
+        "png" => bytes.len() > PNG_SIGNATURE.len() && bytes[..PNG_SIGNATURE.len()] == PNG_SIGNATURE,
+        "svg" => std::str::from_utf8(bytes).is_ok_and(|s| {
+            let s = s.trim_start();
+            s.starts_with("<svg") || s.starts_with("<?xml")
+        }),
+        _ => {
+            return Err(invalid(
+                "Pictures are saved as .png or .svg files. Add one of those endings to the file name and try again.",
+            ));
+        }
+    };
+    if !content_ok {
+        return Err(invalid(
+            "The picture could not be made. Try saving it again.",
+        ));
+    }
+    let dest = Path::new(path);
+    if dest.is_dir() {
+        return Err(invalid(
+            "That is a folder, not a file. Choose a file name and try again.",
+        ));
+    }
+    let parent_ok = dest
+        .parent()
+        .is_none_or(|p| p.as_os_str().is_empty() || p.is_dir());
+    if !parent_ok {
+        return Err(invalid(
+            "That folder does not exist. Choose another folder and try again.",
+        ));
+    }
+    settings_file::write_atomic(dest, bytes).map_err(|e| {
+        ApiError::new(
+            ErrorCode::Io,
+            format!("Could not save the picture: {e}. Choose another place and try again."),
+        )
+    })?;
+    Ok(BytesWritten {
+        bytes: bytes.len() as u64,
+    })
+}
+
+/// Saves a chart picture. The body is the raw PNG bytes (no JSON array of numbers); the destination travels in the
+/// `x-gt-path` header as base64 of its UTF-8 text, so any file name survives the header.
+#[tauri::command(async)]
+pub fn save_picture(request: tauri::ipc::Request<'_>) -> ApiResult<BytesWritten> {
+    use base64::Engine as _;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(ApiError::new(
+            ErrorCode::Invalid,
+            "The picture could not be made. Try saving it again.",
+        ));
+    };
+    let path = request
+        .headers()
+        .get("x-gt-path")
+        .and_then(|v| {
+            base64::engine::general_purpose::STANDARD
+                .decode(v.as_bytes())
+                .ok()
+        })
+        .and_then(|b| String::from_utf8(b).ok())
+        .unwrap_or_default();
+    save_picture_impl(&path, bytes)
 }
 
 // ------------------------------------------------------------ settings
