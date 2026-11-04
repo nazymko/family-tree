@@ -9,6 +9,13 @@
   import { project } from '../state/project.svelte';
   import type { AddRelation } from '../state/ui.svelte';
   import { t, type MessageKey } from '../i18n';
+  import ContextMenu from '../ui/ContextMenu.svelte';
+  import type { MenuItem } from '../ui/Menu.svelte';
+  import Dialog from '../ui/Dialog.svelte';
+  import Button from '../ui/Button.svelte';
+  import { isKeyboardMenu } from '../chart/picture';
+  import { toasts } from '../state/toast.svelte';
+  import { errMessage } from '../editors/errors';
 
   let {
     view,
@@ -103,6 +110,8 @@
       });
   });
   const isHalf = (s: PersonRef) => !!fullIds && !fullIds.has(s.id);
+  /** A sibling known to be a child of the parents shown (with several parent sets, only once their family is loaded). */
+  const fullSib = (s: PersonRef) => (view.parentSets.length > 1 ? !!fullIds?.has(s.id) : view.parentSets.length === 1);
   const orderedSibs = $derived([...view.siblings.filter((s) => !isHalf(s)), ...view.siblings.filter(isHalf)]);
 
   let sibsOpen = $state(false);
@@ -233,6 +242,154 @@
     });
   });
 
+  // ------------------------------------------------------------ detaching a wrongly linked relative
+  // Right-click (or the menu key) on a parent, partner, child or sibling offers to undo that link. Nobody is
+  // deleted: only the family link goes, and the toast's Undo brings it back.
+
+  type Ask = { title: string; body: string; ok: string; run: () => Promise<unknown> };
+  let menu = $state<{ x: number; y: number; who: PersonRef; items: MenuItem[]; from: HTMLElement } | null>(null);
+  let ask = $state<Ask | null>(null);
+  let busy = $state(false);
+
+  const names = (ps: (PersonRef | null)[]) =>
+    ps
+      .filter((x): x is PersonRef => !!x)
+      .map((x) => x.name)
+      .join(t('family.treeAnd'));
+  /** The family's partner ids with `gone` taken out. */
+  const without = (pair: [PersonRef | null, PersonRef | null], gone: string): [string | null, string | null] => [
+    pair[0] && pair[0].id !== gone ? pair[0].id : null,
+    pair[1] && pair[1].id !== gone ? pair[1].id : null,
+  ];
+
+  /** Takes `child` out of a family; a family left with nobody else in it (one parent, no other child) goes too. */
+  function unlink(family: string, child: string, partners: number, children: number): Promise<unknown> {
+    return partners <= 1 && children <= 1
+      ? api.apply({ type: 'deleteFamily', id: family })
+      : api.apply({ type: 'unlinkChild', family, child });
+  }
+
+  /** "Not a child of these parents": the shown parents' family loses `who` as a child. */
+  function detachFromParents(who: PersonRef): MenuItem | null {
+    const set = primary;
+    if (!set) return null;
+    return {
+      label: t('family.treeDetachParents', { who: who.name }),
+      danger: true,
+      onselect: () =>
+        (ask = {
+          title: t('family.treeDetachParentsTitle', { who: who.name }),
+          body: t('family.treeDetachParentsBody', { who: who.name, parents: names(set.parents) }),
+          ok: t('family.treeDetach'),
+          run: async () => {
+            const fam = await api.getFamily(set.familyId);
+            return unlink(set.familyId, who.id, fam.partners.filter(Boolean).length, fam.children.length);
+          },
+        }),
+    };
+  }
+
+  /** A parent who is not one leaves the couple, and so stops being a parent of every child of it. */
+  function removeParent(p: PersonRef): MenuItem | null {
+    const set = primary;
+    if (!set || set.parents.filter(Boolean).length < 2) return null;
+    return {
+      label: t('family.treeRemoveParent', { who: p.name }),
+      danger: true,
+      onselect: () =>
+        void api
+          .getFamily(set.familyId)
+          .then((fam) => {
+            const others = fam.children.filter((c) => c.person.id !== focus.id).map((c) => c.person);
+            ask = {
+              title: t('family.treeRemoveParentTitle', { who: p.name }),
+              body:
+                t('family.treeRemoveParentBody', { who: p.name, child: focus.name }) +
+                (others.length ? ' ' + t('family.treeRemoveParentOthers', { names: names(others) }) : ''),
+              ok: t('family.treeRemove'),
+              run: () => {
+                const [a, b] = without(fam.partners, p.id);
+                return api.apply({ type: 'saveFamily', id: fam.id, partner1: a, partner2: b, kind: fam.kind });
+              },
+            };
+          })
+          .catch((e) => toasts.push({ text: errMessage(e), kind: 'error' })),
+    };
+  }
+
+  function detachChild(u: PartnershipDto, c: PersonRef): MenuItem {
+    return {
+      label: t('family.treeDetachChild', { who: c.name, parent: focus.name }),
+      danger: true,
+      onselect: () =>
+        (ask = {
+          title: t('family.treeDetachChildTitle', { who: c.name }),
+          body: t('family.treeDetachChildBody', { who: c.name, parents: names([focus, u.partner]) }),
+          ok: t('family.treeDetach'),
+          run: () => unlink(u.familyId, c.id, u.partner ? 2 : 1, u.children.length),
+        }),
+    };
+  }
+
+  /** Ends a couple: with no children the family goes, otherwise the children stay with the person shown. */
+  function removePartner(u: PartnershipDto, p: PersonRef): MenuItem {
+    const n = u.children.length;
+    return {
+      label: t('family.treeRemovePartner', { who: p.name }),
+      danger: true,
+      onselect: () =>
+        (ask = {
+          title: t('family.treeRemovePartnerTitle', { who: p.name }),
+          body:
+            n === 0
+              ? t('family.treeRemovePartnerBody', { who: p.name, me: focus.name })
+              : t('family.treeRemovePartnerKids', { who: p.name, me: focus.name, n }),
+          ok: t('family.treeRemove'),
+          run: async () => {
+            if (n === 0) return api.apply({ type: 'deleteFamily', id: u.familyId });
+            const fam = await api.getFamily(u.familyId);
+            const [a, b] = without(fam.partners, p.id);
+            return api.apply({ type: 'saveFamily', id: fam.id, partner1: a, partner2: b, kind: fam.kind });
+          },
+        }),
+    };
+  }
+
+  function openMenu(e: MouseEvent, p: PersonRef, acts: () => (MenuItem | null)[]) {
+    const items = acts().filter((x): x is MenuItem => !!x);
+    if (items.length === 0) return;
+    e.preventDefault();
+    const from = e.currentTarget as HTMLElement;
+    let { clientX: x, clientY: y } = e;
+    if (isKeyboardMenu(e as PointerEvent)) {
+      const r = from.getBoundingClientRect();
+      x = r.left + r.width / 2;
+      y = r.bottom;
+    }
+    const open: MenuItem = { label: t('family.treeOpen', { who: p.name }), onselect: () => onopen(p.id) };
+    menu = { x, y, who: p, items: [open, ...items.map((it, i) => (i === 0 ? { ...it, separatorBefore: true } : it))], from };
+  }
+
+  function closeMenu(restoreFocus: boolean) {
+    const from = menu?.from;
+    menu = null;
+    if (restoreFocus) from?.focus();
+  }
+
+  async function confirmAsk() {
+    const a = ask;
+    if (!a || busy) return;
+    busy = true;
+    try {
+      await a.run();
+    } catch (e) {
+      toasts.push({ text: errMessage(e), kind: 'error' });
+    } finally {
+      ask = null;
+      busy = false;
+    }
+  }
+
   function keys(e: KeyboardEvent) {
     if (!treeEl) return;
     const from = (e.target as HTMLElement).closest<HTMLElement>('[data-nav]');
@@ -272,7 +429,7 @@
   }
 </script>
 
-{#snippet box(p: PersonRef, role: Role, row: number, current = false)}
+{#snippet box(p: PersonRef, role: Role, row: number, current = false, acts: (() => (MenuItem | null)[]) | null = null)}
   <button
     type="button"
     class="box"
@@ -288,6 +445,8 @@
     onclick={() => {
       if (!current) onopen(p.id);
     }}
+    oncontextmenu={acts ? (e) => openMenu(e, p, acts) : undefined}
+    aria-haspopup={acts ? 'menu' : undefined}
   >
     {#if role}<span class="kin" aria-hidden="true">{t(roleKey(role))}</span>{/if}
     <bdi dir="auto" class="nm">{p.name}</bdi>
@@ -372,7 +531,7 @@
     {#each [0, 1] as i (i)}
       <div class="pcell" class:left={i === 0} class:right={i === 1}>
         {#if parents[i]}
-          {@render box(parents[i]!, parentRole(parents[i]!, i), 1)}
+          {@render box(parents[i]!, parentRole(parents[i]!, i), 1, false, () => [detachFromParents(focus), removeParent(parents[i]!)])}
         {:else}
           {@render slot(i === 0 ? 'father' : 'mother', focus, 1)}
         {/if}
@@ -387,7 +546,7 @@
         <div class="kid">{@render slot('sibling', focus, 2)}</div>
       {/if}
       {#each sibs as s (s.id)}
-        <div class="kid">{@render box(s, sibRole(s), 2)}</div>
+        <div class="kid">{@render box(s, sibRole(s), 2, false, () => [fullSib(s) ? detachFromParents(s) : null])}</div>
       {/each}
       {#if sibsHidden > 0}
         <div class="kid">
@@ -409,7 +568,7 @@
     <div class="side right" bind:this={rightEl}>
       {#each view.partnerships as u (u.familyId)}
         {#if u.partner}
-          <div class="mate"><span class="join" aria-hidden="true"></span>{@render box(u.partner, partnerRole(u), 2)}</div>
+          <div class="mate"><span class="join" aria-hidden="true"></span>{@render box(u.partner, partnerRole(u), 2, false, () => [removePartner(u, u.partner!)])}</div>
         {/if}
       {/each}
       <div class="mate"><span class="join" aria-hidden="true"></span>{@render slot('partner', focus, 2)}</div>
@@ -423,7 +582,7 @@
       {@const hidden = u.children.length - shown.length}
       <div class="kids" role="group" aria-label={u.partner ? t('family.treeChildrenWith', { who: u.partner.name }) : t('family.children')}>
         {#each shown as c (c.person.id)}
-          <div class="kid">{@render box(c.person, kidRole(c.person), 3)}</div>
+          <div class="kid">{@render box(c.person, kidRole(c.person), 3, false, () => [detachChild(u, c.person)])}</div>
         {/each}
         {#if hidden > 0}
           <div class="kid">
@@ -452,7 +611,24 @@
   </div>
 </div>
 
+{#if menu}
+  <ContextMenu label={t('family.treeMenu', { who: menu.who.name })} items={menu.items} x={menu.x} y={menu.y} onclose={closeMenu} />
+{/if}
+
+<Dialog open={ask !== null} title={ask?.title ?? ''} onclose={() => !busy && (ask = null)}>
+  <p>{ask?.body}</p>
+  <p class="undo-note">{t('family.treeDetachNote')}</p>
+  {#snippet footer()}
+    <Button onclick={() => (ask = null)} disabled={busy}>{t('common.cancel')}</Button>
+    <Button variant="danger" onclick={confirmAsk} disabled={busy}>{ask?.ok}</Button>
+  {/snippet}
+</Dialog>
+
 <style>
+  .undo-note {
+    color: var(--ink-1);
+    font-size: var(--t-sm);
+  }
   .treebar {
     display: flex;
     justify-content: flex-end;
