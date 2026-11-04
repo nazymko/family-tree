@@ -256,7 +256,7 @@
       </div>
       {#snippet body()}
         {#each cardLines as l (l.label)}
-          <p class="card-line"><span class="card-label">{l.label}</span> {l.text}</p>
+          <p class="card-line"><span class="card-label" class:wide={surnameLines.length > 0}>{l.label}</span> {l.text}</p>
         {/each}
       {/snippet}
     </IndexCard>
@@ -543,6 +543,10 @@
     min-width: 4rem;
     color: var(--ink-1);
     font-size: var(--t-sm);
+  }
+  /* With the surname lines the labels are longer; keep one aligned column. */
+  .card-label.wide {
+    min-width: 12rem;
   }
   section {
     display: grid;
