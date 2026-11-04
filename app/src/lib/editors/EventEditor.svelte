@@ -21,9 +21,12 @@
     onSaved,
     onCancel,
     citations,
+    newKind,
   }: {
     owner: { kind: 'person' | 'family'; id: Id };
     event?: EventDto;
+    /** The kind a NEW event starts with (default birth for a person, marriage for a family). */
+    newKind?: string;
     onSaved: (r: EditResult) => void;
     onCancel: () => void;
     /** Task 12 renders the citations section here. */
@@ -86,7 +89,7 @@
   }
 
   // svelte-ignore state_referenced_locally
-  const k0 = splitKind(event?.kind);
+  const k0 = splitKind(event?.kind ?? newKind);
   // svelte-ignore state_referenced_locally
   const init = {
     kind: k0.kind,
