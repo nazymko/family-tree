@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
   import type { ChartNode, ChartWindow, Id, Rect, SearchHitDto, WholeMeta } from '../api/types';
+  import { added } from '../state/added.svelte';
   import { project } from '../state/project.svelte';
   import { undoState as undo } from '../state/undo.svelte';
   import Button from '../ui/Button.svelte';
@@ -15,6 +16,7 @@
   import { nodeLabel } from '../i18n/relation';
   import { t } from '../i18n';
   import { founderOf } from './wholeStart';
+  import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
   import { compactX, isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
@@ -56,7 +58,7 @@
   let searchText = $state('');
   let hits = $state<SearchHitDto[]>([]);
   let zoomPct = $state(100);
-  let pictureMenu = $state<{ openAt(x: number, y: number): void }>();
+  let pictureMenu = $state<{ openAt(x: number, y: number, person?: Id | null): void }>();
   let savingPicture = $state(false);
 
   let cache: WindowCache | null = null;
@@ -190,10 +192,12 @@
     const seq = ++openSeq;
     // After an edit the view stays where it is and the selected person stays selected when still there.
     const keptPerson = keepView ? (selNode?.person?.id ?? null) : null;
+    // The camera stays where it was after an edit, whether or not the user had moved it.
+    const keepCam = keepView && meta !== null && sized;
     closeChart();
     errorText = '';
     selected = null;
-    selNode = null;
+    if (!keepCam) selNode = null;
     lineage = null;
     homeNode = null;
     startRect = null;
@@ -263,10 +267,11 @@
       else if (seq === openSeq) miniWin = null;
       if (isStale(e)) return;
     }
-    if (keepView && userMoved) {
+    if (keepCam) {
+      userMoved = true;
       cache?.need(seen, cam.zoom);
       invalidate();
-      if (keptPerson) {
+      if (keptPerson && !pendingAdd) {
         try {
           const loc = await api.chartLocate(id, keptPerson);
           if (seq === openSeq && loc) {
@@ -282,7 +287,57 @@
       place();
     }
     onOpened?.(m);
+    if (seq === openSeq) {
+      await trySelectAdded();
+      // A person the chart does not show is not looked for again after later edits.
+      pendingAdd = null;
+    }
   }
+
+  // A person added from a dialog: select them once the chart shows them. The edit and this note can arrive in either order.
+  let pendingAdd: { id: Id; at: number } | null = null;
+  let seenAdd = untrack(() => added.n);
+  async function trySelectAdded(): Promise<void> {
+    const p = pendingAdd;
+    const m = meta;
+    if (!p || !m) return;
+    if (Date.now() - p.at > 5000) {
+      pendingAdd = null;
+      return;
+    }
+    const seq = openSeq;
+    try {
+      const loc = await api.chartLocate(m.meta.chartId, p.id);
+      if (seq !== openSeq || !loc) return;
+      selected = loc.nodeId;
+      selNode = null;
+      pendingAnnounce = true;
+      if (pendingAdd === p) pendingAdd = null;
+      // The card may be far from the view: take its details from a window of its own, and go to it when it is out of view.
+      const w = await api.chartWindow(m.meta.chartId, { x: loc.rect.x + 1, y: loc.rect.y + 1, w: 1, h: 1 }, 1);
+      const full = w.nodes.find((x) => x.id === loc.nodeId);
+      if (seq !== openSeq || selected !== loc.nodeId) return;
+      if (full) {
+        selNode = full;
+        announceOnce();
+      }
+      const v = viewRect(cam, size);
+      const inside = loc.rect.x >= v.x && loc.rect.y >= v.y && loc.rect.x + loc.rect.w <= v.x + v.w && loc.rect.y + loc.rect.h <= v.y + v.h;
+      if (!inside) animateTo(centerOn(cam, loc.rect, size));
+      invalidate();
+    } catch {
+      // Not in this chart yet; the next reopen tries again.
+    }
+  }
+  $effect(() => {
+    const n = added.n;
+    untrack(() => {
+      if (n === seenAdd || !added.id) return;
+      seenAdd = n;
+      pendingAdd = { id: added.id, at: added.at };
+      void trySelectAdded();
+    });
+  });
 
   $effect(() => {
     void homeId;
@@ -619,7 +674,7 @@
     const inside = n && n.x < v.x + v.w && n.x + n.w > v.x && n.y < v.y + v.h && n.y + n.h > v.y;
     const x = inside ? r.left + (n.x + n.w / 2 - cam.x) * cam.zoom : r.left + r.width / 2;
     const y = inside ? r.top + (n.y + n.h / 2 - cam.y) * cam.zoom : r.top + r.height / 2;
-    pictureMenu?.openAt(x, y);
+    void pictureMenu?.openAt(x, y, selNode?.person?.id ?? null);
   }
 
   function oncontextmenu(e: MouseEvent): void {
@@ -627,13 +682,17 @@
     canvas?.focus();
     if (isKeyboardMenu(e as PointerEvent)) return pictureMenuAtSelection();
     const cur = cache?.current();
+    let person: Id | null = null;
     if (cur) {
       // A right-click on a card selects that person first.
       const w = toWorld(e);
       const n = hitTest(cur.win, w.x, w.y);
-      if (n) select(n);
+      if (n) {
+        select(n);
+        person = n.person?.id ?? null;
+      }
     }
-    pictureMenu?.openAt(e.clientX, e.clientY);
+    void pictureMenu?.openAt(e.clientX, e.clientY, person);
   }
 
   // ------------------------------------------------------------ keyboard
@@ -751,7 +810,8 @@
     <Button aria-pressed={lineageOn} onclick={() => (lineageOn = !lineageOn)}>{t('whole.lineage')}</Button>
     <Button disabled={!selNode?.person} onclick={() => selNode?.person && onOpenPerson(selNode.person.id)}>{t('whole.openPerson')}</Button>
     <Button disabled={!selNode?.person} onclick={() => selNode?.person && onOpenInPedigree(selNode.person.id)}>{t('whole.showInPedigree')}</Button>
-    <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} />
+    <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
+    <AddRelativeMenu person={selNode?.person?.id ?? null} />
     <span class="zoom" aria-live="off">{zoomPct}%</span>
   </div>
   <div class="stage" bind:this={box}>

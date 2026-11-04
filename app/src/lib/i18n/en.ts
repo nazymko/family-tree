@@ -781,6 +781,11 @@ export const en = {
     title: 'Title',
     description: 'Description',
   },
+  chartAdd: {
+    addRelative: 'Add relative',
+    menuLabel: 'Person and picture options',
+    openPerson: 'Open person',
+  },
   picture: {
     save: 'Save as picture',
     menuLabel: 'Save as picture',

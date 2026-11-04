@@ -73,6 +73,9 @@
   oncontextmenu={(e) => e.preventDefault()}
 >
   {#each items as item, index (item.label)}
+    {#if item.separatorBefore && index > 0}
+      <hr />
+    {/if}
     <button
       type="button"
       role="menuitem"
@@ -129,6 +132,12 @@
   }
   button[role='menuitem'][aria-disabled='true'] span {
     opacity: 0.6;
+  }
+  hr {
+    height: 1px;
+    margin: var(--s-2) 0;
+    border: 0;
+    background: var(--rule);
   }
   small {
     color: var(--ink-2);

@@ -780,6 +780,11 @@ export const uk: Messages = {
     title: 'Назва',
     description: 'Опис',
   },
+  chartAdd: {
+    addRelative: 'Додати родича',
+    menuLabel: 'Особа та зображення',
+    openPerson: 'Відкрити особу',
+  },
   picture: {
     save: 'Зберегти як зображення',
     menuLabel: 'Зберегти як зображення',
