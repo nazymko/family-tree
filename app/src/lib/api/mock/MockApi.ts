@@ -616,6 +616,10 @@ export class MockApi implements Api {
     this.aiKeyStored = false;
   }
 
+  aiCancels = 0;
+  async aiCancelRead(): Promise<void> {
+    this.aiCancels += 1;
+  }
   async aiReadPicture(consent: boolean, key: string | null): Promise<AiReadResult> {
     if (!consent) throw invalid('Tick "I understand" before sending the picture.');
     if (!this.aiKeyStored && !key?.trim()) throw invalid('Enter your Anthropic API key first.');

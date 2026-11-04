@@ -222,11 +222,15 @@
 
   let stage = $state<HTMLElement>();
   let shownFor: string | null = null;
+  let lastIds: string[] = [];
 
   // A keyboard user must not have to Tab through every card to reach the form: when a card is selected,
   // focus moves to the form's first field; when the form closes, focus goes back to that card.
   $effect(() => {
     const id = selectedId;
+    const ids = draft.cards.map((c) => c.id);
+    const before = lastIds;
+    lastIds = ids;
     if (id === shownFor) return;
     const was = shownFor;
     shownFor = id;
@@ -237,7 +241,19 @@
       } else if (was) {
         // The form is gone, so focus fell back to the page: put it on the card.
         const active = document.activeElement;
-        if (!active || active === document.body) stage?.querySelector<HTMLElement>(`[data-card="${was}"]`)?.focus();
+        if (active && active !== document.body) return;
+        const find = (card: string) => stage?.querySelector<HTMLElement>(`[data-card="${card}"]`);
+        const kept = find(was);
+        if (kept) {
+          kept.focus();
+          return;
+        }
+        // The card itself was deleted: go to the next card, else the one before it, else the picture.
+        const at = before.indexOf(was);
+        const next = [...before.slice(at + 1), ...before.slice(0, Math.max(at, 0)).reverse()].find((c) => ids.includes(c));
+        const target = next ? find(next) : null;
+        if (target) target.focus();
+        else viewport?.focus();
       }
     });
   });

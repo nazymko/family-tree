@@ -336,52 +336,126 @@ fn a_typed_key_that_is_not_a_key_is_never_sent() {
     assert_eq!(http.calls(), 0);
 }
 
-// The Tauri command runs inside a Tokio runtime. A blocking reqwest call made directly there panics, so
-// these drive the same path the command uses and the raw client from a blocking-pool thread.
+// The Tauri command runs inside a Tokio runtime. A blocking reqwest call made directly in a runtime task
+// panics. These drive the real HTTP client (against a closed local port) from a task spawned on the
+// runtime, exactly like the command does, so they fail if the call is ever made blocking again.
 
-#[test]
-fn the_real_http_client_does_not_panic_when_driven_from_the_runtime() {
-    let out = tauri::async_runtime::block_on(async {
-        tauri::async_runtime::spawn_blocking(|| {
-            // Port 1 on localhost is closed: the call must fail with an error, not panic.
-            ai::ReqwestHttp.post_json(
-                "http://127.0.0.1:1/v1/messages",
-                &[],
-                "{}",
-                Duration::from_secs(5),
-            )
-        })
-        .await
-    });
-    assert!(out.expect("the blocking task must not panic").is_err());
+// The cancel flag is process-wide: tests that use the real client take turns.
+static REAL_CLIENT: Mutex<()> = Mutex::new(());
+
+struct Closed;
+impl AiHttp for Closed {
+    fn post_json(
+        &self,
+        _url: &str,
+        headers: &[(String, String)],
+        body: &str,
+        t: Duration,
+    ) -> Result<HttpReply, String> {
+        ai::ReqwestHttp.post_json("http://127.0.0.1:1/v1/messages", headers, body, t)
+    }
 }
 
 #[test]
-fn the_command_path_runs_inside_a_runtime() {
-    use std::sync::Arc;
-    let http = Arc::new(FakeHttp::answering(200, &ok_body(ANSWER)));
-    let keys = Arc::new(FakeKeys::default());
-    let r = tauri::async_runtime::block_on(ai::read_picture_async(
-        http.clone(),
-        keys,
-        true,
-        Some(FAKE_KEY.into()),
-        picture(40, 30),
-        "m".into(),
-    ))
-    .unwrap();
-    assert_eq!(r.people.len(), 1);
-    assert_eq!(http.calls(), 1);
-    // An error comes back as an error, not a hang.
-    let bad = Arc::new(FakeHttp::failing("dns"));
+fn the_real_client_works_from_a_runtime_task() {
+    use std::sync::{Arc, atomic::Ordering};
+    let _g = REAL_CLIENT.lock().unwrap_or_else(|e| e.into_inner());
+    ai::CANCEL.store(false, Ordering::SeqCst);
+    let joined = tauri::async_runtime::block_on(async {
+        tauri::async_runtime::spawn(async {
+            ai::read_picture_async(
+                Arc::new(Closed),
+                Arc::new(FakeKeys::default()),
+                true,
+                Some(FAKE_KEY.into()),
+                picture(40, 30),
+                "m".into(),
+            )
+            .await
+        })
+        .await
+    });
+    let inner = joined.expect("the task must not panic");
+    let e = inner.expect_err("a closed port must give an error");
+    assert!(e.message.contains("internet connection"), "{}", e.message);
+    assert!(!e.message.contains(FAKE_KEY));
+}
+
+#[test]
+fn cancel_aborts_a_request_that_never_answers() {
+    use std::io::Read;
+    use std::sync::{Arc, atomic::Ordering};
+    let _g = REAL_CLIENT.lock().unwrap_or_else(|e| e.into_inner());
+    ai::CANCEL.store(false, Ordering::SeqCst);
+    // A server that accepts the connection and then says nothing.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let holder = std::thread::spawn(move || {
+        if let Ok((mut sock, _)) = listener.accept() {
+            let mut buf = [0u8; 1024];
+            // Returns when the client hangs up (or errors).
+            while matches!(sock.read(&mut buf), Ok(n) if n > 0) {}
+        }
+    });
+    struct Silent(u16);
+    impl AiHttp for Silent {
+        fn post_json(
+            &self,
+            _u: &str,
+            h: &[(String, String)],
+            b: &str,
+            t: Duration,
+        ) -> Result<HttpReply, String> {
+            ai::ReqwestHttp.post_json(&format!("http://127.0.0.1:{}/v1/messages", self.0), h, b, t)
+        }
+    }
+    let started = std::time::Instant::now();
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_millis(300));
+        ai::CANCEL.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
     let e = tauri::async_runtime::block_on(ai::read_picture_async(
-        bad,
+        Arc::new(Silent(port)),
         Arc::new(FakeKeys::default()),
         true,
         Some(FAKE_KEY.into()),
         picture(40, 30),
         "m".into(),
     ))
-    .unwrap_err();
-    assert!(e.message.contains("internet connection"));
+    .expect_err("a cancelled read is an error");
+    assert!(e.message.contains("cancelled"), "{}", e.message);
+    assert!(started.elapsed() < Duration::from_secs(20));
+    // Aborting closed the connection, so the silent server's read ends.
+    holder.join().unwrap();
+    ai::CANCEL.store(false, Ordering::SeqCst);
+}
+
+#[test]
+fn only_text_after_the_last_fallback_block_is_the_answer() {
+    let body = serde_json::json!({
+        "stop_reason": "end_turn",
+        "content": [
+            {"type": "text", "text": "{\"people\":[{\"id\":\"old\""},
+            {"type": "fallback", "from": "claude-opus-5-5", "to": "claude-sonnet-5-5"},
+            {"type": "text", "text": ANSWER}
+        ]
+    })
+    .to_string();
+    let http = FakeHttp::answering(200, &body);
+    let r = ai::read_picture(
+        &http,
+        &FakeKeys::default(),
+        true,
+        Some(FAKE_KEY),
+        &picture(40, 30),
+        "m",
+    )
+    .unwrap();
+    assert_eq!(r.people.len(), 1);
+    assert_eq!(r.people[0].given, "Ivan");
+}
+
+#[test]
+fn the_request_timeout_is_five_minutes() {
+    assert_eq!(ai::TIMEOUT, Duration::from_secs(300));
 }

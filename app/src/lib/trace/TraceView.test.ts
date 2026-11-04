@@ -9,7 +9,7 @@ import { fixtureTree } from '../api/mock/fixtures';
 import { nav } from '../state/nav.svelte';
 import { project } from '../state/project.svelte';
 import { notices } from '../ui/notices.svelte';
-import type { EditCommand } from '../api/types';
+import type { AiReadResult, EditCommand } from '../api/types';
 
 async function setup(opts: { picture?: boolean } = {}) {
   const api = new MockApi(fixtureTree(80));
@@ -142,6 +142,19 @@ describe('TraceView', () => {
     await user.click(cardIn(vp, 'Olena Koval'));
     await user.click(await screen.findByRole('button', { name: 'Delete card' }));
     expect(within(vp).queryByRole('button', { name: 'Olena Koval' })).not.toBeInTheDocument();
+  });
+
+  it('deleting_the_selected_card_moves_focus_to_the_next_card_then_the_picture', async () => {
+    const { user } = await setup();
+    await markPerson(user, [100, 100], 'Ivan', 'Koval');
+    await markPerson(user, [400, 100], 'Olena', 'Koval');
+    const vp = screen.getByRole('application');
+    await user.click(cardIn(vp, 'Ivan Koval'));
+    await user.click(await screen.findByRole('button', { name: 'Delete card' }));
+    await waitFor(() => expect(cardIn(vp, 'Olena Koval')).toHaveFocus());
+    await user.click(cardIn(vp, 'Olena Koval'));
+    await user.click(await screen.findByRole('button', { name: 'Delete card' }));
+    await waitFor(() => expect(vp).toHaveFocus());
   });
 
   it('offers_same_as_for_a_person_already_in_the_tree_and_links_to_them', async () => {
@@ -326,6 +339,23 @@ describe('TraceView', () => {
       await user.click(screen.getByRole('button', { name: /Accept all/ }));
       expect(await screen.findByText(/3 new people, 1 family, 3 links/)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Add to tree' })).toBeEnabled();
+    });
+
+    it('cancel_while_reading_aborts_and_closes_and_the_late_answer_is_ignored', async () => {
+      const { api, user, dlg } = await openDialog();
+      let release: (r: AiReadResult) => void = () => {};
+      const real = api.aiReadPicture.bind(api);
+      api.aiReadPicture = (c, k) => new Promise<AiReadResult>((res) => (release = res)).then(async () => real(c, k));
+      await user.type(within(dlg).getByLabelText('Anthropic API key'), 'invented-key-for-tests');
+      await user.click(within(dlg).getByRole('checkbox', { name: /I understand/ }));
+      await user.click(within(dlg).getByRole('button', { name: 'Send picture' }));
+      expect(await within(dlg).findByText(/can take a few minutes/)).toBeInTheDocument();
+      await user.click(within(dlg).getByRole('button', { name: 'Cancel' }));
+      expect(api.aiCancels).toBe(1);
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      release({} as AiReadResult);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(screen.getByText(/0 new people/)).toBeInTheDocument();
     });
 
     it('a_refused_send_shows_what_to_do', async () => {

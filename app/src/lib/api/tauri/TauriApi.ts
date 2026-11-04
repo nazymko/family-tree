@@ -179,6 +179,9 @@ export class TauriApi implements Api {
   aiRemoveKey(): Promise<void> {
     return call('ai_remove_key');
   }
+  aiCancelRead(): Promise<void> {
+    return call('ai_cancel_read');
+  }
   aiReadPicture(consent: boolean, key: string | null): Promise<AiReadResult> {
     return call('ai_read_picture', { consent, key });
   }

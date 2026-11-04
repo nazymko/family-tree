@@ -15,7 +15,8 @@ pub const API_URL: &str = "https://api.anthropic.com/v1/messages";
 pub const API_VERSION: &str = "2026-10-21";
 pub const BETA_FALLBACKS: &str = "server-side-fallback-2026-07-01";
 pub const DEFAULT_MODEL: &str = "claude-opus-5-5";
-pub const TIMEOUT: Duration = Duration::from_secs(120);
+/// A dense picture with the reader thinking hard can take minutes.
+pub const TIMEOUT: Duration = Duration::from_secs(300);
 /// The longest side of the picture that is sent, in pixels.
 pub const MAX_SIDE: u32 = 2000;
 const MAX_TOKENS: u32 = 16_000;
@@ -58,7 +59,12 @@ pub trait KeyStore: Send + Sync {
     fn remove(&self) -> Result<(), String>;
 }
 
-/// `reqwest` with rustls.
+/// Set by the "cancel" command to stop the read that is in flight.
+pub static CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `reqwest` (async client, rustls). The request runs as a task on the app's runtime; the calling
+/// thread (a blocking-pool thread) waits for it and watches [`CANCEL`], aborting the task, which
+/// drops the request and closes the connection.
 pub struct ReqwestHttp;
 
 impl AiHttp for ReqwestHttp {
@@ -69,7 +75,8 @@ impl AiHttp for ReqwestHttp {
         body: &str,
         timeout: Duration,
     ) -> Result<HttpReply, String> {
-        let client = reqwest::blocking::Client::builder()
+        use std::sync::atomic::Ordering;
+        let client = reqwest::Client::builder()
             .timeout(timeout)
             .build()
             .map_err(|e| e.without_url().to_string())?;
@@ -77,16 +84,29 @@ impl AiHttp for ReqwestHttp {
         for (k, v) in headers {
             req = req.header(k.as_str(), v.as_str());
         }
-        let resp = req.send().map_err(|e| {
-            if e.is_timeout() {
-                "timeout".to_string()
-            } else {
-                e.without_url().to_string()
+        let task = tauri::async_runtime::spawn(async move {
+            let resp = req.send().await.map_err(|e| {
+                if e.is_timeout() {
+                    "timeout".to_string()
+                } else {
+                    e.without_url().to_string()
+                }
+            })?;
+            let status = resp.status().as_u16();
+            let body = resp.text().await.map_err(|e| e.without_url().to_string())?;
+            Ok::<HttpReply, String>(HttpReply { status, body })
+        });
+        loop {
+            if CANCEL.load(Ordering::SeqCst) {
+                task.abort();
+                return Err("cancelled".into());
             }
-        })?;
-        let status = resp.status().as_u16();
-        let body = resp.text().map_err(|e| e.without_url().to_string())?;
-        Ok(HttpReply { status, body })
+            if task.inner().is_finished() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        tauri::async_runtime::block_on(task).map_err(|_| "task failed".to_string())?
     }
 }
 
@@ -264,11 +284,17 @@ pub fn reply_text(reply: &HttpReply) -> Result<(String, bool), ApiError> {
         ));
     }
     let cut = stop == Some("max_tokens");
+    // After a server-side fallback the answer is whatever follows the LAST `fallback` block; text before
+    // it belongs to the attempt that was declined.
     let text: String = v
         .get("content")
         .and_then(Value::as_array)
         .map(|blocks| {
-            blocks
+            let from = blocks
+                .iter()
+                .rposition(|b| b.get("type").and_then(Value::as_str) == Some("fallback"))
+                .map_or(0, |i| i + 1);
+            blocks[from..]
                 .iter()
                 .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
                 .filter_map(|b| b.get("text").and_then(Value::as_str))
@@ -350,7 +376,9 @@ pub fn read_picture(
     let reply = http
         .post_json(API_URL, &build_headers(key), &body, TIMEOUT)
         .map_err(|why| {
-            if why == "timeout" {
+            if why == "cancelled" {
+                err(ErrorCode::Conflict, "Reading was cancelled.")
+            } else if why == "timeout" {
                 err(
                     ErrorCode::Io,
                     "Anthropic took too long to answer. Try again, or trace the picture by hand.",

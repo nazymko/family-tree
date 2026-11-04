@@ -75,6 +75,7 @@ command_list!(
     ai_key_status,
     ai_remove_key,
     ai_read_picture,
+    ai_cancel_read,
     open_media_externally,
     preview_export,
     export_gedcom,
@@ -510,6 +511,7 @@ pub async fn ai_read_picture(
     key: Option<String>,
 ) -> ApiResult<gt_session::AiReadResult> {
     let (bytes, _) = state.with_session(|s| s.trace_image_bytes())?;
+    crate::ai::CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
     crate::ai::read_picture_async(
         std::sync::Arc::new(crate::ai::ReqwestHttp),
         std::sync::Arc::new(crate::ai::Keychain),
@@ -519,6 +521,12 @@ pub async fn ai_read_picture(
         crate::ai::DEFAULT_MODEL.to_string(),
     )
     .await
+}
+
+/// Stops the read that is in flight; the request is aborted.
+#[tauri::command(async)]
+pub fn ai_cancel_read() {
+    crate::ai::CANCEL.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// The original file of a media item, but only when its CONTENT is an image or a PDF. The type is

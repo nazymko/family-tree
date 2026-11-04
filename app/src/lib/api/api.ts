@@ -97,6 +97,8 @@ export interface Api {
    * `key` is a key typed into the dialog; it is kept in the keychain once Anthropic accepts it.
    */
   aiReadPicture(consent: boolean, key: string | null): Promise<AiReadResult>;
+  /** Stops the read in flight; the request is aborted. */
+  aiCancelRead(): Promise<void>;
   previewExport(opts: ExportOptions): Promise<PrivacyPreview>;
   exportGedcom(opts: ExportOptions, dest: string, previewToken: string): Promise<{ bytes: number }>;
   getSettings(): Promise<Settings>;

@@ -20,6 +20,8 @@
   let hasKey = $state(false);
   let busy = $state(false);
   let error = $state('');
+  // Bumped on open and on cancel, so a late answer from an abandoned read is ignored.
+  let round = 0;
 
   // Every time the dialog opens it starts again: the box is unticked and the key field is empty.
   $effect(() => {
@@ -28,6 +30,7 @@
     key = '';
     error = '';
     busy = false;
+    round += 1;
     void api.aiKeyStatus().then((v) => (hasKey = v)).catch(() => (hasKey = false));
   });
 
@@ -38,17 +41,33 @@
     if (!canSend) return;
     busy = true;
     error = '';
+    const mine = ++round;
     try {
       const r = await api.aiReadPicture(understood, key.trim() || null);
+      if (mine !== round) return;
       key = '';
       onresult(r);
     } catch (e) {
+      if (mine !== round) return;
       error = e instanceof Error ? e.message : String(e);
       // The picture may already have left the computer: ask again before any retry.
       understood = false;
     } finally {
-      busy = false;
+      if (mine === round) busy = false;
     }
+  }
+
+  async function cancel() {
+    if (busy) {
+      round += 1;
+      busy = false;
+      try {
+        await api.aiCancelRead();
+      } catch {
+        // The dialog closes either way.
+      }
+    }
+    onclose();
   }
 
   async function removeKey() {
@@ -61,7 +80,7 @@
   }
 </script>
 
-<Dialog {open} title="Read names with AI" onclose={() => !busy && onclose()}>
+<Dialog {open} title="Read names with AI" onclose={() => void cancel()}>
   <div class="body">
     <p>
       The picture will be sent over the internet to Anthropic's Claude service, which reads the names on it.
@@ -85,10 +104,10 @@
     <Checkbox bind:checked={understood} label="I understand the picture is sent to Anthropic" />
 
     {#if error}<Banner kind="error">{error}</Banner>{/if}
-    {#if busy}<p role="status">Reading the picture. This can take a minute.</p>{/if}
+    {#if busy}<p role="status">Reading the picture. This can take a few minutes. You can cancel at any time.</p>{/if}
   </div>
   {#snippet footer()}
-    <Button onclick={onclose} disabled={busy}>Cancel</Button>
+    <Button onclick={() => void cancel()}>Cancel</Button>
     <Button variant="primary" disabled={!canSend} onclick={() => void send()}>Send picture</Button>
   {/snippet}
 </Dialog>
