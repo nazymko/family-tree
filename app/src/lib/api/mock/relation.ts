@@ -1,4 +1,4 @@
-import type { SexKind } from '../types';
+import type { RoleDto, SexKind } from '../types';
 
 // How a person on the relatives chart is related to the centred one. Mirrors crates/gt-session/src/relation.rs:
 // all the chart's relationship wording is in these two files.
@@ -54,5 +54,31 @@ export function relationLabel(rel: Rel, sex: SexKind): string {
       if (rel.of === 'sibling') return pick(sex, 'brother-in-law', 'sister-in-law', 'in-law');
       if (rel.of === 'aunt') return pick(sex, 'uncle by marriage', 'aunt by marriage', 'in-law');
       return sex === 'male' || sex === 'female' ? `${generations(rel.of, 'son', 'daughter', 'child', sex)}-in-law` : 'in-law';
+  }
+}
+
+/** `rel` as the structured role the real backend sends next to the label. */
+export function relationRole(rel: Rel, sex: SexKind): RoleDto {
+  const r: RoleDto = { kind: 'focus', n: 0, half: false, sex, k: 0 };
+  switch (rel.t) {
+    case 'ancestor':
+      return { ...r, kind: 'ancestor', n: rel.n };
+    case 'descendant':
+      return { ...r, kind: 'descendant', n: rel.n };
+    case 'sibling':
+      return { ...r, kind: 'sibling', half: rel.half };
+    case 'aunt':
+      return { ...r, kind: 'aunt_uncle', half: rel.half };
+    case 'nibling':
+      return { ...r, kind: 'niece_nephew' };
+    case 'cousin':
+      return { ...r, kind: 'cousin' };
+    case 'partner':
+      if (rel.of === 'focus') return { ...r, kind: 'partner' };
+      if (rel.of === 'sibling') return { ...r, kind: 'partner_of_sibling' };
+      if (rel.of === 'aunt') return { ...r, kind: 'partner_of_aunt_uncle' };
+      return { ...r, kind: 'partner_of_descendant', n: rel.of };
+    default:
+      return r;
   }
 }

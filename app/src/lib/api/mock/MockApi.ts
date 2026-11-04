@@ -168,6 +168,7 @@ export class MockApi implements Api {
       dayOrder: 'dmy',
       nameOrder: 'given-first',
       theme: 'system',
+      language: 'system',
       backupsToKeep: 10,
       livingMaxAge: 100,
       homePerson: fixture.homePerson,

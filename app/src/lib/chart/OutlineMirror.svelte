@@ -2,11 +2,13 @@
   import { tick, untrack } from 'svelte';
   import { getApi } from '../api/context';
   import type { Id, OutlineItem } from '../api/types';
+  import { t } from '../i18n';
+  import { outlineLabel, relationText } from '../i18n/relation';
 
   let {
     chartId,
     onPick,
-    label = 'Chart outline',
+    label,
     selected = null,
     onSelect,
   }: {
@@ -57,7 +59,7 @@
         focusId = items[0] ? pathOf('', items[0]) : null;
       })
       .catch((e) => {
-        if (live) failed = e instanceof Error ? e.message : 'The outline could not be loaded.';
+        if (live) failed = e instanceof Error ? e.message : t('chartCanvas.outlineFailed');
       });
     return () => {
       live = false;
@@ -75,7 +77,7 @@
         }
         kids[path] = items;
       } catch (e) {
-        failed = e instanceof Error ? e.message : 'The outline could not be loaded.';
+        failed = e instanceof Error ? e.message : t('chartCanvas.outlineFailed');
         return;
       } finally {
         loading[path] = false;
@@ -136,7 +138,7 @@
         break;
       case 'Enter':
       case ' ':
-        if (it.person) onPick(it.person.id, it.relation);
+        if (it.person) onPick(it.person.id, it.relation === undefined ? undefined : relationText(it));
         break;
       default:
         return;
@@ -176,8 +178,8 @@
           <span class="twist"></span>
         {/if}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <span class="text" ondblclick={() => it.person && onPick(it.person.id, it.relation)}>
-          <span class="rel">{it.label}</span>
+        <span class="text" ondblclick={() => it.person && onPick(it.person.id, it.relation === undefined ? undefined : relationText(it))}>
+          <span class="rel">{outlineLabel(it)}</span>
           {#if it.person}
             <bdi dir="auto" class="nm">{it.person.name}</bdi>
             {#if it.person.lifespan}<span class="life">{it.person.lifespan}</span>{/if}
@@ -188,7 +190,7 @@
         <ul role="group">
           {@render branch(kids[path], level + 1, path)}
           {#if kids[path].length >= LIMIT}
-            <li role="none" class="more">More people are not shown here. Centre the chart on this person to see them.</li>
+            <li role="none" class="more">{t('chartCanvas.moreHidden')}</li>
           {/if}
         </ul>
       {/if}
@@ -199,7 +201,7 @@
 {#if failed}
   <p class="err" role="alert">{failed}</p>
 {/if}
-<ul role="tree" aria-label={label} class="outline">
+<ul role="tree" aria-label={label ?? t('chartCanvas.outline')} class="outline">
   {@render branch(roots, 1, '')}
 </ul>
 

@@ -13,6 +13,7 @@
   import { settings } from '../state/settings.svelte';
   import { ui } from '../state/ui.svelte';
   import { registerShortcuts } from '../state/shortcuts';
+  import { t, plural, formatNumber } from '../i18n';
 
   const api = getApi();
   const PAGE = 200;
@@ -151,7 +152,9 @@
       {
         id: 'people-edit',
         keys: 'Mod+E',
-        label: 'Edit the selected person',
+        get label() {
+          return t('people.editSelected');
+        },
         run: () => {
           const r = rowAt(selected);
           if (r) {
@@ -166,7 +169,7 @@
 </script>
 
 <section class="people">
-  <h1>People</h1>
+  <h1>{t('people.title')}</h1>
 
   {#if failed}
     <p class="err" role="alert">{failed}</p>
@@ -175,17 +178,17 @@
   <PeopleFilters bind:query />
 
   <p class="status" role="status" aria-live="polite">
-    {#if first}<span class="tnum">{total}</span> {total === 1 ? 'person' : 'people'}{/if}
+    {#if first}<span class="tnum">{formatNumber(total)}</span> {plural('people.noun', total)}{/if}
   </p>
 
   {#if first && total === 0 && !filtered}
-    <EmptyState title="This tree is empty. Add the first person.">
+    <EmptyState title={t('people.emptyTree')}>
       {#snippet action()}
-        <Button variant="primary" onclick={() => ui.requestAdd()}>Add person</Button>
+        <Button variant="primary" onclick={() => ui.requestAdd()}>{t('people.addPerson')}</Button>
       {/snippet}
     </EmptyState>
   {:else if first && total === 0}
-    <p class="none">Nobody matches these filters. <Button variant="quiet" onclick={clearFilters}>Clear filters</Button></p>
+    <p class="none">{t('people.noMatch')} <Button variant="quiet" onclick={clearFilters}>{t('people.clearFilters')}</Button></p>
   {:else if first}
     <div class="body">
       <div class="listbox">
@@ -201,7 +204,7 @@
             onSelect={(i) => (selected = i)}
             onActivate={open}
             onDelete={(i) => (confirmDelete = rowAt(i))}
-            ariaLabel="People"
+            ariaLabel={t('people.title')}
             keyPrefix="person-row"
           >
             <!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
@@ -212,7 +215,7 @@
         {/key}
       </div>
       {#if canRail}
-        <nav class="rail" aria-label="Jump to letter">
+        <nav class="rail" aria-label={t('people.jumpToLetter')}>
           {#each rail.letters as l (l)}
             <button type="button" disabled={rail.m[l] === undefined} onclick={() => jump(rail.m[l])}>
               {l}
@@ -221,12 +224,12 @@
           <button
             type="button"
             class="other"
-            aria-label="Other scripts"
-            title="Other scripts"
+            aria-label={t('people.otherScripts')}
+            title={t('people.otherScripts')}
             disabled={rail.other === null}
             onclick={() => rail.other !== null && jump(rail.other)}
           >
-            Other
+            {t('people.other')}
           </button>
         </nav>
       {/if}
@@ -234,14 +237,13 @@
   {/if}
 </section>
 
-<Dialog open={confirmDelete !== null} title="Delete person" onclose={() => (confirmDelete = null)}>
+<Dialog open={confirmDelete !== null} title={t('people.deleteTitle')} onclose={() => (confirmDelete = null)}>
   <p>
-    Delete <bdi dir="auto">{confirmDelete?.name}</bdi>? Their links to parents, partners and children are removed too. You
-    can undo this.
+    {t('people.deleteBefore')}<bdi dir="auto">{confirmDelete?.name}</bdi>{t('people.deleteAfter')}
   </p>
   {#snippet footer()}
-    <Button onclick={() => (confirmDelete = null)}>Cancel</Button>
-    <Button variant="danger" onclick={doDelete}>Delete person</Button>
+    <Button onclick={() => (confirmDelete = null)}>{t('common.cancel')}</Button>
+    <Button variant="danger" onclick={doDelete}>{t('people.deleteTitle')}</Button>
   {/snippet}
 </Dialog>
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
   import Icon from '../ui/Icon.svelte';
+  import { t } from '../i18n';
   import IconButton from '../ui/IconButton.svelte';
   import { cardName, clickBox, fitBox, type TraceBox, type TraceDraft } from './model';
 
@@ -279,23 +280,23 @@
 </script>
 
 <div class="canvas">
-  <div class="bar" role="toolbar" aria-label="Picture tools">
-    <div class="group" role="group" aria-label="Tool">
-      <button type="button" class="tool" aria-pressed={tool === 'mark'} onclick={() => (tool = 'mark')}>Mark people</button>
-      <button type="button" class="tool" aria-pressed={tool === 'pan'} onclick={() => (tool = 'pan')}>Move picture</button>
+  <div class="bar" role="toolbar" aria-label={t('trace.pictureTools')}>
+    <div class="group" role="group" aria-label={t('trace.tool')}>
+      <button type="button" class="tool" aria-pressed={tool === 'mark'} onclick={() => (tool = 'mark')}>{t('trace.toolMark')}</button>
+      <button type="button" class="tool" aria-pressed={tool === 'pan'} onclick={() => (tool = 'pan')}>{t('trace.toolPan')}</button>
     </div>
     <button type="button" class="tool add" onclick={() => markCenter()}>
-      <Icon name="user-plus" /> Add a person
+      <Icon name="user-plus" /> {t('trace.addPerson')}
     </button>
-    <div class="group" role="group" aria-label="Zoom">
-      <IconButton label="Zoom out" icon="minus" onclick={() => zoomAt(1 / 1.25)} />
+    <div class="group" role="group" aria-label={t('trace.zoom')}>
+      <IconButton label={t('chartCanvas.zoomOut')} icon="minus" onclick={() => zoomAt(1 / 1.25)} />
       <span class="pct tnum" aria-live="polite">{Math.round(z * 100)}%</span>
-      <IconButton label="Zoom in" icon="plus" onclick={() => zoomAt(1.25)} />
-      <button type="button" class="tool" onclick={() => fit()}>Fit</button>
+      <IconButton label={t('chartCanvas.zoomIn')} icon="plus" onclick={() => zoomAt(1.25)} />
+      <button type="button" class="tool" onclick={() => fit()}>{t('chartCanvas.fit')}</button>
     </div>
   </div>
 
-  <button type="button" class="skip" onclick={() => onskip?.()}>Skip the picture and go to the review panel</button>
+  <button type="button" class="skip" onclick={() => onskip?.()}>{t('trace.skip')}</button>
 
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
   <div
@@ -305,12 +306,12 @@
     class:linking
     role="application"
     tabindex="0"
-    aria-label="Picture. Drag to mark a person. Plus and minus zoom, arrow keys move the picture."
+    aria-label={t('trace.canvasLabel')}
     onmousedown={backgroundDown}
     onkeydown={viewportKey}
   >
     <div class="stage" bind:this={stage} style="--z:{z};width:{imgW}px;height:{imgH}px;transform:translate({tx}px,{ty}px) scale({z})">
-      <img src={imageUrl} alt="The family tree being traced" width={imgW} height={imgH} draggable="false" />
+      <img src={imageUrl} alt={t('trace.imageAlt')} width={imgW} height={imgH} draggable="false" />
 
       <svg class="links" width={imgW} height={imgH} viewBox="0 0 {imgW} {imgH}" aria-hidden="true">
         <defs>
@@ -343,13 +344,13 @@
           class:suggested={c.suggested}
           class:matched={!!c.existing}
           style="left:{c.x * imgW}px;top:{c.y * imgH}px;width:{c.w * imgW}px;height:{c.h * imgH}px"
-          aria-label="{cardName(c) || 'Unnamed person'}{c.suggested ? ', suggestion' : ''}{c.existing ? ', already in the tree' : ''}"
+          aria-label="{cardName(c) || t('trace.unnamedPerson')}{c.suggested ? t('trace.cardSuggestion') : ''}{c.existing ? t('trace.cardInTree') : ''}"
           aria-pressed={c.id === selectedId}
           onmousedown={(e) => cardDown(e, c.id)}
           onclick={() => (linking ? onpick(c.id) : onselect(c.id))}
           onkeydown={(e) => cardKey(e, c.id)}
         >
-          <span class="name">{cardName(c) || 'New person'}</span>
+          <span class="name">{cardName(c) || t('trace.newPerson')}</span>
         </button>
       {/each}
 

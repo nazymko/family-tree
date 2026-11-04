@@ -7,6 +7,7 @@
   import { getApi } from '../api/context';
   import type { PersonRef, SexKind } from '../api/types';
   import type { LinkKind, TraceCard } from './model';
+  import { t } from '../i18n';
 
   interface Props {
     card: TraceCard;
@@ -19,13 +20,13 @@
   let { card = $bindable(), onlink, ondelete, onclose, onaccept, onreject }: Props = $props();
 
   const api = getApi();
-  const SEX: { value: SexKind; label: string }[] = [
-    { value: 'unknown', label: 'Not known' },
-    { value: 'male', label: 'Male' },
-    { value: 'female', label: 'Female' },
-    { value: 'intersex', label: 'Intersex' },
-    { value: 'other', label: 'Other' },
-  ];
+  const SEX = $derived<{ value: SexKind; label: string }[]>([
+    { value: 'unknown', label: t('trace.sexUnknown') },
+    { value: 'male', label: t('trace.sexMale') },
+    { value: 'female', label: t('trace.sexFemale') },
+    { value: 'intersex', label: t('trace.sexIntersex') },
+    { value: 'other', label: t('trace.sexOther') },
+  ]);
 
   let matches = $state<PersonRef[]>([]);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -66,7 +67,7 @@
         if (card.existing?.id !== id) return;
         card.existing.families = d.partnerships.map((x) => ({
           id: x.familyId,
-          label: x.partner ? `With ${x.partner.name}` : 'No partner recorded',
+          label: x.partner ? t('trace.withPartner', { name: x.partner.name }) : t('trace.noPartner'),
         }));
       })
       .catch(() => {
@@ -79,70 +80,70 @@
     matches = [];
   }
 
-  const title = $derived(card.existing ? 'Person already in the tree' : card.suggested ? 'Suggested person' : 'Person on the picture');
+  const title = $derived(card.existing ? t('trace.formExisting') : card.suggested ? t('trace.formSuggested') : t('trace.formPlain'));
 </script>
 
 <div class="form" role="group" aria-label={title}>
   <h3>{title}</h3>
 
   {#if card.suggested}
-    <p class="note">The AI reader suggested this card. It is not added until you accept it.</p>
-    {#if card.unsure}<p class="need" role="status">The AI reader was not sure about this one. Check the name.</p>{/if}
+    <p class="note">{t('trace.suggestedNote')}</p>
+    {#if card.unsure}<p class="need" role="status">{t('trace.unsureNote')}</p>{/if}
     <div class="row">
-      <Button variant="primary" onclick={onaccept}>Accept this person</Button>
-      <Button onclick={onreject}>Remove suggestion</Button>
+      <Button variant="primary" onclick={onaccept}>{t('trace.acceptOne')}</Button>
+      <Button onclick={onreject}>{t('trace.removeSuggestion')}</Button>
     </div>
   {/if}
 
   {#if card.existing}
-    <p class="same">Same as <strong>{card.existing.name}</strong>. Nothing new is created for this card.</p>
+    <p class="same">{t('trace.sameAsBefore')}<strong>{card.existing.name}</strong>{t('trace.sameAsAfter')}</p>
     {#if (card.existing.families?.length ?? 0) > 1}
       {@const ex = card.existing}
       <Select
-        label="Family the children belong to"
-        options={[{ value: '', label: 'Choose a family' }, ...(ex.families ?? []).map((f) => ({ value: f.id, label: f.label }))]}
+        label={t('trace.familyChildren')}
+        options={[{ value: '', label: t('trace.chooseFamily') }, ...(ex.families ?? []).map((f) => ({ value: f.id, label: f.label }))]}
         value={ex.familyId ?? ''}
         onchange={(v) => (ex.familyId = v || undefined)}
       />
-      <p class="note">This person is in more than one family in your tree. Children linked to this card are added to the family you choose.</p>
+      <p class="note">{t('trace.severalFamilies')}</p>
     {/if}
-    <Button onclick={() => (card.existing = null)}>Not the same person</Button>
+    <Button onclick={() => (card.existing = null)}>{t('trace.notSame')}</Button>
   {:else}
-    <TextField label="Given name" bind:value={card.given} autocomplete="off" />
-    <TextField label="Surname" bind:value={card.surname} autocomplete="off" />
-    <TextField label="Patronymic" bind:value={card.patronymic} autocomplete="off" />
+    <TextField label={t('trace.given')} bind:value={card.given} autocomplete="off" />
+    <TextField label={t('trace.surname')} bind:value={card.surname} autocomplete="off" />
+    <TextField label={t('trace.patronymic')} bind:value={card.patronymic} autocomplete="off" />
 
     {#if matches.length > 0}
-      <ul class="matches" aria-label="People already in the tree with a similar name">
+      <ul class="matches" aria-label={t('trace.similar')}>
         {#each matches as m (m.id)}
           <li>
-            <Button onclick={() => sameAs(m)} aria-label="Same as {m.name}{m.lifespan ? `, ${m.lifespan}` : ''}">
-              Same as {m.name}{m.lifespan ? ` (${m.lifespan})` : ''}
+            <Button onclick={() => sameAs(m)} aria-label={m.lifespan ? t('trace.sameAsLabel', { name: m.name, life: m.lifespan }) : t('trace.sameAs', { name: m.name })}>
+              {m.lifespan ? t('trace.sameAsLife', { name: m.name, life: m.lifespan }) : t('trace.sameAs', { name: m.name })}
             </Button>
           </li>
         {/each}
       </ul>
     {/if}
 
-    <Select label="Sex" options={SEX} value={card.sex} onchange={(v) => (card.sex = v as SexKind)} />
+    <Select label={t('trace.sex')} options={SEX} value={card.sex} onchange={(v) => (card.sex = v as SexKind)} />
     <div class="two">
-      <TextField label="Birth year" bind:value={card.birth} inputmode="text" autocomplete="off" />
-      <TextField label="Death year" bind:value={card.death} inputmode="text" autocomplete="off" />
+      <TextField label={t('trace.birthYear')} bind:value={card.birth} inputmode="text" autocomplete="off" />
+      <TextField label={t('trace.deathYear')} bind:value={card.death} inputmode="text" autocomplete="off" />
     </div>
-    <TextArea label="Notes" bind:value={card.notes} rows={2} />
+    <TextArea label={t('trace.notes')} bind:value={card.notes} rows={2} />
     {#if !card.given.trim() && !card.surname.trim()}
-      <p class="need" role="status">Enter a given name or a surname.</p>
+      <p class="need" role="status">{t('trace.needName')}</p>
     {/if}
   {/if}
 
-  <div class="links" role="group" aria-label="Link this person to another card">
-    <Button onclick={() => onlink('parent')}>Parent of…</Button>
-    <Button onclick={() => onlink('child')}>Child of…</Button>
-    <Button onclick={() => onlink('partner')}>Partner of…</Button>
+  <div class="links" role="group" aria-label={t('trace.linkGroup')}>
+    <Button onclick={() => onlink('parent')}>{t('trace.parentOf')}</Button>
+    <Button onclick={() => onlink('child')}>{t('trace.childOf')}</Button>
+    <Button onclick={() => onlink('partner')}>{t('trace.partnerOf')}</Button>
   </div>
   <div class="row">
-    <Button onclick={onclose}>Done</Button>
-    <Button variant="danger" onclick={ondelete}>Delete card</Button>
+    <Button onclick={onclose}>{t('trace.done')}</Button>
+    <Button variant="danger" onclick={ondelete}>{t('trace.deleteCard')}</Button>
   </div>
 </div>
 

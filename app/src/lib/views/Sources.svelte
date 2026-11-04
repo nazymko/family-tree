@@ -9,6 +9,7 @@
   import { notices } from '../ui/notices.svelte';
   import { project } from '../state/project.svelte';
   import type { Id, SourceDto } from '../api/api';
+  import { t, plural } from '../i18n';
 
   let { selectedId = null }: { selectedId?: Id | null } = $props();
   const api = getApi();
@@ -21,7 +22,7 @@
   let seq = 0;
 
   const current = $derived(list.find((s) => s.id === selected) ?? null);
-  const count = (n: number) => `${n} ${n === 1 ? 'citation' : 'citations'}`;
+  const count = (n: number) => plural('sources.citations', n);
 
   async function reload(q: string) {
     const mine = ++seq;
@@ -56,7 +57,7 @@
     error = '';
     try {
       await api.apply({ type: 'saveSource', source: { id: selected, ...clean(v) } }, { silent: true });
-      notices.show({ message: 'Source saved' });
+      notices.show({ message: t('sources.saved') });
       await reload(filter);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -68,7 +69,7 @@
     try {
       const r = await api.apply({ type: 'saveSource', source: clean(v) }, { silent: true });
       creating = false;
-      notices.show({ message: 'Source added' });
+      notices.show({ message: t('sources.added') });
       selected = r.touched[0] ?? null;
       filter = '';
       await reload('');
@@ -80,24 +81,24 @@
 
 <section class="sources">
   <header>
-    <h1>Sources</h1>
+    <h1>{t('sources.title')}</h1>
     <Button
       variant="primary"
       onclick={() => {
         creating = true;
         error = '';
-      }}>New source</Button
+      }}>{t('sources.newSource')}</Button
     >
   </header>
   <div class="cols">
     <div class="left">
-      <TextField label="Filter sources" type="search" bind:value={filter} autocomplete="off" />
+      <TextField label={t('sources.filter')} type="search" bind:value={filter} autocomplete="off" />
       {#if loaded && list.length === 0}
-        <EmptyState title={filter ? 'No matching sources' : 'No sources yet'}>
-          {filter ? 'Try a different word from the title.' : 'Sources you cite will be listed here.'}
+        <EmptyState title={filter ? t('sources.noMatching') : t('sources.noneYet')}>
+          {filter ? t('sources.tryDifferent') : t('sources.listedHere')}
         </EmptyState>
       {:else}
-        <ul aria-label="Sources">
+        <ul aria-label={t('sources.title')}>
           {#each list as s (s.id)}
             <li>
               <button
@@ -109,7 +110,7 @@
                   error = '';
                 }}
               >
-                <span class="title">{s.title ?? '(untitled source)'}</span>
+                <span class="title">{s.title ?? t('sources.untitled')}</span>
                 <span class="n">{count(s.citationCount)}</span>
               </button>
             </li>
@@ -120,21 +121,21 @@
     <div class="right">
       {#if current}
         {#key current.id}
-          <h2>{current.title ?? '(untitled source)'}</h2>
+          <h2>{current.title ?? t('sources.untitled')}</h2>
           <p class="n">{count(current.citationCount)}</p>
           {#if error}<Banner kind="error">{error}</Banner>{/if}
-          <SourceForm source={current} submitLabel="Save source" onSubmit={save} />
+          <SourceForm source={current} submitLabel={t('sources.saveSource')} onSubmit={save} />
         {/key}
       {:else}
-        <p class="n">Choose a source to see and edit its details.</p>
+        <p class="n">{t('sources.chooseOne')}</p>
       {/if}
     </div>
   </div>
 </section>
 
-<Dialog open={creating} title="New source" onclose={() => (creating = false)}>
+<Dialog open={creating} title={t('sources.newSource')} onclose={() => (creating = false)}>
   {#if error}<Banner kind="error">{error}</Banner>{/if}
-  <SourceForm submitLabel="Add source" onSubmit={create} />
+  <SourceForm submitLabel={t('sources.addSource')} onSubmit={create} />
 </Dialog>
 
 <style>

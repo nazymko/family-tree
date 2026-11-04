@@ -2,6 +2,7 @@
   import Button from './Button.svelte';
   import IconButton from './IconButton.svelte';
   import Icon from './Icon.svelte';
+  import { t } from '../i18n';
 
   let {
     message,
@@ -25,7 +26,7 @@
     <Button variant="quiet" onclick={() => onaction?.()}>{actionLabel}</Button>
   {/if}
   {#if ondismiss}
-    <IconButton label="Dismiss" icon="x" onclick={ondismiss} />
+    <IconButton label={t('common.dismiss')} icon="x" onclick={ondismiss} />
   {/if}
 </div>
 

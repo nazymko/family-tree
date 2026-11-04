@@ -17,6 +17,7 @@ macro_rules! wire_enum {
 wire_enum!(DayOrder, "lowercase", { Dmy, Mdy });
 wire_enum!(SexKind, "lowercase", { Male, Female, Intersex, Unknown, Other });
 wire_enum!(Theme, "lowercase", { Light, Dark, System });
+wire_enum!(Language, "lowercase", { En, Uk, System });
 wire_enum!(DateStatus, "lowercase", { Ok, Phrase, Unparsed });
 wire_enum!(HitKindDto, "lowercase", { Person, Place, Source, Note });
 wire_enum!(LivingOverrideDto, "lowercase", { Living, Deceased });
@@ -344,6 +345,8 @@ pub struct Settings {
     pub day_order: DayOrder,
     pub name_order: NameOrder,
     pub theme: Theme,
+    /// Interface language; `system` follows the OS language.
+    pub language: Language,
     pub backups_to_keep: u32,
     /// Project setting.
     pub living_max_age: u32,
@@ -357,6 +360,7 @@ impl Default for Settings {
             day_order: DayOrder::Dmy,
             name_order: NameOrder::GivenFirst,
             theme: Theme::System,
+            language: Language::System,
             backups_to_keep: 10,
             living_max_age: 100,
             home_person: None,
@@ -377,6 +381,11 @@ pub struct DatePreview {
 
 // ---- Charts (mirrors ChartRequest .. OutlineItem in types.ts) ----
 
+wire_enum!(RoleKind, "snake_case", {
+    SelfPerson, Focus, Ancestor, Descendant, Sibling, AuntUncle, NieceNephew, Cousin, Partner,
+    PartnerOfSibling, PartnerOfAuntUncle, PartnerOfDescendant, AncestorNo, DescendantNo, Generation
+});
+wire_enum!(OutlineGroupKind, "snake_case", { Parents, Siblings, Partners, Children, AuntsUncles });
 wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants, Relatives, Whole });
 wire_enum!(EdgeKindDto, "lowercase", { Parent, Partner, Dup });
 
@@ -450,6 +459,34 @@ pub struct ChartNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub relation: Option<String>,
+    /// The same information as `relation` / the role inside `label`, as data, so the UI can word it in its own language.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub role: Option<RoleDto>,
+}
+
+/// What a chart person is: how they are related, or which generation / ancestor number they are.
+/// `n` is the number of generations (or the ancestor or generation number), `k` the position among children
+/// in a descendant outline, `sex` the sex of the person described.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct RoleDto {
+    pub kind: RoleKind,
+    pub n: i32,
+    pub half: bool,
+    pub sex: SexKind,
+    pub k: u32,
+}
+
+impl RoleDto {
+    pub fn new(kind: RoleKind, n: i32, sex: SexKind) -> Self {
+        Self {
+            kind,
+            n,
+            half: false,
+            sex,
+            k: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -508,6 +545,20 @@ pub struct OutlineItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub relation: Option<String>,
+    /// The role as data (see `ChartNode::role`); absent for group headings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub role: Option<RoleDto>,
+    /// Set on the heading rows of the relatives outline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub group: Option<OutlineGroupKind>,
+    /// The person is also drawn earlier on the chart.
+    #[serde(default)]
+    pub appears_earlier: bool,
+    /// The person is also listed higher up in the relatives outline.
+    #[serde(default)]
+    pub also_above: bool,
 }
 
 /// A child in a `FamilyDto`: the child plus whether this family is the child's preferred one.

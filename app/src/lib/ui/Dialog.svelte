@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import IconButton from './IconButton.svelte';
+  import { t } from '../i18n';
 
   let {
     open,
@@ -67,7 +68,7 @@
     >
       <header>
         <h2 id="{uid}-title">{title}</h2>
-        <IconButton label="Close" icon="x" onclick={onclose} />
+        <IconButton label={t('common.close')} icon="x" onclick={onclose} />
       </header>
       <div class="body">{@render children()}</div>
       {#if footer}<footer>{@render footer()}</footer>{/if}

@@ -12,6 +12,8 @@
   import Minimap from './Minimap.svelte';
   import { WindowCache } from './window';
   import { drawWhole, wholeThemeFromCss, type WholeTheme } from './wholeRenderer';
+  import { nodeLabel } from '../i18n/relation';
+  import { t } from '../i18n';
   import { founderOf } from './wholeStart';
 
   let {
@@ -195,7 +197,7 @@
     try {
       m = await api.chartOpenWhole();
     } catch (e) {
-      if (seq === openSeq) errorText = e instanceof Error ? e.message : 'The whole tree could not be opened.';
+      if (seq === openSeq) errorText = e instanceof Error ? e.message : t('whole.openFailed');
       return;
     }
     if (seq !== openSeq) return;
@@ -247,7 +249,7 @@
         if (f) {
           startRect = f.rect;
           startId = f.id;
-          startNote = 'Showing the oldest generation of the largest family: press F for the overview';
+          startNote = t('whole.startNote');
         }
       }
     } catch (e) {
@@ -375,7 +377,7 @@
 
   function announceOnce(): void {
     pendingAnnounce = false;
-    announcement = selNode && selNode.label ? selNode.label : '';
+    announcement = selNode && selNode.label ? nodeLabel(selNode) : '';
   }
 
   /** Far out the window carries only the surname; ask for the real name and dates of the one selected card. */
@@ -429,7 +431,7 @@
     try {
       const loc = await api.chartLocate(m.meta.chartId, person);
       if (!loc) {
-        announcement = 'That person is not in the tree.';
+        announcement = t('whole.notInTree');
         return;
       }
       flyTo(loc.nodeId, loc.rect, Math.max(cam.zoom, 0.8));
@@ -597,7 +599,7 @@
         e.preventDefault();
         selected = null;
         selNode = null;
-        announcement = 'Selection cleared.';
+        announcement = t('whole.selectionCleared');
         invalidate();
       }
     } else if (e.key === 'Enter') {
@@ -632,10 +634,10 @@
 </script>
 
 <div class="chart">
-  <div class="toolbar" role="toolbar" aria-label="Whole tree tools">
+  <div class="toolbar" role="toolbar" aria-label={t('whole.tools')}>
     <div class="find">
       <Combobox
-        label="Find a person…"
+        label={t('whole.find')}
         items={hits}
         value={null}
         text={searchText}
@@ -645,14 +647,14 @@
         detail={(h) => h.snippet ?? undefined}
       />
     </div>
-    <Button onclick={() => zoomBy(1.25)}>Zoom in</Button>
-    <Button onclick={() => zoomBy(0.8)}>Zoom out</Button>
-    <Button onclick={fitAll}>Fit all</Button>
-    <Button disabled={selected === null} onclick={actualSize}>100% on this person</Button>
-    <IconButton label="Go to home person" icon="home" disabled={homeNode === null} onclick={goHome} />
-    <Button aria-pressed={lineageOn} onclick={() => (lineageOn = !lineageOn)}>Highlight family line</Button>
-    <Button disabled={!selNode?.person} onclick={() => selNode?.person && onOpenPerson(selNode.person.id)}>Open person</Button>
-    <Button disabled={!selNode?.person} onclick={() => selNode?.person && onOpenInPedigree(selNode.person.id)}>Show in Pedigree</Button>
+    <Button onclick={() => zoomBy(1.25)}>{t('chartCanvas.zoomIn')}</Button>
+    <Button onclick={() => zoomBy(0.8)}>{t('chartCanvas.zoomOut')}</Button>
+    <Button onclick={fitAll}>{t('whole.fitAll')}</Button>
+    <Button disabled={selected === null} onclick={actualSize}>{t('whole.actualSize')}</Button>
+    <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={homeNode === null} onclick={goHome} />
+    <Button aria-pressed={lineageOn} onclick={() => (lineageOn = !lineageOn)}>{t('whole.lineage')}</Button>
+    <Button disabled={!selNode?.person} onclick={() => selNode?.person && onOpenPerson(selNode.person.id)}>{t('whole.openPerson')}</Button>
+    <Button disabled={!selNode?.person} onclick={() => selNode?.person && onOpenInPedigree(selNode.person.id)}>{t('whole.showInPedigree')}</Button>
     <span class="zoom" aria-live="off">{zoomPct}%</span>
   </div>
   <div class="stage" bind:this={box}>
@@ -660,7 +662,7 @@
     <canvas
       bind:this={canvas}
       role="application"
-      aria-label="Whole tree chart"
+      aria-label={t('whole.chart')}
       aria-describedby="{uid}-help"
       aria-activedescendant={selected !== null ? `${uid}-sel` : undefined}
       tabindex="0"
@@ -671,9 +673,9 @@
       {ondblclick}
       {onkeydown}
     ></canvas>
-    <div class="sr-only" role="listbox" aria-label="Selected person">
+    <div class="sr-only" role="listbox" aria-label={t('chartCanvas.selectedPerson')}>
       {#if selNode}
-        <div id="{uid}-sel" role="option" aria-selected="true">{selNode.label || selNode.person?.name}</div>
+        <div id="{uid}-sel" role="option" aria-selected="true">{selNode.label ? nodeLabel(selNode) : selNode.person?.name}</div>
       {/if}
     </div>
     {#if hint}
@@ -685,10 +687,7 @@
       </div>
     {/if}
     <p id="{uid}-help" class="sr-only">
-      Arrow keys move the view. With a person selected they move between relatives instead: up to a parent, down to a
-      child, left and right to a sibling. Hold Shift to move the view anyway. Escape clears the selection. Enter opens the
-      person. P shows them in the Pedigree. L turns the family line highlight on or off. F fits everyone. 1 shows 100%.
-      Home goes to the home person.
+      {t('whole.help')}
     </p>
     <div class="sr-only" role="status" aria-live="polite">{announcement}</div>
     {#if errorText}

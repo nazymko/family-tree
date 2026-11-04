@@ -1,6 +1,8 @@
 import type { ChartEdge, ChartKind, ChartNode, ChartWindow } from '../api/types';
 import type { Camera } from './camera';
 import { HANDLE_R, handleSpots } from './hit';
+import { t } from '../i18n';
+import { relationText } from '../i18n/relation';
 
 export type Lod = 'full' | 'boxes' | 'dots';
 
@@ -230,9 +232,9 @@ export function draw(
       ctx.textAlign = 'left';
       ctx.fillStyle = isDup ? theme.ink2 : theme.ink;
       ctx.font = `600 13px ${theme.serif}`;
-      const sub = isDup ? 'also shown elsewhere' : (n.person?.lifespan ?? '');
+      const sub = isDup ? t('role.shownElsewhere') : (n.person?.lifespan ?? '');
       // Relatives chart: how this person is related to the centred one, at the right of the second line.
-      const rel = kind === 'relatives' && !isDup && n.id !== focus ? (n.relation ?? '') : '';
+      const rel = kind === 'relatives' && !isDup && n.id !== focus ? relationText(n) : '';
       const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '' || rel !== '');
       lines.forEach((line, i) => ctx.fillText(line, left, n.y + 23 + i * 18));
       ctx.fillStyle = theme.ink2;

@@ -10,6 +10,7 @@
   import { getApi, getPlatform } from '../api/context';
   import type { AiReadResult, TraceImageInfo } from '../api/types';
   import { nav } from '../state/nav.svelte';
+  import { plural, t, type MessageKey } from '../i18n';
   import AiReadDialog from './AiReadDialog.svelte';
   import { MEDIA_EXTENSIONS } from '../media/Dropzone.svelte';
   import TraceCanvas from './TraceCanvas.svelte';
@@ -50,6 +51,7 @@
   let discardOpen = $state(false);
   let aiOpen = $state(false);
   let side = $state<HTMLElement>();
+  const LINK_BANNER: Record<LinkKind, MessageKey> = { parent: 'trace.linkChild', child: 'trace.linkParent', partner: 'trace.linkPartner' };
 
   function aiDone(r: AiReadResult) {
     aiOpen = false;
@@ -57,16 +59,19 @@
     rejectAll(draft);
     const res = addSuggestions(draft, r);
     if (res.cards === 0) {
-      error = 'The AI reader did not find any names on this picture. Mark them by hand instead.';
+      error = t('trace.aiNone');
       return;
     }
     error = '';
-    const skipped = res.skipped
-      ? ` It skipped ${res.skipped} unclear ${res.skipped === 1 ? 'entry' : 'entries'}.`
-      : '';
-    const cut = r.truncated ? ' The answer was cut short, so some names may be missing.' : '';
     notices.show({
-      message: `The AI reader suggested ${res.cards} ${res.cards === 1 ? 'person' : 'people'}.${skipped}${cut} Check them, then accept.`,
+      message: [
+        plural('trace.aiSuggested', res.cards),
+        res.skipped ? plural('trace.aiSkipped', res.skipped) : '',
+        r.truncated ? t('trace.aiCut') : '',
+        t('trace.aiCheck'),
+      ]
+        .filter(Boolean)
+        .join(' '),
     });
   }
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -102,7 +107,7 @@
     try {
       await api.saveTraceDraft(json);
     } catch (e) {
-      error = `Your trace could not be saved. ${message(e)}`;
+      error = t('trace.saveFailed', { reason: message(e) });
     }
   }
   onDestroy(() => void flush());
@@ -114,15 +119,14 @@
   const canAdd = $derived(!busy && (total.newPeople > 0 || total.families > 0) && built.problems.length === 0);
   const nameOf = (id: string) => {
     const c = draft.cards.find((x) => x.id === id);
-    return (c && cardName(c)) || 'an unnamed card';
+    return (c && cardName(c)) || t('trace.unnamedCardLower');
   };
-  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   const summary = $derived(
     [
-      plural(total.newPeople, 'new person', 'new people'),
-      total.matched > 0 ? `${plural(total.matched, 'person', 'people')} already in the tree` : '',
-      plural(total.families, 'family', 'families'),
-      plural(total.links, 'link', 'links'),
+      plural('trace.sumNew', total.newPeople),
+      total.matched > 0 ? plural('trace.sumMatched', total.matched) : '',
+      plural('trace.sumFamilies', total.families),
+      plural('trace.sumLinks', total.links),
     ]
       .filter(Boolean)
       .join(', ') + '.',
@@ -130,7 +134,7 @@
 
   async function choosePicture() {
     error = '';
-    const path = await platform.pickFile({ title: 'Choose a picture of a family tree', extensions: PICTURE_EXTENSIONS });
+    const path = await platform.pickFile({ title: t('trace.pickTitle'), extensions: PICTURE_EXTENSIONS });
     if (!path) return;
     try {
       image = await api.stageTraceImage(path);
@@ -145,7 +149,7 @@
     if (linking) return;
     const card = addCard(draft, box);
     if (!card) {
-      error = 'This trace has 500 cards, the most it can hold. Add these people to the tree first.';
+      error = t('trace.tooMany');
       return;
     }
     selectedId = card.id;
@@ -188,7 +192,14 @@
       const people = total.newPeople;
       const families = total.families;
       notices.show(
-        undoNotice(api, (people > 0 ? `Added ${plural(people, 'person', 'people')}` : 'Linked the people on the picture') + (families > 0 ? ` and ${families === 1 ? 'one family' : plural(families, 'family', 'families')} (new or updated).` : '.'), r.undo),
+        undoNotice(
+          api,
+          t(families > 0 ? 'trace.addedWithFamilies' : 'trace.addedDone', {
+            head: people > 0 ? plural('trace.addedPeople', people) : t('trace.linkedPeople'),
+            families: families === 1 ? t('trace.oneFamily') : plural('trace.familiesAdded', families),
+          }),
+          r.undo,
+        ),
       );
       await api.discardTraceDraft();
       draft = newDraft();
@@ -223,25 +234,24 @@
 
 <div class="trace">
   <header class="head">
-    <h1>Trace a tree picture</h1>
-    <p class="lede">Mark each name on the picture, link the people, then add them to the tree.</p>
+    <h1>{t('trace.title')}</h1>
+    <p class="lede">{t('trace.lede')}</p>
   </header>
 
   {#if error}<Banner kind="error">{error}</Banner>{/if}
   {#if linking}
     <Banner kind="info">
-      Click the card of the person who {linking.kind === 'parent' ? 'is the child' : linking.kind === 'child' ? 'is the parent' : 'is the partner'} of
-      {nameOf(linking.from)}. Press Escape to cancel.
+      {t(LINK_BANNER[linking.kind], { who: nameOf(linking.from) })}
     </Banner>
   {/if}
 
   {#if !loaded}
-    <p class="lede">Loading…</p>
+    <p class="lede">{t('trace.loading')}</p>
   {:else if !image}
-    <EmptyState title="Choose a picture">
-      A photo of a wall chart, a scan of a handwritten tree or a screenshot. It stays on this computer.
+    <EmptyState title={t('trace.chooseTitle')}>
+      {t('trace.chooseBody')}
       {#snippet action()}
-        <Button variant="primary" onclick={() => void choosePicture()}>Choose a picture…</Button>
+        <Button variant="primary" onclick={() => void choosePicture()}>{t('trace.choosePicture')}</Button>
       {/snippet}
     </EmptyState>
   {:else}
@@ -275,21 +285,21 @@
         {/snippet}
       </TraceCanvas>
 
-      <aside class="side" aria-label="Review" bind:this={side}>
+      <aside class="side" aria-label={t('trace.review')} bind:this={side}>
         <section>
-          <h2>Picture</h2>
+          <h2>{t('trace.picture')}</h2>
           <p class="file" title={image.name}>{image.name}</p>
           <div class="row">
-            <Button onclick={() => void choosePicture()}>Choose another picture…</Button>
-            <Button onclick={() => (aiOpen = true)}>Read names with AI…</Button>
+            <Button onclick={() => void choosePicture()}>{t('trace.chooseAnother')}</Button>
+            <Button onclick={() => (aiOpen = true)}>{t('trace.readAi')}</Button>
           </div>
         </section>
 
         <section aria-labelledby="sum-h">
-          <h2 id="sum-h">To add</h2>
+          <h2 id="sum-h">{t('trace.toAdd')}</h2>
           <p class="sum" role="status">{summary}</p>
           {#if draft.cards.length > 0}
-            <p class="sum tip">Select a card, then use Parent of…, Child of… or Partner of… to link people.</p>
+            <p class="sum tip">{t('trace.linkTip')}</p>
           {/if}
           {#if built.problems.length > 0}
             <ul class="problems">
@@ -300,45 +310,45 @@
 
         {#if total.suggestions > 0}
           <section aria-labelledby="sug-h">
-            <h2 id="sug-h">Suggestions</h2>
-            <p class="sum">{plural(total.suggestions, 'suggestion', 'suggestions')} waiting. Nothing is added until you accept it.</p>
+            <h2 id="sug-h">{t('trace.suggestions')}</h2>
+            <p class="sum">{plural('trace.suggestionsWaiting', total.suggestions)}</p>
             <div class="row">
-              <Button onclick={() => acceptAll(draft)}>Accept all</Button>
-              <Button onclick={() => rejectAll(draft)}>Remove all</Button>
+              <Button onclick={() => acceptAll(draft)}>{t('trace.acceptAll')}</Button>
+              <Button onclick={() => rejectAll(draft)}>{t('trace.removeAll')}</Button>
             </div>
           </section>
         {/if}
 
         <section aria-labelledby="people-h" class="grow">
-          <h2 id="people-h">People ({draft.cards.length})</h2>
+          <h2 id="people-h">{t('trace.peopleHeading', { n: draft.cards.length })}</h2>
           {#if draft.cards.length === 0}
-            <p class="sum">Drag a box around a name on the picture, or click to place a marker.</p>
+            <p class="sum">{t('trace.noCards')}</p>
           {:else}
             <ul class="list">
               {#each draft.cards as c (c.id)}
                 <li>
                   <button type="button" class="item" class:on={c.id === selectedId} onclick={() => (selectedId = c.id)}>
-                    {cardName(c) || 'Unnamed person'}{c.suggested ? ' (suggestion)' : ''}{c.existing ? ' (in the tree)' : ''}
+                    {cardName(c) || t('trace.unnamedPerson')}{c.suggested ? t('trace.suggestionSuffix') : ''}{c.existing ? t('trace.inTreeSuffix') : ''}
                   </button>
                 </li>
               {/each}
             </ul>
           {/if}
           {#if draft.links.length > 0}
-            <h3>Links ({draft.links.length})</h3>
+            <h3>{t('trace.linksHeading', { n: draft.links.length })}</h3>
             <ul class="list">
               {#each draft.links as l (l.id)}
                 <li class="linkrow">
                   <span>
-                    {nameOf(l.from)}
-                    {l.kind === 'parent' ? 'is a parent of' : 'is a partner of'}
-                    {nameOf(l.to)}{l.suggested ? ' (suggestion)' : ''}
+                    {t(l.kind === 'parent' ? 'trace.linkRowParent' : 'trace.linkRowPartner', { a: nameOf(l.from), b: nameOf(l.to) })}{l.suggested
+                      ? t('trace.suggestionSuffix')
+                      : ''}
                   </span>
                   <button
                     type="button"
                     class="rm"
-                    aria-label="Remove link: {nameOf(l.from)} {l.kind === 'parent' ? 'parent of' : 'partner of'} {nameOf(l.to)}"
-                    onclick={() => removeLink(draft, l.id)}>Remove</button
+                    aria-label={t(l.kind === 'parent' ? 'trace.removeLinkParent' : 'trace.removeLinkPartner', { a: nameOf(l.from), b: nameOf(l.to) })}
+                    onclick={() => removeLink(draft, l.id)}>{t('common.remove')}</button
                   >
                 </li>
               {/each}
@@ -348,13 +358,13 @@
 
         <section class="foot">
           <Checkbox
-            label="Keep the picture with the new people"
+            label={t('trace.keepPicture')}
             bind:checked={draft.keepPicture}
-            hint="Saved as a media item on each new person, and as a source called “Family tree picture”."
+            hint={t('trace.keepHint')}
           />
           <div class="row">
-            <Button variant="primary" disabled={!canAdd} onclick={() => void addToTree()}>Add to tree</Button>
-            <Button onclick={() => (discardOpen = true)}>Discard trace</Button>
+            <Button variant="primary" disabled={!canAdd} onclick={() => void addToTree()}>{t('trace.addToTree')}</Button>
+            <Button onclick={() => (discardOpen = true)}>{t('trace.discard')}</Button>
           </div>
         </section>
       </aside>
@@ -364,11 +374,11 @@
 
 <AiReadDialog open={aiOpen} onclose={() => (aiOpen = false)} onresult={aiDone} />
 
-<Dialog open={discardOpen} title="Discard this trace?" onclose={() => (discardOpen = false)}>
-  <p>This removes every card and link and the saved copy of the picture. Nothing in your tree changes.</p>
+<Dialog open={discardOpen} title={t('trace.discardTitle')} onclose={() => (discardOpen = false)}>
+  <p>{t('trace.discardBody')}</p>
   {#snippet footer()}
-    <Button onclick={() => (discardOpen = false)}>Keep working</Button>
-    <Button variant="danger" onclick={() => void discard()}>Discard trace</Button>
+    <Button onclick={() => (discardOpen = false)}>{t('trace.keepWorking')}</Button>
+    <Button variant="danger" onclick={() => void discard()}>{t('trace.discard')}</Button>
   {/snippet}
 </Dialog>
 

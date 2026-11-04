@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ChartWindow, Rect } from '../api/types';
+  import { t } from '../i18n';
 
   let {
     bounds,
@@ -108,7 +109,7 @@
   width={W}
   height={H}
   role="application"
-  aria-label="Minimap of the whole tree. Click or drag to move the view, or use the arrow keys."
+  aria-label={t('whole.minimap')}
   tabindex="0"
   {onpointerdown}
   {onpointermove}

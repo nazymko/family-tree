@@ -8,6 +8,8 @@
   import { project } from '../state/project.svelte';
   import { toasts } from '../state/toast.svelte';
   import { enterProject } from '../state/openTree';
+  import { t, plural, formatNumber } from '../i18n';
+  import type { MessageKey } from '../i18n';
 
   let { report: reportProp }: { report?: ImportReportDto } = $props();
 
@@ -27,23 +29,23 @@
   const outside = $derived(byReason('outsideRoots'));
   const ambiguous = $derived(byReason('ambiguous'));
   // The real importer counts records by GEDCOM tag; the mock counts by word.
-  const COUNT_LABELS: Record<string, string> = {
-    persons: 'People',
-    families: 'Families',
-    sources: 'Sources',
-    media: 'Media files',
-    notes: 'Notes',
-    places: 'Places',
-    INDI: 'People',
-    FAM: 'Families',
-    SOUR: 'Sources',
-    OBJE: 'Media files',
-    NOTE: 'Notes',
-    SNOTE: 'Shared notes',
-    REPO: 'Repositories',
-    SUBM: 'Submitters',
+  const COUNT_KEYS: Record<string, MessageKey> = {
+    persons: 'imp.countPeople',
+    families: 'imp.countFamilies',
+    sources: 'imp.countSources',
+    media: 'imp.countMedia',
+    notes: 'imp.countNotes',
+    places: 'imp.countPlaces',
+    INDI: 'imp.countPeople',
+    FAM: 'imp.countFamilies',
+    SOUR: 'imp.countSources',
+    OBJE: 'imp.countMedia',
+    NOTE: 'imp.countNotes',
+    SNOTE: 'imp.countSharedNotes',
+    REPO: 'imp.countRepositories',
+    SUBM: 'imp.countSubmitters',
   };
-  const label = (k: string) => COUNT_LABELS[k] ?? k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, ' ');
+  const label = (k: string) => (COUNT_KEYS[k] ? t(COUNT_KEYS[k]) : k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, ' '));
 
   const repairGroups = $derived.by(() => {
     const groups: [string, NonNullable<typeof report>['repairs']][] = [];
@@ -57,24 +59,22 @@
   const tags = $derived(Object.entries(report?.unmappedTags ?? {}));
 
   async function locate() {
-    const folder = await platform.pickFolder('Choose the folder with your photos and files');
+    const folder = await platform.pickFolder(t('imp.pickMediaFolder'));
     if (!folder) return;
     const r = await api.relinkMedia(folder);
     stillMissing = r.stillMissing;
-    toasts.push({
-      text: `Linked ${r.relinked} ${r.relinked === 1 ? 'file' : 'files'}; ${r.stillMissing.length} still missing`,
-    });
+    toasts.push({ text: plural('imp.linked', r.relinked, { missing: formatNumber(r.stillMissing.length) }) });
   }
 
   async function saveReport() {
     const dest = await platform.pickSavePath({
-      title: 'Save the import report',
+      title: t('imp.saveReportTitle'),
       defaultName: 'import-report.txt',
       extensions: ['txt'],
     });
     if (!dest) return;
     await api.saveImportReport(dest);
-    toasts.push({ text: 'Report saved' });
+    toasts.push({ text: t('imp.reportSaved') });
   }
 
   async function discard() {
@@ -101,39 +101,38 @@
   <main class="report">
     <div class="col">
       <header>
-        <h1>Imported {report.counts.INDI ?? report.counts.persons ?? report.project.personCount} people from {report.producer ?? 'an unknown program'}</h1>
+        <h1>{report.producer ? plural('imp.heading', report.counts.INDI ?? report.counts.persons ?? report.project.personCount, { producer: report.producer }) : plural('imp.headingUnknown', report.counts.INDI ?? report.counts.persons ?? report.project.personCount)}</h1>
         <p class="sub">
-          {report.version ? `GEDCOM ${report.version}, ` : ''}{report.encoding}. The tree is saved as
+          {report.version ? t('imp.gedcomVersion', { version: report.version }) : ''}{report.encoding}. {t('imp.savedAs')}
           <bdi dir="auto" class="dir">{report.project.name}</bdi>.
         </p>
       </header>
 
       {#if report.project.locationWarning}
         <Banner kind="warning">
-          This folder is inside {report.project.locationWarning.provider ?? 'a network share'}. Syncing can corrupt the
-          database. Keep the tree outside synced folders and use backups to move it.
+          {t('imp.syncWarning', { provider: report.project.locationWarning.provider ?? t('imp.networkShare') })}
         </Banner>
       {/if}
       {#if report.truncated}
-        <Banner kind="info">These lists are cut off. Save the report to read all of it.</Banner>
+        <Banner kind="info">{t('imp.truncated')}</Banner>
       {/if}
 
-      <table class="counts" aria-label="What was imported">
+      <table class="counts" aria-label={t('imp.imported')}>
         <tbody>
           {#each Object.entries(report.counts) as [k, n] (k)}
-            <tr><th scope="row">{label(k)}</th><td class="tnum">{n}</td></tr>
+            <tr><th scope="row">{label(k)}</th><td class="tnum">{formatNumber(n)}</td></tr>
           {/each}
         </tbody>
       </table>
 
       {#if repairGroups.length > 0}
         <details open>
-          <summary><h2>Repairs</h2></summary>
+          <summary><h2>{t('imp.repairs')}</h2></summary>
           {#each repairGroups as [kind, items] (kind)}
             <h3>{kind.replace(/_/g, ' ')}</h3>
             <ul>
               {#each items as r, i (i)}
-                <li>{r.line !== null ? `Line ${r.line}: ` : ''}{r.detail}</li>
+                <li>{r.line !== null ? `${t('imp.line', { n: r.line })} ` : ''}{r.detail}</li>
               {/each}
             </ul>
           {/each}
@@ -142,10 +141,10 @@
 
       {#if tags.length > 0}
         <details open>
-          <summary><h2>Tags we kept but did not understand</h2></summary>
+          <summary><h2>{t('imp.unmappedTags')}</h2></summary>
           <ul>
             {#each tags as [tag, n] (tag)}
-              <li><code>{tag}</code> <span class="tnum">used {n} times</span></li>
+              <li><code>{tag}</code> <span class="tnum">{plural('imp.usedTimes', n)}</span></li>
             {/each}
           </ul>
         </details>
@@ -153,11 +152,11 @@
 
       {#if report.unparsedDates.length > 0}
         <details open>
-          <summary><h2>Dates we could not read</h2></summary>
-          <p class="note">They are kept exactly as written.</p>
+          <summary><h2>{t('imp.badDates')}</h2></summary>
+          <p class="note">{t('imp.keptAsWritten')}</p>
           <ul>
             {#each report.unparsedDates as d, i (i)}
-              <li><span class="tnum">Line {d.line}:</span> <bdi dir="auto">{d.text}</bdi></li>
+              <li><span class="tnum">{t('imp.line', { n: d.line })}</span> <bdi dir="auto">{d.text}</bdi></li>
             {/each}
           </ul>
         </details>
@@ -165,35 +164,35 @@
 
       {#if missingList.length > 0}
         <details open>
-          <summary><h2>Photos and files we could not find</h2></summary>
+          <summary><h2>{t('imp.missingFiles')}</h2></summary>
           {#if notFound.length > 0}
-            <h3>Not found</h3>
+            <h3>{t('imp.notFound')}</h3>
             <ul>
               {#each notFound as m (m.path)}
-                <li><bdi dir="auto">{m.path}</bdi> <span class="why">not found</span></li>
+                <li><bdi dir="auto">{m.path}</bdi> <span class="why">{t('imp.notFoundWhy')}</span></li>
               {/each}
             </ul>
-            <Button onclick={locate}>Locate media folder</Button>
+            <Button onclick={locate}>{t('imp.locateFolder')}</Button>
           {/if}
           {#if outside.length > 0}
-            <h3>Outside your tree's folders</h3>
+            <h3>{t('imp.outsideFolders')}</h3>
             <ul>
               {#each outside as m (m.path)}
                 <li>
                   <bdi dir="auto">{m.path}</bdi>
-                  <span class="why">outside your tree's folders, so not copied for safety</span>
+                  <span class="why">{t('imp.outsideWhy')}</span>
                 </li>
               {/each}
             </ul>
-            <Button onclick={locate}>Choose folder…</Button>
+            <Button onclick={locate}>{t('imp.chooseFolder')}</Button>
           {/if}
           {#if ambiguous.length > 0}
-            <h3>More than one match</h3>
+            <h3>{t('imp.ambiguous')}</h3>
             <ul>
               {#each ambiguous as m (m.path)}
                 <li>
                   <bdi dir="auto">{m.path}</bdi>
-                  <span class="why">could be any of these:</span>
+                  <span class="why">{t('imp.ambiguousWhy')}</span>
                   <ul class="cand">
                     {#each m.candidates as c (c)}<li><bdi dir="auto">{c}</bdi></li>{/each}
                   </ul>
@@ -206,8 +205,8 @@
 
       {#if report.mediaUrls.length > 0}
         <details open>
-          <summary><h2>Web links, kept as links</h2></summary>
-          <p class="note">These photos are web addresses. They are kept as links and not copied.</p>
+          <summary><h2>{t('imp.webLinks')}</h2></summary>
+          <p class="note">{t('imp.webLinksNote')}</p>
           <ul>
             {#each report.mediaUrls as u (u)}
               <li><bdi dir="ltr">{u}</bdi></li>
@@ -217,19 +216,19 @@
       {/if}
 
       <div class="actions">
-        <Button onclick={saveReport}>Save report…</Button>
-        <Button variant="danger" onclick={() => (confirm = true)}>Undo import</Button>
+        <Button onclick={saveReport}>{t('imp.saveReport')}</Button>
+        <Button variant="danger" onclick={() => (confirm = true)}>{t('imp.undoImport')}</Button>
         <span class="grow"></span>
-        <Button variant="primary" onclick={openTree}>Open the tree</Button>
+        <Button variant="primary" onclick={openTree}>{t('imp.openTree')}</Button>
       </div>
     </div>
   </main>
 
-  <Dialog open={confirm} title="Undo import" onclose={() => (confirm = false)}>
-    <p>Delete the imported tree? Your file is not touched.</p>
+  <Dialog open={confirm} title={t('imp.undoImport')} onclose={() => (confirm = false)}>
+    <p>{t('imp.undoConfirm')}</p>
     {#snippet footer()}
-      <Button onclick={() => (confirm = false)}>Cancel</Button>
-      <Button variant="danger" onclick={discard} disabled={busy}>Delete imported tree</Button>
+      <Button onclick={() => (confirm = false)}>{t('common.cancel')}</Button>
+      <Button variant="danger" onclick={discard} disabled={busy}>{t('imp.deleteTree')}</Button>
     {/snippet}
   </Dialog>
 {/if}

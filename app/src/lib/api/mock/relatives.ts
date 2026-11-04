@@ -2,7 +2,7 @@ import type { ChartEdge, Id, OutlineItem } from '../types';
 import { M, MAX_NODES, bounds, dupEdge, newNode, strip, type N, type RustLayoutSource } from './layout';
 import type { Layout } from './mockLayout';
 import { OUTLINE_GROUP_BASE } from '../../chart/outline';
-import { relationLabel, type PartnerOf, type Rel } from './relation';
+import { relationLabel, relationRole, type PartnerOf, type Rel } from './relation';
 
 // TypeScript port of crates/gt-layout/src/relatives.rs: an hourglass of blocks (one per ancestor), each with a row
 // group (the person and their siblings, with partners and a small tree of children) hung under the blocks of the
@@ -406,6 +406,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
   for (const n of nodes) {
     const rel = rels[n.id];
     n.relation = relationLabel(rel, n.person!.sex);
+    n.role = relationRole(rel, n.person!.sex);
     const role = n.dupOf !== null ? `${n.relation}, appears earlier` : n.relation;
     n.label = `${n.person!.name}${n.person!.lifespan ? `, ${n.person!.lifespan}` : ''}, ${role}`;
   }
@@ -423,6 +424,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
 // ---------------------------------------------------------------- outline
 
 const GROUPS = ['Parents', 'Siblings', 'Partners', 'Children', 'Aunts and uncles'] as const;
+const GROUP_KINDS = ['parents', 'siblings', 'partners', 'children', 'aunts_uncles'] as const;
 
 function groupOf(l: RelLayout, id: number, g: number): number[] {
   const into = (key: 'from' | 'to') =>
@@ -480,15 +482,16 @@ export function relativesOutline(l: RelLayout, parent: number | null, limit: num
     const label = cap(n.relation ?? '') + (n.dupOf !== null ? ' (appears earlier)' : '') + (first ? '' : ' (also shown above)');
     // Only a person with someone not listed elsewhere can be opened.
     const hasChildren = first && GROUPS.some((_, g) => groupOf(l, id, g).some((m) => places.get(m) === `${id}:${g}`));
-    const out: OutlineItem = { nodeId: id, person: n.person, label, hasChildren };
+    const out: OutlineItem = { nodeId: id, person: n.person, label, hasChildren, appearsEarlier: n.dupOf !== null, alsoAbove: !first };
     if (id !== 0 && n.relation) out.relation = n.relation;
+    if (n.role) out.role = n.role;
     return out;
   };
   if (parent === null) return [item(0, 'root')];
   if (parent < GROUP_BASE) {
     return GROUPS.map((title, g) => ({ g, title }))
       .filter(({ g }) => groupOf(l, parent, g).length > 0)
-      .map(({ g, title }) => ({ nodeId: GROUP_BASE + parent * 8 + g, person: null, label: title, hasChildren: true }));
+      .map(({ g, title }) => ({ nodeId: GROUP_BASE + parent * 8 + g, person: null, label: title, hasChildren: true, group: GROUP_KINDS[g], appearsEarlier: false, alsoAbove: false }));
   }
   const rest = parent - GROUP_BASE;
   const owner = Math.floor(rest / 8);

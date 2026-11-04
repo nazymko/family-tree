@@ -6,6 +6,7 @@
   import TextField from '../ui/TextField.svelte';
   import { getApi } from '../api/context';
   import type { AiReadResult } from '../api/types';
+  import { t } from '../i18n';
 
   interface Props {
     open: boolean;
@@ -80,35 +81,32 @@
   }
 </script>
 
-<Dialog {open} title="Read names with AI" onclose={() => void cancel()}>
+<Dialog {open} title={t('trace.aiTitle')} onclose={() => void cancel()}>
   <div class="body">
-    <p>
-      The picture will be sent over the internet to Anthropic's Claude service, which reads the names on it.
-      Living relatives' names may be on the picture.
-    </p>
-    <p>What it finds is shown as suggestions. Nothing is added to your tree until you accept it and press “Add to tree”.</p>
+    <p>{t('trace.aiWarn')}</p>
+    <p>{t('trace.aiSuggestionsNote')}</p>
 
     {#if hasKey}
-      <p class="key" role="status">An API key is stored on this computer, in the system keychain.</p>
-      <div><Button onclick={() => void removeKey()} disabled={busy}>Remove key</Button></div>
+      <p class="key" role="status">{t('trace.aiKeyStored')}</p>
+      <div><Button onclick={() => void removeKey()} disabled={busy}>{t('trace.aiRemoveKey')}</Button></div>
     {:else}
       <TextField
-        label="Anthropic API key"
+        label={t('trace.aiKeyLabel')}
         type="password"
         bind:value={key}
         autocomplete="off"
-        hint="Kept in the system keychain on this computer. Never saved in your tree."
+        hint={t('trace.aiKeyHint')}
       />
     {/if}
 
-    <Checkbox bind:checked={understood} label="I understand the picture is sent to Anthropic" />
+    <Checkbox bind:checked={understood} label={t('trace.aiUnderstood')} />
 
     {#if error}<Banner kind="error">{error}</Banner>{/if}
-    {#if busy}<p role="status">Reading the picture. This can take a few minutes. You can cancel at any time.</p>{/if}
+    {#if busy}<p role="status">{t('trace.aiBusy')}</p>{/if}
   </div>
   {#snippet footer()}
-    <Button onclick={() => void cancel()}>Cancel</Button>
-    <Button variant="primary" disabled={!canSend} onclick={() => void send()}>Send picture</Button>
+    <Button onclick={() => void cancel()}>{t('common.cancel')}</Button>
+    <Button variant="primary" disabled={!canSend} onclick={() => void send()}>{t('trace.aiSend')}</Button>
   {/snippet}
 </Dialog>
 

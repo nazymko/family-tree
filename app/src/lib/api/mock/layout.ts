@@ -443,6 +443,6 @@ export function outlineOf(
     if (id === 0) text = kind === 'pedigree' ? '1 Starting person' : 'Starting person';
     else if (kind === 'pedigree') text = `${n.ahnen ?? ''} ${ahnenRelation(n.ahnen ?? 0)}`.trim();
     else text = `Child ${i + 1}`;
-    return { nodeId: id, person: n.person, label: text, hasChildren: layout.kids[id].length > 0 || n.moreUp || n.moreDown };
+    return { nodeId: id, person: n.person, label: text, hasChildren: layout.kids[id].length > 0 || n.moreUp || n.moreDown, appearsEarlier: false, alsoAbove: false };
   });
 }

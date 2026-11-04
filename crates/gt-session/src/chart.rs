@@ -3,11 +3,12 @@
 
 use crate::dto::{
     ChartEdge, ChartKind, ChartLocation, ChartMeta, ChartNav, ChartNode, ChartRequest, ChartSize,
-    ChartWindow, EdgeKindDto, OutlineItem, PersonRef, Rect, SexKind, WholeBlockDto, WholeMeta,
+    ChartWindow, EdgeKindDto, OutlineGroupKind, OutlineItem, PersonRef, Rect, RoleDto, RoleKind,
+    SexKind, WholeBlockDto, WholeMeta,
 };
 use crate::error::{ApiError, ErrorCode};
 use crate::index::{Links, PersonIndex};
-use crate::relation::relation_label;
+use crate::relation::{relation_label, relation_role};
 use crate::session::Session;
 use gt_core::tree::Tree;
 use gt_layout::{
@@ -142,6 +143,16 @@ impl RelGroup {
 
     fn from_index(i: u32) -> Option<Self> {
         Self::ALL.get(i as usize).copied()
+    }
+
+    fn kind(self) -> OutlineGroupKind {
+        match self {
+            RelGroup::Parents => OutlineGroupKind::Parents,
+            RelGroup::Siblings => OutlineGroupKind::Siblings,
+            RelGroup::Partners => OutlineGroupKind::Partners,
+            RelGroup::Children => OutlineGroupKind::Children,
+            RelGroup::AuntsUncles => OutlineGroupKind::AuntsUncles,
+        }
     }
 
     fn title(self) -> &'static str {
@@ -599,6 +610,22 @@ impl Session {
                     }
                     _ => None,
                 };
+                let role_dto = s.filter(|_| text).map(|s| {
+                    let sex = s.sex;
+                    if whole {
+                        RoleDto::new(RoleKind::Generation, i32::from(n.r#gen) + 1, sex)
+                    } else if let (ChartKind::Relatives, Some(r)) = (c.kind, n.rel) {
+                        relation_role(r, sex)
+                    } else if c.partner_owner.contains_key(&n.id) {
+                        RoleDto::new(RoleKind::Partner, 0, sex)
+                    } else if n.r#gen == 0 && n.ahnen.is_none_or(|a| a == 1) {
+                        RoleDto::new(RoleKind::Focus, 0, sex)
+                    } else if let (ChartKind::Pedigree, Some(a)) = (c.kind, n.ahnen) {
+                        RoleDto::new(RoleKind::AncestorNo, a as i32, sex)
+                    } else {
+                        RoleDto::new(RoleKind::Generation, i32::from(n.r#gen), sex)
+                    }
+                });
                 let label = s.filter(|_| text).map_or_else(String::new, |s| {
                     let mut l = s.name.clone();
                     if !s.lifespan.is_empty() {
@@ -655,6 +682,7 @@ impl Session {
                     },
                     label,
                     relation,
+                    role: role_dto,
                 }
             })
             .collect();
@@ -701,16 +729,33 @@ impl Session {
                 .ok_or_else(|| ApiError::not_found("chart node", id))
         };
         let pedigree = c.kind == ChartKind::Pedigree;
-        let mut items: Vec<(u32, String)> = Vec::new();
+        let sex_of = |key: u32| {
+            self.index
+                .summaries
+                .get(key as usize)
+                .map_or(SexKind::Unknown, |s| s.sex)
+        };
+        let mut items: Vec<(u32, String, RoleDto)> = Vec::new();
         match parent {
             None => {
                 let label = if pedigree { "1 Self" } else { "Self" };
-                items.push((node(c.layout.root)?.id, label.to_string()));
+                let root = node(c.layout.root)?;
+                let role = if pedigree {
+                    RoleDto::new(RoleKind::AncestorNo, 1, sex_of(root.key))
+                } else {
+                    RoleDto::new(RoleKind::SelfPerson, 0, sex_of(root.key))
+                };
+                items.push((root.id, label.to_string(), role));
             }
             Some(p) => {
                 let pn = node(p)?;
                 for &pid in c.partners.get(&p).map_or(&[][..], Vec::as_slice) {
-                    items.push((pid, "Partner".to_string()));
+                    let sex = node(pid).map_or(SexKind::Unknown, |x| sex_of(x.key));
+                    items.push((
+                        pid,
+                        "Partner".to_string(),
+                        RoleDto::new(RoleKind::Partner, 0, sex),
+                    ));
                 }
                 let mut next = pn.nav.child;
                 let mut k = 0usize;
@@ -720,11 +765,20 @@ impl Session {
                     }
                     k += 1;
                     let n = node(id)?;
-                    let label = match (pedigree, n.ahnen.and_then(|a| u32::try_from(a).ok())) {
-                        (true, Some(a)) => format!("{a} {}", ahnen_label(a)),
-                        _ => descendant_label(n.r#gen, k),
-                    };
-                    items.push((id, label));
+                    let sex = sex_of(n.key);
+                    let (label, mut role) =
+                        match (pedigree, n.ahnen.and_then(|a| u32::try_from(a).ok())) {
+                            (true, Some(a)) => (
+                                format!("{a} {}", ahnen_label(a)),
+                                RoleDto::new(RoleKind::AncestorNo, a as i32, sex),
+                            ),
+                            _ => (
+                                descendant_label(n.r#gen, k),
+                                RoleDto::new(RoleKind::DescendantNo, i32::from(n.r#gen), sex),
+                            ),
+                        };
+                    role.k = k as u32;
+                    items.push((id, label, role));
                     next = n.nav.next;
                 }
             }
@@ -732,7 +786,7 @@ impl Session {
         items.truncate(limit);
         items
             .into_iter()
-            .map(|(id, mut label)| {
+            .map(|(id, mut label, role)| {
                 let n = node(id)?;
                 if n.dup_of.is_some() {
                     label.push_str(" (appears earlier)");
@@ -750,6 +804,10 @@ impl Session {
                         || n.more_down
                         || c.partners.contains_key(&id),
                     relation: None,
+                    role: Some(role),
+                    group: None,
+                    appears_earlier: n.dup_of.is_some(),
+                    also_above: false,
                 })
             })
             .collect()
@@ -812,6 +870,10 @@ impl Session {
                     .rel
                     .filter(|r| *r != Rel::Focus)
                     .map(|r| relation_label(r, sex)),
+                role: n.rel.map(|r| relation_role(r, sex)),
+                group: None,
+                appears_earlier: n.dup_of.is_some(),
+                also_above: !first,
             })
         };
         let Some(p) = parent else {
@@ -828,6 +890,10 @@ impl Session {
                     label: g.title().to_string(),
                     has_children: true,
                     relation: None,
+                    role: None,
+                    group: Some(g.kind()),
+                    appears_earlier: false,
+                    also_above: false,
                 })
                 .collect());
         }

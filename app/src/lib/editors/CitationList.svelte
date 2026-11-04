@@ -4,13 +4,14 @@
   import CitationEditor from './CitationEditor.svelte';
   import { getApi } from '../api/context';
   import type { CitationDto, EditCommand, EditResult, OwnerRef } from '../api/api';
+  import { t } from '../i18n';
 
   let { target, citations, onChanged }: { target: OwnerRef; citations: CitationDto[]; onChanged: (r: EditResult) => void } = $props();
   const api = getApi();
   let editing = $state<{ citation?: CitationDto; focusPage: boolean } | null>(null);
   let error = $state('');
 
-  const label = (c: CitationDto) => `${c.source?.title ?? 'Untitled source'}${c.page ? `, ${c.page}` : ''}`;
+  const label = (c: CitationDto) => `${c.source?.title ?? t('citation.untitled')}${c.page ? `, ${c.page}` : ''}`;
 
   async function run(cmd: EditCommand) {
     error = '';
@@ -39,20 +40,20 @@
 <div class="list">
   {#if error}<Banner kind="error">{error}</Banner>{/if}
   {#if citations.length === 0}
-    <p class="none">No citations yet.</p>
+    <p class="none">{t('citation.none')}</p>
   {:else}
     <ul>
       {#each citations as c (c.id)}
         <li>
           <span class="t">{label(c)}</span>
-          <Button aria-label="Edit citation {label(c)}" onclick={() => (editing = { citation: c, focusPage: false })}>Edit</Button>
-          <Button aria-label="Clone citation {label(c)}" onclick={() => clone(c)}>Clone</Button>
-          <Button variant="danger" aria-label="Remove citation {label(c)}" onclick={() => remove(c)}>Remove</Button>
+          <Button aria-label={t('citation.editNamed', { label: label(c) })} onclick={() => (editing = { citation: c, focusPage: false })}>{t('common.edit')}</Button>
+          <Button aria-label={t('citation.cloneNamed', { label: label(c) })} onclick={() => clone(c)}>{t('citation.clone')}</Button>
+          <Button variant="danger" aria-label={t('citation.removeNamed', { label: label(c) })} onclick={() => remove(c)}>{t('common.remove')}</Button>
         </li>
       {/each}
     </ul>
   {/if}
-  <div><Button onclick={() => (editing = { focusPage: false })}>Add citation</Button></div>
+  <div><Button onclick={() => (editing = { focusPage: false })}>{t('citation.add')}</Button></div>
 </div>
 
 {#if editing}

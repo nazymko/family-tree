@@ -2,15 +2,16 @@
   import Dialog from '../ui/Dialog.svelte';
   import Kbd from '../ui/Kbd.svelte';
   import { currentPlatform, formatKeys, type Shortcut } from '../state/shortcuts';
+  import { t } from '../i18n';
 
   let { open, onclose, shortcuts }: { open: boolean; onclose: () => void; shortcuts: Shortcut[] } = $props();
   const plat = currentPlatform();
 </script>
 
-<Dialog {open} title="Keyboard shortcuts" {onclose}>
+<Dialog {open} title={t('shortcuts.title')} {onclose}>
   <table class="sheet">
-    <caption class="sr">Keyboard shortcuts</caption>
-    <thead class="sr"><tr><th scope="col">Action</th><th scope="col">Keys</th></tr></thead>
+    <caption class="sr">{t('shortcuts.title')}</caption>
+    <thead class="sr"><tr><th scope="col">{t('shortcuts.action')}</th><th scope="col">{t('shortcuts.keys')}</th></tr></thead>
     <tbody>
       {#each shortcuts as s (s.id)}
         <tr>

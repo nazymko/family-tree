@@ -14,12 +14,13 @@
   import Button from '../ui/Button.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
   import Tabs from '../ui/Tabs.svelte';
+  import { t } from '../i18n';
 
   let { kind, onOpenPerson }: { kind: ChartKind; onOpenPerson?: (id: Id) => void } = $props();
 
   const api = getApi();
   const STORE_KEY = 'gt.chartView';
-  const title = $derived(kind === 'pedigree' ? 'Pedigree' : kind === 'descendants' ? 'Descendants' : 'Relatives');
+  const title = $derived(kind === 'pedigree' ? t('chart.pedigree') : kind === 'descendants' ? t('chart.descendants') : t('chart.relatives'));
 
   function initialMode(): 'chart' | 'outline' {
     try {
@@ -103,7 +104,7 @@
     } catch {
       // The helper text falls back to "this person".
     }
-    if (kind === 'relatives' && centre && meta?.chartId === m.chartId) updateTrail(centre, rootName || 'This person');
+    if (kind === 'relatives' && centre && meta?.chartId === m.chartId) updateTrail(centre, rootName || t('chart.thisPerson'));
   }
 
   /** Centre the chart on someone. On the relatives chart this is a new history entry, so Back returns to the last person. */
@@ -118,7 +119,6 @@
   /** Outline group headings are not chart nodes. */
   const select = (id: number) => (selectedNode = id < OUTLINE_GROUP_BASE ? id : selectedNode);
   const openPerson = (id: Id) => (onOpenPerson ? onOpenPerson(id) : nav.go({ name: 'person', id }));
-  const who = $derived(rootName || 'this person');
   const isEmpty = $derived(meta !== null && meta.nodeCount <= 1);
 </script>
 
@@ -127,15 +127,15 @@
     <h1 id="chart-title">{title}</h1>
     {#if root}
       <Tabs
-        label="{title} display"
+        label={t('chart.display', { title })}
         tabs={[
-          { id: 'chart', label: 'Chart' },
-          { id: 'outline', label: 'Outline' },
+          { id: 'chart', label: t('chart.tabChart') },
+          { id: 'outline', label: t('chart.tabOutline') },
         ]}
         bind:selected={mode}
       >
         {#snippet panel(id)}
-          <span class="sr-only">{id === 'chart' ? 'Chart view' : 'Outline view'}</span>
+          <span class="sr-only">{id === 'chart' ? t('chart.chartView') : t('chart.outlineView')}</span>
         {/snippet}
       </Tabs>
     {/if}
@@ -143,13 +143,13 @@
 
   {#if !root}
     {#if settingsLoaded}
-      <EmptyState title="No person chosen">
-        Choose a person in People, or set a home person in Settings, to see their {kind === 'pedigree' ? 'ancestors' : kind === 'descendants' ? 'descendants' : 'relatives'}.
+      <EmptyState title={t('chart.noPerson')}>
+        {kind === 'pedigree' ? t('chart.choosePedigree') : kind === 'descendants' ? t('chart.chooseDescendants') : t('chart.chooseRelatives')}
       </EmptyState>
     {/if}
   {:else}
     {#if kind === 'relatives' && trail.length > 0}
-      <nav class="trail" aria-label="People you have visited">
+      <nav class="trail" aria-label={t('chart.trail')}>
         <ol>
           {#each trail as c, i (c.id)}
             <li>
@@ -164,10 +164,10 @@
       </nav>
     {/if}
     {#if isEmpty}
-      <EmptyState title={kind === 'pedigree' ? 'No parents recorded' : kind === 'descendants' ? 'No children recorded' : 'No relatives recorded'}>
-        {#if kind === 'pedigree'}No parents recorded for {who}. Add a father or mother.{:else if kind === 'descendants'}No children recorded for {who}. Add a child.{:else}No relatives recorded for {who}. Add a parent, a partner or a child.{/if}
+      <EmptyState title={kind === 'pedigree' ? t('chart.noParentsTitle') : kind === 'descendants' ? t('chart.noChildrenTitle') : t('chart.noRelativesTitle')}>
+        {#if kind === 'pedigree'}{rootName ? t('chart.noParentsFor', { who: rootName }) : t('chart.noParentsThis')}{:else if kind === 'descendants'}{rootName ? t('chart.noChildrenFor', { who: rootName }) : t('chart.noChildrenThis')}{:else}{rootName ? t('chart.noRelativesFor', { who: rootName }) : t('chart.noRelativesThis')}{/if}
         {#snippet action()}
-          <Button variant="primary" onclick={() => openPerson(root)}>{kind === 'pedigree' ? 'Add a parent' : kind === 'descendants' ? 'Add a child' : 'Add a relative'}</Button>
+          <Button variant="primary" onclick={() => openPerson(root)}>{kind === 'pedigree' ? t('chart.addParent') : kind === 'descendants' ? t('chart.addChild') : t('chart.addRelative')}</Button>
         {/snippet}
       </EmptyState>
     {/if}
@@ -190,7 +190,7 @@
         <div class="outline">
           <OutlineMirror
             chartId={meta.chartId}
-            label="{title} outline"
+            label={t('chart.outline', { title })}
             selected={selectedNode}
             onSelect={select}
             onPick={(id, relation) => recentre(id, relation)}

@@ -1,11 +1,13 @@
 import type { Api, Settings } from '../api/api';
 import { applyTheme } from './theme';
 import { project } from './project.svelte';
+import { setLanguage } from '../i18n';
 
 const DEFAULTS: Settings = {
   dayOrder: 'dmy',
   nameOrder: 'given-first',
   theme: 'system',
+  language: 'system',
   backupsToKeep: 10,
   livingMaxAge: 100,
   homePerson: null,
@@ -29,6 +31,7 @@ class SettingsStore {
     this.value = s;
     this.loaded = true;
     applyTheme(s.theme);
+    setLanguage(s.language);
     // The ribbon, the Home shortcut and the People marker read the home person from the open project.
     if (project.info && project.info.homePerson !== s.homePerson) project.info = { ...project.info, homePerson: s.homePerson };
   }

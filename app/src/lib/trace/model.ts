@@ -1,6 +1,7 @@
 // The trace draft: cards marked on a picture, the links between them, and the step that turns them into one
 // `importDraft` command. Pure functions on plain objects, so the screen and the tests share them.
 
+import { t } from '../i18n';
 import type { AiReadResult, DraftFamily, DraftPerson, EditCommand, SexKind } from '../api/types';
 
 /** A box on the picture, as fractions (0..1) of its width and height. */
@@ -124,14 +125,14 @@ export type LinkKind = 'parent' | 'child' | 'partner';
 
 /** Adds a link as the user words it: "A is parent of B", "A is child of B", "A is partner of B". */
 export function addLink(d: TraceDraft, kind: LinkKind, a: string, b: string): { ok: true; link: TraceLink } | { ok: false; error: string } {
-  if (a === b) return { ok: false, error: 'Pick a different card. A person cannot be linked to themselves.' };
-  if (!d.cards.some((c) => c.id === a) || !d.cards.some((c) => c.id === b)) return { ok: false, error: 'That card is not on the picture any more.' };
+  if (a === b) return { ok: false, error: t('trace.errSelf') };
+  if (!d.cards.some((c) => c.id === a) || !d.cards.some((c) => c.id === b)) return { ok: false, error: t('trace.errGone') };
   const [from, to] = kind === 'child' ? [b, a] : [a, b];
   const type = kind === 'partner' ? 'partner' : 'parent';
   const dup = d.links.find((l) => l.kind === type && (type === 'partner' ? (l.from === from && l.to === to) || (l.from === to && l.to === from) : l.from === from && l.to === to));
-  if (dup) return { ok: false, error: 'These two cards are already linked that way.' };
+  if (dup) return { ok: false, error: t('trace.errDup') };
   if (type === 'parent' && d.links.some((l) => l.kind === 'parent' && l.from === to && l.to === from))
-    return { ok: false, error: 'These cards are already linked the other way round. Remove that link first.' };
+    return { ok: false, error: t('trace.errReverse') };
   const link: TraceLink = { id: `l${d.nextId++}`, kind: type, from, to, suggested: false };
   d.links.push(link);
   return { ok: true, link };
@@ -166,7 +167,7 @@ export function buildFamilies(d: TraceDraft): Built {
   const cards = new Map(activeCards(d).map((c) => [c.id, c]));
   const links = activeLinks(d);
   const problems: string[] = [];
-  const label = (id: string) => cardName(cards.get(id)!) || 'An unnamed card';
+  const label = (id: string) => cardName(cards.get(id)!) || t('trace.unnamedCard');
 
   const parents = new Map<string, string[]>();
   const partners = new Map<string, string[]>();
@@ -192,7 +193,7 @@ export function buildFamilies(d: TraceDraft): Built {
   for (const [child, ps] of parents) {
     let list = ps;
     if (ps.length > 2) {
-      problems.push(`${label(child)} has more than two parents. Remove a link.`);
+      problems.push(t('trace.errManyParents', { who: label(child) }));
       list = ps.slice(0, 2);
     }
     if (list.length === 2) family(list[0], list[1]).children.push(child);
@@ -206,11 +207,11 @@ export function buildFamilies(d: TraceDraft): Built {
         const ex = cards.get(list[0])?.existing;
         if (ex?.familyId) f.existingFamily = ex.familyId;
         else if ((ex?.families?.length ?? 0) > 1)
-          problems.push(`${label(list[0])} is already in more than one family. Open the card and choose which family the children belong to.`);
+          problems.push(t('trace.errManyFamilies', { who: label(list[0]) }));
       }
     }
   }
-  for (const c of cards.values()) if (!hasName(c)) problems.push('A card has no name. Enter a given name or a surname, or remove the card.');
+  for (const c of cards.values()) if (!hasName(c)) problems.push(t('trace.errNoName'));
   return { families: [...families.values()], problems: [...new Set(problems)] };
 }
 

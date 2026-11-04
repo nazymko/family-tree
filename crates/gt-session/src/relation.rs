@@ -2,7 +2,7 @@
 //!
 //! All the chart's relationship wording lives here, so it can be translated in one place.
 
-use crate::dto::SexKind;
+use crate::dto::{RoleDto, RoleKind, SexKind};
 use gt_layout::{PartnerOf, Rel};
 
 fn pick(sex: SexKind, male: &str, female: &str, neutral: &str) -> String {
@@ -23,6 +23,29 @@ fn generations(steps: u8, male: &str, female: &str, neutral: &str, sex: SexKind)
         3 => format!("great-grand{word}"),
         n => format!("{}x great-grand{word}", n - 2),
     }
+}
+
+/// `rel` as data for the UI, so it can word the relationship in its own language.
+pub fn relation_role(rel: Rel, sex: SexKind) -> RoleDto {
+    let mut r = RoleDto::new(RoleKind::Focus, 0, sex);
+    match rel {
+        Rel::Focus => {}
+        Rel::Ancestor(n) => (r.kind, r.n) = (RoleKind::Ancestor, i32::from(n)),
+        Rel::Descendant(n) => (r.kind, r.n) = (RoleKind::Descendant, i32::from(n)),
+        Rel::Sibling { half } => (r.kind, r.half) = (RoleKind::Sibling, half),
+        Rel::AuntUncle { half } => (r.kind, r.half) = (RoleKind::AuntUncle, half),
+        Rel::NieceNephew => r.kind = RoleKind::NieceNephew,
+        Rel::Cousin => r.kind = RoleKind::Cousin,
+        Rel::Partner(of) => match of {
+            PartnerOf::Focus => r.kind = RoleKind::Partner,
+            PartnerOf::Sibling => r.kind = RoleKind::PartnerOfSibling,
+            PartnerOf::AuntUncle => r.kind = RoleKind::PartnerOfAuntUncle,
+            PartnerOf::Descendant(n) => {
+                (r.kind, r.n) = (RoleKind::PartnerOfDescendant, i32::from(n))
+            }
+        },
+    }
+    r
 }
 
 /// The label for `rel`. `sex` is the sex of the person being labelled.

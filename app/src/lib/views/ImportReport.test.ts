@@ -40,12 +40,12 @@ describe('ImportReport', () => {
   it('counts_by_gedcom_tag_get_plain_labels', async () => {
     await setup({ counts: { INDI: 5000, FAM: 2218, SOUR: 20, OBJE: 3, NOTE: 4, SNOTE: 2, _XYZ: 1 } });
     const table = screen.getByRole('table', { name: 'What was imported' });
-    for (const [name, n] of [['People', '5000'], ['Families', '2218'], ['Sources', '20'], ['Media files', '3'], ['Notes', '4'], ['Shared notes', '2']]) {
+    for (const [name, n] of [['People', '5,000'], ['Families', '2,218'], ['Sources', '20'], ['Media files', '3'], ['Notes', '4'], ['Shared notes', '2']]) {
       const row = within(table).getByRole('rowheader', { name }).closest('tr')!;
       expect(within(row as HTMLElement).getByRole('cell')).toHaveTextContent(n);
     }
     expect(within(table).queryByText('INDI')).toBeNull();
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Imported 5000 people');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Imported 5,000 people');
   });
 
   it('report_sections_hidden_when_empty', async () => {

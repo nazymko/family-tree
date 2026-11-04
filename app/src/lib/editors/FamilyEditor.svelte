@@ -11,6 +11,8 @@
   import QuickAdd from './QuickAdd.svelte';
   import EditorDialog from './EditorDialog.svelte';
   import { errMessage } from './errors';
+  import { t } from '../i18n';
+  import { eventKindLabel } from '../i18n/backend';
 
   let {
     family,
@@ -40,23 +42,23 @@
 
   const api = getApi();
   const uid = $props.id();
-  const UNION: { value: UnionKindId; label: string }[] = [
-    { value: 'married', label: 'Married' },
-    { value: 'civil_union', label: 'Civil union' },
-    { value: 'unmarried', label: 'Unmarried' },
-    { value: 'unknown', label: 'Unknown' },
-    { value: 'other', label: 'Other' },
-  ];
-  const RELS: { value: ParentRelId; label: string }[] = [
-    { value: 'birth', label: 'Birth' },
-    { value: 'adopted', label: 'Adopted' },
-    { value: 'step', label: 'Step' },
-    { value: 'foster', label: 'Foster' },
-    { value: 'guardian', label: 'Guardian' },
-    { value: 'sealed', label: 'Sealed' },
-    { value: 'unknown', label: 'Unknown' },
-    { value: 'other', label: 'Other' },
-  ];
+  const UNION = $derived<{ value: UnionKindId; label: string }[]>([
+    { value: 'married', label: t('famEd.unionMarried') },
+    { value: 'civil_union', label: t('famEd.unionCivil') },
+    { value: 'unmarried', label: t('famEd.unionUnmarried') },
+    { value: 'unknown', label: t('famEd.unionUnknown') },
+    { value: 'other', label: t('famEd.unionOther') },
+  ]);
+  const RELS = $derived<{ value: ParentRelId; label: string }[]>([
+    { value: 'birth', label: t('famEd.relBirth') },
+    { value: 'adopted', label: t('famEd.relAdopted') },
+    { value: 'step', label: t('famEd.relStep') },
+    { value: 'foster', label: t('famEd.relFoster') },
+    { value: 'guardian', label: t('famEd.relGuardian') },
+    { value: 'sealed', label: t('famEd.relSealed') },
+    { value: 'unknown', label: t('famEd.relUnknown') },
+    { value: 'other', label: t('famEd.relOther') },
+  ]);
 
   // svelte-ignore state_referenced_locally
   const editing = family !== undefined;
@@ -109,7 +111,7 @@
         }
       }
     }
-    if (!own) throw { code: 'not_found', message: 'This family no longer exists.' };
+    if (!own) throw { code: 'not_found', message: t('famEd.gone') };
     const rows = await Promise.all(
       own.children.map(async (c) => {
         const d = await api.getPerson(c.person.id);
@@ -259,12 +261,12 @@
     }
   }
 
-  const parentName = (p: PersonRef | null, n: 1 | 2) => p?.name ?? `parent ${n} (unknown)`;
+  const parentName = (p: PersonRef | null, n: 1 | 2) => p?.name ?? t('famEd.parentUnknown', { n });
 </script>
 
 <EditorDialog
-  title={editing ? 'Edit family' : 'Add family'}
-  saveLabel="Save family"
+  title={editing ? t('famEd.editFamily') : t('famEd.addFamily')}
+  saveLabel={t('edit.saveFamily')}
   {dirty}
   {saving}
   {error}
@@ -274,38 +276,38 @@
 >
   <div class="partners">
     <PersonPicker
-      label="Partner 1"
+      label={t('famEd.partner1')}
       value={slot1}
       exclude={slot2 ? [slot2.id] : []}
       onPick={(p) => (slot1 = p)}
-      error={ownParent && ownParent.id === slot1?.id ? 'A person cannot be their own parent.' : undefined}
+      error={ownParent && ownParent.id === slot1?.id ? t('famEd.ownParent') : undefined}
     />
     <PersonPicker
-      label="Partner 2"
+      label={t('famEd.partner2')}
       value={slot2}
       exclude={slot1 ? [slot1.id] : []}
       onPick={(p) => (slot2 = p)}
-      hint="Leave a slot empty when the partner is unknown"
-      error={ownParent && ownParent.id === slot2?.id ? 'A person cannot be their own parent.' : undefined}
+      hint={t('famEd.partnerHint')}
+      error={ownParent && ownParent.id === slot2?.id ? t('famEd.ownParent') : undefined}
     />
   </div>
-  <Select label="Type of union" options={UNION} bind:value={kind} />
+  <Select label={t('famEd.typeOfUnion')} options={UNION} bind:value={kind} />
 
   {#if editing}
     <section aria-labelledby="{uid}-ev">
       <div class="sec-head">
-        <h3 id="{uid}-ev">Union events</h3>
-        <Button onclick={() => (sub = { kind: 'event' })}>Add event</Button>
+        <h3 id="{uid}-ev">{t('famEd.unionEvents')}</h3>
+        <Button onclick={() => (sub = { kind: 'event' })}>{t('editor.addEvent')}</Button>
       </div>
       {#if events.length === 0}
-        <p class="empty">No marriage, divorce or other events recorded.</p>
+        <p class="empty">{t('famEd.noUnionEvents')}</p>
       {:else}
         <ul class="rows">
           {#each events as e (e.id)}
             <li>
-              <span class="kind">{e.label}</span>
-              <span class="grow">{[e.date?.display, e.place?.full].filter(Boolean).join(', ') || 'No date or place'}</span>
-              <Button onclick={() => (sub = { kind: 'event', event: e })} aria-label="Edit {e.label}">Edit</Button>
+              <span class="kind">{eventKindLabel(e.kind, e.label)}</span>
+              <span class="grow">{[e.date?.display, e.place?.full].filter(Boolean).join(', ') || t('person.noDateOrPlace')}</span>
+              <Button onclick={() => (sub = { kind: 'event', event: e })} aria-label={t('person.editNamed', { label: eventKindLabel(e.kind, e.label) })}>{t('common.edit')}</Button>
             </li>
           {/each}
         </ul>
@@ -313,11 +315,11 @@
     </section>
 
     <section aria-labelledby="{uid}-ch">
-      <h3 id="{uid}-ch">Children</h3>
+      <h3 id="{uid}-ch">{t('family.children')}</h3>
       {#if children.length === 0}
-        <p class="empty">No children in this family yet.</p>
+        <p class="empty">{t('famEd.noChildren')}</p>
       {:else}
-        <p class="hint">Drag a row, or press Alt with the up or down arrow on a row, to change the birth order.</p>
+        <p class="hint">{t('famEd.reorderHint')}</p>
         <ol class="children">
           {#each children as c, i (c.person.id)}
             <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -325,7 +327,7 @@
               id={rowId(c.person.id)}
               tabindex="0"
               role="group"
-              aria-label="{c.person.name}, child {i + 1} of {children.length}"
+              aria-label={t('famEd.childOf', { name: c.person.name, i: i + 1, n: children.length })}
               draggable={dragFrom !== null || undefined}
               onkeydown={(e) => onRowKey(e, i)}
               ondragover={(e) => dragFrom !== null && e.preventDefault()}
@@ -349,13 +351,13 @@
               </div>
               <div class="rels">
                 <Select
-                  label="Relationship to {parentName(slot1, 1)}"
+                  label={t('famEd.relationshipTo', { parent: parentName(slot1, 1) })}
                   options={RELS}
                   value={c.rel[0]}
                   onchange={(v) => setRel(c, 0, v)}
                 />
                 <Select
-                  label="Relationship to {parentName(slot2, 2)}"
+                  label={t('famEd.relationshipTo', { parent: parentName(slot2, 2) })}
                   options={RELS}
                   value={c.rel[1]}
                   onchange={(v) => setRel(c, 1, v)}
@@ -363,15 +365,15 @@
               </div>
               <div class="foot">
                 <Checkbox
-                  label="Preferred parents for this child"
+                  label={t('famEd.preferredParents')}
                   checked={c.preferred}
                   onchange={(v) => setPreferred(c, v)}
                 />
                 <Button
                   variant="quiet"
-                  aria-label="Remove {c.person.name} from this family"
+                  aria-label={t('famEd.removeFromFamily', { name: c.person.name })}
                   onclick={() => immediate({ type: 'unlinkChild', family: family!, child: c.person.id })}
-                  >Remove</Button
+                  >{t('common.remove')}</Button
                 >
               </div>
             </li>
@@ -380,20 +382,20 @@
       {/if}
       {#key childPick}
         <PersonPicker
-          label="Add existing person as child"
+          label={t('famEd.addExisting')}
           value={null}
           exclude={[...childIds, ...(slot1 ? [slot1.id] : []), ...(slot2 ? [slot2.id] : [])]}
           onPick={addExisting}
         />
       {/key}
       <div>
-        <Button disabled={!childAnchor} onclick={() => (sub = { kind: 'child' })}>Add new child</Button>
+        <Button disabled={!childAnchor} onclick={() => (sub = { kind: 'child' })}>{t('famEd.addNewChild')}</Button>
       </div>
     </section>
   {/if}
 
   {#snippet extra()}
-    {#if editing}<Button variant="danger" onclick={() => (sub = { kind: 'delete' })}>Delete family</Button>{/if}
+    {#if editing}<Button variant="danger" onclick={() => (sub = { kind: 'delete' })}>{t('edit.deleteFamily')}</Button>{/if}
   {/snippet}
 </EditorDialog>
 
@@ -421,11 +423,11 @@
     }}
   />
 {:else if sub?.kind === 'delete'}
-  <Dialog open={true} title="Delete this family?" onclose={() => (sub = null)}>
-    <p>Children are kept. They stay in the tree and are only unlinked from this family.</p>
+  <Dialog open={true} title={t('famEd.deleteTitle')} onclose={() => (sub = null)}>
+    <p>{t('famEd.childrenKept')}</p>
     {#snippet footer()}
-      <Button onclick={() => (sub = null)}>Keep family</Button>
-      <Button variant="danger" onclick={removeFamily}>Delete family</Button>
+      <Button onclick={() => (sub = null)}>{t('famEd.keepFamily')}</Button>
+      <Button variant="danger" onclick={removeFamily}>{t('edit.deleteFamily')}</Button>
     {/snippet}
   </Dialog>
 {/if}

@@ -1,14 +1,15 @@
 <script lang="ts">
   import Ribbon from './Ribbon.svelte';
   import Lock from './Lock.svelte';
+  import { t, type MessageKey } from '../i18n';
 
   type Sex = 'male' | 'female' | 'intersex' | 'unknown' | 'other';
-  const SEX: Record<Sex, { glyph: string; name: string }> = {
-    male: { glyph: '♂', name: 'Male' },
-    female: { glyph: '♀', name: 'Female' },
-    intersex: { glyph: '⚥', name: 'Intersex' },
-    unknown: { glyph: '?', name: 'Sex unknown' },
-    other: { glyph: '•', name: 'Other sex' },
+  const SEX: Record<Sex, { glyph: string; name: MessageKey }> = {
+    male: { glyph: '♂', name: 'sex.male' },
+    female: { glyph: '♀', name: 'sex.female' },
+    intersex: { glyph: '⚥', name: 'sex.intersex' },
+    unknown: { glyph: '?', name: 'sex.unknown' },
+    other: { glyph: '•', name: 'sex.other' },
   };
 
   let {
@@ -53,11 +54,11 @@
 </script>
 
 {#snippet body()}
-  <span class="sex" role="img" aria-label={SEX[sex].name}>{SEX[sex].glyph}</span>
+  <span class="sex" role="img" aria-label={t(SEX[sex].name)}>{SEX[sex].glyph}</span>
   <span class="text">
     <bdi dir="auto" {lang} class="name">{name}</bdi>
     <span class="meta tnum">
-      {#if living}<span class="living"><span class="dot" aria-hidden="true"></span>Living</span>{/if}
+      {#if living}<span class="living"><span class="dot" aria-hidden="true"></span>{t('common.living')}</span>{/if}
       {#if lifespan}<span>{lifespan}</span>{/if}
       {#if isPrivate}<Lock />{/if}
     </span>
@@ -68,7 +69,7 @@
       </span>
     {/if}
   </span>
-  {#if home}<Ribbon title="Home person" size="1.1rem" />{/if}
+  {#if home}<Ribbon size="1.1rem" />{/if}
 {/snippet}
 
 {#if href}

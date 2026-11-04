@@ -9,6 +9,7 @@
   import { notices } from '../ui/notices.svelte';
   import { isPdf, mediaLabel, openOriginal } from './MediaGrid.svelte';
   import type { Id, MediaLinkDto, OwnerRef } from '../api/api';
+  import { t } from '../i18n';
 
   let {
     items,
@@ -69,7 +70,7 @@
     try {
       await api.apply({ type: 'setPrimaryMedia', person: target.id, media: m.id }, { silent: true });
       primaryIds = new Set([...primaryIds, m.id]);
-      notices.show({ message: 'Primary photo set' });
+      notices.show({ message: t('media.primarySet') });
       onChanged?.();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -140,7 +141,7 @@
 
 <svelte:window {onkeydown} />
 
-<Dialog open title={m ? mediaLabel({ ...m, title: title || m.title }) : 'Photo'} onclose={onClose}>
+<Dialog open title={m ? mediaLabel({ ...m, title: title || m.title }) : t('media.photo')} onclose={onClose}>
   {#if m}
     <div class="viewer">
       {#if error}<Banner kind="error">{error}</Banner>{/if}
@@ -148,7 +149,7 @@
       <div
         class="stage"
         role="group"
-        aria-label="Preview, {at + 1} of {items.length}. Plus and minus zoom, zero fits, arrow keys move, P sets primary."
+        aria-label={t('media.previewHelp', { i: at + 1, n: items.length })}
         tabindex="0"
         {onwheel}
         {onpointerdown}
@@ -157,9 +158,9 @@
         data-zoom={zoom}
       >
         {#if !m.resolved}
-          <p class="note"><Icon name="file" size="2rem" /> File missing</p>
+          <p class="note"><Icon name="file" size="2rem" /> {t('media.fileMissing')}</p>
         {:else if isPdf(m)}
-          <p class="note"><Icon name="file" size="2rem" /> This is a document. Open the original to read it.</p>
+          <p class="note"><Icon name="file" size="2rem" /> {t('media.isDocument')}</p>
         {:else}
           <img
             alt={mediaLabel(m)}
@@ -170,19 +171,19 @@
         {/if}
       </div>
       <div class="bar">
-        <span aria-live="polite">Zoom {Math.round(zoom * 100)}%</span>
-        <span>{at + 1} of {items.length}</span>
-        {#if primary}<span>Primary photo</span>{/if}
-        <Button disabled={at === 0} onclick={() => go(at - 1)}>Previous</Button>
-        <Button disabled={at >= items.length - 1} onclick={() => go(at + 1)}>Next</Button>
+        <span aria-live="polite">{t('media.zoom', { pct: Math.round(zoom * 100) })}</span>
+        <span>{t('media.position', { i: at + 1, n: items.length })}</span>
+        {#if primary}<span>{t('media.primaryPhoto')}</span>{/if}
+        <Button disabled={at === 0} onclick={() => go(at - 1)}>{t('media.previous')}</Button>
+        <Button disabled={at >= items.length - 1} onclick={() => go(at + 1)}>{t('media.next')}</Button>
         {#if target?.kind === 'person' && m.resolved && !isPdf(m)}
-          <Button onclick={setPrimary}>Set as primary photo</Button>
+          <Button onclick={setPrimary}>{t('media.setPrimary')}</Button>
         {/if}
-        <Button onclick={() => openOriginal(api, m.id)}>Open original</Button>
+        <Button onclick={() => openOriginal(api, m.id)}>{t('media.openOriginal')}</Button>
       </div>
       {#key m.id}
-        <TextField label="Title" value={title} onchange={(e) => saveField('title', e.currentTarget.value)} />
-        <TextArea label="Description" value={description} rows={2} onchange={(e) => saveField('description', e.currentTarget.value)} />
+        <TextField label={t('media.title')} value={title} onchange={(e) => saveField('title', e.currentTarget.value)} />
+        <TextArea label={t('media.description')} value={description} rows={2} onchange={(e) => saveField('description', e.currentTarget.value)} />
       {/key}
     </div>
   {/if}

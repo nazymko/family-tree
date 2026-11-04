@@ -1,4 +1,5 @@
 import type { ApiError, ErrorCode } from '../types';
+import { t } from '../../i18n';
 
 const CODES: readonly ErrorCode[] = ['not_found', 'invalid', 'conflict', 'io', 'no_project', 'stale', 'internal'];
 
@@ -14,5 +15,5 @@ export function toApiError(e: unknown): ApiError {
     }
     if (e instanceof Error) return { code: 'internal', message: e.message };
   }
-  return { code: 'internal', message: typeof e === 'string' && e ? e : 'Something went wrong.' };
+  return { code: 'internal', message: typeof e === 'string' && e ? e : t('edit.wentWrong') };
 }

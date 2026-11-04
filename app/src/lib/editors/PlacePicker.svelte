@@ -2,6 +2,7 @@
   import type { Id, PlaceOption } from '../api/types';
   import { getApi } from '../api/context';
   import Combobox from '../ui/Combobox.svelte';
+  import { t } from '../i18n';
 
   let {
     label,
@@ -59,11 +60,11 @@
   }}
   render={(p) => p.name}
   detail={(p) => p.full}
-  createLabel={(t) => `Create "${t}"`}
+  createLabel={(x) => t('fields.create', { text: x })}
   onCreate={(t) => {
     typed = t;
     picked = null;
     onChange({ placeText: t });
   }}
-  hint="Type a hierarchy with commas, for example Hamburg, Germany. Missing places are created when you save."
+  hint={t('fields.placeHint')}
 />

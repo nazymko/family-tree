@@ -248,6 +248,8 @@ export function outlineOf(
       person: n.person,
       label: text,
       hasChildren: layout.kids[id].length > 0 || n.moreUp || n.moreDown,
+      appearsEarlier: false,
+      alsoAbove: false,
     };
   });
 }

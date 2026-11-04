@@ -3,16 +3,17 @@
   import Icon from './Icon.svelte';
   import { getApi } from '../api/context';
   import type { SearchHitDto } from '../api/types';
+  import { t, type MessageKey } from '../i18n';
 
   let { open, onclose, onpick }: { open: boolean; onclose: () => void; onpick: (hit: SearchHitDto) => void } = $props();
 
   const api = getApi();
   const uid = $props.id();
-  const GROUPS: { kind: SearchHitDto['kind']; title: string }[] = [
-    { kind: 'person', title: 'People' },
-    { kind: 'place', title: 'Places' },
-    { kind: 'source', title: 'Sources' },
-    { kind: 'note', title: 'Notes' },
+  const GROUPS: { kind: SearchHitDto['kind']; title: MessageKey }[] = [
+    { kind: 'person', title: 'ui.searchPeople' },
+    { kind: 'place', title: 'ui.searchPlaces' },
+    { kind: 'source', title: 'ui.searchSources' },
+    { kind: 'note', title: 'ui.searchNotes' },
   ];
 
   let text = $state('');
@@ -87,7 +88,7 @@
   });
 </script>
 
-<Dialog {open} title="Search" {onclose}>
+<Dialog {open} title={t('ui.searchTitle')} {onclose}>
   <div class="palette">
     <div class="box">
       <Icon name="search" />
@@ -95,23 +96,23 @@
         class="q"
         type="text"
         role="combobox"
-        aria-label="Search the tree"
+        aria-label={t('ui.searchTheTree')}
         aria-expanded={flat.length > 0}
         aria-controls="{uid}-list"
         aria-activedescendant={activeId}
         aria-autocomplete="list"
         autocomplete="off"
         spellcheck="false"
-        placeholder="A name, place or source"
+        placeholder={t('ui.searchPlaceholder')}
         value={text}
         {oninput}
         {onkeydown}
       />
     </div>
-    <div id="{uid}-list" class="results" role="listbox" aria-label="Search results">
+    <div id="{uid}-list" class="results" role="listbox" aria-label={t('ui.searchResults')}>
       {#each groups as g (g.kind)}
         <div role="group" aria-labelledby="{uid}-g-{g.kind}">
-          <div class="grp" id="{uid}-g-{g.kind}">{g.title}</div>
+          <div class="grp" id="{uid}-g-{g.kind}">{t(g.title)}</div>
           {#each g.items as h (h.id)}
             {@const i = flat.indexOf(h)}
             <div
@@ -133,11 +134,11 @@
       {/each}
     </div>
     {#if failed}
-      <p class="none" role="alert">Search did not work. Try again; if it keeps failing, restart the app.</p>
+      <p class="none" role="alert">{t('ui.searchFailed')}</p>
     {:else if searched && flat.length === 0}
-      <p class="none">No matches. Try a different spelling; search also finds similar-sounding names.</p>
+      <p class="none">{t('ui.searchNone')}</p>
     {:else if !searched}
-      <p class="hint">Type a name, a place or a source title.</p>
+      <p class="hint">{t('ui.searchHint')}</p>
     {/if}
   </div>
 </Dialog>

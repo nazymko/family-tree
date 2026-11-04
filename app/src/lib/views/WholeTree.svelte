@@ -4,6 +4,7 @@
   import WholeCanvas from '../chart/WholeCanvas.svelte';
   import { nav } from '../state/nav.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
+  import { plural, t } from '../i18n';
 
   let { onOpenPerson }: { onOpenPerson?: (id: Id) => void } = $props();
 
@@ -30,13 +31,13 @@
 
 <section class="view" aria-labelledby="whole-title">
   <header>
-    <h1 id="whole-title">Whole tree</h1>
+    <h1 id="whole-title">{t('whole.title')}</h1>
     {#if meta && !empty}
-      <p class="count">{meta.meta.nodeCount} {meta.meta.nodeCount === 1 ? 'person' : 'people'} in {meta.blocks.length} {meta.blocks.length === 1 ? 'group' : 'groups'}</p>
+      <p class="count">{t('whole.count', { people: plural('common.people', meta.meta.nodeCount), groups: plural('whole.nGroupsIn', meta.blocks.length) })}</p>
     {/if}
   </header>
   {#if empty}
-    <EmptyState title="No people yet">Add a person in People and they will appear here.</EmptyState>
+    <EmptyState title={t('whole.emptyTitle')}>{t('whole.emptyBody')}</EmptyState>
   {/if}
   {#if ready}
     <div class="body" hidden={empty}>

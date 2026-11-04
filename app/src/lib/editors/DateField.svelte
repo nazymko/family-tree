@@ -4,6 +4,7 @@
   import { getApi } from '../api/context';
   import TextField from '../ui/TextField.svelte';
   import Icon from '../ui/Icon.svelte';
+  import { t } from '../i18n';
 
   let {
     label,
@@ -70,11 +71,11 @@
   <TextField {label} bind:value={text} {oninput} autocomplete="off" />
   <div class="status" role="status" aria-live="polite">
     {#if preview?.status === 'ok'}
-      <span class="ok">Understood as: {preview.understoodAs}{preview.range ? ` (${preview.range})` : ''}</span>
+      <span class="ok">{t('fields.understoodAs', { text: preview.understoodAs })}{preview.range ? ` (${preview.range})` : ''}</span>
     {:else if preview?.status === 'phrase'}
       <span class="ok">Saved as a phrase: "{preview.raw}"</span>
     {:else if preview?.status === 'unparsed'}
-      <span class="warn"><Icon name="warning" /> Not understood as a date. It will be saved exactly as you typed it.</span>
+      <span class="warn"><Icon name="warning" /> {t('fields.notUnderstood')}</span>
     {/if}
     {#if preview}
       {#each preview.warnings as w (w)}<span class="note">{w}</span>{/each}
