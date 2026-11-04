@@ -27,6 +27,8 @@
   const reversed = $derived(settings.value.treeDirection === 'reversed');
   const SIBLING_LIMIT = 4;
   const CHILD_LIMIT = 6;
+  /** Children per partner, in order; "Add child" goes at the end of the last group. */
+  const kidGroups = $derived(view.partnerships.filter((u, i) => i === 0 || u.children.length > 0));
 
   type Pair = [PersonRef | null, PersonRef | null];
 
@@ -379,7 +381,7 @@
 
   <div class="drop" aria-hidden="true"></div>
   <div class="row kidsrow">
-    {#each view.partnerships.filter((u, i) => i === 0 || u.children.length > 0) as u, gi (u.familyId)}
+    {#each kidGroups as u, gi (u.familyId)}
       {@const shown = kidsOpen[u.familyId] ? u.children : u.children.slice(0, CHILD_LIMIT)}
       {@const hidden = u.children.length - shown.length}
       <div class="kids" role="group" aria-label={u.partner ? t('family.treeChildrenWith', { who: u.partner.name }) : t('family.children')}>
@@ -399,7 +401,7 @@
             >
           </div>
         {/if}
-        {#if gi === 0}
+        {#if gi === kidGroups.length - 1}
           <div class="kid">{@render slot('child', focus, 3)}</div>
         {/if}
       </div>
@@ -476,6 +478,9 @@
   .reversed .kid::after {
     top: auto;
     bottom: 0;
+  }
+  .reversed .more {
+    align-self: flex-end;
   }
   .reversed .sets {
     margin-bottom: 0;
@@ -625,14 +630,13 @@
     display: flex;
     align-items: center;
     gap: 0;
-    min-height: 3.25rem;
   }
   .mate .join {
     width: var(--s-4);
   }
   .kidsrow {
     align-items: flex-start;
-    gap: var(--s-6);
+    gap: 0;
   }
   .kids {
     display: flex;
@@ -661,6 +665,16 @@
   .kids > .kid:only-child::before {
     display: none;
   }
+  /* Children of several partners: one bar runs on through every group, so each group joins the person's line. */
+  .kidsrow > .kids:not(:first-child) > .kid:first-child::before {
+    inset-inline-start: 0;
+  }
+  .kidsrow > .kids:not(:last-child) > .kid:last-child::before {
+    inset-inline-end: 0;
+  }
+  .kidsrow > .kids:not(:only-child) > .kid:only-child::before {
+    display: block;
+  }
   .side.left > .kid:first-child::before {
     inset-inline-start: 50%;
   }
@@ -685,7 +699,8 @@
     align-content: center;
     min-width: 9.5rem;
     max-width: 13rem;
-    min-height: 3.25rem;
+    /* One height for every box and "Add" slot (room for the relation, name and dates), so rows line up. */
+    min-height: 4.25rem;
     padding: var(--s-2) var(--s-4);
     border: 1px solid var(--rule);
     border-inline-start: 4px solid var(--ink-2);
@@ -762,8 +777,9 @@
     font-size: var(--t-md);
     font-weight: 600;
   }
+  /* Against the line's side of the slot, so the tick reaches it. */
   .more {
-    align-self: center;
+    align-self: flex-start;
     min-height: 2.25rem;
     padding: 0 var(--s-4);
     border: 1px dashed var(--ink-2);
