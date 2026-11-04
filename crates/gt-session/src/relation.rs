@@ -43,14 +43,14 @@ pub fn relation_label(rel: Rel, sex: SexKind) -> String {
         Rel::Cousin => "cousin".to_string(),
         Rel::Partner(of) => match of {
             PartnerOf::Focus => "partner".to_string(),
-            PartnerOf::Sibling => "sibling's partner".to_string(),
-            PartnerOf::AuntUncle => "aunt or uncle's partner".to_string(),
-            PartnerOf::Descendant(n) => {
-                format!(
-                    "{}'s partner",
-                    generations(n, "child", "child", "child", SexKind::Unknown)
-                )
-            }
+            PartnerOf::Sibling => pick(sex, "brother-in-law", "sister-in-law", "in-law"),
+            PartnerOf::AuntUncle => pick(sex, "uncle by marriage", "aunt by marriage", "in-law"),
+            PartnerOf::Descendant(n) => match sex {
+                SexKind::Male | SexKind::Female => {
+                    format!("{}-in-law", generations(n, "son", "daughter", "child", sex))
+                }
+                _ => "in-law".to_string(),
+            },
         },
     }
 }
@@ -107,9 +107,19 @@ mod tests {
         assert_eq!(relation_label(Rel::Focus, Male), "starting person");
         let p = |of| relation_label(Rel::Partner(of), Female);
         assert_eq!(p(PartnerOf::Focus), "partner");
-        assert_eq!(p(PartnerOf::Sibling), "sibling's partner");
-        assert_eq!(p(PartnerOf::AuntUncle), "aunt or uncle's partner");
-        assert_eq!(p(PartnerOf::Descendant(1)), "child's partner");
-        assert_eq!(p(PartnerOf::Descendant(2)), "grandchild's partner");
+        assert_eq!(p(PartnerOf::Sibling), "sister-in-law");
+        assert_eq!(p(PartnerOf::AuntUncle), "aunt by marriage");
+        assert_eq!(p(PartnerOf::Descendant(1)), "daughter-in-law");
+        assert_eq!(p(PartnerOf::Descendant(2)), "granddaughter-in-law");
+        assert_eq!(p(PartnerOf::Descendant(3)), "great-granddaughter-in-law");
+        let m = |of| relation_label(Rel::Partner(of), Male);
+        assert_eq!(m(PartnerOf::Sibling), "brother-in-law");
+        assert_eq!(m(PartnerOf::AuntUncle), "uncle by marriage");
+        assert_eq!(m(PartnerOf::Descendant(1)), "son-in-law");
+        assert_eq!(m(PartnerOf::Descendant(2)), "grandson-in-law");
+        let u = |of| relation_label(Rel::Partner(of), Unknown);
+        assert_eq!(u(PartnerOf::Sibling), "in-law");
+        assert_eq!(u(PartnerOf::AuntUncle), "in-law");
+        assert_eq!(u(PartnerOf::Descendant(1)), "in-law");
     }
 }

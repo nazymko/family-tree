@@ -23,9 +23,35 @@ interface Unit {
   attach: number | null;
   children: number[];
   hang: [boolean, boolean];
-  sw: number;
-  ucx: number;
-  left: number;
+  /** Extent of the unit and everything below it, one [left, right] per row, from the unit's centre. */
+  ctr: [number, number][];
+  /** Child centres from this unit's centre. */
+  coff: number[];
+  /** Which way the children hang: -1 left, 1 right, 0 centred (siblings hang away from the centred person). */
+  lean: number;
+  /** Absolute centre. */
+  cx: number;
+}
+
+/** Place contours left to right, each as close as `gap` to everything already placed, row by row. */
+function pack(items: [number, number][][], gap: number): { places: number[]; acc: [number, number][] } {
+  const places: number[] = [];
+  const acc: [number, number][] = [];
+  for (const c of items) {
+    let shift = 0;
+    if (acc.length) {
+      shift = -Infinity;
+      for (let d = 0; d < Math.min(acc.length, c.length); d++) shift = Math.max(shift, acc[d][1] + gap - c[d][0]);
+    }
+    places.push(shift);
+    c.forEach(([lo, hi], d) => {
+      if (d < acc.length) {
+        acc[d][0] = Math.min(acc[d][0], lo + shift);
+        acc[d][1] = Math.max(acc[d][1], hi + shift);
+      } else acc.push([lo + shift, hi + shift]);
+    });
+  }
+  return { places, acc };
 }
 
 interface Block {
@@ -35,6 +61,8 @@ interface Block {
   slots: [number | null, number | null];
   ups: number[];
   upOff: number[];
+  /** Group unit centres from the group's left edge. */
+  gplace: number[];
   w: number;
   acx: number;
   goff: number;
@@ -122,7 +150,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
       }
     }
     pending.push(pend);
-    units.push({ person, partners, row, cousin: rel.t === 'cousin', attach, children: [], hang: [true, true], sw: 0, ucx: 0, left: 0 });
+    units.push({ person, partners, row, cousin: rel.t === 'cousin', attach, children: [], hang: [true, true], ctr: [], coff: [], lean: 0, cx: 0 });
     return units.length - 1;
   };
 
@@ -189,7 +217,9 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
       units[u].hang = s.hang;
       group.push(u);
     }
-    blocks.push({ row, anchor, group, slots: [null, null], ups: [], upOff: [], w: 0, acx: 0, goff: 0, left: 0 });
+    const ai = group.indexOf(anchor);
+    group.forEach((u, k) => (units[u].lean = Math.sign(k - ai)));
+    blocks.push({ row, anchor, group, slots: [null, null], ups: [], upOff: [], gplace: [], w: 0, acx: 0, goff: 0, left: 0 });
     return blocks.length - 1;
   };
 
@@ -224,25 +254,27 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     const u = units[i];
     const w = uw(u);
     const ch = u.children;
+    const own: [number, number] = [-w / 2, w / 2];
     if (ch.length === 0) {
-      u.sw = w;
-      u.ucx = w / 2;
+      u.ctr = [own];
       continue;
     }
-    const cw = ch.reduce((s, c) => s + units[c].sw, 0) + gap * (ch.length - 1);
-    const sw = Math.max(w, cw);
-    const start = (sw - cw) / 2;
-    const first = ch[0];
-    const last = ch[ch.length - 1];
-    const lastOff = start + cw - units[last].sw;
-    const mid = (start + units[first].ucx + lastOff + units[last].ucx) / 2;
-    u.sw = sw;
-    u.ucx = Math.min(sw - w / 2, Math.max(w / 2, mid));
+    const { places, acc } = pack(ch.map((c) => units[c].ctr), gap);
+    const first = places[0];
+    const last = places[places.length - 1];
+    // Over the middle of the first and last child, or over the end nearest the centred person when hanging away.
+    const mid = u.lean < 0 ? last : u.lean > 0 ? first : (first + last) / 2;
+    u.coff = places.map((p) => p - mid);
+    u.ctr = [own, ...acc.map(([lo, hi]): [number, number] => [lo - mid, hi - mid])];
   }
   for (let i = blocks.length - 1; i >= 0; i--) {
     const b = blocks[i];
     const upW = b.ups.reduce((s, u) => s + blocks[u].w, 0) + gap * Math.max(0, b.ups.length - 1);
-    const gw = b.group.reduce((s, u) => s + units[u].sw, 0) + gap * Math.max(0, b.group.length - 1);
+    const { places, acc } = pack(b.group.map((u) => units[u].ctr), gap);
+    const glo = Math.min(...acc.map((c) => c[0]));
+    const ghi = Math.max(...acc.map((c) => c[1]));
+    const gw = ghi - glo;
+    const gplace = places.map((p) => p - glo);
     const w = Math.max(upW, gw);
     let x = (w - upW) / 2;
     const offs: number[] = [];
@@ -254,12 +286,9 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     }
     const target = centres.length ? centres.reduce((s, c) => s + c, 0) / centres.length : w / 2;
     const goff = Math.min(Math.max(w - gw, 0), Math.max(0, target - gw / 2));
-    let gx = goff;
-    let acx = 0;
-    for (const u of b.group) {
-      if (u === b.anchor) acx = gx + units[u].ucx;
-      gx += units[u].sw + gap;
-    }
+    const ai = b.group.indexOf(b.anchor);
+    const acx = ai >= 0 ? goff + gplace[ai] : 0;
+    b.gplace = gplace;
     b.w = w;
     b.upOff = offs;
     b.goff = goff;
@@ -270,33 +299,21 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
   blocks[0].left = 0;
   for (const b of blocks) {
     b.ups.forEach((u, k) => (blocks[u].left = b.left + b.upOff[k]));
-    let gx = b.left + b.goff;
-    for (const u of b.group) {
-      units[u].left = gx;
-      gx += units[u].sw + gap;
-    }
+    b.group.forEach((u, k) => (units[u].cx = b.left + b.goff + b.gplace[k]));
   }
   const stepY = M.nodeH + M.gapY * 4;
   const stepP = M.nodeW + M.coupleGap;
   const hasCousins = units.some((u) => u.cousin);
   for (const u of units) {
     const w = uw(u);
-    const x0 = u.left + u.ucx - w / 2;
+    const x0 = u.cx - w / 2;
     for (let k = 0; k <= u.partners; k++) {
       const n = nodes[u.person + k];
       n.x = x0 + k * stepP;
       // Cousins get a row of their own between the parents' row and the centred person's row.
       n.y = u.cousin ? 0 : hasCousins && u.row >= 0 ? (u.row + 1) * stepY : u.row * stepY;
     }
-    const ch = u.children;
-    if (ch.length) {
-      const cw = ch.reduce((s, c) => s + units[c].sw, 0) + gap * (ch.length - 1);
-      let cx = u.left + (u.sw - cw) / 2;
-      for (const c of ch) {
-        units[c].left = cx;
-        cx += units[c].sw + gap;
-      }
-    }
+    u.children.forEach((c, k) => (units[c].cx = u.cx + u.coff[k]));
   }
   const minX = Math.min(...nodes.map((n) => n.x));
   const minY = Math.min(...nodes.map((n) => n.y));

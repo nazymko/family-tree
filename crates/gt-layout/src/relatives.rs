@@ -61,11 +61,46 @@ struct Unit {
     children: Vec<usize>,
     /// Group roots only: the parents this person descends from.
     hang: Hang,
-    /// Width of the unit's subtree, and the unit centre inside it.
-    sw: f32,
-    ucx: f32,
-    /// Absolute left edge of the subtree.
-    left: f32,
+    /// The extent of the unit and of everything below it, one `(left, right)` pair per row below,
+    /// measured from the unit's centre. Only rows that are present count: a neighbour has to clear
+    /// each row of this contour, not a box around the whole subtree.
+    ctr: Contour,
+    /// Child centres, from this unit's centre.
+    coff: Vec<f32>,
+    /// Which way the children hang: -1 to the left, 1 to the right, 0 centred. A sibling's children
+    /// hang away from the centred person, so they do not hold the siblings far apart.
+    lean: i8,
+    /// Absolute centre of the unit (person plus partners).
+    cx: f32,
+}
+
+type Contour = Vec<(f32, f32)>;
+
+/// Place contours left to right, each as close as `gap` to everything already placed, row by row
+/// (Reingold and Tilford). Returns the centre of each item and the merged contour.
+fn pack(items: &[&Contour], gap: f32) -> (Vec<f32>, Contour) {
+    let mut places = Vec::with_capacity(items.len());
+    let mut acc: Contour = Vec::new();
+    for c in items {
+        let shift = if acc.is_empty() {
+            0.0
+        } else {
+            acc.iter()
+                .zip(c.iter())
+                .map(|(a, b)| a.1 + gap - b.0)
+                .fold(f32::NEG_INFINITY, f32::max)
+        };
+        places.push(shift);
+        for (d, &(lo, hi)) in c.iter().enumerate() {
+            if let Some(a) = acc.get_mut(d) {
+                a.0 = a.0.min(lo + shift);
+                a.1 = a.1.max(hi + shift);
+            } else {
+                acc.push((lo + shift, hi + shift));
+            }
+        }
+    }
+    (places, acc)
 }
 
 struct Block {
@@ -78,6 +113,8 @@ struct Block {
     slots: [Option<usize>; 2],
     ups: Vec<usize>,
     up_off: Vec<f32>,
+    /// Group unit centres, from the group's left edge.
+    gplace: Vec<f32>,
     w: f32,
     /// Centre of the anchor person's box, from the block's left edge.
     acx: f32,
@@ -203,9 +240,10 @@ impl Builder<'_> {
             attach,
             children: Vec::new(),
             hang: [true, true],
-            sw: 0.0,
-            ucx: 0.0,
-            left: 0.0,
+            ctr: Vec::new(),
+            coff: Vec::new(),
+            lean: 0,
+            cx: 0.0,
         });
         Some(self.units.len() - 1)
     }
@@ -320,6 +358,15 @@ impl Builder<'_> {
             self.units[u].hang = s.hang;
             group.push(u);
         }
+        if let Some(ai) = group.iter().position(|&u| u == anchor) {
+            for (k, &u) in group.iter().enumerate() {
+                self.units[u].lean = match k.cmp(&ai) {
+                    std::cmp::Ordering::Less => -1,
+                    std::cmp::Ordering::Equal => 0,
+                    std::cmp::Ordering::Greater => 1,
+                };
+            }
+        }
         self.blocks.push(Block {
             row,
             anchor,
@@ -327,6 +374,7 @@ impl Builder<'_> {
             slots: [None, None],
             ups: Vec::new(),
             up_off: Vec::new(),
+            gplace: Vec::new(),
             w: 0.0,
             acx: 0.0,
             goff: 0.0,
@@ -409,26 +457,41 @@ pub fn relatives(
     for i in (0..units.len()).rev() {
         let w = uw(&units[i]);
         let ch = units[i].children.clone();
+        let own = (-w / 2.0, w / 2.0);
         if ch.is_empty() {
-            units[i].sw = w;
-            units[i].ucx = w / 2.0;
+            units[i].ctr = vec![own];
             continue;
         }
-        let cw: f32 = ch.iter().map(|&c| units[c].sw).sum::<f32>() + gap * (ch.len() - 1) as f32;
-        let sw = w.max(cw);
-        let start = (sw - cw) / 2.0;
-        let last_off = start + cw - units[ch[ch.len() - 1]].sw;
-        let mid = (start + units[ch[0]].ucx + last_off + units[ch[ch.len() - 1]].ucx) / 2.0;
-        units[i].sw = sw;
-        units[i].ucx = mid.clamp(w / 2.0, sw - w / 2.0);
+        let (places, acc) = {
+            let items: Vec<&Contour> = ch.iter().map(|&c| &units[c].ctr).collect();
+            pack(&items, gap)
+        };
+        // The parent stands over the middle of its first and last child, or over the end nearest the
+        // centred person when the children hang away from it.
+        let (first, last) = (places[0], places[places.len() - 1]);
+        let mid = match units[i].lean {
+            l if l < 0 => last,
+            l if l > 0 => first,
+            _ => (first + last) / 2.0,
+        };
+        units[i].coff = places.iter().map(|p| p - mid).collect();
+        let mut ctr = vec![own];
+        ctr.extend(acc.iter().map(|&(lo, hi)| (lo - mid, hi - mid)));
+        units[i].ctr = ctr;
     }
     for i in (0..blocks.len()).rev() {
         let ups = blocks[i].ups.clone();
         let up_w: f32 = ups.iter().map(|&u| blocks[u].w).sum::<f32>()
             + gap * ups.len().saturating_sub(1) as f32;
         let group = blocks[i].group.clone();
-        let gw: f32 = group.iter().map(|&u| units[u].sw).sum::<f32>()
-            + gap * group.len().saturating_sub(1) as f32;
+        let (places, acc) = {
+            let items: Vec<&Contour> = group.iter().map(|&u| &units[u].ctr).collect();
+            pack(&items, gap)
+        };
+        let glo = acc.iter().map(|c| c.0).fold(f32::INFINITY, f32::min);
+        let ghi = acc.iter().map(|c| c.1).fold(f32::NEG_INFINITY, f32::max);
+        let gw = ghi - glo;
+        let gplace: Vec<f32> = places.iter().map(|p| p - glo).collect();
         let w = up_w.max(gw);
         let mut x = (w - up_w) / 2.0;
         let mut offs = Vec::new();
@@ -444,15 +507,12 @@ pub fn relatives(
             centres.iter().sum::<f32>() / centres.len() as f32
         };
         let goff = (target - gw / 2.0).clamp(0.0, (w - gw).max(0.0));
-        let mut gx = goff;
-        let mut acx = 0.0;
-        for &u in &group {
-            if u == blocks[i].anchor {
-                acx = gx + units[u].ucx;
-            }
-            gx += units[u].sw + gap;
-        }
+        let acx = group
+            .iter()
+            .position(|&u| u == blocks[i].anchor)
+            .map_or(0.0, |k| goff + gplace[k]);
         let blk = &mut blocks[i];
+        blk.gplace = gplace;
         blk.w = w;
         blk.up_off = offs;
         blk.goff = goff;
@@ -467,10 +527,8 @@ pub fn relatives(
         for (k, &u) in ups.iter().enumerate() {
             blocks[u].left = left + blocks[i].up_off[k];
         }
-        let mut gx = left + blocks[i].goff;
-        for &u in &blocks[i].group.clone() {
-            units[u].left = gx;
-            gx += units[u].sw + gap;
+        for (k, &u) in blocks[i].group.clone().iter().enumerate() {
+            units[u].cx = left + blocks[i].goff + blocks[i].gplace[k];
         }
     }
     let step_y = m.node_h + m.gap_y * 4.0;
@@ -479,7 +537,7 @@ pub fn relatives(
     for i in 0..units.len() {
         let ch = units[i].children.clone();
         let w = uw(&units[i]);
-        let x0 = units[i].left + units[i].ucx - w / 2.0;
+        let x0 = units[i].cx - w / 2.0;
         // Cousins get a row of their own between the parents' row and the centred person's row.
         let y = if units[i].rel_cousin {
             0.0
@@ -494,14 +552,8 @@ pub fn relatives(
             n.rect.x = x0 + k as f32 * step_p;
             n.rect.y = y;
         }
-        if !ch.is_empty() {
-            let cw: f32 =
-                ch.iter().map(|&c| units[c].sw).sum::<f32>() + gap * (ch.len() - 1) as f32;
-            let mut cx = units[i].left + (units[i].sw - cw) / 2.0;
-            for &c in &ch {
-                units[c].left = cx;
-                cx += units[c].sw + gap;
-            }
+        for (k, &c) in ch.iter().enumerate() {
+            units[c].cx = units[i].cx + units[i].coff[k];
         }
     }
     // Keep every coordinate non-negative: the canvas bounds start at the origin.

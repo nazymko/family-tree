@@ -51,8 +51,8 @@ export function relationLabel(rel: Rel, sex: SexKind): string {
       return pick(sex, 'nephew', 'niece', 'nephew or niece');
     case 'partner':
       if (rel.of === 'focus') return 'partner';
-      if (rel.of === 'sibling') return "sibling's partner";
-      if (rel.of === 'aunt') return "aunt or uncle's partner";
-      return `${generations(rel.of, 'child', 'child', 'child', 'unknown')}'s partner`;
+      if (rel.of === 'sibling') return pick(sex, 'brother-in-law', 'sister-in-law', 'in-law');
+      if (rel.of === 'aunt') return pick(sex, 'uncle by marriage', 'aunt by marriage', 'in-law');
+      return sex === 'male' || sex === 'female' ? `${generations(rel.of, 'son', 'daughter', 'child', sex)}-in-law` : 'in-law';
   }
 }
