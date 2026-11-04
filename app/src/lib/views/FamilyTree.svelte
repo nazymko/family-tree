@@ -121,7 +121,10 @@
 
   type Role =
     | 'father' | 'mother' | 'son' | 'daughter' | 'child' | 'brother' | 'sister' | 'sibling' | 'partner'
-    | 'grandfather' | 'grandmother' | 'halfBrother' | 'halfSister' | 'halfSibling' | 'husband' | 'wife' | null;
+    | 'grandfather' | 'grandmother' | 'halfBrother' | 'halfSister' | 'halfSibling' | 'husband' | 'wife'
+    | `${(typeof LINKED)[number]}.${'father' | 'mother'}` | null;
+  /** How a parent can be linked other than by birth; the box then says so (stepfather, adoptive mother, ...). */
+  const LINKED = ['adopted', 'step', 'foster', 'guardian'] as const;
   const HALF = { halfBrother: 'family.treeHalfBrother', halfSister: 'family.treeHalfSister', halfSibling: 'family.treeHalfSibling' } as const;
   const roleKey = (r: NonNullable<Role>): MessageKey =>
     r === 'husband'
@@ -137,11 +140,28 @@
           : (`kin.${r}` as MessageKey);
   function parentRole(p: PersonRef, slot: number, up = false): Role {
     const father = p.sex === 'male' || (p.sex !== 'female' && slot === 0);
-    return up ? (father ? 'grandfather' : 'grandmother') : father ? 'father' : 'mother';
+    if (up) return father ? 'grandfather' : 'grandmother';
+    // The person's own link to this parent: a stepfather reads "Stepfather", not "Father".
+    const i = primary?.parents.findIndex((q) => q?.id === p.id) ?? -1;
+    const rel = i >= 0 ? primary!.rel[i] : 'birth';
+    const linked = (LINKED as readonly string[]).includes(rel) ? (rel as (typeof LINKED)[number]) : null;
+    return linked ? `${linked}.${father ? 'father' : 'mother'}` : father ? 'father' : 'mother';
   }
-  /** Married partners read as husband or wife when the sex is known; anyone else is a partner. */
+  /**
+   * A partner reads as husband or wife when the sex is known, unless the couple is recorded as not married (imported
+   * families often carry no marriage record at all); anyone else is a partner.
+   */
+  const spouse = (u: PartnershipDto) => u.kind !== 'unmarried' && u.kind !== 'other';
   const partnerRole = (u: PartnershipDto): Role =>
-    u.kind === 'married' && u.partner?.sex === 'male' ? 'husband' : u.kind === 'married' && u.partner?.sex === 'female' ? 'wife' : 'partner';
+    spouse(u) && u.partner?.sex === 'male' ? 'husband' : spouse(u) && u.partner?.sex === 'female' ? 'wife' : 'partner';
+  /** With more than one partner, each group of children is captioned with its other parent. */
+  const captioned = $derived(view.partnerships.length > 1);
+  function otherParent(u: PartnershipDto): string {
+    const p = u.partner;
+    if (!p) return t('family.treeKidsNoParent');
+    const key = p.sex === 'female' ? 'family.treeKidsMother' : p.sex === 'male' ? 'family.treeKidsFather' : 'family.treeKidsParent';
+    return t(key, { who: p.name });
+  }
   const kidRole = (p: PersonRef): Role => (p.sex === 'male' ? 'son' : p.sex === 'female' ? 'daughter' : 'child');
   const sibRole = (p: PersonRef): Role => {
     const k = p.sex === 'male' ? 'Brother' : p.sex === 'female' ? 'Sister' : 'Sibling';
@@ -421,6 +441,9 @@
         {#if gi === kidGroups.length - 1}
           <div class="kid">{@render slot('child', focus, 3)}</div>
         {/if}
+        {#if captioned && u.children.length > 0}
+          <span class="kcap" style:grid-column="1 / span {shown.length + (hidden > 0 ? 1 : 0)}" title={otherParent(u)}>{otherParent(u)}</span>
+        {/if}
       </div>
     {:else}
       <div class="kids"><div class="kid">{@render slot('child', focus, 3)}</div></div>
@@ -673,11 +696,36 @@
     align-items: flex-start;
     gap: 0;
   }
+  /* One column per child; a caption naming the other parent may run under a group's children (above when reversed). */
   .kids {
-    display: flex;
-    flex-wrap: nowrap;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
     justify-content: center;
     gap: 0;
+  }
+  .kids > .kid {
+    grid-row: 1;
+  }
+  .kcap {
+    grid-row: 2;
+    min-width: 0;
+    margin-inline: calc(var(--s-3) / 2);
+    padding: var(--s-1) var(--s-2);
+    border-radius: var(--r-1);
+    background: var(--paper-2);
+    color: var(--ink-1);
+    font-size: var(--t-xs);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .reversed .kids > .kid {
+    grid-row: 2;
+  }
+  .reversed .kcap {
+    grid-row: 1;
   }
   .kid {
     position: relative;
@@ -694,20 +742,20 @@
   .kids > .kid:first-child::before {
     inset-inline-start: 50%;
   }
-  .kids > .kid:last-child::before {
+  .kids > .kid:last-of-type::before {
     inset-inline-end: 50%;
   }
-  .kids > .kid:only-child::before {
+  .kids > .kid:only-of-type::before {
     display: none;
   }
   /* Children of several partners: one bar runs on through every group, so each group joins the person's line. */
   .kidsrow > .kids:not(:first-child) > .kid:first-child::before {
     inset-inline-start: 0;
   }
-  .kidsrow > .kids:not(:last-child) > .kid:last-child::before {
+  .kidsrow > .kids:not(:last-child) > .kid:last-of-type::before {
     inset-inline-end: 0;
   }
-  .kidsrow > .kids:not(:only-child) > .kid:only-child::before {
+  .kidsrow > .kids:not(:only-child) > .kid:only-of-type::before {
     display: block;
   }
   .side.left > .kid:first-child::before {

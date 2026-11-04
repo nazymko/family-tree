@@ -355,4 +355,53 @@ describe('FamilyTree', () => {
     expect(caption('Roman Shevchuk')).toBe('Partner');
     expect(caption('Taras Koval')).toBeUndefined();
   });
+
+  it('a_partner_with_no_marriage_record_still_reads_as_husband_or_wife', async () => {
+    const me = ref('Olena Koval', 'female');
+    const husband = ref('Petro Bondar', 'male');
+    const other = ref('Sasha Melnyk', 'unknown');
+    const noRecord = { ...union(husband), kind: 'unknown' as const };
+    const unknownSex = { ...union(other), kind: 'unknown' as const };
+    setup([view(me, { partnerships: [noRecord, unknownSex] })]);
+    await tree();
+    const caption = (name: string) =>
+      screen.getByRole('button', { name: new RegExp(`^${name}`) }).querySelector('.kin')?.textContent;
+    expect(caption('Petro Bondar')).toBe('Husband');
+    expect(caption('Sasha Melnyk')).toBe('Partner');
+  });
+
+  it('children_of_different_partners_are_captioned_with_their_other_parent', async () => {
+    const me = ref('Ivan Koval', 'male');
+    const first = ref('Olena Koval', 'female');
+    const second = ref('Maria Bondar', 'female');
+    const a = ref('Petro Koval', 'male');
+    const b = ref('Anna Koval', 'female');
+    const c = ref('Mykola Koval', 'male');
+    setup([view(me, { partnerships: [union(first, [kid(a), kid(b)]), union(second, [kid(c)]), union(null, [])] })]);
+    await tree();
+    const groups = [...document.querySelectorAll('.kidsrow > .kids')];
+    expect(groups.map((g) => g.querySelector('.kcap')?.textContent)).toEqual(['Mother: Olena Koval', 'Mother: Maria Bondar']);
+    expect(groups[0].querySelectorAll('.kid .box:not(.slot)')).toHaveLength(2);
+    expect(groups[1].querySelectorAll('.kid .box:not(.slot)')).toHaveLength(1);
+  });
+
+  it('a_stepfather_reads_as_stepfather_and_the_mother_as_mother', async () => {
+    const me = ref('Taras Koval', 'male');
+    const step = ref('Petro Bondar', 'male');
+    const mom = ref('Olena Koval', 'female');
+    const stepSet = { ...sets(step, mom)[0], rel: ['step', 'birth'] as never };
+    setup([view(me, { parentSets: [stepSet] }), view(step), view(mom)]);
+    await tree();
+    const caption = (name: string) =>
+      screen.getByRole('button', { name: new RegExp(`^${name}`) }).querySelector('.kin')?.textContent;
+    expect(caption('Petro Bondar')).toBe('Step father');
+    expect(caption('Olena Koval')).toBe('Mother');
+  });
+
+  it('a_single_partner_needs_no_caption', async () => {
+    const me = ref('Ivan Koval', 'male');
+    setup([view(me, { partnerships: [union(ref('Olena Koval', 'female'), [kid(ref('Petro Koval', 'male'))])] })]);
+    await tree();
+    expect(document.querySelector('.kcap')).toBeNull();
+  });
 });
