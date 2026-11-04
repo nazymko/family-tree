@@ -174,8 +174,7 @@
   let dx = $state(0);
   $effect(() => {
     if (!leftEl || !rightEl) return;
-    const l = leftEl;
-    const r = rightEl;
+    const [l, r] = [leftEl, rightEl];
     const update = () => (dx = (l.offsetWidth - r.offsetWidth) / 2);
     update();
     const ro = new ResizeObserver(update);
@@ -436,18 +435,22 @@
     justify-content: flex-end;
   }
   .tree {
+    display: flex;
     min-width: 0;
     max-width: 100%;
     overflow-x: auto;
     padding-block: var(--s-3);
   }
-  /* As wide as the widest row (at least the page), so every row centres on the same axis. */
+  /*
+   * As wide as the widest row, so every row centres on the same axis; centred in the page by its auto margins, which
+   * drop to zero when it is wider (so its start is never cut off).
+   */
   .inner {
     display: flex;
     flex-direction: column;
     align-items: center;
     width: max-content;
-    min-width: 100%;
+    margin-inline: auto;
   }
   /*
    * Reversed: the rows run bottom to top (kids, the person, parents, grandparents) and every connector sits on the
@@ -567,6 +570,8 @@
     position: absolute;
     bottom: 0;
     inset-inline-start: 50%;
+    /* Centred on the middle (like .drop and .stem), so the lines above and below a box meet without a step. */
+    margin-inline-start: -1px;
     height: var(--s-5);
     border-inline-start: 2px solid var(--rule);
   }
@@ -613,6 +618,8 @@
     position: absolute;
     bottom: 0;
     inset-inline-start: 50%;
+    /* Centred on the middle (like .drop and .stem), so the lines above and below a box meet without a step. */
+    margin-inline-start: -1px;
     height: var(--s-5);
     border-inline-start: 2px solid var(--rule);
   }
@@ -711,6 +718,8 @@
     position: absolute;
     top: 0;
     inset-inline-start: 50%;
+    /* Centred on the middle (like .drop and .stem), so the lines above and below a box meet without a step. */
+    margin-inline-start: -1px;
     height: var(--s-5);
     border-inline-start: 2px solid var(--rule);
   }
