@@ -467,6 +467,9 @@ export const en = {
     afterMarriage: 'Surname after marriage',
     afterMarriageHint: 'Leave empty if the surname did not change.',
     useMarried: 'Show the surname after marriage as the main name',
+    looksPatronymic: '“{value}” looks like a patronymic, not a surname.',
+    moveToPatronymic: 'Move it to the patronymic',
+    movedToPatronymic: '“{value}” will be saved as the patronymic.',
     save: 'Save surnames',
   },
   nameKind: {

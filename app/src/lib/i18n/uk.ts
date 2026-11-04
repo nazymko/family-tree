@@ -466,6 +466,9 @@ export const uk: Messages = {
     afterMarriage: 'Прізвище після шлюбу',
     afterMarriageHint: 'Залиште порожнім, якщо прізвище не змінювалося.',
     useMarried: 'Показувати прізвище після шлюбу як основне',
+    looksPatronymic: '«{value}» схоже на по батькові, а не на прізвище.',
+    moveToPatronymic: 'Перенести в по батькові',
+    movedToPatronymic: '«{value}» буде збережено як по батькові.',
     save: 'Зберегти прізвища',
   },
   nameKind: {
