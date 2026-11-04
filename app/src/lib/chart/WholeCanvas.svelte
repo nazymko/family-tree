@@ -197,7 +197,7 @@
     closeChart();
     errorText = '';
     selected = null;
-    selNode = null;
+    if (!keepCam) selNode = null;
     lineage = null;
     homeNode = null;
     startRect = null;
@@ -271,7 +271,7 @@
       userMoved = true;
       cache?.need(seen, cam.zoom);
       invalidate();
-      if (keptPerson) {
+      if (keptPerson && !pendingAdd) {
         try {
           const loc = await api.chartLocate(id, keptPerson);
           if (seq === openSeq && loc) {
@@ -287,7 +287,11 @@
       place();
     }
     onOpened?.(m);
-    if (seq === openSeq) void trySelectAdded();
+    if (seq === openSeq) {
+      await trySelectAdded();
+      // A person the chart does not show is not looked for again after later edits.
+      pendingAdd = null;
+    }
   }
 
   // A person added from a dialog: select them once the chart shows them. The edit and this note can arrive in either order.
@@ -306,10 +310,21 @@
       const loc = await api.chartLocate(m.meta.chartId, p.id);
       if (seq !== openSeq || !loc) return;
       selected = loc.nodeId;
+      selNode = null;
       pendingAnnounce = true;
-      adoptSelection();
-      invalidate();
       if (pendingAdd === p) pendingAdd = null;
+      // The card may be far from the view: take its details from a window of its own, and go to it when it is out of view.
+      const w = await api.chartWindow(m.meta.chartId, { x: loc.rect.x + 1, y: loc.rect.y + 1, w: 1, h: 1 }, 1);
+      const full = w.nodes.find((x) => x.id === loc.nodeId);
+      if (seq !== openSeq || selected !== loc.nodeId) return;
+      if (full) {
+        selNode = full;
+        announceOnce();
+      }
+      const v = viewRect(cam, size);
+      const inside = loc.rect.x >= v.x && loc.rect.y >= v.y && loc.rect.x + loc.rect.w <= v.x + v.w && loc.rect.y + loc.rect.h <= v.y + v.h;
+      if (!inside) animateTo(centerOn(cam, loc.rect, size));
+      invalidate();
     } catch {
       // Not in this chart yet; the next reopen tries again.
     }

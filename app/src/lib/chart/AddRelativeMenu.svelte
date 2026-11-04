@@ -22,6 +22,7 @@
       facts = null;
       return;
     }
+    // Rules of another person must not outlive a real change of selection for long; they are replaced as soon as they load.
     void api
       .getFamilyView(id)
       .then((v) => {
@@ -35,7 +36,8 @@
     };
   });
 
-  const items = $derived(person && facts?.id === person ? relativeItems(facts.value, person) : []);
+  // While the facts of a newly selected person load, the last ones stay, so the button does not vanish (and lose focus) on each reload.
+  const items = $derived(person && facts ? relativeItems(facts.value, person) : []);
 </script>
 
 {#if items.length}

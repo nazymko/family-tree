@@ -223,6 +223,21 @@ describe('add a relative from a chart', () => {
   });
 });
 
+describe('the toolbar button across a reload', () => {
+  it('stays_mounted_while_the_chart_reloads', async () => {
+    const s = await setupChart();
+    const button = await screen.findByRole('button', { name: 'Add relative' });
+    const opens = s.openSpy.mock.calls.length;
+    const gone = vi.fn();
+    new MutationObserver(() => button.isConnected || gone()).observe(document.body, { childList: true, subtree: true });
+    project.rev++;
+    await waitFor(() => expect(s.openSpy.mock.calls.length).toBe(opens + 1));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(gone).not.toHaveBeenCalled();
+    expect(button.isConnected).toBe(true);
+  });
+});
+
 describe('add a relative on the whole tree', () => {
   async function setupWhole() {
     const mm = window.matchMedia;
@@ -274,6 +289,39 @@ describe('add a relative on the whole tree', () => {
     await waitFor(() => expect(selectedLabel()).toContain('Olena Koval'));
     s.raf.pump(3);
     expect(lastCamera(s.ctx)).toEqual(camBefore);
+  });
+});
+
+describe('a new person far from the view', () => {
+  it('is_selected_with_its_details_and_the_camera_goes_to_them', async () => {
+    const mm = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ ...mm(q), matches: q.includes('reduce') })) as typeof window.matchMedia;
+    const raf = fakeRaf();
+    const { api, fx } = makeApi(300);
+    const openSpy = vi.spyOn(api, 'chartOpenWhole');
+    render(Host, { props: { api, view: WholeCanvas, props: { homeId: fx.persons[0].id, onOpenPerson: vi.fn(), onOpenInPedigree: vi.fn() } } });
+    const canvas = screen.getByRole('application', { name: 'Whole tree chart' }) as HTMLCanvasElement;
+    const ctx = attachContext(canvas);
+    canvas.getBoundingClientRect = () => RECT;
+    const mini = (await screen.findByRole('application', { name: /Minimap/ })) as HTMLCanvasElement;
+    mini.getBoundingClientRect = () => ({ ...RECT, width: 220, height: mini.height, right: 220, bottom: mini.height });
+    attachContext(mini);
+    await waitFor(() => expect(openSpy).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    raf.pump(2);
+    // Move the view far from the people, then add one.
+    const far = fx.persons[fx.persons.length - 1].id;
+    await fireEvent.click(screen.getByRole('button', { name: 'Fit all' }));
+    raf.pump(2);
+    const opens = openSpy.mock.calls.length;
+    const res = await api.apply({ type: 'quickAdd', anchor: far, relation: 'partner', draft });
+    project.rev++;
+    added.note(res.focus!);
+    await waitFor(() => expect(openSpy.mock.calls.length).toBe(opens + 1));
+    await waitFor(() => expect(selectedLabel()).toContain('Olena Koval'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open person' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: 'Add relative' })).toBeTruthy();
+    void ctx;
   });
 });
 

@@ -224,7 +224,8 @@
     errorText = '';
     rootRect = null;
     selected = null;
-    selNode = null;
+    // After an edit the selected person stays in the toolbar while the chart reloads (the "Add relative" button keeps focus).
+    if (!keepCam) selNode = null;
     let m: ChartMeta;
     try {
       const req: ChartRequest = kind === 'relatives' ? { kind, root, generations, auntsUncles } : { kind, root, generations };
@@ -278,10 +279,13 @@
     }
     if (seq !== openSeq) return;
     const rn = first.nodes.find((n) => n.id === m.rootNode) ?? first.nodes[0] ?? null;
-    selected = rn?.id ?? null;
-    selNode = rn;
+    const restoring = keepCam && keptPerson !== null && keptPerson !== rn?.person?.id;
+    if (!restoring) {
+      selected = rn?.id ?? null;
+      selNode = rn;
+      if (rn) onSelect?.(rn.id);
+    }
     rootName = rn?.person?.name ?? '';
-    if (rn) onSelect?.(rn.id);
     // Descendants: the root couple is the root card plus its partners (same row, same depth).
     const couple = kind === 'descendants' && rn ? first.nodes.filter((n) => n.y === rn.y) : rn ? [rn] : [];
     if (couple.length) {
@@ -351,8 +355,16 @@
       }
     }
     onOpened?.(m);
-    if (keptPerson && keptPerson !== rn?.person?.id) await selectPerson(keptPerson, seq);
-    if (seq === openSeq) void trySelectAdded();
+    if (keptPerson && !pendingAdd && keptPerson !== rn?.person?.id && !(await selectPerson(keptPerson, seq)) && seq === openSeq) {
+      // The person left the chart: fall back to the centre.
+      selected = rn?.id ?? null;
+      selNode = rn;
+    }
+    if (seq === openSeq) {
+      await trySelectAdded();
+      // A person the chart does not show is not looked for again after later edits.
+      pendingAdd = null;
+    }
   }
 
   /** Selects the box of a person, wherever it is in the chart. The camera does not move. False when the chart does not show them. */
