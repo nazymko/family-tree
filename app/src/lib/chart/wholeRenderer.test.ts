@@ -66,6 +66,20 @@ describe('drawWhole highlight', () => {
   });
 });
 
+describe('drawWhole kinship', () => {
+  it('writes_how_each_card_is_related_to_the_reference_person', () => {
+    const kin: ChartNode['kinship'] = { kind: 'blood', up: 1, down: 1, half: false, married: false, sex: 'female', via: 'unknown' };
+    const cards: ChartWindow = { nodes: [{ ...node(2, 0, 0, 'male'), kinship: kin }, node(3, 200, 0, 'female')], edges: [] };
+    const ctx = makeFakeContext();
+    drawWhole(ctx as unknown as CanvasRenderingContext2D, cards, [], { x: 0, y: 0, zoom: 1 }, { w: 800, h: 600, dpr: 1 }, {
+      selected: null, home: null, lineage: null, theme,
+    });
+    const texts = ctx.calls.filter((c) => c.op === 'fillText').map((c) => c.args[0]);
+    expect(texts).toContain('sister');
+    expect(texts.filter((x) => x === 'sister')).toHaveLength(1);
+  });
+});
+
 describe('block headings', () => {
   it('keep_a_fixed_screen_size_when_zoomed_out', () => {
     expect(headingSize(0.1) * 0.1).toBeCloseTo(14, 5);

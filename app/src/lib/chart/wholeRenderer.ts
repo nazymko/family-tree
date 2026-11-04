@@ -1,6 +1,7 @@
 import type { ChartEdge, ChartNode, ChartWindow, SexKind, WholeBlockDto } from '../api/types';
 import type { Camera } from './camera';
-import { lodFor, nameLines, themeFromCss, type Theme } from './renderer';
+import { fit, lodFor, nameLines, themeFromCss, type Theme } from './renderer';
+import { kinshipText } from '../family/kinship';
 
 export interface WholeTheme extends Theme {
   male: string;
@@ -231,12 +232,24 @@ export function drawWhole(
       ctx.fillStyle = theme.ink;
       ctx.font = `600 13px ${theme.serif}`;
       const sub = n.person?.lifespan ?? '';
-      const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '');
+      // How this person is related to the reference person, at the right of the second line.
+      const rel = kinshipText(n.kinship);
+      const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '' || rel !== '');
       lines.forEach((line, i) => ctx.fillText(line, left, n.y + 23 + i * 18));
+      let relW = 0;
+      if (rel) {
+        ctx.fillStyle = theme.ink2;
+        ctx.font = `italic 11px ${theme.font}`;
+        const text = fit(ctx, rel, n.w * 0.5);
+        relW = ctx.measureText(text).width + 8;
+        ctx.textAlign = 'right';
+        ctx.fillText(text, n.x + n.w - 8, n.y + 43);
+        ctx.textAlign = 'left';
+      }
       if (sub) {
         ctx.fillStyle = theme.ink2;
         ctx.font = `11px ${theme.font}`;
-        ctx.fillText(sub, n.x + 12, n.y + 43);
+        ctx.fillText(fit(ctx, sub, n.w - 20 - relW), n.x + 12, n.y + 43);
       }
       ctx.globalAlpha = 1;
     }

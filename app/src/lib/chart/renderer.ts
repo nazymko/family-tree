@@ -3,6 +3,7 @@ import type { Camera } from './camera';
 import { HANDLE_R, handleSpots } from './hit';
 import { t } from '../i18n';
 import { relationText } from '../i18n/relation';
+import { kinshipText } from '../family/kinship';
 
 export type Lod = 'full' | 'boxes' | 'dots';
 
@@ -65,7 +66,7 @@ function strokeEdges(ctx: CanvasRenderingContext2D, edges: ChartEdge[], color: s
   ctx.stroke();
 }
 
-function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
+export function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
   if (ctx.measureText(text).width <= maxW) return text;
   let lo = 0;
   let hi = text.length;
@@ -235,8 +236,8 @@ export function draw(
       ctx.fillStyle = isDup ? theme.ink2 : theme.ink;
       ctx.font = `600 13px ${theme.serif}`;
       const sub = isDup ? t('role.shownElsewhere') : (n.person?.lifespan ?? '');
-      // Relatives chart: how this person is related to the centred one, at the right of the second line.
-      const rel = kind === 'relatives' && !isDup && n.id !== focus ? relationText(n) : '';
+      // How this person is related to the centred one, at the right of the second line.
+      const rel = isDup || n.id === focus ? '' : kind === 'relatives' ? relationText(n) : kinshipText(n.kinship);
       const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '' || rel !== '');
       lines.forEach((line, i) => ctx.fillText(line, left, n.y + 23 + i * 18));
       ctx.fillStyle = theme.ink2;

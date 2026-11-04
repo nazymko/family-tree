@@ -1,5 +1,6 @@
 import { t, type MessageKey } from '.';
 import type { ChartNode, OutlineItem, RoleDto } from '../api/types';
+import { kinshipText } from '../family/kinship';
 
 /**
  * Wording of how a chart person is related to the centred one, built from the structured `role` the backend sends
@@ -83,13 +84,17 @@ export function roleText(r: RoleDto): string {
   }
 }
 
+const RELATION_ROLES: ReadonlySet<RoleDto['kind']> = new Set(['ancestor', 'descendant', 'sibling', 'aunt_uncle', 'niece_nephew', 'cousin', 'partner_of_sibling', 'partner_of_aunt_uncle', 'partner_of_descendant']);
+
 /** The text a screen reader gets for a chart person: "Name, lifespan, role, appears earlier". */
 export function nodeLabel(n: ChartNode): string {
   if (!n.role || !n.person) return n.label;
   const p = n.person;
   const head = p.lifespan ? `${p.name}, ${p.lifespan}` : p.name;
   const tail = n.dupOf !== null ? `, ${t('role.appearsEarlier')}` : '';
-  return `${head}, ${roleText(n.role)}${tail}`;
+  // The relation chart's role already says how the person is related; the others add it.
+  const kin = n.kinship && !RELATION_ROLES.has(n.role.kind) ? kinshipText(n.kinship) : '';
+  return `${head}, ${roleText(n.role)}${kin ? `, ${kin}` : ''}${tail}`;
 }
 
 const GROUPS: Record<NonNullable<OutlineItem['group']>, MessageKey> = {
@@ -109,6 +114,9 @@ export function outlineLabel(it: OutlineItem): string {
   if (r.kind === 'ancestor_no') text = `${r.n} ${cap(ahnenText(r.n))}`;
   else if (r.kind === 'partner') text = cap(t(key('partner', r.sex)));
   else text = cap(roleText(r));
+  // Pedigree and descendants rows: say how the person is related to the starting person unless the row already does.
+  const kin = it.kinship ? kinshipText(it.kinship) : '';
+  if (kin && !text.toLowerCase().includes(kin.toLowerCase())) text += `, ${kin}`;
   if (it.appearsEarlier) text += ` (${t('role.appearsEarlier')})`;
   if (it.alsoAbove) text += ` (${t('role.alsoAbove')})`;
   return text;

@@ -463,6 +463,39 @@ pub struct ChartNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub role: Option<RoleDto>,
+    /// How this person is related to the chart's reference person, as data (see `Kinship`); absent for the
+    /// reference person, for unrelated people and when the boxes carry no text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kinship: Option<Kinship>,
+}
+
+wire_enum!(
+    /// The shape of a `Kinship`.
+    KinshipKind, "snake_case", {
+        SelfPerson, Blood, Partner, PartnerOfRelative, RelativeOfPartner
+    }
+);
+
+/// How `to` is related to `from`, structured so the UI words it in its own language.
+/// `up` and `down` count generations from `from` up to the nearest common ancestor and from there down to the
+/// person described. Meaning by `kind`:
+/// - `blood`: `to` is that blood relative of `from`; `half` when only one parent is shared at the junction.
+/// - `partner`: `to` is a partner of `from` (`married` when the union is a marriage).
+/// - `partner_of_relative`: `to` is the partner of the blood relative described by `up`/`down`/`half`.
+/// - `relative_of_partner`: `to` is the blood relative described by `up`/`down`/`half` of a partner of `from`
+///   whose sex is `via` (husband or wife; the Ukrainian words depend on it).
+///
+/// `sex` is the sex of `to`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Kinship {
+    pub kind: KinshipKind,
+    pub up: u8,
+    pub down: u8,
+    pub half: bool,
+    pub married: bool,
+    pub sex: SexKind,
+    pub via: SexKind,
 }
 
 /// What a chart person is: how they are related, or which generation / ancestor number they are.
@@ -549,6 +582,11 @@ pub struct OutlineItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub role: Option<RoleDto>,
+    /// How the person is related to the chart's reference person (see `ChartNode::kinship`); pedigree and
+    /// descendants outlines only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kinship: Option<Kinship>,
     /// Set on the heading rows of the relatives outline.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]

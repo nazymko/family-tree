@@ -63,6 +63,12 @@ export class WindowCache {
     );
   }
 
+  /** Fetches `view` again without dropping what is drawn; the new window replaces it on arrival (the data changed, not the view). */
+  refetch(view: Rect, zoom: number): void {
+    if (this.#disposed) return;
+    this.#start(view, zoom, lodFor(zoom));
+  }
+
   current(): { win: ChartWindow; rect: Rect } | null {
     return this.#cur ? { win: this.#cur.win, rect: this.#cur.rect } : null;
   }
