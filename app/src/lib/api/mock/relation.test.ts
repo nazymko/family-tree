@@ -27,6 +27,7 @@ describe('relationLabel', () => {
     expect(l({ t: 'aunt', half: false }, 'unknown')).toBe('aunt or uncle');
     expect(l({ t: 'nibling' }, 'female')).toBe('niece');
     expect(l({ t: 'nibling' }, 'male')).toBe('nephew');
+    expect(l({ t: 'cousin' }, 'female')).toBe('cousin');
   });
 
   it('names_partners_and_the_starting_person', () => {

@@ -674,3 +674,93 @@ fn relatives_generations_are_clamped() {
     let m0 = s.chart_open(&relatives_req(&s, "Petro Koval", 0)).unwrap();
     assert!(m0.node_count >= 1);
 }
+
+/// Petro's father Ivan has a sister Zoya (11) with a daughter Nina (12); their parents are Mykola and Hanna.
+fn relatives_cousins_ged() -> String {
+    ged(&[
+        indi(1, "Ivan /Koval/", "M", ""),
+        indi(2, "Olena /Koval/", "F", ""),
+        indi(3, "Petro /Koval/", "M", "1 BIRT\n2 DATE 1980\n"),
+        indi(10, "Mykola /Koval/", "M", ""),
+        indi(13, "Hanna /Koval/", "F", ""),
+        indi(11, "Zoya /Koval/", "F", ""),
+        indi(12, "Nina /Shevchuk/", "F", ""),
+        fam(1, 1, 2, &[3]),
+        fam(2, 10, 13, &[1, 11]),
+        fam(3, 11, 0, &[12]),
+    ])
+}
+
+#[test]
+fn relatives_label_cousins() {
+    let (_d, mut s) = open_ged(&relatives_cousins_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 3)).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    let rel = |name: &str| {
+        w.nodes
+            .iter()
+            .find(|n| n.person.as_ref().is_some_and(|p| p.name == name))
+            .and_then(|n| n.relation.clone())
+    };
+    assert_eq!(rel("Zoya Koval").as_deref(), Some("aunt"));
+    assert_eq!(rel("Nina Shevchuk").as_deref(), Some("cousin"));
+}
+
+/// Expanding every row of the outline, with a path guard, must end and never list a person twice as expandable.
+#[test]
+fn relatives_outline_expands_fully_and_terminates() {
+    let (_d, mut s) = open_ged(&relatives_cousins_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 3)).unwrap();
+    let mut stack: Vec<(u32, usize)> = s
+        .chart_outline(m.chart_id, None, 50)
+        .unwrap()
+        .into_iter()
+        .map(|i| (i.node_id, 0))
+        .collect();
+    let mut expandable_people = std::collections::HashSet::new();
+    let mut rows = 0;
+    while let Some((id, depth)) = stack.pop() {
+        rows += 1;
+        assert!(rows < 500 && depth < 40, "the outline does not end");
+        for it in s.chart_outline(m.chart_id, Some(id), 50).unwrap() {
+            if it.person.is_some() && it.has_children {
+                assert!(
+                    expandable_people.insert(it.node_id),
+                    "node {} is expandable in two places",
+                    it.node_id
+                );
+            }
+            if it.has_children {
+                stack.push((it.node_id, depth + 1));
+            }
+        }
+    }
+}
+
+/// Focus > Parents > Father > Children lists the focus again, as a reference that cannot be expanded.
+#[test]
+fn relatives_outline_father_children_is_a_reference() {
+    let (_d, mut s) = open_ged(&relatives_cousins_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 3)).unwrap();
+    let root = s.chart_outline(m.chart_id, None, 50).unwrap().remove(0);
+    let groups = s.chart_outline(m.chart_id, Some(root.node_id), 50).unwrap();
+    let parents = s
+        .chart_outline(m.chart_id, Some(groups[0].node_id), 50)
+        .unwrap();
+    let father = parents
+        .iter()
+        .find(|p| p.label.starts_with("Father"))
+        .unwrap();
+    assert!(father.has_children);
+    let fg = s
+        .chart_outline(m.chart_id, Some(father.node_id), 50)
+        .unwrap();
+    let children = fg.iter().find(|g| g.label == "Children").unwrap();
+    let kids = s
+        .chart_outline(m.chart_id, Some(children.node_id), 50)
+        .unwrap();
+    assert_eq!(kids.len(), 1);
+    assert_eq!(kids[0].node_id, root.node_id);
+    assert!(!kids[0].has_children);
+    assert!(kids[0].label.contains("also shown above"));
+}

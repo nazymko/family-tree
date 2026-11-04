@@ -35,7 +35,7 @@ enum Tree {
     Focus(u8),
     /// A sibling: children only, one generation.
     Niece,
-    /// A parent's sibling: no children shown.
+    /// A parent's sibling: children only, one generation (the cousins).
     Aunt,
 }
 
@@ -44,7 +44,7 @@ impl Tree {
         match self {
             Tree::Focus(n) => n,
             Tree::Niece => 1,
-            Tree::Aunt => 0,
+            Tree::Aunt => 1,
         }
     }
 }
@@ -54,6 +54,8 @@ struct Unit {
     person: u32,
     partners: u32,
     row: i32,
+    /// A parent's sibling's child: drawn on a row of its own.
+    rel_cousin: bool,
     /// Partner node whose union produced this unit (None: the parent's own bottom edge).
     attach: Option<u32>,
     children: Vec<usize>,
@@ -100,11 +102,8 @@ fn siblings(src: &dyn ChartSource, x: Key) -> Vec<Sibling> {
         let Some(p) = ps[slot] else { continue };
         let other = ps[1 - slot];
         for (partner, kids) in src.unions(p) {
-            let full = if other.is_some() {
-                partner == other
-            } else {
-                partner.is_none()
-            };
+            // With one parent unknown nothing says the partner is a different person: do not claim "half".
+            let full = other.is_none() || partner == other;
             for k in kids {
                 if ps.contains(&Some(k)) {
                     continue;
@@ -200,6 +199,7 @@ impl Builder<'_> {
             person,
             partners,
             row,
+            rel_cousin: rel == Rel::Cousin,
             attach,
             children: Vec::new(),
             hang: [true, true],
@@ -221,9 +221,7 @@ impl Builder<'_> {
                 continue;
             }
             if depth >= limit {
-                if !matches!(tree, Tree::Aunt) {
-                    self.nodes[person as usize].more_down = true;
-                }
+                self.nodes[person as usize].more_down = true;
                 continue;
             }
             let row = self.units[u].row + 1;
@@ -233,7 +231,8 @@ impl Builder<'_> {
                     Rel::Descendant(step),
                     Some(Rel::Partner(PartnerOf::Descendant(step))),
                 ),
-                _ => (Rel::NieceNephew, None),
+                Tree::Niece => (Rel::NieceNephew, None),
+                Tree::Aunt => (Rel::Cousin, None),
             };
             let mut kid_nodes = Vec::new();
             'unions: for (attach, kids) in unions {
@@ -251,7 +250,14 @@ impl Builder<'_> {
         }
     }
 
-    fn make_block(&mut self, key: Key, row: i32, o: &RelativesOptions) -> Option<usize> {
+    /// `side` is the parent slot (0 father side, 1 mother side) the block fills, if it is a parent's block.
+    fn make_block(
+        &mut self,
+        key: Key,
+        row: i32,
+        o: &RelativesOptions,
+        side: Option<usize>,
+    ) -> Option<usize> {
         if self.nodes.len() >= self.max_nodes {
             self.truncated = true;
             return None;
@@ -260,7 +266,17 @@ impl Builder<'_> {
         let focus = row == 0;
         let with_sibs = !dup && (focus || (row == -1 && o.aunts));
         let sibs = if with_sibs {
-            siblings(self.src, key)
+            let mut v = siblings(self.src, key);
+            // The parent stands next to the other parent: last on the left side, first on the right.
+            if let Some(i) = v.iter().position(|s| s.key == key) {
+                let me = v.remove(i);
+                match side {
+                    Some(1) => v.insert(0, me),
+                    Some(_) => v.push(me),
+                    None => v.insert(i, me),
+                }
+            }
+            v
         } else {
             vec![Sibling {
                 key,
@@ -350,7 +366,7 @@ pub fn relatives(
         truncated: false,
     };
     let top = -i32::from(o.generations);
-    b.make_block(root, 0, &o);
+    b.make_block(root, 0, &o, None);
     let mut bi = 0;
     while bi < b.blocks.len() {
         let cur = bi;
@@ -369,7 +385,7 @@ pub fn relatives(
         }
         for (slot, p) in ps.iter().enumerate() {
             let Some(pk) = *p else { continue };
-            match b.make_block(pk, row - 1, &o) {
+            match b.make_block(pk, row - 1, &o, Some(slot)) {
                 Some(nb) => {
                     b.blocks[cur].slots[slot] = Some(nb);
                     b.blocks[cur].ups.push(nb);
@@ -458,12 +474,20 @@ pub fn relatives(
         }
     }
     let step_y = m.node_h + m.gap_y * 4.0;
+    let has_cousins = units.iter().any(|u| u.rel_cousin);
     let step_p = m.node_w + m.couple_gap;
     for i in 0..units.len() {
         let ch = units[i].children.clone();
         let w = uw(&units[i]);
         let x0 = units[i].left + units[i].ucx - w / 2.0;
-        let y = units[i].row as f32 * step_y;
+        // Cousins get a row of their own between the parents' row and the centred person's row.
+        let y = if units[i].rel_cousin {
+            0.0
+        } else if has_cousins && units[i].row >= 0 {
+            (units[i].row + 1) as f32 * step_y
+        } else {
+            units[i].row as f32 * step_y
+        };
         let p = units[i].person;
         for k in 0..=units[i].partners {
             let n = &mut nodes[(p + k) as usize];
@@ -595,13 +619,14 @@ pub fn relatives(
     let mut order: Vec<usize> = (0..nodes.len()).collect();
     order.sort_by(|&a, &b| {
         let (na, nb) = (&nodes[a], &nodes[b]);
-        na.r#gen
-            .cmp(&nb.r#gen)
+        na.rect
+            .y
+            .total_cmp(&nb.rect.y)
             .then(na.rect.x.total_cmp(&nb.rect.x))
             .then(a.cmp(&b))
     });
     for w in order.windows(2) {
-        if nodes[w[0]].r#gen == nodes[w[1]].r#gen {
+        if nodes[w[0]].rect.y == nodes[w[1]].rect.y {
             nodes[w[0]].nav.next = Some(w[1] as u32);
             nodes[w[1]].nav.prev = Some(w[0] as u32);
         }

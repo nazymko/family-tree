@@ -13,6 +13,7 @@ export type Rel =
   | { t: 'sibling'; half: boolean }
   | { t: 'aunt'; half: boolean }
   | { t: 'nibling' }
+  | { t: 'cousin' }
   | { t: 'partner'; of: PartnerOf };
 
 function pick(sex: SexKind, male: string, female: string, neutral: string): string {
@@ -44,6 +45,8 @@ export function relationLabel(rel: Rel, sex: SexKind): string {
       const w = pick(sex, 'uncle', 'aunt', 'aunt or uncle');
       return rel.half ? `half ${w}` : w;
     }
+    case 'cousin':
+      return 'cousin';
     case 'nibling':
       return pick(sex, 'nephew', 'niece', 'nephew or niece');
     case 'partner':

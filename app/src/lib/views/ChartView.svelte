@@ -69,14 +69,32 @@
   let trail = $state<Crumb[]>([]);
   let pendingCrumb: { id: Id; relation?: string } | null = null;
 
+  /** Which crumb is the centred person. Crumbs after it stay, so Back then Forward keeps the whole path. */
+  let at = $state(0);
+
   function updateTrail(id: Id, name: string): void {
     const i = trail.findIndex((c) => c.id === id);
-    if (i >= 0) trail = [...trail.slice(0, i), { ...trail[i], name }];
-    else if (pendingCrumb?.id === id && pendingCrumb.relation && trail.length > 0) {
-      trail = [...trail, { id, name, relation: pendingCrumb.relation }].slice(-MAX_TRAIL);
-    } else trail = [{ id, name }];
+    if (i >= 0) {
+      // Back, Forward or a click on a crumb: the path stays, only the position moves.
+      trail = trail.map((c, k) => (k === i ? { ...c, name } : c));
+      at = i;
+    } else if (pendingCrumb?.id === id && trail.length > 0) {
+      // A new centre chosen on the chart, in the outline or with "Centre on me": extend the path from here.
+      const next = [...trail.slice(0, at + 1), { id, name, relation: pendingCrumb.relation }].slice(-MAX_TRAIL);
+      trail = next;
+      at = next.length - 1;
+    } else {
+      trail = [{ id, name }];
+      at = 0;
+    }
     pendingCrumb = null;
   }
+
+  /** "Brother" from the outline label "Brother (also shown above)"; the starting person has no relation. */
+  const relationOf = (label?: string): string | undefined => {
+    const r = (label ?? '').replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase();
+    return r && r !== 'starting person' ? r : undefined;
+  };
 
   const crumbText = (c: Crumb) => (c.relation ? `${c.name} (${c.relation})` : c.name);
 
@@ -140,7 +158,7 @@
         <ol>
           {#each trail as c, i (c.id)}
             <li>
-              {#if i < trail.length - 1}
+              {#if i !== at}
                 <button type="button" class="crumb" onclick={() => recentre(c.id)}>{crumbText(c)}</button>
               {:else}
                 <span class="here" aria-current="location">{crumbText(c)}</span>
@@ -180,7 +198,7 @@
             label="{title} outline"
             selected={selectedNode}
             onSelect={select}
-            onPick={(id) => recentre(id)}
+            onPick={(id, label) => recentre(id, relationOf(label))}
           />
         </div>
       {/if}

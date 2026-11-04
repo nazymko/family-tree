@@ -107,6 +107,8 @@ pub enum Rel {
     },
     /// A child of a brother or sister.
     NieceNephew,
+    /// A child of a parent's brother or sister.
+    Cousin,
     Partner(PartnerOf),
 }
 

@@ -19,6 +19,7 @@ interface Unit {
   person: number;
   partners: number;
   row: number;
+  cousin: boolean;
   attach: number | null;
   children: number[];
   hang: [boolean, boolean];
@@ -47,7 +48,7 @@ interface Sib {
 }
 
 type Tree = { t: 'focus'; limit: number } | { t: 'niece' } | { t: 'aunt' };
-const limitOf = (t: Tree): number => (t.t === 'focus' ? t.limit : t.t === 'niece' ? 1 : 0);
+const limitOf = (t: Tree): number => (t.t === 'focus' ? t.limit : t.t === 'niece' || t.t === 'aunt' ? 1 : 0);
 
 function siblingsOf(src: RustLayoutSource, x: Id): Sib[] {
   const ps = src.parents(x);
@@ -57,7 +58,8 @@ function siblingsOf(src: RustLayoutSource, x: Id): Sib[] {
     if (p === null) continue;
     const other = ps[1 - slot];
     for (const u of src.unions(p)) {
-      const full = other !== null ? u.partner === other : u.partner === null;
+      // With one parent unknown nothing says the other partner is a different person: do not claim "half".
+      const full = other === null || u.partner === other;
       for (const k of u.children) {
         if (ps[0] === k || ps[1] === k) continue;
         const s = out.find((o) => o.key === k);
@@ -120,7 +122,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
       }
     }
     pending.push(pend);
-    units.push({ person, partners, row, attach, children: [], hang: [true, true], sw: 0, ucx: 0, left: 0 });
+    units.push({ person, partners, row, cousin: rel.t === 'cousin', attach, children: [], hang: [true, true], sw: 0, ucx: 0, left: 0 });
     return units.length - 1;
   };
 
@@ -134,12 +136,12 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
       const person = units[u].person;
       if (unions.every((x) => x.children.length === 0)) continue;
       if (depth >= limit) {
-        if (tree.t !== 'aunt') nodes[person].moreDown = true;
+        nodes[person].moreDown = true;
         continue;
       }
       const row = units[u].row + 1;
       const step = depth + 1;
-      const rel: Rel = tree.t === 'focus' ? { t: 'descendant', n: step } : { t: 'nibling' };
+      const rel: Rel = tree.t === 'focus' ? { t: 'descendant', n: step } : tree.t === 'aunt' ? { t: 'cousin' } : { t: 'nibling' };
       const partnerOf: PartnerOf | null = tree.t === 'focus' ? step : null;
       const kidNodes: number[] = [];
       outer: for (const { at, children } of unions) {
@@ -159,7 +161,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     }
   };
 
-  const makeBlock = (key: Id, row: number): number | null => {
+  const makeBlock = (key: Id, row: number, side: number | null): number | null => {
     if (nodes.length >= MAX_NODES) {
       truncated = true;
       return null;
@@ -168,6 +170,9 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     const focus = row === 0;
     const withSibs = !dup && (focus || (row === -1 && aunts));
     const sibs: Sib[] = withSibs ? siblingsOf(src, key) : [{ key, hang: [true, true], half: false }];
+    // The parent stands next to the other parent: last on the left side, first on the right.
+    const at = sibs.findIndex((s) => s.key === key);
+    if (at >= 0 && side !== null) sibs.splice(side === 1 ? 0 : sibs.length, 0, ...sibs.splice(at, 1));
     const anchor = focus
       ? makeUnit(key, row, { t: 'focus' }, 'focus', null)
       : makeUnit(key, row, { t: 'ancestor', n: -row }, null, null);
@@ -188,7 +193,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     return blocks.length - 1;
   };
 
-  makeBlock(root, 0);
+  makeBlock(root, 0, null);
   const top = -generations;
   for (let bi = 0; bi < blocks.length; bi++) {
     const row = blocks[bi].row;
@@ -203,7 +208,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     for (let slot = 0; slot < 2; slot++) {
       const pk = ps[slot];
       if (pk === null) continue;
-      const nb = makeBlock(pk, row - 1);
+      const nb = makeBlock(pk, row - 1, slot);
       if (nb === null) nodes[xnode].moreUp = true;
       else {
         blocks[bi].slots[slot] = nb;
@@ -273,13 +278,15 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
   }
   const stepY = M.nodeH + M.gapY * 4;
   const stepP = M.nodeW + M.coupleGap;
+  const hasCousins = units.some((u) => u.cousin);
   for (const u of units) {
     const w = uw(u);
     const x0 = u.left + u.ucx - w / 2;
     for (let k = 0; k <= u.partners; k++) {
       const n = nodes[u.person + k];
       n.x = x0 + k * stepP;
-      n.y = u.row * stepY;
+      // Cousins get a row of their own between the parents' row and the centred person's row.
+      n.y = u.cousin ? 0 : hasCousins && u.row >= 0 ? (u.row + 1) * stepY : u.row * stepY;
     }
     const ch = u.children;
     if (ch.length) {
@@ -369,11 +376,11 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     n.nav.prev = null;
     n.nav.next = null;
   }
-  const order = nodes.map((_, i) => i).sort((a, b) => nodes[a].gen - nodes[b].gen || nodes[a].x - nodes[b].x || a - b);
+  const order = nodes.map((_, i) => i).sort((a, b) => nodes[a].y - nodes[b].y || nodes[a].x - nodes[b].x || a - b);
   for (let i = 0; i + 1 < order.length; i++) {
     const a = nodes[order[i]];
     const b = nodes[order[i + 1]];
-    if (a.gen === b.gen) {
+    if (a.y === b.y) {
       a.nav.next = b.id;
       b.nav.prev = a.id;
     }
@@ -429,13 +436,35 @@ function groupOf(l: RelLayout, id: number, g: number): number[] {
 
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
-export function relativesOutline(l: RelLayout, parent: number | null, limit: number): OutlineItem[] {
-  const item = (id: number): OutlineItem => {
-    const n = l.nodes[id];
-    const label = cap(n.relation ?? '') + (n.dupOf !== null ? ' (appears earlier)' : '');
-    return { nodeId: id, person: n.person, label, hasChildren: GROUPS.some((_, g) => groupOf(l, id, g).length > 0) };
+/** Where each node is first met reading the outline top to bottom: `owner:group`. Later sightings are references. */
+function firstPlaces(l: RelLayout): Map<number, string> {
+  const seen = new Map<number, string>([[0, 'root']]);
+  const walk = (id: number): void => {
+    // Claim everyone listed under this person first, then go into the newly claimed people.
+    const fresh: number[] = [];
+    GROUPS.forEach((_, g) => {
+      for (const m of groupOf(l, id, g)) {
+        if (seen.has(m)) continue;
+        seen.set(m, `${id}:${g}`);
+        fresh.push(m);
+      }
+    });
+    fresh.forEach(walk);
   };
-  if (parent === null) return [item(0)];
+  walk(0);
+  return seen;
+}
+
+export function relativesOutline(l: RelLayout, parent: number | null, limit: number): OutlineItem[] {
+  const places = firstPlaces(l);
+  const item = (id: number, place: string): OutlineItem => {
+    const n = l.nodes[id];
+    const first = places.get(id) === place;
+    const label = cap(n.relation ?? '') + (n.dupOf !== null ? ' (appears earlier)' : '') + (first ? '' : ' (also shown above)');
+    const hasChildren = first && GROUPS.some((_, g) => groupOf(l, id, g).length > 0);
+    return { nodeId: id, person: n.person, label, hasChildren };
+  };
+  if (parent === null) return [item(0, 'root')];
   if (parent < GROUP_BASE) {
     return GROUPS.map((title, g) => ({ g, title }))
       .filter(({ g }) => groupOf(l, parent, g).length > 0)
@@ -444,5 +473,7 @@ export function relativesOutline(l: RelLayout, parent: number | null, limit: num
   const rest = parent - GROUP_BASE;
   const owner = Math.floor(rest / 8);
   const g = rest % 8;
-  return groupOf(l, owner, g).slice(0, limit).map(item);
+  return groupOf(l, owner, g)
+    .slice(0, limit)
+    .map((m) => item(m, `${owner}:${g}`));
 }

@@ -644,7 +644,7 @@
     if (meta) animateTo(fit(meta.bounds, size));
   }
 
-  const genRange = $derived(kind === 'relatives' ? { min: 1, max: 5 } : { min: 3, max: 8 });
+  const genRange = $derived(kind === 'relatives' ? { min: 1, max: 6 } : { min: 3, max: 8 });
   const genOptions = $derived(
     Array.from({ length: genRange.max - genRange.min + 1 }, (_, i) => genRange.min + i).map((n) => ({
       value: String(n),

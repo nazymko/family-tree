@@ -175,6 +175,31 @@ fn relatives_group(c: &OpenChart, id: u32, group: RelGroup) -> Vec<u32> {
     }
 }
 
+/// Where each node is first met when the outline is read top to bottom: `(owner node, group index)`.
+/// A node met again elsewhere is only a reference there, so the outline is a tree and cannot loop.
+fn first_places(c: &OpenChart) -> HashMap<u32, (u32, u32)> {
+    fn walk(c: &OpenChart, id: u32, seen: &mut HashMap<u32, (u32, u32)>) {
+        // Claim everyone listed under this person first, so a mother is listed under "Parents" of the
+        // person she is the parent of, not under her partner; then go into the newly claimed people.
+        let mut fresh = Vec::new();
+        for g in RelGroup::ALL {
+            for m in relatives_group(c, id, g) {
+                if let std::collections::hash_map::Entry::Vacant(v) = seen.entry(m) {
+                    v.insert((id, g.index()));
+                    fresh.push(m);
+                }
+            }
+        }
+        for m in fresh {
+            walk(c, m, seen);
+        }
+    }
+    let mut seen = HashMap::new();
+    seen.insert(c.layout.root, (u32::MAX, 0));
+    walk(c, c.layout.root, &mut seen);
+    seen
+}
+
 struct OpenChart {
     id: u32,
     kind: ChartKind,
@@ -556,8 +581,11 @@ impl Session {
                     .map(|s| s.person_ref())
             })
         };
-        let item = |id: u32| -> Result<OutlineItem, ApiError> {
+        let places = first_places(c);
+        // `place` is the (owner, group) the row is listed under; `None` for the centred person.
+        let item = |id: u32, place: Option<(u32, u32)>| -> Result<OutlineItem, ApiError> {
             let n = node(id)?;
+            let first = place.is_none() || places.get(&id).copied() == place;
             let sex = self
                 .index
                 .summaries
@@ -569,17 +597,21 @@ impl Session {
             if n.dup_of.is_some() {
                 label.push_str(" (appears earlier)");
             }
+            if !first {
+                label.push_str(" (also shown above)");
+            }
             Ok(OutlineItem {
                 node_id: id,
                 person: person_of(id)?,
                 label,
-                has_children: RelGroup::ALL
-                    .iter()
-                    .any(|g| !relatives_group(c, id, *g).is_empty()),
+                has_children: first
+                    && RelGroup::ALL
+                        .iter()
+                        .any(|g| !relatives_group(c, id, *g).is_empty()),
             })
         };
         let Some(p) = parent else {
-            return Ok(vec![item(c.layout.root)?]);
+            return Ok(vec![item(c.layout.root, None)?]);
         };
         if p < GROUP_BASE {
             node(p)?;
@@ -600,7 +632,7 @@ impl Session {
         relatives_group(c, owner, g)
             .into_iter()
             .take(limit)
-            .map(item)
+            .map(|m| item(m, Some((owner, g.index()))))
             .collect()
     }
 

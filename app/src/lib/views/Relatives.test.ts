@@ -65,6 +65,33 @@ describe('Relatives view', () => {
     expect(within(tree).getByText('Siblings')).toBeInTheDocument();
   });
 
+  it('arrows_walk_parent_child_and_the_focus_row', async () => {
+    const { canvas, raf } = await mountRelatives();
+    const text = () => screen.getByRole('status').textContent;
+    await waitFor(() => expect(text()).not.toBe(''));
+    const start = text();
+    await fireEvent.keyDown(canvas, { key: 'ArrowUp' });
+    raf.pump(3);
+    await waitFor(() => expect(text()).not.toBe(start));
+    await fireEvent.keyDown(canvas, { key: 'ArrowDown' });
+    raf.pump(3);
+    await waitFor(() => expect(text()).toBe(start));
+    // Right and Left walk the focus row (siblings and partners) and come back.
+    let moved = false;
+    for (const [out, back] of [['ArrowRight', 'ArrowLeft'], ['ArrowLeft', 'ArrowRight']]) {
+      await fireEvent.keyDown(canvas, { key: out });
+      raf.pump(3);
+      if (text() !== start) {
+        moved = true;
+        await fireEvent.keyDown(canvas, { key: back });
+        raf.pump(3);
+        await waitFor(() => expect(text()).toBe(start));
+        break;
+      }
+    }
+    expect(moved).toBe(true);
+  });
+
   it('enter_recentres_and_pushes_history_then_back_returns', async () => {
     const { root, canvas, raf } = await mountRelatives();
     expect(nav.focusPerson).toBe(root);
@@ -94,7 +121,84 @@ describe('Relatives view', () => {
     expect(within(crumbs[1]).getByText(/./).getAttribute('aria-current')).toBe('location');
     await fireEvent.click(within(crumbs[0]).getByRole('button'));
     await waitFor(() => expect(nav.focusPerson).toBe(root));
+    // The path stays; only the current crumb moves back.
+    await waitFor(() => expect(within(trail).getAllByRole('listitem')[0].querySelector('[aria-current]')).not.toBeNull());
+    expect(within(trail).getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('back_and_forward_keep_the_whole_trail', async () => {
+    const { root, canvas, raf } = await mountRelatives();
+    const trail = await screen.findByRole('navigation', { name: 'People you have visited' });
     await waitFor(() => expect(within(trail).getAllByRole('listitem')).toHaveLength(1));
+    await fireEvent.keyDown(canvas, { key: 'ArrowUp' });
+    raf.pump(3);
+    await fireEvent.keyDown(canvas, { key: 'Enter' });
+    await waitFor(() => expect(within(trail).getAllByRole('listitem')).toHaveLength(2));
+    const names = () => within(trail).getAllByRole('listitem').map((li) => li.textContent);
+    const both = names();
+    nav.back();
+    await waitFor(() => expect(nav.focusPerson).toBe(root));
+    await waitFor(() => expect(within(trail).getAllByRole('listitem')[0].querySelector('[aria-current]')).not.toBeNull());
+    expect(names()).toEqual(both);
+    nav.forward();
+    await waitFor(() => expect(within(trail).getAllByRole('listitem')[1].querySelector('[aria-current]')).not.toBeNull());
+    expect(names()).toEqual(both);
+  });
+
+  it('picking_in_the_outline_extends_the_trail', async () => {
+    const { api, fx } = makeApi();
+    nav.focus(await richestRoot(api, fx, 'relatives'));
+    render(Host, { props: { api, view: Relatives } });
+    const trail = await screen.findByRole('navigation', { name: 'People you have visited' });
+    await waitFor(() => expect(within(trail).getAllByRole('listitem')).toHaveLength(1));
+    await fireEvent.click(await screen.findByRole('tab', { name: 'Outline' }));
+    const tree = await screen.findByRole('tree');
+    await fireEvent.click(within(tree).getByText('Starting person').closest('li')!.querySelector('.twist')!);
+    const parentsRow = (await within(tree).findByText('Parents')).closest('li')!;
+    await fireEvent.click(parentsRow.querySelector('.twist')!);
+    await waitFor(() => expect(within(parentsRow).getAllByRole('treeitem').length).toBeGreaterThan(0));
+    const dad = within(parentsRow).getAllByRole('treeitem')[0];
+    await fireEvent.keyDown(dad, { key: 'Enter' });
+    await waitFor(() => expect(within(trail).getAllByRole('listitem')).toHaveLength(2));
+    expect(within(trail).getAllByRole('listitem')[1].textContent).toMatch(/\((father|mother|parent)\)/);
+  });
+
+  it('centre_on_me_extends_the_trail', async () => {
+    const { api, fx } = makeApi();
+    const home = (await api.getSettings()).homePerson;
+    const other = fx.persons.find((p) => p.id !== home && p.id !== fx.specials.undated)!.id;
+    nav.focus(other);
+    render(Host, { props: { api, view: Relatives } });
+    const trail = await screen.findByRole('navigation', { name: 'People you have visited' });
+    await waitFor(() => expect(within(trail).getAllByRole('listitem')).toHaveLength(1));
+    const btn = await screen.findByRole('button', { name: 'Centre on me' });
+    await waitFor(() => expect(btn).toBeEnabled());
+    await fireEvent.click(btn);
+    await waitFor(() => expect(nav.focusPerson).toBe(home));
+    await waitFor(() => expect(within(trail).getAllByRole('listitem')).toHaveLength(2));
+  });
+
+  it('outline_expands_parents_father_children_without_overflowing', async () => {
+    const { api, fx } = makeApi();
+    nav.focus(await richestRoot(api, fx, 'relatives'));
+    render(Host, { props: { api, view: Relatives } });
+    await fireEvent.click(await screen.findByRole('tab', { name: 'Outline' }));
+    const tree = await screen.findByRole('tree');
+    const open = async (row: Element) => fireEvent.click(row.querySelector('.twist')!);
+    await open(within(tree).getByText('Starting person').closest('li')!);
+    const parents = (await within(tree).findByText('Parents')).closest('li')!;
+    await open(parents);
+    await waitFor(() => expect(within(parents).getAllByRole('treeitem').length).toBeGreaterThan(0));
+    const dad = within(parents).getAllByRole('treeitem')[0];
+    await open(dad);
+    const kids = (await within(dad).findByText('Children')).closest('li')!;
+    await open(kids);
+    const again = await waitFor(() => within(kids).getAllByRole('treeitem'));
+    // The focus person is listed again as a reference, which cannot be opened.
+    expect(again[0].textContent).toMatch(/also shown above/);
+    expect(again[0].hasAttribute('aria-expanded')).toBe(false);
+    const ids = Array.from(tree.querySelectorAll('[role=treeitem]')).map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 

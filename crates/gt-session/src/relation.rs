@@ -40,6 +40,7 @@ pub fn relation_label(rel: Rel, sex: SexKind) -> String {
             if half { format!("half {w}") } else { w }
         }
         Rel::NieceNephew => pick(sex, "nephew", "niece", "nephew or niece"),
+        Rel::Cousin => "cousin".to_string(),
         Rel::Partner(of) => match of {
             PartnerOf::Focus => "partner".to_string(),
             PartnerOf::Sibling => "sibling's partner".to_string(),
@@ -89,6 +90,7 @@ mod tests {
         assert_eq!(relation_label(Rel::NieceNephew, Female), "niece");
         assert_eq!(relation_label(Rel::NieceNephew, Male), "nephew");
         assert_eq!(relation_label(Rel::NieceNephew, Unknown), "nephew or niece");
+        assert_eq!(relation_label(Rel::Cousin, Female), "cousin");
     }
 
     #[test]

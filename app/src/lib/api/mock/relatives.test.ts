@@ -65,6 +65,36 @@ describe('mock relatives layout (port of gt-layout relatives)', () => {
     expect(seen).toBe(true);
   });
 
+  it('shows_cousins_on_their_own_row_without_overlap', async () => {
+    let found = false;
+    for (const p of fx.persons.slice(0, 200)) {
+      const m = await api.chartOpen({ kind: 'relatives', root: p.id, generations: 3 });
+      const win = await api.chartWindow(m.chartId, BIG, 1);
+      await api.chartClose(m.chartId);
+      expect(overlaps(win.nodes)).toBe(0);
+      const cousins = win.nodes.filter((n) => n.relation === 'cousin');
+      if (!cousins.length) continue;
+      found = true;
+      const focus = win.nodes[m.rootNode];
+      for (const c of cousins) expect(c.y).toBeLessThan(focus.y);
+      break;
+    }
+    expect(found).toBe(true);
+  });
+
+  it('outline_references_are_not_expandable', async () => {
+    const root = await richest();
+    const meta = await api.chartOpen({ kind: 'relatives', root, generations: 3 });
+    const top = (await api.chartOutline(meta.chartId, null, 10))[0];
+    const groups = await api.chartOutline(meta.chartId, top.nodeId, 50);
+    const parents = await api.chartOutline(meta.chartId, groups.find((g) => g.label === 'Parents')!.nodeId, 50);
+    const gs = await api.chartOutline(meta.chartId, parents[0].nodeId, 50);
+    const kids = await api.chartOutline(meta.chartId, gs.find((g) => g.label === 'Children')!.nodeId, 50);
+    const back = kids.find((k) => k.nodeId === top.nodeId)!;
+    expect(back.hasChildren).toBe(false);
+    expect(back.label).toMatch(/also shown above/);
+  });
+
   it('terminates_on_the_cycle_fixture', async () => {
     const meta = await api.chartOpen({ kind: 'relatives', root: fx.specials.cycleA!, generations: 5 });
     const win = await api.chartWindow(meta.chartId, BIG, 1);

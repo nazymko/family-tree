@@ -136,6 +136,39 @@ fn aunts_and_uncles_are_an_option() {
 }
 
 #[test]
+fn siblings_are_not_called_half_when_one_parent_is_unknown() {
+    let mut s = MapSource::default();
+    s.family(Some(1), None, &[10, 11]);
+    s.family(Some(1), Some(3), &[12]);
+    let l = run(&s, 10, 2, true);
+    for k in [11, 12] {
+        assert_eq!(node_of(&l, k).rel, Some(Rel::Sibling { half: false }));
+    }
+}
+
+#[test]
+fn cousins_hang_below_aunts_and_uncles_one_generation_only() {
+    let mut s = trio();
+    // Parent 1 has a brother 20 with a child 22, who has a child 23.
+    s.family(Some(3), Some(4), &[1, 20]);
+    s.family(Some(20), Some(21), &[22]);
+    s.family(Some(22), None, &[23]);
+    let on = run(&s, 10, 3, true);
+    let cousin = node_of(&on, 22);
+    assert_eq!(cousin.rel, Some(Rel::Cousin));
+    assert!(cousin.rect.y > node_of(&on, 20).rect.y);
+    assert!(
+        cousin.rect.y < on.nodes[0].rect.y,
+        "cousins have their own row above the centred person's row"
+    );
+    assert!(cousin.more_down, "the cousin's own children are not drawn");
+    assert!(on.nodes.iter().all(|n| n.key != 23));
+    assert_no_overlap(&on);
+    let off = run(&s, 10, 3, false);
+    assert!(off.nodes.iter().all(|n| n.key != 22));
+}
+
+#[test]
 fn generations_limit_is_honoured() {
     // A straight line of ancestors 100.. and of descendants 200.. around focus 0.
     let mut s = MapSource::default();
@@ -256,7 +289,8 @@ fn big_family() -> MapSource {
             let ps = fresh(2);
             let sib = fresh(2);
             s.family(Some(ps[0]), Some(ps[1]), &[c, sib[0]]);
-            s.family(Some(sib[0]), Some(sib[1]), &[]);
+            let cousins = fresh(2);
+            s.family(Some(sib[0]), Some(sib[1]), &cousins);
             up.extend(ps);
         }
         level = up;
@@ -277,6 +311,14 @@ fn twelve_siblings_three_generations_each_way_do_not_overlap() {
         .filter(|n| matches!(n.rel, Some(Rel::Sibling { .. })))
         .count();
     assert_eq!(sibs, 11);
+    assert!(
+        l.nodes
+            .iter()
+            .filter(|n| n.rel == Some(Rel::Cousin))
+            .count()
+            == 4,
+        "cousins are drawn"
+    );
     let rows: std::collections::BTreeSet<i16> = l.nodes.iter().map(|n| n.r#gen).collect();
     assert_eq!(rows.first(), Some(&-3));
     assert_eq!(rows.last(), Some(&3));
