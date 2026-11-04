@@ -165,6 +165,24 @@
 
   // Keyboard: Left/Right move along a row, Up/Down jump to the nearest box in the next row.
   let treeEl = $state<HTMLElement>();
+  let leftEl = $state<HTMLElement>();
+  let rightEl = $state<HTMLElement>();
+  /**
+   * How far the person sits off the middle of their own row: each side is only as wide as its boxes, so the other rows
+   * move by the same amount to stay centred on the person (instead of padding the shorter side to the longer one).
+   */
+  let dx = $state(0);
+  $effect(() => {
+    if (!leftEl || !rightEl) return;
+    const l = leftEl;
+    const r = rightEl;
+    const update = () => (dx = (l.offsetWidth - r.offsetWidth) / 2);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(l);
+    ro.observe(r);
+    return () => ro.disconnect();
+  });
   let active = $state<string | null>(null);
   $effect(() => {
     void view.focus.id;
@@ -283,7 +301,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div class="tree" class:reversed data-direction={reversed ? 'reversed' : 'normal'} bind:this={treeEl} role="group" aria-label={t('family.treeLabel', { who: focus.name })} onkeydown={keys}>
   <!-- Every row keeps to one line (wrapped rows would lose their lines); the tree scrolls sideways when wider. -->
-  <div class="inner">
+  <div class="inner" style:--dx="{dx}px">
   {#if view.parentSets.length > 1 || bothParents}
     <div class="sets" role="group" aria-label={t('family.treeParentSets')}>
       {#each view.parentSets.length > 1 ? view.parentSets : [] as ps, i (ps.familyId)}
@@ -345,7 +363,7 @@
   <div class="drop" aria-hidden="true"></div>
 
   <div class="me">
-    <div class="side left">
+    <div class="side left" bind:this={leftEl}>
       {#if hasAnyParent}
         <div class="kid">{@render slot('sibling', focus, 2)}</div>
       {/if}
@@ -369,7 +387,7 @@
     <div class="kid self" class:alone={!hasAnyParent && view.siblings.length === 0}>
       {@render box(focus, null, 2, true)}<span class="stem" aria-hidden="true"></span>
     </div>
-    <div class="side right">
+    <div class="side right" bind:this={rightEl}>
       {#each view.partnerships as u (u.familyId)}
         {#if u.partner}
           <div class="mate"><span class="join" aria-hidden="true"></span>{@render box(u.partner, partnerRole(u), 2)}</div>
@@ -437,6 +455,11 @@
    */
   .tree.reversed > .inner {
     flex-direction: column-reverse;
+  }
+  /* Every row but the person's own moves by --dx, so all of them centre on the person. */
+  .inner > :not(.me) {
+    margin-inline-start: max(0px, calc(2 * var(--dx, 0px)));
+    margin-inline-end: max(0px, calc(-2 * var(--dx, 0px)));
   }
   .reversed .anc .pcell {
     order: -1;
@@ -601,9 +624,9 @@
   /* The person's row: brothers and sisters, the person, then partners. The person sits on the axis. */
   .me {
     display: grid;
-    /* Equal sides, each as wide as the wider one, keep the person on the middle axis. */
-    grid-template-columns: 1fr auto 1fr;
-    width: 100%;
+    /* Each side only as wide as its boxes; the other rows follow the person (see --dx). */
+    grid-template-columns: max-content auto max-content;
+    width: max-content;
     /* Every column takes the row's full height: the bars run along one edge of the row, the stem the other. */
     align-items: stretch;
   }
