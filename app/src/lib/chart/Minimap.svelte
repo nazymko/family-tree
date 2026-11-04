@@ -6,8 +6,6 @@
     win,
     view,
     onJump,
-    ink = '#5A6272',
-    accent = '#9B2C3F',
   }: {
     bounds: { w: number; h: number };
     /** Every person of the chart at the lowest detail; null until it has loaded. */
@@ -16,12 +14,11 @@
     view: Rect;
     /** The chart point the person clicked or dragged to; the main view centres there. */
     onJump: (x: number, y: number) => void;
-    ink?: string;
-    accent?: string;
   } = $props();
 
   const W = 180;
-  const H = 120;
+  // As tall as the tree is, so a wide tree is a thin strip you can hit and a tall one does not exceed the box.
+  const H = $derived(Math.round(Math.min(120, Math.max(24, (W * bounds.h) / Math.max(1, bounds.w)))));
   let canvas = $state<HTMLCanvasElement | null>(null);
   let dragging = false;
 
@@ -32,6 +29,9 @@
     const ctx = el?.getContext('2d');
     if (!el || !ctx) return;
     const s = scale;
+    const cs = getComputedStyle(document.documentElement);
+    const ink = cs.getPropertyValue('--ink-2').trim() || '#5A6272';
+    const accent = cs.getPropertyValue('--ribbon').trim() || '#9B2C3F';
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, W, H);
     if (win) {
@@ -95,6 +95,7 @@
   class="mini"
   width={W}
   height={H}
+  style:height="{H}px"
   role="application"
   aria-label="Minimap of the whole tree. Click or drag to move the view, or use the arrow keys."
   tabindex="0"
@@ -109,7 +110,6 @@
   .mini {
     display: block;
     width: 180px;
-    height: 120px;
     background: var(--paper-1);
     border: 1px solid var(--rule);
     box-shadow: var(--shadow-pop);

@@ -458,3 +458,94 @@ fn the_output_is_deterministic_for_small_trees_too() {
     assert_eq!(a.layout.edges, b.layout.edges);
     assert_no_overlap(&a);
 }
+
+/// No segment of any partner line may run through a box other than the two it joins.
+fn assert_partner_lines_clear_of_boxes(w: &WholeLayout) {
+    for e in w
+        .layout
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Partner)
+    {
+        for seg in e.pts.windows(4).step_by(2) {
+            let (x0, x1) = (seg[0].min(seg[2]), seg[0].max(seg[2]));
+            let (y0, y1) = (seg[1].min(seg[3]), seg[1].max(seg[3]));
+            for n in &w.layout.nodes {
+                if n.id == e.from || n.id == e.to {
+                    continue;
+                }
+                let r = n.rect;
+                let hit = x1 > r.x + 0.5
+                    && x0 < r.x + r.w - 0.5
+                    && y1 > r.y + 0.5
+                    && y0 < r.y + r.h - 0.5;
+                assert!(
+                    !hit,
+                    "partner line {}-{} runs through box {}",
+                    e.from, e.to, n.id
+                );
+            }
+        }
+    }
+}
+
+fn assert_children_below_parents(w: &WholeLayout, i: &WholeInput) {
+    for f in &i.families {
+        let top = f.partners.iter().flatten().map(|&p| node(w, p).r#gen).max();
+        let Some(top) = top else { continue };
+        for &c in &f.children {
+            assert!(node(w, c).r#gen > top, "child {c} is not below its parents");
+        }
+    }
+}
+
+#[test]
+fn uncle_niece_marriage_keeps_the_child_below_both_parents() {
+    // 0+1 -> 2,3; 2+4 -> 5; 3+5 -> 6: 3 marries his niece 5.
+    let i = input(
+        7,
+        &[
+            (Some(0), Some(1), &[2, 3]),
+            (Some(2), Some(4), &[5]),
+            (Some(3), Some(5), &[6]),
+        ],
+    );
+    let w = run(&i);
+    assert_everyone_once(&w, 7);
+    assert_no_overlap(&w);
+    assert!(node(&w, 6).r#gen > node(&w, 5).r#gen);
+    assert!(node(&w, 6).r#gen > node(&w, 3).r#gen);
+    assert_children_below_parents(&w, &i);
+    assert_partner_lines_clear_of_boxes(&w);
+    assert_eq!(run(&i).layout.nodes, w.layout.nodes);
+}
+
+#[test]
+fn a_person_who_partners_their_own_ancestor_drops_the_partner_rule_not_the_parent_rule() {
+    // 0+1 -> 2; 2+3 -> 4; 4+0 -> 5: 4 marries ancestor 0, so partners cannot share a row.
+    let i = input(
+        6,
+        &[
+            (Some(0), Some(1), &[2]),
+            (Some(2), Some(3), &[4]),
+            (Some(4), Some(0), &[5]),
+        ],
+    );
+    let w = run(&i);
+    assert_everyone_once(&w, 6);
+    assert_no_overlap(&w);
+    // Parents above children for the two honest families; the self-referential one cannot all hold.
+    assert!(node(&w, 2).r#gen > node(&w, 0).r#gen);
+    assert!(node(&w, 4).r#gen > node(&w, 2).r#gen);
+    assert!(node(&w, 5).r#gen > node(&w, 4).r#gen);
+    assert_partner_lines_clear_of_boxes(&w);
+}
+
+#[test]
+fn consistent_trees_keep_partners_on_one_row_after_relaxing() {
+    let i = three_generations();
+    let w = run(&i);
+    assert_eq!(node(&w, 2).r#gen, node(&w, 3).r#gen);
+    assert_eq!(node(&w, 0).r#gen, node(&w, 1).r#gen);
+    assert_children_below_parents(&w, &i);
+}

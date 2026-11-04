@@ -43,6 +43,15 @@ function stroke(ctx: CanvasRenderingContext2D, edges: ChartEdge[], color: string
   ctx.stroke();
 }
 
+/**
+ * Whether an edge belongs to the highlighted line. A child edge starts at the family's first partner, who is
+ * not on the line when the line runs through the second partner; but every child on the line has a parent on
+ * it, so a child edge is on the line exactly when its child is. A partner line needs both people.
+ */
+export function edgeOnLine(e: { from: number; to: number; kind: ChartEdge['kind'] }, lit: (id: number) => boolean): boolean {
+  return e.kind === 'partner' ? lit(e.from) && lit(e.to) : lit(e.to);
+}
+
 /** Size (world units) of a block heading: about 14 px on screen, never smaller than 16 or larger than 80 world units. */
 export function headingSize(zoom: number): number {
   return Math.min(80, Math.max(16, 14 / zoom));
@@ -104,7 +113,7 @@ export function drawWhole(
   const dim: ChartEdge[] = [];
   for (const e of win.edges) {
     if (lineage === null) (e.kind === 'partner' ? partner : parent).push(e);
-    else if (lit(e.from) && lit(e.to)) hot.push(e);
+    else if (edgeOnLine(e, lit)) hot.push(e);
     else dim.push(e);
   }
   if (lineage === null) {

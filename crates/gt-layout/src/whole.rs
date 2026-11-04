@@ -426,10 +426,64 @@ fn generations(members: &[usize], sh: &Shared, sc: &mut Scratch) {
             }
         }
     }
+    relax(members, sh, sc);
     let low = members.iter().map(|&p| sc.level[p]).min().unwrap_or(0);
     for &p in members {
         sc.level[p] -= low;
     }
+}
+
+/// Passes of the relaxation. Data without a cycle settles in a handful; a cycle stops here.
+const RELAX_PASSES: usize = 48;
+
+/// Makes parents lie above their children wherever the data allows it. First partners are pulled onto
+/// one row as well; when that cannot be satisfied together with the parent rule (a person who is
+/// partner of their own ancestor, say), the partner rule is dropped and only parents-above-children is
+/// kept. Levels only ever move down, so every pass is bounded and the result is deterministic.
+fn relax(members: &[usize], sh: &Shared, sc: &mut Scratch) {
+    let mut fams: Vec<usize> = members
+        .iter()
+        .flat_map(|&p| sh.partner_in[p].iter().chain(&sh.child_in[p]).copied())
+        .collect();
+    fams.sort_unstable();
+    fams.dedup();
+    let start: Vec<i32> = members.iter().map(|&p| sc.level[p]).collect();
+    if !settle(&fams, sh, sc, true) {
+        for (&p, &l) in members.iter().zip(&start) {
+            sc.level[p] = l;
+        }
+        settle(&fams, sh, sc, false);
+    }
+}
+
+fn settle(fams: &[usize], sh: &Shared, sc: &mut Scratch, equalise: bool) -> bool {
+    for _ in 0..RELAX_PASSES {
+        let mut changed = false;
+        for &f in fams {
+            let fam = &sh.fams[f];
+            let Some(top) = fam.partners.iter().map(|&p| sc.level[p]).max() else {
+                continue;
+            };
+            if equalise {
+                for &p in &fam.partners {
+                    if sc.level[p] < top {
+                        sc.level[p] = top;
+                        changed = true;
+                    }
+                }
+            }
+            for &c in &fam.kids {
+                if sc.level[c] <= top {
+                    sc.level[c] = top + 1;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return true;
+        }
+    }
+    false
 }
 
 /// Partner units: connected sets of same-row partners, in a walk order that keeps partners next
@@ -624,8 +678,8 @@ fn layout_component(members: &[usize], sh: &Shared, sc: &mut Scratch) -> CompOut
         groups,
         rows,
         kids_units,
-        gap_in: f64::from(m.gap_x),
-        gap_group: f64::from(m.gap_x) * 2.0,
+        gap_in: f64::from(m.gap_x) * 0.6,
+        gap_group: f64::from(m.gap_x) * 0.8,
     };
     for r in 0..rows_n {
         c.pack_row(r);
@@ -743,6 +797,10 @@ fn layout_component(members: &[usize], sh: &Shared, sc: &mut Scratch) -> CompOut
         out.h = out.h.max(y + node_h);
     }
 
+    let mut row_px: Vec<Vec<f64>> = vec![Vec::new(); rows_n];
+    for &p in members {
+        row_px[sc.row[p]].push(sc.px[p]);
+    }
     // Partner lines, once per pair.
     let mut pairs: HashSet<(usize, usize)> = HashSet::new();
     for fam in sh.fams.iter() {
@@ -771,6 +829,42 @@ fn layout_component(members: &[usize], sh: &Shared, sc: &mut Scratch) -> CompOut
                 sc.px[r],
                 ya + node_h / 2.0,
             ]
+        } else if sc.row[a] != sc.row[b] {
+            // Down into the channel under the upper partner, across to a column that no box in the rows
+            // between occupies, down to the channel above the lower partner's row, across, and in at the
+            // top of the lower partner's box: never through a box.
+            let (ra, rb) = if sc.row[a] < sc.row[b] {
+                (a, b)
+            } else {
+                (b, a)
+            };
+            let (r0, r1) = (sc.row[ra], sc.row[rb]);
+            let (yr, yl) = (row_y[r0], row_y[r1]);
+            let side = f64::from(m.gap_x) * 0.3;
+            let (xa, xb) = (cx(sc, ra), cx(sc, rb) + 14.0);
+            let between = &row_px[r0 + 1..r1];
+            let mut cands = vec![xa];
+            for &x in between.iter().flatten() {
+                cands.push(x - side);
+                cands.push(x + node_w + side);
+            }
+            let free = |x: f64| {
+                between
+                    .iter()
+                    .flatten()
+                    .all(|&px| x < px - 2.0 || x > px + node_w + 2.0)
+            };
+            let xv = cands
+                .into_iter()
+                .filter(|&x| free(x))
+                .min_by(|p, q| {
+                    ((p - xa).abs() + (p - xb).abs(), *p)
+                        .partial_cmp(&((q - xa).abs() + (q - xb).abs(), *q))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap_or(xa);
+            let (ca, cb) = (yr + node_h + 4.0, yl - 6.0);
+            vec![xa, yr + node_h, xa, ca, xv, ca, xv, cb, xb, cb, xb, yl]
         } else {
             let under = (ya + node_h).max(yb + node_h) + 8.0;
             vec![
@@ -783,6 +877,11 @@ fn layout_component(members: &[usize], sh: &Shared, sc: &mut Scratch) -> CompOut
                 cx(sc, b),
                 yb + node_h,
             ]
+        };
+        let (a, b) = if sc.row[a] > sc.row[b] {
+            (b, a)
+        } else {
+            (a, b)
         };
         out.edges.push((a, b, EdgeKind::Partner, pts));
     }
@@ -990,8 +1089,9 @@ pub fn whole(input: &WholeInput, m: &Metrics) -> WholeLayout {
         if x > 0.0 {
             y += shelf_h + BLOCK_GAP;
         }
-        let cols =
-            (((shelf_w + f64::from(m.gap_x)) / pitch_x).floor() as usize).clamp(1, loose.len());
+        let wide = (((shelf_w + f64::from(m.gap_x)) / pitch_x).floor() as usize).max(1);
+        // Roughly square, so one person is not a pan across the whole shelf.
+        let cols = ((loose.len() as f64).sqrt().ceil() as usize).clamp(1, wide.max(1));
         let oy = y + HEADING_H + HEADING_GAP;
         blocks.push(Block {
             kind: BlockKind::Unconnected,

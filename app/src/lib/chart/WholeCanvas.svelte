@@ -38,7 +38,7 @@
   let selNode = $state<ChartNode | null>(null);
   let announcement = $state('');
   let hint = $state('');
-  let lineageOn = $state(false);
+  let lineageOn = $state(true);
   let lineage = $state<ReadonlySet<number> | null>(null);
   let homeNode = $state<number | null>(null);
   let miniWin = $state<ChartWindow | null>(null);
@@ -166,8 +166,10 @@
     return typeof e === 'object' && e !== null && (e as { code?: string }).code === 'stale';
   }
 
-  async function open(): Promise<void> {
+  async function open(keepView = false): Promise<void> {
     const seq = ++openSeq;
+    // After an edit the view stays where it is and the selected person stays selected when still there.
+    const keptPerson = keepView ? (selNode?.person?.id ?? null) : null;
     closeChart();
     errorText = '';
     selected = null;
@@ -215,8 +217,24 @@
         return;
       }
     }
-    userMoved = false;
-    place(homeRect);
+    if (keepView && userMoved) {
+      cache?.need(seen, cam.zoom);
+      invalidate();
+      if (keptPerson) {
+        try {
+          const loc = await api.chartLocate(id, keptPerson);
+          if (seq === openSeq && loc) {
+            selected = loc.nodeId;
+            adoptSelection();
+          }
+        } catch {
+          // The selection is simply cleared.
+        }
+      }
+    } else {
+      userMoved = false;
+      place(homeRect);
+    }
     onOpened?.(m);
     // The minimap shows everyone at the lowest detail, fetched once per opened chart.
     try {
@@ -244,7 +262,7 @@
     if (k !== undoKey) {
       undoKey = k;
       untrack(() => {
-        if (meta) void open();
+        if (meta) void open(true);
       });
     }
   });
@@ -499,20 +517,23 @@
     return key === 'ArrowDown' ? 'child' : key === 'ArrowUp' ? 'parent' : key === 'ArrowLeft' ? 'up' : key === 'ArrowRight' ? 'down' : null;
   }
 
-  /** The card nearest the middle of the screen, for a keyboard user who has not picked one yet. */
-  function nearestToCentre(): ChartNode | null {
-    const cur = cache?.current();
-    if (!cur) return null;
-    const cx = cam.x + size.w / cam.zoom / 2;
-    const cy = cam.y + size.h / cam.zoom / 2;
+  const PAN_STEP = 80;
+
+  function panKey(key: string): void {
+    const dx = key === 'ArrowLeft' ? PAN_STEP : key === 'ArrowRight' ? -PAN_STEP : 0;
+    const dy = key === 'ArrowUp' ? PAN_STEP : key === 'ArrowDown' ? -PAN_STEP : 0;
+    activeTween?.cancel();
+    setCam(panBy(cam, dx, dy, meta?.meta.bounds ?? { w: 1, h: 1 }, size));
+  }
+
+  /** The next card to the left or right in the same row; reaches people (a married-in partner) that no sibling link leads to. */
+  function rowStep(win: ChartWindow, from: number, dir: 1 | -1): ChartNode | null {
+    const n = win.nodes.find((x) => x.id === from);
+    if (!n) return null;
     let best: ChartNode | null = null;
-    let bestD = Infinity;
-    for (const n of cur.win.nodes) {
-      const d = (n.x + n.w / 2 - cx) ** 2 + (n.y + n.h / 2 - cy) ** 2;
-      if (d < bestD) {
-        bestD = d;
-        best = n;
-      }
+    for (const o of win.nodes) {
+      if (o.y !== n.y || o.id === n.id || (o.x - n.x) * dir <= 0) continue;
+      if (!best || Math.abs(o.x - n.x) < Math.abs(best.x - n.x)) best = o;
     }
     return best;
   }
@@ -523,17 +544,29 @@
     const dir = dirFor(e.key);
     if (dir) {
       e.preventDefault();
-      if (!cur) return;
-      if (selected === null) {
-        const n = nearestToCentre();
-        if (n) select(n);
+      // Arrows pan the view; with a person selected (and no Shift) they move between relatives instead.
+      if (e.shiftKey || selected === null || !cur) {
+        panKey(e.key);
         return;
       }
       const id = neighbor(cur.win, selected, dir);
-      const n = id === null ? null : cur.win.nodes.find((x) => x.id === id);
+      let n = id === null ? null : cur.win.nodes.find((x) => x.id === id);
+      if (!n && (dir === 'up' || dir === 'down')) n = rowStep(cur.win, selected, dir === 'down' ? 1 : -1);
       if (n) {
         select(n);
         ensureVisible(n);
+      } else if (id !== null) {
+        // A relative far outside the loaded window: the minimap's window knows where every card is.
+        const far = miniWin?.nodes.find((x) => x.id === id);
+        if (far) flyTo(id, far, cam.zoom);
+      }
+    } else if (e.key === 'Escape') {
+      if (selected !== null) {
+        e.preventDefault();
+        selected = null;
+        selNode = null;
+        announcement = 'Selection cleared.';
+        invalidate();
       }
     } else if (e.key === 'Enter') {
       e.preventDefault();
@@ -584,7 +617,7 @@
     <Button onclick={() => zoomBy(0.8)}>Zoom out</Button>
     <Button onclick={fitAll}>Fit all</Button>
     <Button disabled={selected === null} onclick={actualSize}>100% on this person</Button>
-    <IconButton label="Go to home person" icon="home" disabled={!homeNode} onclick={goHome} />
+    <IconButton label="Go to home person" icon="home" disabled={homeNode === null} onclick={goHome} />
     <Button aria-pressed={lineageOn} onclick={() => (lineageOn = !lineageOn)}>Highlight family line</Button>
     <Button disabled={!selNode?.person} onclick={() => selNode?.person && onOpenPerson(selNode.person.id)}>Open person</Button>
     <Button disabled={!selNode?.person} onclick={() => selNode?.person && onOpenInPedigree(selNode.person.id)}>Show in Pedigree</Button>
@@ -620,9 +653,10 @@
       </div>
     {/if}
     <p id="{uid}-help" class="sr-only">
-      Arrow keys move between relatives: up to a parent, down to a child, left and right to a sibling. Enter opens the
-      person. P shows them in the Pedigree. L highlights their family line. F fits everyone. 1 shows 100%. Home goes to the
-      home person.
+      Arrow keys move the view. With a person selected they move between relatives instead: up to a parent, down to a
+      child, left and right to a sibling. Hold Shift to move the view anyway. Escape clears the selection. Enter opens the
+      person. P shows them in the Pedigree. L turns the family line highlight on or off. F fits everyone. 1 shows 100%.
+      Home goes to the home person.
     </p>
     <div class="sr-only" role="status" aria-live="polite">{announcement}</div>
     {#if errorText}

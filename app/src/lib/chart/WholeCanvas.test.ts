@@ -25,7 +25,7 @@ async function setup(opts: { home?: boolean } = {}) {
   const ctx = attachContext(canvas);
   canvas.getBoundingClientRect = () => RECT;
   const mini = (await screen.findByRole('application', { name: /Minimap/ })) as HTMLCanvasElement;
-  mini.getBoundingClientRect = () => ({ ...RECT, width: 180, height: 120, right: 180, bottom: 120 });
+  mini.getBoundingClientRect = () => ({ ...RECT, width: 180, height: mini.height, right: 180, bottom: mini.height });
   attachContext(mini);
   await waitFor(() => expect(openSpy).toHaveBeenCalled());
   await waitFor(() => expect(winSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
@@ -82,16 +82,16 @@ describe('WholeCanvas', () => {
     await settle(s);
     const before = lastCamera(s.ctx)!;
     // jsdom's PointerEvent drops the coordinates, so send a mouse event under the pointer event's name.
-    await fireEvent(s.mini, new MouseEvent('pointerdown', { clientX: 150, clientY: 100, bubbles: true }));
+    await fireEvent(s.mini, new MouseEvent('pointerdown', { clientX: 150, clientY: s.mini.height / 2, bubbles: true }));
     await fireEvent(s.mini, new MouseEvent('pointerup', { bubbles: true }));
     await settle(s);
     const after = lastCamera(s.ctx)!;
     expect(after.zoom).toBeCloseTo(before.zoom, 5);
     expect(after.x !== before.x || after.y !== before.y).toBe(true);
     const b = (await s.openSpy.mock.results[0].value).meta.bounds;
-    const scale = Math.min(180 / b.w, 120 / b.h);
+    const scale = Math.min(180 / b.w, s.mini.height / b.h);
     expect(after.x + 400 / after.zoom).toBeCloseTo(Math.min(b.w, 150 / scale), 0);
-    expect(after.y + 300 / after.zoom).toBeCloseTo(Math.min(b.h, 100 / scale), 0);
+    expect(after.y + 300 / after.zoom).toBeCloseTo(Math.min(b.h, s.mini.height / 2 / scale), 0);
   });
 
   it('double_click_and_enter_open_the_person', async () => {
@@ -113,36 +113,109 @@ describe('WholeCanvas', () => {
     expect(s.onOpenInPedigree).toHaveBeenCalledWith(ref.id);
   });
 
-  it('far_out_asks_for_surnames_only_and_near_asks_for_full_cards', async () => {
+  it('far_out_draws_bars_with_surnames_and_near_draws_full_names', async () => {
     const s = await setup();
     for (let i = 0; i < 30; i++) await fireEvent.wheel(s.canvas, { deltaY: 400, clientX: 400, clientY: 300 });
     await settle(s, 6);
+    expect(lastCamera(s.ctx)!.zoom).toBeLessThan(0.25);
     const far = s.winSpy.mock.calls.filter((c) => (c[2] as number) < 0.25).at(-1);
     expect(far).toBeTruthy();
     const out: ChartWindow = await s.winSpy.mock.results[s.winSpy.mock.calls.indexOf(far!)].value;
     expect(out.nodes.length).toBeGreaterThan(0);
     expect(out.nodes.every((n) => n.label === '' && n.person!.lifespan === '')).toBe(true);
-    const chartLod = lastCamera(s.ctx)!.zoom;
-    expect(chartLod).toBeLessThan(0.25);
+    const surnames = new Set(out.nodes.map((n) => n.person!.name));
+    // A fresh frame at the far zoom: coloured bars, no person names or dates, only surnames and headings.
+    s.ctx.calls.length = 0;
+    await fireEvent.wheel(s.canvas, { deltaY: 10, clientX: 400, clientY: 300 });
+    s.raf.pump(3);
+    const farTexts = s.ctx.calls.filter((c) => c.op === 'fillText').map((c) => String(c.args[0]));
+    expect(s.ctx.calls.filter((c) => c.op === 'fill').length).toBeGreaterThan(0);
+    for (const t of farTexts) expect(surnames.has(t) || /family \(\d+ people\)|Unconnected people/.test(t)).toBe(true);
+
     for (let i = 0; i < 40; i++) await fireEvent.wheel(s.canvas, { deltaY: -400, clientX: 400, clientY: 300 });
     await settle(s, 6);
     const near = s.winSpy.mock.calls.filter((c) => (c[2] as number) >= 0.55).at(-1);
     expect(near).toBeTruthy();
-    expect(s.ctx.calls.filter((c) => c.op === 'fillText').length).toBeGreaterThan(0);
+    const full: ChartWindow = await s.winSpy.mock.results[s.winSpy.mock.calls.indexOf(near!)].value;
+    const names = new Set(full.nodes.map((n) => n.person!.name));
+    s.ctx.calls.length = 0;
+    await fireEvent.wheel(s.canvas, { deltaY: -10, clientX: 400, clientY: 300 });
+    s.raf.pump(3);
+    const nearTexts = s.ctx.calls.filter((c) => c.op === 'fillText').map((c) => String(c.args[0]));
+    expect(nearTexts.some((t) => names.has(t) || [...names].some((n) => n.startsWith(t.replace('…', ''))))).toBe(true);
   });
 
-  it('highlight_toggle_asks_for_the_family_line_of_the_selection', async () => {
-    const s = await setup();
-    const spy = vi.spyOn(s.api, 'chartLineage');
-    const ref = (await s.api.getPerson(s.fx.persons[5].id)).ref;
+  async function pickPerson(s: Setup, index: number) {
+    const ref = (await s.api.getPerson(s.fx.persons[index].id)).ref;
     const box = screen.getByRole('combobox', { name: 'Find a person…' });
     await fireEvent.input(box, { target: { value: ref.name } });
-    await fireEvent.click(await screen.findByRole('option', { name: new RegExp(ref.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }, { timeout: 2000 }));
+    const opts = await screen.findAllByRole('option', undefined, { timeout: 2000 });
+    await fireEvent.click(opts.find((o) => o.textContent?.includes(ref.name))!);
     await settle(s);
+    return ref;
+  }
+
+  it('highlight_is_on_by_default_asks_for_the_line_and_the_toggle_turns_it_off', async () => {
+    const s = await setup();
+    const spy = vi.spyOn(s.api, 'chartLineage');
+    await pickPerson(s, 5);
     const toggle = screen.getByRole('button', { name: 'Highlight family line' });
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    await fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
     await waitFor(() => expect(spy).toHaveBeenCalled());
+    spy.mockClear();
+    await fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await settle(s);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('arrows_pan_when_nothing_is_selected_and_shift_arrows_pan_when_something_is', async () => {
+    const s = await setup();
+    for (let i = 0; i < 6; i++) await fireEvent.wheel(s.canvas, { deltaY: -300, clientX: 400, clientY: 300 });
+    s.raf.pump(2);
+    const c0 = lastCamera(s.ctx)!;
+    await fireEvent.keyDown(s.canvas, { key: 'ArrowLeft' });
+    s.raf.pump(2);
+    const c1 = lastCamera(s.ctx)!;
+    expect(c1.x).toBeLessThan(c0.x);
+    await fireEvent.keyDown(s.canvas, { key: 'ArrowDown' });
+    s.raf.pump(2);
+    expect(lastCamera(s.ctx)!.y).toBeGreaterThanOrEqual(c1.y);
+    // With a person selected, Shift+arrow still pans and does not change the selection.
+    await pickPerson(s, 4);
+    const sel = screen.getByRole('listbox', { name: 'Selected person' }).textContent;
+    expect(sel).toBeTruthy();
+    const c2 = lastCamera(s.ctx)!;
+    await fireEvent.keyDown(s.canvas, { key: 'ArrowRight', shiftKey: true });
+    s.raf.pump(2);
+    expect(lastCamera(s.ctx)!.x).toBeGreaterThan(c2.x);
+    expect(screen.getByRole('listbox', { name: 'Selected person' }).textContent).toBe(sel);
+  });
+
+  it('arrows_move_the_selection_when_a_person_is_selected_and_escape_clears_it', async () => {
+    const s = await setup();
+    // A person with a parent in the tree: the fixture's later persons are children.
+    const id = (await s.openSpy.mock.results[0].value).meta.chartId;
+    const all = (await s.api.chartWindow(id, { x: 0, y: 0, w: 1e7, h: 1e7 }, 1)).nodes;
+    const child = all.find((n) => n.nav.parent !== null && n.person)!;
+    await pickPerson(s, s.fx.persons.findIndex((p) => p.id === child.person!.id));
+    const before = screen.getByRole('listbox', { name: 'Selected person' }).textContent;
+    const cam = lastCamera(s.ctx)!;
+    await fireEvent.keyDown(s.canvas, { key: 'ArrowUp' });
+    await settle(s);
+    const after = screen.getByRole('listbox', { name: 'Selected person' }).textContent;
+    expect(after).not.toBe(before);
+    expect(lastCamera(s.ctx)!.zoom).toBeCloseTo(cam.zoom, 5);
+    await fireEvent.keyDown(s.canvas, { key: 'Escape' });
+    expect(screen.getByRole('listbox', { name: 'Selected person' }).textContent).toBe('');
+    expect(screen.getByRole('status')).toHaveTextContent('Selection cleared.');
+  });
+
+  it('the_keyboard_help_names_panning_and_escape', async () => {
+    await setup();
+    const help = document.querySelector('.sr-only[id$="-help"]')!;
+    expect(help.textContent).toMatch(/Arrow keys move the view/);
+    expect(help.textContent).toMatch(/Shift/);
+    expect(help.textContent).toMatch(/Escape/);
   });
 });
