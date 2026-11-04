@@ -186,8 +186,9 @@ fn partners() {
     let (_d, s) = setup();
     let w = rel(&s, "Max Test", "Wendy Other").unwrap();
     assert_eq!((w.0, w.4), (Partner, true));
+    // No marriage record (only an explicitly unmarried couple is not): still husband and wife.
     let p = rel(&s, "Dan Test", "Sue Other").unwrap();
-    assert_eq!((p.0, p.4), (Partner, false));
+    assert_eq!((p.0, p.4), (Partner, true));
 }
 
 #[test]
@@ -224,10 +225,10 @@ fn partner_of_a_relative() {
         rel(&s, "Max Test", "Ulla Other"),
         Some((PartnerOfRelative, 2, 1, false, true, Male))
     );
-    // A stepmother: the partner of a parent who is not the mother.
+    // The father's wife (no marriage record counts as married): the partner of a parent who is not the mother.
     assert_eq!(
         rel(&s, "Max Test", "Sue Other"),
-        Some((PartnerOfRelative, 1, 0, false, false, Male))
+        Some((PartnerOfRelative, 1, 0, false, true, Male))
     );
     // A daughter-in-law.
     assert_eq!(

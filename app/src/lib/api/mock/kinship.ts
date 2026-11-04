@@ -44,7 +44,7 @@ export function kinshipFinder(data: KinData, from: Id): (to: Id) => Kinship | nu
     for (const f of partnerIn.get(k) ?? []) {
       const other = f.partner1 === k ? f.partner2 : f.partner1;
       if (!other) continue;
-      const married = f.kind === 'married' || f.kind === 'civil_union';
+      const married = f.kind !== 'unmarried' && f.kind !== 'other';
       const hit = out.find((e) => e[0] === other);
       if (hit) hit[1] ||= married;
       else out.push([other, married]);
