@@ -123,7 +123,9 @@ impl Kin<'_> {
             let Some(slot) = other.and_then(|id| self.index.slot(id)) else {
                 continue;
             };
-            let married = matches!(fam.kind, UnionKind::Married | UnionKind::CivilUnion);
+            // A couple counts as married unless recorded otherwise: imported families often carry no
+            // marriage record at all, and "husband"/"wife" reads better than "partner" for them.
+            let married = !matches!(fam.kind, UnionKind::Unmarried | UnionKind::Other(_));
             match out.iter_mut().find(|(p, _)| *p == slot) {
                 Some(e) => e.1 |= married,
                 None => out.push((slot, married)),
