@@ -220,6 +220,14 @@
     "dateRaw": "abt 1878"
   },
   {
+    "type": "linkExisting",
+    "anchor": "018f3a6e-0000-7000-8000-000000000001",
+    "relation": "mother",
+    "person": "018f3a6e-0000-7000-8000-000000000003",
+    "family": "018f3a6e-0000-7000-8000-000000000004",
+    "newParentSet": false
+  },
+  {
     "type": "importDraft",
     "persons": [
       {
