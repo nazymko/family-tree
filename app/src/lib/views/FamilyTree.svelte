@@ -3,7 +3,7 @@
   import Ribbon from '../ui/Ribbon.svelte';
   import Lock from '../ui/Lock.svelte';
   import { getApi } from '../api/context';
-  import type { FamilyViewDto, PersonRef } from '../api/types';
+  import type { FamilyViewDto, PartnershipDto, PersonRef } from '../api/types';
   import { project } from '../state/project.svelte';
   import type { AddRelation } from '../state/ui.svelte';
   import { t, type MessageKey } from '../i18n';
@@ -115,10 +115,14 @@
 
   type Role =
     | 'father' | 'mother' | 'son' | 'daughter' | 'child' | 'brother' | 'sister' | 'sibling' | 'partner'
-    | 'grandfather' | 'grandmother' | 'halfBrother' | 'halfSister' | 'halfSibling' | null;
+    | 'grandfather' | 'grandmother' | 'halfBrother' | 'halfSister' | 'halfSibling' | 'husband' | 'wife' | null;
   const HALF = { halfBrother: 'family.treeHalfBrother', halfSister: 'family.treeHalfSister', halfSibling: 'family.treeHalfSibling' } as const;
   const roleKey = (r: NonNullable<Role>): MessageKey =>
-    r === 'grandfather'
+    r === 'husband'
+      ? 'family.treeHusband'
+      : r === 'wife'
+        ? 'family.treeWife'
+        : r === 'grandfather'
       ? 'family.treeGrandfather'
       : r === 'grandmother'
         ? 'family.treeGrandmother'
@@ -129,6 +133,9 @@
     const father = p.sex === 'male' || (p.sex !== 'female' && slot === 0);
     return up ? (father ? 'grandfather' : 'grandmother') : father ? 'father' : 'mother';
   }
+  /** Married partners read as husband or wife when the sex is known; anyone else is a partner. */
+  const partnerRole = (u: PartnershipDto): Role =>
+    u.kind === 'married' && u.partner?.sex === 'male' ? 'husband' : u.kind === 'married' && u.partner?.sex === 'female' ? 'wife' : 'partner';
   const kidRole = (p: PersonRef): Role => (p.sex === 'male' ? 'son' : p.sex === 'female' ? 'daughter' : 'child');
   const sibRole = (p: PersonRef): Role => {
     const k = p.sex === 'male' ? 'Brother' : p.sex === 'female' ? 'Sister' : 'Sibling';
@@ -225,6 +232,7 @@
       if (!current) onopen(p.id);
     }}
   >
+    {#if role}<span class="kin" aria-hidden="true">{t(roleKey(role))}</span>{/if}
     <bdi dir="auto" class="nm">{p.name}</bdi>
     <span class="meta tnum">
       {#if p.living}<span class="living">{t('common.living')}</span>{/if}
@@ -339,7 +347,7 @@
     <div class="side right">
       {#each view.partnerships as u (u.familyId)}
         {#if u.partner}
-          <div class="mate"><span class="join" aria-hidden="true"></span>{@render box(u.partner, 'partner', 2)}</div>
+          <div class="mate"><span class="join" aria-hidden="true"></span>{@render box(u.partner, partnerRole(u), 2)}</div>
         {/if}
       {/each}
       <div class="mate"><span class="join" aria-hidden="true"></span>{@render slot('partner', focus, 2)}</div>
@@ -616,6 +624,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* The relation to the person in the middle, e.g. "Father" or "Half-sister". */
+  .kin {
+    font-size: var(--t-xs);
+    line-height: 1.2;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-1);
   }
   .meta {
     display: flex;

@@ -105,9 +105,20 @@ pub fn load_recent(config_dir: &Path) -> Vec<RecentProject> {
         .take(MAX_RECENT)
         .map(|mut r| {
             r.missing = !Path::new(&r.dir).join("tree.db").is_file();
+            r.opened_at = as_millis(r.opened_at);
             r
         })
         .collect()
+}
+
+/// `opened_at` is Unix milliseconds; lists written by older builds hold seconds (they showed as January 1970).
+/// Any value below 10^11 (March 1973 in milliseconds, year 5138 in seconds) can only be seconds.
+fn as_millis(t: i64) -> i64 {
+    if (1..100_000_000_000).contains(&t) {
+        t.saturating_mul(1000)
+    } else {
+        t
+    }
 }
 
 /// Puts a project at the top: an entry for the same folder is replaced, the list is cut to 12.
@@ -152,7 +163,14 @@ fn write_recent(config_dir: &Path, list: &[RecentProject]) -> Result<(), ApiErro
 
 #[cfg(test)]
 mod verbatim_tests {
-    use super::strip_verbatim;
+    use super::{as_millis, strip_verbatim};
+
+    #[test]
+    fn opened_at_in_seconds_from_older_lists_becomes_millis() {
+        assert_eq!(as_millis(1_793_802_000), 1_793_802_000_000);
+        assert_eq!(as_millis(1_793_802_000_000), 1_793_802_000_000);
+        assert_eq!(as_millis(0), 0);
+    }
 
     #[test]
     fn verbatim_prefix_is_stripped() {

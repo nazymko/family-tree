@@ -19,6 +19,7 @@ function setup(api: Api = new MockApi(fixtureTree(80))) {
 }
 
 beforeEach(() => {
+  localStorage.removeItem('gt.hiddenRecents');
   nav.reset();
   project.close();
   toasts.clear();
@@ -151,5 +152,45 @@ describe('Welcome', () => {
     await user.click(dlgBtn);
     await waitFor(() => expect(project.info?.name).toBe('Kowalski'));
     expect(within(document.body).queryByRole('progressbar')).toBeNull();
+  });
+
+  it('hide_moves_a_tree_into_the_collapsed_hidden_list_and_show_brings_it_back', async () => {
+    const { user } = setup();
+    const link = () => screen.queryByRole('link', { name: /Schmidt family/ });
+    await waitFor(() => expect(link()).toBeInTheDocument());
+    expect(screen.queryByText(/Hidden trees/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Hide Schmidt family from the list' }));
+    const summary = screen.getByText('Hidden trees (1)');
+    const details = summary.closest('details')!;
+    expect(details.open).toBe(false);
+    expect(JSON.parse(localStorage.getItem('gt.hiddenRecents')!)).toEqual(['C:/Genealogy/Schmidt family']);
+
+    await user.click(summary);
+    expect(details.open).toBe(true);
+    // Still openable from the hidden list.
+    expect(within(details).getByRole('link', { name: /Schmidt family/ })).toBeInTheDocument();
+
+    await user.click(within(details).getByRole('button', { name: 'Show Schmidt family in the list again' }));
+    expect(screen.queryByText(/Hidden trees/)).not.toBeInTheDocument();
+    expect(link()).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem('gt.hiddenRecents')!)).toEqual([]);
+  });
+
+  it('hidden_trees_are_remembered', async () => {
+    localStorage.setItem('gt.hiddenRecents', JSON.stringify(['C:/Genealogy/Schmidt family']));
+    setup();
+    expect(await screen.findByText('Hidden trees (1)')).toBeInTheDocument();
+    const details = screen.getByText('Hidden trees (1)').closest('details')!;
+    expect(screen.getAllByRole('link', { name: /Schmidt family/ }).every((a) => details.contains(a))).toBe(true);
+  });
+
+  it('all_hidden_says_so', async () => {
+    const api = new MockApi(fixtureTree(80));
+    const all = await api.recentProjects();
+    localStorage.setItem('gt.hiddenRecents', JSON.stringify(all.map((r) => r.dir)));
+    setup(api);
+    expect(await screen.findByText('All recent trees are hidden.')).toBeInTheDocument();
+    expect(screen.getByText(`Hidden trees (${all.length})`)).toBeInTheDocument();
   });
 });

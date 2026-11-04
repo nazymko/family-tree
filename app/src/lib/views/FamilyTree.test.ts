@@ -85,7 +85,7 @@ describe('FamilyTree', () => {
     expect(has('Ivan Koval, 1850-1921, Father')).toBeInTheDocument();
     expect(has('Olena Koval, 1850-1921, Mother')).toBeInTheDocument();
     expect(has('Oksana Koval, 1850-1921, Sister')).toBeInTheDocument();
-    expect(has('Halyna Koval, 1850-1921, Partner')).toBeInTheDocument();
+    expect(has('Halyna Koval, 1850-1921, Wife')).toBeInTheDocument();
     expect(has('Andriy Koval, 1850-1921, Son')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Taras Koval, 1850-1921' })).toHaveAttribute('aria-current', 'true');
   });
@@ -311,7 +311,7 @@ describe('FamilyTree', () => {
       'Add brother or sister of Taras Koval',
       'Oksana Koval, 1850-1921, Sister',
       'Taras Koval, 1850-1921',
-      'Halyna Koval, 1850-1921, Partner',
+      'Halyna Koval, 1850-1921, Wife',
       'Add partner of Taras Koval',
     ]);
   });
@@ -336,5 +336,23 @@ describe('FamilyTree', () => {
     const keys = Object.keys(en.family).filter((k) => /^(tree|mode|viewMode|add\w+Of$)/.test(k));
     expect(keys.length).toBeGreaterThanOrEqual(13);
     for (const k of keys) expect((uk.family as Record<string, unknown>)[k], k).toBeTruthy();
+  });
+
+  it('each_box_shows_its_relation_to_the_person_in_the_middle', async () => {
+    const f = ref('Ivan Koval', 'male');
+    const me = ref('Taras Koval', 'male');
+    const sis = ref('Oksana Koval', 'female');
+    const wife = ref('Halyna Koval', 'female');
+    const partner = ref('Roman Shevchuk', 'male');
+    const unmarried = { ...union(partner), familyId: 'u2', kind: 'unmarried' as const };
+    setup([view(me, { parentSets: sets(f, null), siblings: [sis], partnerships: [union(wife), unmarried] }), view(f)]);
+    await tree();
+    const caption = (name: string) =>
+      screen.getByRole('button', { name: new RegExp(`^${name}`) }).querySelector('.kin')?.textContent;
+    expect(caption('Ivan Koval')).toBe('Father');
+    expect(caption('Oksana Koval')).toBe('Sister');
+    expect(caption('Halyna Koval')).toBe('Wife');
+    expect(caption('Roman Shevchuk')).toBe('Partner');
+    expect(caption('Taras Koval')).toBeUndefined();
   });
 });
