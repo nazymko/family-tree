@@ -39,7 +39,7 @@ async function setupChart(kind: ChartKind = 'pedigree') {
   const platform = new MockPlatform();
   const openSpy = vi.spyOn(api, 'chartOpen');
   const winSpy = vi.spyOn(api, 'chartWindow');
-  const saveSpy = vi.spyOn(api, 'savePng');
+  const saveSpy = vi.spyOn(api, 'savePicture');
   render(Host, {
     props: { api, view: ChartCanvas, props: { kind, root, generations: 6, onRecentre: vi.fn(), onOpenPerson: vi.fn() }, platform },
   });
@@ -50,7 +50,7 @@ async function setupChart(kind: ChartKind = 'pedigree') {
   await waitFor(() => expect(winSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
   await new Promise((r) => setTimeout(r, 0));
   raf.pump(2);
-  return { api, platform, raf, canvas, ctx, openSpy, saveSpy, root };
+  return { api, platform, raf, canvas, ctx, openSpy, winSpy, saveSpy, root };
 }
 
 const selectedLabel = () => screen.getByRole('option').textContent;
@@ -152,14 +152,14 @@ describe('picture menu on a chart', () => {
     const shot = made.find((x) => !x.canvas.isConnected)!;
     expect(boxes(shot.ctx)).toBe(m.nodeCount);
     const tr = shot.ctx.calls.filter((c) => c.op === 'setTransform').map((c) => c.args as number[]);
-    // The world is drawn at 100% (scale 1), starting 40 px before the first box.
+    // The world is drawn at 100% zoom with twice the pixels (a sharp picture), starting 40 px before the first box.
     const all = await allNodes(s.api as MockApi, m.chartId);
     const x0 = Math.min(...all.map((n) => n.x));
     const y0 = Math.min(...all.map((n) => n.y));
-    expect(tr.some((a) => a[0] === 1 && a[3] === 1 && Math.abs(a[4] + (x0 - 40)) < 1e-6 && Math.abs(a[5] + (y0 - 40)) < 1e-6)).toBe(true);
+    expect(tr.some((a) => a[0] === 2 && a[3] === 2 && Math.abs(a[4] + (x0 - 40) * 2) < 1e-6 && Math.abs(a[5] + (y0 - 40) * 2) < 1e-6)).toBe(true);
     expect(shot.ctx.calls.some((c) => c.op === 'fillText' && /Pedigree/.test(String(c.args[0])))).toBe(true); // the caption
     await waitFor(() => expect(notices.current?.message).toBe('Picture saved'));
-    expect((s.platform.calls.find((c) => c.method === 'pickSavePath')!.args[0] as { extensions: string[] }).extensions).toEqual(['png']);
+    expect((s.platform.calls.find((c) => c.method === 'pickSavePath')!.args[0] as { extensions: string[] }).extensions).toEqual(['png', 'svg']);
   });
 
   it('the_branch_item_saves_the_selected_person_and_the_people_behind_them_only', async () => {
@@ -194,6 +194,61 @@ describe('picture menu on a chart', () => {
     expect(last[4]).toBeCloseTo(-cam.x * cam.zoom);
     expect(last[5]).toBeCloseTo(-cam.y * cam.zoom);
     expect(s.saveSpy.mock.calls[0][0]).toMatch(/ \(screen\)\.png$/);
+  });
+
+  it('the_screen_item_fetches_a_fresh_window_for_the_viewport_instead_of_trusting_the_cache', async () => {
+    const made = stubOffscreen();
+    const s = await setupChart();
+    const m = await s.openSpy.mock.results[0].value;
+    const wins = await Promise.all(s.winSpy.mock.results.map((r) => r.value));
+    const cached = wins.reduce((a, b) => (b.nodes.length > a.nodes.length ? b : a));
+    const cam = lastCamera(s.ctx)!;
+    const fresh = { ...cached, nodes: cached.nodes.filter((n: ChartNode) => n.dupOf === null).slice(0, 2), edges: [] };
+    expect(cached.nodes.length).toBeGreaterThan(3);
+    s.winSpy.mockClear();
+    s.winSpy.mockResolvedValue(fresh);
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /on the screen/ }));
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled());
+    expect(s.winSpy).toHaveBeenCalledTimes(1);
+    const [id, rect, zoom] = s.winSpy.mock.calls[0];
+    expect(id).toBe(m.chartId);
+    expect(zoom).toBeCloseTo(cam.zoom);
+    expect(rect.x).toBeCloseTo(cam.x);
+    expect(rect.y).toBeCloseTo(cam.y);
+    expect(rect.w).toBeCloseTo(800 / cam.zoom);
+    expect(rect.h).toBeCloseTo(600 / cam.zoom);
+    // What was painted is the freshly fetched window (2 boxes, plus the selection frame), not the cached one.
+    const shot = made.find((x) => !x.canvas.isConnected)!;
+    expect(boxes(shot.ctx)).toBeGreaterThanOrEqual(2);
+    expect(boxes(shot.ctx)).toBeLessThanOrEqual(3);
+  });
+
+  it('an_svg_name_saves_a_vector_picture_without_making_a_canvas_of_the_chart_size', async () => {
+    stubOffscreen();
+    const s = await setupChart();
+    s.platform.next.save = 'C:/Mock/Pedigree.svg';
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /whole chart/ }));
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled());
+    const [dest, bytes] = s.saveSpy.mock.calls[0];
+    expect(dest).toBe('C:/Mock/Pedigree.svg');
+    const text = new TextDecoder().decode(bytes);
+    expect(text).toMatch(/^<\?xml/);
+    expect(text).toContain('<path d="M');
+    expect(text).toMatch(/<text [^>]*>Pedigree/);
+    expect(HTMLCanvasElement.prototype.toBlob).not.toHaveBeenCalled(); // no PNG was made
+    await waitFor(() => expect(notices.current?.message).toBe('Picture saved'));
+  });
+
+  it('a_context_menu_event_without_a_pointer_type_and_with_no_position_counts_as_the_keyboard', async () => {
+    const s = await setupChart();
+    s.canvas.focus();
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0, detail: 0, clientX: 0, clientY: 0 });
+    s.canvas.dispatchEvent(ev);
+    await waitFor(() => expect(menu()).toBeTruthy());
+    expect(ev.defaultPrevented).toBe(true);
+    expect(within(menu()).getAllByRole('menuitem')[0]).toHaveFocus();
   });
 
   it('shows_saving_while_it_works_and_a_plain_error_when_it_fails', async () => {
@@ -233,7 +288,7 @@ describe('picture menu on the whole tree', () => {
     const { api } = makeApi(300);
     const platform = new MockPlatform();
     const winSpy = vi.spyOn(api, 'chartWindow');
-    const saveSpy = vi.spyOn(api, 'savePng');
+    const saveSpy = vi.spyOn(api, 'savePicture');
     render(Host, { props: { api, view: WholeCanvas, props: { homeId: null, onOpenPerson: vi.fn(), onOpenInPedigree: vi.fn() }, platform } });
     const canvas = screen.getByRole('application', { name: 'Whole tree chart' }) as HTMLCanvasElement;
     const ctx = attachContext(canvas);
@@ -258,6 +313,27 @@ describe('picture menu on the whole tree', () => {
     await fireEvent.click(branch);
     expect(menu()).toBeTruthy(); // a disabled item does not close the menu or save
     expect(s.saveSpy).not.toHaveBeenCalled();
+  });
+
+  it('a_branch_picture_closes_the_empty_stretches_between_its_people', async () => {
+    const made = stubOffscreen();
+    const s = await setupWhole();
+    await rightClick(s.canvas, { clientX: 5, clientY: 5 });
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /branch/ }));
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalledTimes(1));
+    const shot = made.filter((x) => !x.canvas.isConnected).at(-1)!;
+    // Every rectangle but the first (the clip of the chart area) is a person; no two neighbours are further apart than 40.
+    const spans = shot.ctx.calls
+      .filter((c) => c.op === 'rect')
+      .slice(1)
+      .map((c) => [c.args[0] as number, (c.args[0] as number) + (c.args[2] as number)] as [number, number])
+      .sort((a, b) => a[0] - b[0]);
+    expect(spans.length).toBeGreaterThan(0);
+    let reach = spans[0][1];
+    for (const [lo, hi] of spans) {
+      expect(lo - reach).toBeLessThanOrEqual(40 + 1e-6);
+      reach = Math.max(reach, hi);
+    }
   });
 
   it('saves_the_whole_tree_with_its_headings_and_the_branch_without_them', async () => {

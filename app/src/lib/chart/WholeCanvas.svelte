@@ -16,8 +16,8 @@
   import { t } from '../i18n';
   import { founderOf } from './wholeStart';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
-  import { mergeScenes, planPicture, sceneFor, tileRects, type PictureScope, type Scene } from './picture';
-  import { captionText, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
+  import { compactX, isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
+  import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
 
   let {
     homeId = null,
@@ -560,14 +560,16 @@
     if (!m) return { nodes: [], edges: [] };
     const b = m.meta.bounds;
     const parts: Scene[] = [];
-    for (const r of tileRects({ x: -1, y: -1, w: b.w + 2, h: b.h + 2 })) parts.push(await api.chartWindow(m.meta.chartId, r, 1));
+    for (const r of tileRects({ x: -1, y: -1, w: b.w + 2, h: b.h + 2 })) {
+      parts.push(await api.chartWindow(m.meta.chartId, r, 1));
+      await later();
+    }
     return mergeScenes(parts);
   }
 
-  async function buildPicture(scope: PictureScope): Promise<BuiltPicture | null> {
-    const cur = cache?.current();
+  async function buildPicture(scope: PictureScope, format: PictureFormat): Promise<BuiltPicture | null> {
     const m = meta;
-    if (!m || !cur) return null;
+    if (!m || !cache?.current()) return null;
     theme ??= wholeThemeFromCss();
     const th = theme;
     const sel = selected;
@@ -575,17 +577,19 @@
     const line = lineage;
     const shot = { cam: { ...cam }, size: { ...size }, dpr };
     let scene: Scene;
-    if (scope === 'screen') scene = { nodes: cur.win.nodes, edges: cur.win.edges };
+    // The screen picture asks for its own fresh window: the cached one can lag behind the camera (or be at another zoom level).
+    if (scope === 'screen') scene = await api.chartWindow(m.meta.chartId, viewRect(shot.cam, shot.size), shot.cam.zoom);
     else if (scope === 'whole') scene = await wholeScene();
     else {
       const all = await wholeScene();
       const ids = sel === null ? [] : await api.chartLineage(m.meta.chartId, sel);
-      scene = sceneFor('branch', 'whole', all, sel, ids);
+      // The branch's people are spread over very wide rows: close the empty stretches between them.
+      scene = compactX(sceneFor('branch', 'whole', all, sel, ids));
     }
     if (scene.nodes.length === 0) return null;
     // Block headings go with the whole tree only; a branch is cropped to its own people.
     const blocks = scope === 'branch' ? [] : m.blocks;
-    const plan = planPicture(scope, scene, scope === 'screen' ? shot : null, scope === 'whole' ? m.blocks.map((b) => b.rect) : []);
+    const plan = planPicture(scope, scene, scope === 'screen' ? shot : null, scope === 'whole' ? m.blocks.map((b) => b.rect) : [], { dpr, vector: format === 'svg' });
     return {
       plan,
       theme: { paper: th.paper, ink2: th.ink2, font: th.font },
@@ -603,7 +607,7 @@
   function savePictureAs(scope: PictureScope): void {
     if (savingPicture) return;
     const name = suggestedName(scope, 'whole', '', selNode?.person?.name ?? '');
-    void savePicture({ api, platform }, { fileName: name, build: () => buildPicture(scope), setBusy: (b) => (savingPicture = b) });
+    void savePicture({ api, platform }, { fileName: name, build: (format) => buildPicture(scope, format), setBusy: (b) => (savingPicture = b) });
   }
 
   /** Opens the picture menu over the selected card (or the middle of the chart when it is not in view). */
@@ -621,7 +625,7 @@
   function oncontextmenu(e: MouseEvent): void {
     e.preventDefault();
     canvas?.focus();
-    if ((e as PointerEvent).pointerType === '') return pictureMenuAtSelection(); // from the keyboard
+    if (isKeyboardMenu(e as PointerEvent)) return pictureMenuAtSelection();
     const cur = cache?.current();
     if (cur) {
       // A right-click on a card selects that person first.

@@ -13,8 +13,8 @@
   import { draw, themeFromCss, type Theme } from './renderer';
   import { WindowCache } from './window';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
-  import { mergeScenes, planPicture, sceneFor, tileRects, type PictureScope, type Scene } from './picture';
-  import { captionText, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
+  import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
+  import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
   import { t, plural } from '../i18n';
   import { nodeLabel, relationText } from '../i18n/relation';
 
@@ -658,21 +658,25 @@
     const m = meta;
     if (!m) return { nodes: [], edges: [] };
     const parts: Scene[] = [];
-    for (const r of tileRects({ x: -1, y: -1, w: m.bounds.w + 2, h: m.bounds.h + 2 })) parts.push(await api.chartWindow(m.chartId, r, 1));
+    for (const r of tileRects({ x: -1, y: -1, w: m.bounds.w + 2, h: m.bounds.h + 2 })) {
+      parts.push(await api.chartWindow(m.chartId, r, 1));
+      await later();
+    }
     return mergeScenes(parts);
   }
 
-  async function buildPicture(scope: PictureScope): Promise<BuiltPicture | null> {
-    const cur = cache?.current();
-    if (!meta || !cur) return null;
+  async function buildPicture(scope: PictureScope, format: PictureFormat): Promise<BuiltPicture | null> {
+    if (!meta || !cache?.current()) return null;
     theme ??= themeFromCss();
     const th = theme;
     const sel = selected;
     const focus = rootNodeId;
     const shot = { cam: { ...cam }, size: { ...size }, dpr };
-    const scene = scope === 'screen' ? { nodes: cur.win.nodes, edges: cur.win.edges } : sceneFor(scope, kind, await wholeScene(), sel);
+    // The screen picture asks for its own fresh window: the cached one can lag behind the camera (or be at another zoom level).
+    const scene: Scene =
+      scope === 'screen' ? await api.chartWindow(meta.chartId, viewRect(shot.cam, shot.size), shot.cam.zoom) : sceneFor(scope, kind, await wholeScene(), sel);
     if (scene.nodes.length === 0) return null;
-    const plan = planPicture(scope, scene, scope === 'screen' ? shot : null);
+    const plan = planPicture(scope, scene, scope === 'screen' ? shot : null, [], { dpr, vector: format === 'svg' });
     return {
       plan,
       theme: { paper: th.paper, ink2: th.ink2, font: th.font },
@@ -685,7 +689,7 @@
   function savePictureAs(scope: PictureScope): void {
     if (savingPicture) return;
     const name = suggestedName(scope, kind, rootName, selNode?.person?.name ?? '');
-    void savePicture({ api, platform }, { fileName: name, build: () => buildPicture(scope), setBusy: (b) => (savingPicture = b) });
+    void savePicture({ api, platform }, { fileName: name, build: (format) => buildPicture(scope, format), setBusy: (b) => (savingPicture = b) });
   }
 
   /** Opens the picture menu over the selected box (or the middle of the chart when it is not in view). */
@@ -703,7 +707,7 @@
   function oncontextmenu(e: MouseEvent): void {
     e.preventDefault();
     canvas?.focus();
-    if ((e as PointerEvent).pointerType === '') return pictureMenuAtSelection(); // from the keyboard
+    if (isKeyboardMenu(e as PointerEvent)) return pictureMenuAtSelection();
     const cur = cache?.current();
     if (cur) {
       // A right-click on a box selects that person first; a box shown elsewhere selects the original.

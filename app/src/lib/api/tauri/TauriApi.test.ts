@@ -46,20 +46,20 @@ describe('TauriApi', () => {
     expect(page.total).toBe(0);
   });
 
-  it('save_png_sends_the_bytes_as_the_raw_body', async () => {
+  it('save_picture_sends_the_bytes_as_the_raw_body', async () => {
     reply = () => ({ bytes: 4 });
     const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
-    await expect(new TauriApi().savePng('C:/Pictures/Pedigree - Ivan Koval.png', bytes)).resolves.toEqual({ bytes: 4 });
+    await expect(new TauriApi().savePicture('C:/Pictures/Pedigree - Ivan Koval.png', bytes)).resolves.toEqual({ bytes: 4 });
     expect(calls).toHaveLength(1);
-    expect(calls[0].cmd).toBe('save_png');
+    expect(calls[0].cmd).toBe('save_picture');
     expect(calls[0].args).toBe(bytes);
   });
 
-  it('save_png_failure_is_a_plain_api_error', async () => {
+  it('save_picture_failure_is_a_plain_api_error', async () => {
     reply = () => {
       throw { code: 'io', message: 'Could not save the picture: the disk is full. Choose another place and try again.' };
     };
-    await expect(new TauriApi().savePng('C:/x.png', new Uint8Array([1]))).rejects.toMatchObject({ code: 'io' });
+    await expect(new TauriApi().savePicture('C:/x.png', new Uint8Array([1]))).rejects.toMatchObject({ code: 'io' });
   });
 
   it('apply_passes_command_object_unchanged', async () => {

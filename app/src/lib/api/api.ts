@@ -110,7 +110,7 @@ export interface Api {
   previewExport(opts: ExportOptions): Promise<PrivacyPreview>;
   exportGedcom(opts: ExportOptions, dest: string, previewToken: string): Promise<{ bytes: number }>;
   /** Writes a chart picture (PNG bytes) to `dest`, replacing the file when it exists (the save dialog already asked). */
-  savePng(dest: string, bytes: Uint8Array): Promise<{ bytes: number }>;
+  savePicture(dest: string, bytes: Uint8Array): Promise<{ bytes: number }>;
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;
 }
@@ -120,7 +120,7 @@ export interface Platform {
   pickFile(opts: { title: string; extensions?: string[] }): Promise<string | null>;
   pickFiles(opts: { title: string; extensions?: string[] }): Promise<string[]>;
   pickFolder(title: string): Promise<string | null>;
-  pickSavePath(opts: { title: string; defaultName: string; extensions: string[] }): Promise<string | null>;
+  pickSavePath(opts: { title: string; defaultName: string; extensions: string[]; filters?: { name: string; extensions: string[] }[] }): Promise<string | null>;
   onFilesDropped(cb: (paths: string[]) => void, onHover?: (over: boolean) => void): () => void;
   reveal(path: string): Promise<void>;
 }

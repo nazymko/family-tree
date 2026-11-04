@@ -72,19 +72,19 @@
   {onkeydown}
   oncontextmenu={(e) => e.preventDefault()}
 >
-  {#each items as item (item.label)}
+  {#each items as item, index (item.label)}
     <button
       type="button"
       role="menuitem"
       tabindex="-1"
       class:danger={item.danger}
       aria-disabled={item.disabled ? 'true' : undefined}
-      aria-describedby={item.disabled && item.title ? `${uid}-hint` : undefined}
+      aria-describedby={item.disabled && item.title ? `${uid}-hint-${index}` : undefined}
       onclick={() => choose(item)}
     >
       <span>{item.label}</span>
       {#if item.disabled && item.title}
-        <small id="{uid}-hint">{item.title}</small>
+        <small id="{uid}-hint-{index}">{item.title}</small>
       {/if}
     </button>
   {/each}

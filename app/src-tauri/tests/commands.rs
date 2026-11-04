@@ -560,7 +560,7 @@ fn open_media_externally_refuses_files_that_are_not_images_or_pdfs() {
     assert_eq!(e.code, ErrorCode::NotFound);
 }
 
-// ---- save_png ----
+// ---- save_picture ----
 
 const PNG_HEAD: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
 
@@ -570,7 +570,7 @@ fn png_bytes() -> Vec<u8> {
     v
 }
 
-fn invoke_save_png(
+fn invoke_save_picture(
     w: &WebviewWindow<MockRuntime>,
     path: &str,
     bytes: Vec<u8>,
@@ -585,7 +585,7 @@ fn invoke_save_png(
             .unwrap(),
     );
     let req = InvokeRequest {
-        cmd: "save_png".into(),
+        cmd: "save_picture".into(),
         callback: CallbackFn(0),
         error: CallbackFn(1),
         url: "http://tauri.localhost".parse().unwrap(),
@@ -600,17 +600,17 @@ fn invoke_save_png(
 }
 
 #[test]
-fn save_png_writes_the_bytes_through_ipc() {
+fn save_picture_writes_the_bytes_through_ipc() {
     let dir = tempfile::tempdir().unwrap();
     let (_app, w) = app_with(state_in(dir.path()));
     let dest = dir.path().join("Pedigree - Ivan Koval.png");
-    let out = invoke_save_png(&w, dest.to_str().unwrap(), png_bytes()).unwrap();
+    let out = invoke_save_picture(&w, dest.to_str().unwrap(), png_bytes()).unwrap();
     assert_eq!(out["bytes"], png_bytes().len());
     assert_eq!(std::fs::read(&dest).unwrap(), png_bytes());
 }
 
 #[test]
-fn save_png_rejects_bad_input_with_a_plain_error() {
+fn save_picture_rejects_bad_input_with_a_plain_error() {
     let dir = tempfile::tempdir().unwrap();
     let (_app, w) = app_with(state_in(dir.path()));
     let missing = dir.path().join("no such folder").join("a.png");
@@ -627,7 +627,7 @@ fn save_png_rejects_bad_input_with_a_plain_error() {
             vec![],
         ),
     ] {
-        let err = invoke_save_png(&w, &path, bytes).unwrap_err();
+        let err = invoke_save_picture(&w, &path, bytes).unwrap_err();
         assert!(
             err["code"] == "invalid" || err["code"] == "io",
             "{path}: {err}"
@@ -638,4 +638,56 @@ fn save_png_rejects_bad_input_with_a_plain_error() {
     assert!(!missing.exists());
     assert!(!dir.path().join("b.png").exists());
     assert!(!dir.path().join("c.png").exists());
+}
+
+#[test]
+fn save_picture_writes_an_svg_and_a_non_ascii_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"></svg>".to_vec();
+    let dest = dir.path().join("Предки - Іван Коваль.svg");
+    let out = invoke_save_picture(&w, dest.to_str().unwrap(), svg.clone()).unwrap();
+    assert_eq!(out["bytes"], svg.len());
+    assert_eq!(std::fs::read(&dest).unwrap(), svg);
+}
+
+#[test]
+fn save_picture_checks_the_extension_against_the_content() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let svg = b"<svg></svg>".to_vec();
+    for (name, bytes) in [
+        ("a.txt", png_bytes()),
+        ("b.png", svg.clone()),
+        ("c.svg", png_bytes()),
+        ("noext", png_bytes()),
+    ] {
+        let p = dir.path().join(name);
+        let err = invoke_save_picture(&w, p.to_str().unwrap(), bytes).unwrap_err();
+        assert_eq!(err["code"], "invalid", "{name}");
+        assert!(!p.exists(), "{name}");
+    }
+}
+
+#[test]
+fn save_picture_without_a_path_header_or_with_a_json_body_is_a_plain_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let req = |body: InvokeBody| InvokeRequest {
+        cmd: "save_picture".into(),
+        callback: CallbackFn(0),
+        error: CallbackFn(1),
+        url: "http://tauri.localhost".parse().unwrap(),
+        body,
+        headers: Default::default(),
+        invoke_key: INVOKE_KEY.to_string(),
+    };
+    let err = get_ipc_response(&w, req(InvokeBody::Raw(png_bytes())))
+        .map(|_| ())
+        .unwrap_err();
+    assert_eq!(err["code"], "invalid");
+    let err = get_ipc_response(&w, req(InvokeBody::Json(json!([1, 2, 3]))))
+        .map(|_| ())
+        .unwrap_err();
+    assert_eq!(err["code"], "invalid");
 }

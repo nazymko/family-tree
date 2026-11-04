@@ -32,10 +32,10 @@ export class TauriPlatform implements Platform {
     return typeof r === 'string' ? r : null;
   }
 
-  async pickSavePath(opts: { title: string; defaultName: string; extensions: string[] }): Promise<string | null> {
+  async pickSavePath(opts: { title: string; defaultName: string; extensions: string[]; filters?: { name: string; extensions: string[] }[] }): Promise<string | null> {
     const h = await this.hooks;
     if (h) return h.nextDialog();
-    return save({ title: opts.title, defaultPath: opts.defaultName, filters: filters(opts.extensions) });
+    return save({ title: opts.title, defaultPath: opts.defaultName, filters: opts.filters ?? filters(opts.extensions) });
   }
 
   onFilesDropped(cb: (paths: string[]) => void, onHover?: (over: boolean) => void): () => void {

@@ -4,6 +4,10 @@ import {
   CAPTION_H,
   MARGIN,
   branchIds,
+  compactX,
+  formatOf,
+  isKeyboardMenu,
+  scalePlan,
   fitScale,
   mergeScenes,
   pictureFileName,
@@ -175,17 +179,52 @@ describe('mergeScenes', () => {
 describe('planPicture', () => {
   const scene: Scene = { nodes: [node(1, 1000, 500), node(2, 1300, 700)], edges: [] };
 
-  it('whole_and_branch_are_drawn_at_100_percent_with_a_40_px_margin_and_a_caption_strip', () => {
+  it('whole_and_branch_are_drawn_at_zoom_1_with_a_40_px_margin_and_a_caption_strip_at_twice_the_pixels', () => {
     for (const scope of ['whole', 'branch'] as const) {
       const p = planPicture(scope, scene, null);
       expect(p.cam).toEqual({ x: 1000 - MARGIN, y: 500 - MARGIN, zoom: 1 });
       expect(p.view.w).toBe(400 + 2 * MARGIN);
       expect(p.view.h).toBe(250 + 2 * MARGIN);
-      expect(p.width).toBe(p.view.w);
-      expect(p.height).toBe(p.view.h + CAPTION_H);
-      expect(p.scale).toBe(1);
+      expect(p.scale).toBe(2);
+      expect(p.width).toBe(p.view.w * 2);
+      expect(p.height).toBe((p.view.h + CAPTION_H) * 2);
       expect(p.reduced).toBe(false);
     }
+  });
+
+  it('uses_the_screen_pixel_ratio_when_it_is_above_2', () => {
+    expect(planPicture('whole', scene, null, [], { dpr: 3 }).scale).toBe(3);
+  });
+
+  it('falls_back_to_1x_before_scaling_below_1x', () => {
+    // 9000 px wide at 1x is fine, at 2x it is over 16384.
+    const wide: Scene = { nodes: [node(1, 0, 0), node(2, 8900, 0)], edges: [] };
+    const p = planPicture('whole', wide, null);
+    expect(p.scale).toBe(1);
+    expect(p.reduced).toBe(false);
+    const huge: Scene = { nodes: [node(1, 0, 0), node(2, 60000, 0)], edges: [] };
+    const q = planPicture('whole', huge, null);
+    expect(q.scale).toBeLessThan(1);
+    expect(q.reduced).toBe(true);
+  });
+
+  it('a_vector_picture_is_never_scaled', () => {
+    const huge: Scene = { nodes: [node(1, 0, 0), node(2, 60000, 0)], edges: [] };
+    const p = planPicture('whole', huge, null, [], { vector: true });
+    expect(p.scale).toBe(1);
+    expect(p.reduced).toBe(false);
+    expect(p.width).toBe(p.view.w);
+    expect(p.height).toBe(p.view.h + CAPTION_H);
+  });
+
+  it('scalePlan_halves_the_size_for_a_retry', () => {
+    const p = scalePlan(planPicture('whole', scene, null), 0.5);
+    expect(p.scale).toBe(1);
+    expect(p.reduced).toBe(false);
+    const q = scalePlan(p, 0.5);
+    expect(q.scale).toBe(0.5);
+    expect(q.reduced).toBe(true);
+    expect(q.percent).toBe(50);
   });
 
   it('screen_is_exactly_the_viewport_at_the_current_zoom', () => {
@@ -204,6 +243,57 @@ describe('planPicture', () => {
     expect(p.width).toBeLessThanOrEqual(16384);
     expect(p.height).toBeLessThanOrEqual(16384);
     expect(p.percent).toBe(Math.round(p.scale * 100));
+  });
+});
+
+describe('compactX', () => {
+  it('shrinks_empty_gaps_to_one_gap_and_keeps_rows_aligned_and_edges_connected', () => {
+    const a = node(1, 0, 0);
+    const b = node(2, 5000, 100);
+    const c = node(3, 9000, 0);
+    const s: Scene = {
+      nodes: [a, b, c],
+      edges: [
+        { from: 1, to: 2, kind: 'parent', pts: [50, 50, 50, 75, 5050, 75, 5050, 100] },
+        { from: 1, to: 3, kind: 'parent', pts: [50, 50, 50, 60, 9050, 60, 9050, 0] },
+      ],
+    };
+    const out = compactX(s, 40);
+    // Boxes are 100 wide: 0..100, then a 40 gap, 140..240, then a 40 gap.
+    expect(out.nodes.map((n) => n.x)).toEqual([0, 140, 280]);
+    expect(out.nodes.map((n) => n.w)).toEqual([100, 100, 100]);
+    expect(out.nodes.map((n) => n.y)).toEqual([0, 100, 0]);
+    expect(out.edges[0].pts).toEqual([50, 50, 50, 75, 190, 75, 190, 100]);
+    expect(out.edges[1].pts).toEqual([50, 50, 50, 60, 330, 60, 330, 0]);
+    // The input is untouched.
+    expect(s.nodes[1].x).toBe(5000);
+  });
+
+  it('leaves_gaps_that_are_already_small_and_keeps_the_order', () => {
+    const s: Scene = { nodes: [node(1, 0, 0), node(2, 120, 0), node(3, 300, 0)], edges: [] };
+    expect(compactX(s, 40).nodes.map((n) => n.x)).toEqual([0, 120, 260]);
+    expect(compactX({ nodes: [], edges: [] }).nodes).toEqual([]);
+  });
+
+  it('boxes_in_different_rows_that_overlap_in_x_close_no_gap_between_them', () => {
+    const s: Scene = { nodes: [node(1, 0, 0), node(2, 50, 100), node(3, 2000, 0)], edges: [] };
+    expect(compactX(s, 40).nodes.map((n) => n.x)).toEqual([0, 50, 190]);
+  });
+});
+
+describe('small helpers', () => {
+  it('formatOf_reads_the_ending_the_user_chose', () => {
+    expect(formatOf('C:/x/Whole tree.svg')).toBe('svg');
+    expect(formatOf('C:/x/Whole tree.SVG')).toBe('svg');
+    expect(formatOf('C:/x/Whole tree.png')).toBe('png');
+    expect(formatOf('C:/x/Whole tree')).toBe('png');
+  });
+
+  it('isKeyboardMenu_tells_a_key_press_from_a_click', () => {
+    expect(isKeyboardMenu({ pointerType: '', button: 0, detail: 0, clientX: 5, clientY: 5 })).toBe(true);
+    expect(isKeyboardMenu({ pointerType: undefined, button: 0, detail: 0, clientX: 0, clientY: 0 })).toBe(true);
+    expect(isKeyboardMenu({ pointerType: 'mouse', button: 2, detail: 0, clientX: 40, clientY: 50 })).toBe(false);
+    expect(isKeyboardMenu({ pointerType: undefined, button: 2, detail: 0, clientX: 0, clientY: 0 })).toBe(false);
   });
 });
 

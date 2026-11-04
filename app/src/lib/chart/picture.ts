@@ -198,30 +198,101 @@ export interface PicturePlan {
   percent: number;
 }
 
+export type PictureFormat = 'png' | 'svg';
+
+/** The format the user chose, from the ending of the file name (PNG when there is none). */
+export function formatOf(path: string): PictureFormat {
+  return /\.svg$/i.test(path) ? 'svg' : 'png';
+}
+
+/** Whether a contextmenu event came from the keyboard (Shift+F10, the menu key) rather than a click. */
+export function isKeyboardMenu(e: { pointerType?: string; button: number; detail: number; clientX: number; clientY: number }): boolean {
+  if (e.pointerType !== undefined) return e.pointerType === '';
+  return e.button === 0 && e.detail === 0 && e.clientX === 0 && e.clientY === 0;
+}
+
+const effective = (scale: number) => ({ reduced: scale < 1, percent: scale < 1 ? Math.max(1, Math.min(99, Math.round(scale * 100))) : 100 });
+
 /**
- * How a picture is laid out. Whole and branch pictures show the scene at 100% with a margin and are cropped to it.
- * A screen picture is exactly the viewport at its zoom, at the screen's pixel ratio.
+ * How a picture is laid out. Whole and branch pictures show the scene at zoom 1 with a margin and are cropped to it, at
+ * twice the pixels (or the screen's ratio when higher) so text is sharp; when that is too big they fall back to 1x, and
+ * only then go below 1x. A screen picture is exactly the viewport at its zoom, at the screen's pixel ratio. A vector
+ * picture (SVG) has no size limit and is never scaled.
  */
 export function planPicture(
   scope: PictureScope,
   scene: Scene,
   screen: { cam: Camera; size: { w: number; h: number }; dpr: number } | null,
   extra: Rect[] = [],
+  opts: { dpr?: number; vector?: boolean } = {},
 ): PicturePlan {
   let cam: Camera;
   let view: { w: number; h: number };
-  let base = 1;
-  if (scope === 'screen' && screen) {
-    cam = { ...screen.cam };
-    view = { ...screen.size };
-    base = Math.max(1, screen.dpr);
+  const shot = scope === 'screen' ? screen : null;
+  if (shot) {
+    cam = { ...shot.cam };
+    view = { ...shot.size };
   } else {
     const b = sceneBounds(scene, extra);
     cam = { x: b.x - MARGIN, y: b.y - MARGIN, zoom: 1 };
     view = { w: Math.ceil(b.w + 2 * MARGIN), h: Math.ceil(b.h + 2 * MARGIN) };
   }
-  const f = fitScale(view.w * base, (view.h + CAPTION_H) * base);
-  return { cam, view, scale: base * f.scale, width: f.w, height: f.h, reduced: f.reduced, percent: f.percent };
+  if (opts.vector) {
+    return { cam, view, scale: 1, width: view.w, height: view.h + CAPTION_H, reduced: false, percent: 100 };
+  }
+  const dpr = Math.max(1, shot ? shot.dpr : (opts.dpr ?? 1));
+  const bases = shot ? [dpr] : [...new Set([Math.max(2, dpr), 1])];
+  let plan!: PicturePlan;
+  for (const base of bases) {
+    const f = fitScale(view.w * base, (view.h + CAPTION_H) * base);
+    const scale = base * f.scale;
+    plan = { cam, view, scale, width: f.w, height: f.h, ...effective(scale) };
+    if (!f.reduced) break;
+  }
+  return plan;
+}
+
+/** The same picture at `factor` times the size (for a retry when the browser could not make the canvas). */
+export function scalePlan(plan: PicturePlan, factor: number): PicturePlan {
+  const scale = plan.scale * factor;
+  return {
+    ...plan,
+    scale,
+    width: Math.max(1, Math.floor(plan.width * factor)),
+    height: Math.max(1, Math.floor(plan.height * factor)),
+    ...effective(scale),
+  };
+}
+
+/**
+ * Squeezes the empty stretches out of a scene along x. Every x (boxes and the points of lines) goes through one
+ * monotone mapping that shrinks each gap wider than `gap` that no box or line point lies in down to `gap`, so rows
+ * stay aligned and lines stay connected. Used for a branch picked from the very wide whole-tree rows.
+ */
+export function compactX(scene: Scene, gap = 40): Scene {
+  const spans: [number, number][] = [];
+  for (const n of scene.nodes) spans.push([n.x, n.x + n.w]);
+  for (const e of scene.edges) for (let i = 0; i < e.pts.length; i += 2) spans.push([e.pts[i], e.pts[i]]);
+  spans.sort((a, b) => a[0] - b[0]);
+  // The gaps between the merged spans, with the total removed up to and including each one.
+  const cuts: { end: number; removed: number }[] = [];
+  let reach = -Infinity;
+  let removed = 0;
+  for (const [lo, hi] of spans) {
+    if (reach !== -Infinity && lo - reach > gap) {
+      removed += lo - reach - gap;
+      cuts.push({ end: lo, removed });
+    }
+    reach = Math.max(reach, hi);
+  }
+  const map = (x: number): number => {
+    for (let i = cuts.length - 1; i >= 0; i--) if (x >= cuts[i].end) return x - cuts[i].removed;
+    return x;
+  };
+  return {
+    nodes: scene.nodes.map((n) => ({ ...n, x: map(n.x) })),
+    edges: scene.edges.map((e) => ({ ...e, pts: e.pts.map((v, i) => (i % 2 === 0 ? map(v) : v)) })),
+  };
 }
 
 /** A safe file name for a picture: no characters Windows or macOS refuse, and a .png ending. */

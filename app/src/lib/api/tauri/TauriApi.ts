@@ -202,11 +202,11 @@ export class TauriApi implements Api {
   exportGedcom(opts: ExportOptions, dest: string, previewToken: string): Promise<{ bytes: number }> {
     return call('export_gedcom', { opts, dest, previewToken });
   }
-  async savePng(dest: string, bytes: Uint8Array): Promise<{ bytes: number }> {
+  async savePicture(dest: string, bytes: Uint8Array): Promise<{ bytes: number }> {
     // The picture travels as the raw request body; the path goes in a header as base64 of its UTF-8 text.
     const path = btoa(String.fromCharCode(...new TextEncoder().encode(dest)));
     try {
-      return await invoke<{ bytes: number }>('save_png', bytes, { headers: { 'x-gt-path': path } });
+      return await invoke<{ bytes: number }>('save_picture', bytes, { headers: { 'x-gt-path': path } });
     } catch (e) {
       throw toApiError(e);
     }
