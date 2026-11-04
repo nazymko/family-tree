@@ -59,14 +59,19 @@ describe('kinshipText in English', () => {
     expect(kinshipText(partner(f, true))).toBe('wife');
     expect(kinshipText(partner(u, true))).toBe('spouse');
     expect(kinshipText(partner(f, false))).toBe('partner');
-    expect(kinshipText(ofRelative(1, 0, f, m))).toBe('stepmother');
+    // A parent's partner is not called a stepparent: the other parent link may simply be missing.
+    expect(kinshipText(ofRelative(1, 0, f, m))).toBe('father’s wife');
+    expect(kinshipText(ofRelative(1, 0, m, f))).toBe('mother’s husband');
+    expect(kinshipText({ ...ofRelative(1, 0, f, m), married: false })).toBe('father’s partner');
+    expect(kinshipText(ofRelative(1, 0, m, u))).toBe('parent’s partner');
     expect(kinshipText(ofRelative(0, 1, m, f))).toBe('son-in-law');
     expect(kinshipText(ofRelative(0, 2, f, m))).toBe('granddaughter-in-law');
     expect(kinshipText(ofRelative(1, 1, m, f))).toBe('brother-in-law');
     expect(kinshipText(ofRelative(2, 1, f, m))).toBe('aunt by marriage');
     expect(kinshipText(ofPartner(1, 0, m, f))).toBe('father-in-law');
     expect(kinshipText(ofPartner(1, 1, f, m))).toBe('sister-in-law');
-    expect(kinshipText(ofPartner(0, 1, f, m))).toBe('stepdaughter');
+    expect(kinshipText(ofPartner(0, 1, f, m))).toBe('husband’s daughter');
+    expect(kinshipText(ofPartner(0, 1, m, f))).toBe('wife’s son');
   });
 
   it('falls_back_to_relative_words', () => {
@@ -122,8 +127,10 @@ describe('kinshipText in Ukrainian', () => {
     expect(kinshipText(ofPartner(1, 1, f, m))).toBe('зовиця');
     expect(kinshipText(ofRelative(0, 1, m, f))).toBe('зять');
     expect(kinshipText(ofRelative(0, 1, f, m))).toBe('невістка');
-    expect(kinshipText(ofRelative(1, 0, f, m))).toBe('мачуха');
-    expect(kinshipText(ofPartner(0, 1, m, m))).toBe('пасинок');
+    expect(kinshipText(ofRelative(1, 0, f, m))).toBe('дружина батька');
+    expect(kinshipText(ofRelative(1, 0, m, f))).toBe('чоловік матері');
+    expect(kinshipText(ofPartner(0, 1, m, m))).toBe('син чоловіка');
+    expect(kinshipText(ofPartner(0, 1, f, f))).toBe('донька дружини');
   });
 
   it('falls_back_to_the_side_of_the_partner', () => {

@@ -71,7 +71,13 @@ function viaKey(via: SexKind): 'wife' | 'husband' | 'partner' {
 
 function partnerOfRelative(k: Kinship): string {
   const { up, down, sex, via } = k;
-  if (up === 1 && down === 0) return word('stepParent', sex);
+  // A parent's partner who is not linked as this person's parent: a stepparent, or a parent whose link is
+  // missing (common in imported files where a birth record names one parent). Say only what the data shows.
+  if (up === 1 && down === 0) {
+    if (k.married && via === 'male' && sex === 'female') return t('kinship.fathersWife');
+    if (k.married && via === 'female' && sex === 'male') return t('kinship.mothersHusband');
+    return t(via === 'male' ? 'kinship.fathersPartner' : via === 'female' ? 'kinship.mothersPartner' : 'kinship.parentsPartner');
+  }
   if (up === 0 && down === 1) return word('childInLaw', sex);
   if (up === 0 && down === 2) return word('grandchildInLaw', sex);
   if (up === 0 && down === 3) return word('greatChildInLaw', sex);
@@ -91,7 +97,8 @@ function relativeOfPartner(k: Kinship): string {
   const side = viaKey(via);
   if (up === 1 && down === 0) return word(`${side}Parent`, sex);
   if (up === 1 && down === 1) return word(`${side}Sibling`, sex);
-  if (up === 0 && down === 1) return word('stepChild', sex);
+  // A partner's child not linked to this person (stepchild, or own child with a missing link).
+  if (up === 0 && down === 1) return word(`${side}Child`, sex);
   return t(side === 'wife' ? 'kinship.relOfWife' : side === 'husband' ? 'kinship.relOfHusband' : 'kinship.relOfPartner');
 }
 
