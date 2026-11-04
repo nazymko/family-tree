@@ -299,6 +299,39 @@ describe('FamilyTree', () => {
     expect(has('Add another set of parents')).not.toBeInTheDocument();
   });
 
+  it('person_row_reads_siblings_person_partner_then_add_partner', async () => {
+    const f = ref('Ivan Koval', 'male');
+    const me = ref('Taras Koval', 'male');
+    const sis = ref('Oksana Koval', 'female');
+    const wife = ref('Halyna Koval', 'female');
+    setup([view(me, { parentSets: sets(f, null), siblings: [sis], partnerships: [union(wife)] }), view(f)]);
+    await tree();
+    const names = [...document.querySelectorAll('[data-row="2"]')].map((b) => b.getAttribute('aria-label'));
+    expect(names).toEqual([
+      'Add brother or sister of Taras Koval',
+      'Oksana Koval, 1850-1921, Sister',
+      'Taras Koval, 1850-1921',
+      'Halyna Koval, 1850-1921, Partner',
+      'Add partner of Taras Koval',
+    ]);
+  });
+
+  it('grandparent_pairs_have_captions_and_other_parents_has_a_short_label', async () => {
+    const gf = ref('Petro Koval', 'male');
+    const gm = ref('Maria Koval', 'female');
+    const f = ref('Ivan Koval', 'male');
+    const m = ref('Olena Koval', 'female');
+    const me = ref('Taras Koval', 'male');
+    setup([view(me, { parentSets: sets(f, m) }), view(f, { parentSets: sets(gf, gm) }), view(m)]);
+    await tree();
+    await screen.findByText("Father's parents");
+    expect(screen.getByRole('group', { name: "Father's parents" })).toBeInTheDocument();
+    expect(await screen.findByText("Mother's parents")).toBeInTheDocument();
+    const other = screen.getByRole('button', { name: 'Add another set of parents' });
+    expect(other).toHaveTextContent('Other parents');
+    expect(other).toHaveAttribute('title', 'Add another set of parents');
+  });
+
   it('en_and_uk_have_the_same_tree_keys', () => {
     const keys = Object.keys(en.family).filter((k) => /^(tree|mode|viewMode|add\w+Of$)/.test(k));
     expect(keys.length).toBeGreaterThanOrEqual(13);

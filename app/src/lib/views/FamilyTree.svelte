@@ -253,92 +253,97 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div class="tree" bind:this={treeEl} role="group" aria-label={t('family.treeLabel', { who: focus.name })} onkeydown={keys}>
-  {#if hasParent}
-    <div class="row">
-      {#each [0, 1] as i (i)}
-        {@const p = parents[i]}
-        {#if p}
-          {@const gp = grand[p.id]}
-          {#if gp}
-          <div class="couple">
-            {#each [0, 1] as j (j)}
-              {#if j === 1}<span class="join" aria-hidden="true"></span>{/if}
-              {#if gp[j]}
-                {@render box(gp[j]!, parentRole(gp[j]!, j, true), 0)}
-              {:else}
-                {@render slot(j === 0 ? 'father' : 'mother', p, 0)}
-              {/if}
-            {/each}
-          </div>
-          {/if}
-        {/if}
-      {/each}
-    </div>
-    <div class="drop" aria-hidden="true"></div>
-  {/if}
-
-  {#if view.parentSets.length > 1}
+  {#if view.parentSets.length > 1 || bothParents}
     <div class="sets" role="group" aria-label={t('family.treeParentSets')}>
-      {#each view.parentSets as ps, i (ps.familyId)}
+      {#each view.parentSets.length > 1 ? view.parentSets : [] as ps, i (ps.familyId)}
         <button type="button" class="setbtn" aria-pressed={i === setIndex} onclick={() => (pickedSet = i)}
           >{t('family.treeParentSet', { who: ps.parents.filter(Boolean).map((x) => x!.name).join(' + ') })}</button
         >
       {/each}
+      {#if bothParents}
+        <button
+          type="button"
+          class="box slot small"
+          data-nav="s:newset:{focus.id}"
+          data-row="-1"
+          tabindex={activeKey === `s:newset:${focus.id}` ? 0 : -1}
+          aria-label={t('family.addAnotherParents')}
+          title={t('family.addAnotherParents')}
+          onfocus={() => (active = `s:newset:${focus.id}`)}
+          onclick={() => onadd('father', focus.id, true)}
+        >
+          <span aria-hidden="true" class="plus">+</span>
+          <span class="nm">{t('family.treeOtherParents')}</span>
+        </button>
+      {/if}
     </div>
   {/if}
-  <div class="row">
-    <div class="couple">
+
+  <div class="anc">
+    {#if hasParent}
       {#each [0, 1] as i (i)}
-        {#if i === 1}<span class="join" aria-hidden="true"></span>{/if}
+        {@const p = parents[i]}
+        {@const gp = p ? grand[p.id] : null}
+        <div class="gcell" class:has={!!gp}>
+          {#if p && gp}
+            <span class="cap">{t(i === 0 ? 'family.treeFatherParents' : 'family.treeMotherParents')}</span>
+            <div class="couple" role="group" aria-label={t(i === 0 ? 'family.treeFatherParents' : 'family.treeMotherParents')}>
+              {#each [0, 1] as j (j)}
+                {#if j === 1}<span class="join" aria-hidden="true"></span>{/if}
+                {#if gp[j]}
+                  {@render box(gp[j]!, parentRole(gp[j]!, j, true), 0)}
+                {:else}
+                  {@render slot(j === 0 ? 'father' : 'mother', p, 0)}
+                {/if}
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/each}
+    {/if}
+    {#each [0, 1] as i (i)}
+      <div class="pcell" class:left={i === 0} class:right={i === 1}>
         {#if parents[i]}
           {@render box(parents[i]!, parentRole(parents[i]!, i), 1)}
         {:else}
           {@render slot(i === 0 ? 'father' : 'mother', focus, 1)}
         {/if}
-      {/each}
-    </div>
-    {#if bothParents}
-      <button
-        type="button"
-        class="box slot"
-        data-nav="s:newset:{focus.id}"
-        data-row="1"
-        tabindex={activeKey === `s:newset:${focus.id}` ? 0 : -1}
-        onfocus={() => (active = `s:newset:${focus.id}`)}
-        onclick={() => onadd('father', focus.id, true)}
-      >
-        <span aria-hidden="true" class="plus">+</span>
-        <span class="nm">{t('family.addAnotherParents')}</span>
-      </button>
-    {/if}
+      </div>
+    {/each}
   </div>
   <div class="drop" aria-hidden="true"></div>
 
-  <div class="row">
-    {#each sibs as s (s.id)}
-      {@render box(s, sibRole(s), 2)}
-    {/each}
-    {#if sibsHidden > 0}
-      <button
-        type="button"
-        class="more"
-        data-nav="more:sibs"
-        data-row="2"
-        tabindex={activeKey === 'more:sibs' ? 0 : -1}
-        aria-label={t('family.treeShowSiblings', { n: sibsHidden })}
-        onclick={() => (sibsOpen = true)}>{t('family.treeMore', { n: sibsHidden })}</button
-      >
-    {/if}
-    {#if hasAnyParent}
-      {@render slot('sibling', focus, 2)}
-    {/if}
-    {@render box(focus, null, 2, true)}
-    {#each view.partnerships as u (u.familyId)}
-      {#if u.partner}
-        {@render box(u.partner, 'partner', 2)}
+  <div class="me">
+    <div class="side left">
+      {#if hasAnyParent}
+        <div class="kid">{@render slot('sibling', focus, 2)}</div>
       {/if}
-    {/each}
-    {@render slot('partner', focus, 2)}
+      {#each sibs as s (s.id)}
+        <div class="kid">{@render box(s, sibRole(s), 2)}</div>
+      {/each}
+      {#if sibsHidden > 0}
+        <div class="kid">
+          <button
+            type="button"
+            class="more"
+            data-nav="more:sibs"
+            data-row="2"
+            tabindex={activeKey === 'more:sibs' ? 0 : -1}
+            aria-label={t('family.treeShowSiblings', { n: sibsHidden })}
+            onclick={() => (sibsOpen = true)}>{t('family.treeMore', { n: sibsHidden })}</button
+          >
+        </div>
+      {/if}
+    </div>
+    <div class="kid self" class:alone={!hasAnyParent && view.siblings.length === 0}>{@render box(focus, null, 2, true)}</div>
+    <div class="side right">
+      {#each view.partnerships as u (u.familyId)}
+        {#if u.partner}
+          <div class="mate"><span class="join" aria-hidden="true"></span>{@render box(u.partner, 'partner', 2)}</div>
+        {/if}
+      {/each}
+      <div class="mate"><span class="join" aria-hidden="true"></span>{@render slot('partner', focus, 2)}</div>
+    </div>
   </div>
 
   <div class="drop" aria-hidden="true"></div>
@@ -390,13 +395,6 @@
     gap: var(--s-3) var(--s-5);
     max-width: 100%;
   }
-  .couple {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: var(--s-2);
-  }
   .sets {
     display: flex;
     flex-wrap: wrap;
@@ -422,14 +420,109 @@
     outline: 2px solid var(--ribbon);
     outline-offset: 2px;
   }
+  /* Grandparents over parents: two equal columns, so the middle is the axis the lines meet on. */
+  .anc {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: max-content;
+    max-width: 100%;
+    column-gap: 0;
+  }
+  .gcell {
+    display: grid;
+    justify-items: center;
+    align-content: end;
+    gap: var(--s-1);
+    padding-inline: var(--s-3);
+    padding-bottom: var(--s-5);
+    position: relative;
+    min-width: 0;
+  }
+  .gcell.has::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    inset-inline-start: 50%;
+    height: var(--s-5);
+    border-inline-start: 2px solid var(--rule);
+  }
+  .cap {
+    font-size: var(--t-xs);
+    color: var(--ink-1);
+    text-transform: none;
+  }
+  .couple {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-2);
+  }
   .join {
     width: var(--s-4);
     border-top: 2px solid var(--rule);
+    flex: none;
+  }
+  .pcell {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    padding: var(--s-2) var(--s-3) var(--s-5);
+    min-width: 0;
+  }
+  .pcell::before {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    height: 0;
+    border-top: 2px solid var(--rule);
+  }
+  .pcell.left::before {
+    inset-inline: 50% 0;
+  }
+  .pcell.right::before {
+    inset-inline: 0 50%;
+  }
+  .pcell::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    inset-inline-start: 50%;
+    height: var(--s-5);
+    border-inline-start: 2px solid var(--rule);
   }
   .drop {
     width: 2px;
-    height: var(--s-5);
+    height: var(--s-4);
     background: var(--rule);
+  }
+  /* The person's row: brothers and sisters, the person, then partners. The person sits on the axis. */
+  .me {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    width: 100%;
+    align-items: start;
+  }
+  .side {
+    display: flex;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .side.left {
+    justify-content: flex-end;
+  }
+  .side.right {
+    align-items: flex-start;
+    padding-top: var(--s-5);
+  }
+  .mate {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    min-height: 3.25rem;
+  }
+  .mate .join {
+    width: var(--s-4);
   }
   .kidsrow {
     align-items: flex-start;
@@ -439,14 +532,12 @@
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 0 var(--s-3);
+    gap: 0;
   }
   .kid {
     position: relative;
-    padding-top: var(--s-5);
+    padding: var(--s-5) calc(var(--s-3) / 2) 0;
     display: flex;
-    margin-inline: calc(var(--s-3) / -2);
-    padding-inline: calc(var(--s-3) / 2);
   }
   .kid::before {
     content: '';
@@ -455,14 +546,17 @@
     inset-inline: 0;
     border-top: 2px solid var(--rule);
   }
-  .kid:first-child::before {
+  .kids > .kid:first-child::before {
     inset-inline-start: 50%;
   }
-  .kid:last-child::before {
+  .kids > .kid:last-child::before {
     inset-inline-end: 50%;
   }
-  .kid:only-child::before {
+  .kids > .kid:only-child::before {
     display: none;
+  }
+  .side.left > .kid:first-child::before {
+    inset-inline-start: 50%;
   }
   .kid::after {
     content: '';
@@ -471,6 +565,13 @@
     inset-inline-start: 50%;
     height: var(--s-5);
     border-inline-start: 2px solid var(--rule);
+  }
+  /* The person's own tick: the bar comes in from the brothers and sisters on the left only. */
+  .kid.self::before {
+    inset-inline-end: 50%;
+  }
+  .kid.self.alone::before {
+    display: none;
   }
   .box {
     position: relative;
@@ -538,6 +639,10 @@
     border: 1px dashed var(--ink-2);
     background: transparent;
     color: var(--ink-1);
+  }
+  .slot.small {
+    min-height: 2.25rem;
+    min-width: 0;
   }
   .plus {
     font-size: var(--t-md);
