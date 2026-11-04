@@ -30,6 +30,8 @@ export interface DrawOpts {
   theme: Theme;
   /** Where the "+" handle sits; defaults to pedigree (right edge). */
   kind?: ChartKind;
+  /** Draw the "+" handles of boxes with more people hidden (default true; a saved picture leaves them out). */
+  handles?: boolean;
 }
 
 /** Theme from the CSS custom properties on <html> (re-read when the colour scheme changes). */
@@ -221,7 +223,7 @@ export function draw(
     }
   }
 
-  for (const n of win.nodes) for (const h of handleSpots(n, kind)) drawHandle(ctx, h, theme, z);
+  if (opts.handles !== false) for (const n of win.nodes) for (const h of handleSpots(n, kind)) drawHandle(ctx, h, theme, z);
 
   if (lod === 'full') {
     ctx.textBaseline = 'alphabetic';

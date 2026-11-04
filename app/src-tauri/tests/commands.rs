@@ -139,7 +139,7 @@ fn every_api_method_has_a_command() {
             "no command {snake}"
         );
     }
-    assert_eq!(COMMAND_NAMES.len(), 46);
+    assert_eq!(COMMAND_NAMES.len(), 47);
 }
 
 #[test]
@@ -558,4 +558,84 @@ fn open_media_externally_refuses_files_that_are_not_images_or_pdfs() {
     // Unknown ids still fail as not found.
     let e = commands::checked_original_path(&state, uuid::Uuid::now_v7()).unwrap_err();
     assert_eq!(e.code, ErrorCode::NotFound);
+}
+
+// ---- save_png ----
+
+const PNG_HEAD: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+
+fn png_bytes() -> Vec<u8> {
+    let mut v = PNG_HEAD.to_vec();
+    v.extend_from_slice(b"rest of a picture");
+    v
+}
+
+fn invoke_save_png(
+    w: &WebviewWindow<MockRuntime>,
+    path: &str,
+    bytes: Vec<u8>,
+) -> Result<Value, Value> {
+    use base64::Engine as _;
+    let mut headers = tauri::http::HeaderMap::new();
+    headers.insert(
+        "x-gt-path",
+        base64::engine::general_purpose::STANDARD
+            .encode(path.as_bytes())
+            .parse()
+            .unwrap(),
+    );
+    let req = InvokeRequest {
+        cmd: "save_png".into(),
+        callback: CallbackFn(0),
+        error: CallbackFn(1),
+        url: "http://tauri.localhost".parse().unwrap(),
+        body: InvokeBody::Raw(bytes),
+        headers,
+        invoke_key: INVOKE_KEY.to_string(),
+    };
+    get_ipc_response(w, req).map(|b| match b {
+        InvokeResponseBody::Json(s) => serde_json::from_str(&s).unwrap(),
+        InvokeResponseBody::Raw(_) => Value::Null,
+    })
+}
+
+#[test]
+fn save_png_writes_the_bytes_through_ipc() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let dest = dir.path().join("Pedigree - Ivan Koval.png");
+    let out = invoke_save_png(&w, dest.to_str().unwrap(), png_bytes()).unwrap();
+    assert_eq!(out["bytes"], png_bytes().len());
+    assert_eq!(std::fs::read(&dest).unwrap(), png_bytes());
+}
+
+#[test]
+fn save_png_rejects_bad_input_with_a_plain_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let missing = dir.path().join("no such folder").join("a.png");
+    for (path, bytes) in [
+        ("".to_string(), png_bytes()),
+        (dir.path().to_str().unwrap().to_string(), png_bytes()),
+        (missing.to_str().unwrap().to_string(), png_bytes()),
+        (
+            dir.path().join("b.png").to_str().unwrap().to_string(),
+            b"not a picture".to_vec(),
+        ),
+        (
+            dir.path().join("c.png").to_str().unwrap().to_string(),
+            vec![],
+        ),
+    ] {
+        let err = invoke_save_png(&w, &path, bytes).unwrap_err();
+        assert!(
+            err["code"] == "invalid" || err["code"] == "io",
+            "{path}: {err}"
+        );
+        let msg = err["message"].as_str().unwrap();
+        assert!(msg.ends_with('.') && !msg.contains("Os {"), "{msg}");
+    }
+    assert!(!missing.exists());
+    assert!(!dir.path().join("b.png").exists());
+    assert!(!dir.path().join("c.png").exists());
 }

@@ -43,6 +43,16 @@ describe('renderer', () => {
     expect(ops(ctx, 'fillText').length).toBeGreaterThanOrEqual(6);
   });
 
+  it('draws_the_more_people_handle_unless_asked_not_to', () => {
+    const more: ChartWindow = { nodes: [node(0, { moreUp: true })], edges: [] };
+    const withHandle = makeFakeContext();
+    draw(withHandle, more, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });
+    expect(ops(withHandle, 'arc')).toHaveLength(1);
+    const without = makeFakeContext();
+    draw(without, more, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme, handles: false });
+    expect(ops(without, 'arc')).toHaveLength(0);
+  });
+
   it('no_text_below_0_55', () => {
     const ctx = makeFakeContext();
     draw(ctx, win, { x: 0, y: 0, zoom: 0.3 }, view, { selected: null, focus: null, theme });

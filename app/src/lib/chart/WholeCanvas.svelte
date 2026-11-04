@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { getApi } from '../api/context';
+  import { getApi, getPlatform } from '../api/context';
   import type { ChartNode, ChartWindow, Id, Rect, SearchHitDto, WholeMeta } from '../api/types';
   import { project } from '../state/project.svelte';
   import { undoState as undo } from '../state/undo.svelte';
@@ -15,6 +15,9 @@
   import { nodeLabel } from '../i18n/relation';
   import { t } from '../i18n';
   import { founderOf } from './wholeStart';
+  import ChartPictureMenu from './ChartPictureMenu.svelte';
+  import { mergeScenes, planPicture, sceneFor, tileRects, type PictureScope, type Scene } from './picture';
+  import { captionText, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
 
   let {
     homeId = null,
@@ -33,6 +36,7 @@
   } = $props();
 
   const api = getApi();
+  const platform = getPlatform();
   const uid = $props.id();
   const TWEEN_MS = 320;
 
@@ -52,6 +56,8 @@
   let searchText = $state('');
   let hits = $state<SearchHitDto[]>([]);
   let zoomPct = $state(100);
+  let pictureMenu = $state<{ openAt(x: number, y: number): void }>();
+  let savingPicture = $state(false);
 
   let cache: WindowCache | null = null;
   let cam: Camera = { x: 0, y: 0, zoom: 1 };
@@ -485,6 +491,7 @@
   let pinch = 0;
 
   function onpointerdown(e: PointerEvent): void {
+    if (e.button === 2) return; // the context menu handles the right button
     canvas?.focus();
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try {
@@ -545,6 +552,86 @@
     if (n?.person) onOpenPerson(n.person.id);
   }
 
+  // ------------------------------------------------------------ pictures
+
+  /** Every card and line of the tree, fetched in tiles at 100% so names and dates are full. */
+  async function wholeScene(): Promise<Scene> {
+    const m = meta;
+    if (!m) return { nodes: [], edges: [] };
+    const b = m.meta.bounds;
+    const parts: Scene[] = [];
+    for (const r of tileRects({ x: -1, y: -1, w: b.w + 2, h: b.h + 2 })) parts.push(await api.chartWindow(m.meta.chartId, r, 1));
+    return mergeScenes(parts);
+  }
+
+  async function buildPicture(scope: PictureScope): Promise<BuiltPicture | null> {
+    const cur = cache?.current();
+    const m = meta;
+    if (!m || !cur) return null;
+    theme ??= wholeThemeFromCss();
+    const th = theme;
+    const sel = selected;
+    const home = homeNode;
+    const line = lineage;
+    const shot = { cam: { ...cam }, size: { ...size }, dpr };
+    let scene: Scene;
+    if (scope === 'screen') scene = { nodes: cur.win.nodes, edges: cur.win.edges };
+    else if (scope === 'whole') scene = await wholeScene();
+    else {
+      const all = await wholeScene();
+      const ids = sel === null ? [] : await api.chartLineage(m.meta.chartId, sel);
+      scene = sceneFor('branch', 'whole', all, sel, ids);
+    }
+    if (scene.nodes.length === 0) return null;
+    // Block headings go with the whole tree only; a branch is cropped to its own people.
+    const blocks = scope === 'branch' ? [] : m.blocks;
+    const plan = planPicture(scope, scene, scope === 'screen' ? shot : null, scope === 'whole' ? m.blocks.map((b) => b.rect) : []);
+    return {
+      plan,
+      theme: { paper: th.paper, ink2: th.ink2, font: th.font },
+      caption: captionText('whole', ''),
+      paint: (ctx, p) =>
+        drawWhole(ctx, scene, blocks, p.cam, { w: p.view.w, h: p.view.h, dpr: p.scale }, {
+          selected: scope === 'screen' ? sel : null,
+          home,
+          lineage: scope === 'screen' ? line : null,
+          theme: th,
+        }),
+    };
+  }
+
+  function savePictureAs(scope: PictureScope): void {
+    if (savingPicture) return;
+    const name = suggestedName(scope, 'whole', '', selNode?.person?.name ?? '');
+    void savePicture({ api, platform }, { fileName: name, build: () => buildPicture(scope), setBusy: (b) => (savingPicture = b) });
+  }
+
+  /** Opens the picture menu over the selected card (or the middle of the chart when it is not in view). */
+  function pictureMenuAtSelection(): void {
+    const r = canvas?.getBoundingClientRect();
+    if (!r) return;
+    const n = selNode ?? cache?.current()?.win.nodes.find((x) => x.id === selected);
+    const v = viewRect(cam, size);
+    const inside = n && n.x < v.x + v.w && n.x + n.w > v.x && n.y < v.y + v.h && n.y + n.h > v.y;
+    const x = inside ? r.left + (n.x + n.w / 2 - cam.x) * cam.zoom : r.left + r.width / 2;
+    const y = inside ? r.top + (n.y + n.h / 2 - cam.y) * cam.zoom : r.top + r.height / 2;
+    pictureMenu?.openAt(x, y);
+  }
+
+  function oncontextmenu(e: MouseEvent): void {
+    e.preventDefault();
+    canvas?.focus();
+    if ((e as PointerEvent).pointerType === '') return pictureMenuAtSelection(); // from the keyboard
+    const cur = cache?.current();
+    if (cur) {
+      // A right-click on a card selects that person first.
+      const w = toWorld(e);
+      const n = hitTest(cur.win, w.x, w.y);
+      if (n) select(n);
+    }
+    pictureMenu?.openAt(e.clientX, e.clientY);
+  }
+
   // ------------------------------------------------------------ keyboard
 
   function dirFor(key: string): Dir | null {
@@ -573,6 +660,11 @@
   }
 
   function onkeydown(e: KeyboardEvent): void {
+    if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+      e.preventDefault();
+      pictureMenuAtSelection();
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const cur = cache?.current();
     const dir = dirFor(e.key);
@@ -655,6 +747,7 @@
     <Button aria-pressed={lineageOn} onclick={() => (lineageOn = !lineageOn)}>{t('whole.lineage')}</Button>
     <Button disabled={!selNode?.person} onclick={() => selNode?.person && onOpenPerson(selNode.person.id)}>{t('whole.openPerson')}</Button>
     <Button disabled={!selNode?.person} onclick={() => selNode?.person && onOpenInPedigree(selNode.person.id)}>{t('whole.showInPedigree')}</Button>
+    <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} />
     <span class="zoom" aria-live="off">{zoomPct}%</span>
   </div>
   <div class="stage" bind:this={box}>
@@ -671,6 +764,7 @@
       {onpointerup}
       onpointercancel={onpointerup}
       {ondblclick}
+      {oncontextmenu}
       {onkeydown}
     ></canvas>
     <div class="sr-only" role="listbox" aria-label={t('chartCanvas.selectedPerson')}>
@@ -680,6 +774,9 @@
     </div>
     {#if hint}
       <p class="hint">{hint}</p>
+    {/if}
+    {#if savingPicture}
+      <p class="hint saving" role="status">{t('picture.saving')}</p>
     {/if}
     {#if meta}
       <div class="mini">
@@ -735,6 +832,10 @@
     font-size: 0.875rem;
     color: var(--ink-2);
     pointer-events: none;
+  }
+  .saving {
+    top: auto;
+    bottom: var(--s-2);
   }
   .mini {
     position: absolute;

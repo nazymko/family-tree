@@ -109,6 +109,8 @@ export interface Api {
   aiCancelRead(): Promise<void>;
   previewExport(opts: ExportOptions): Promise<PrivacyPreview>;
   exportGedcom(opts: ExportOptions, dest: string, previewToken: string): Promise<{ bytes: number }>;
+  /** Writes a chart picture (PNG bytes) to `dest`, replacing the file when it exists (the save dialog already asked). */
+  savePng(dest: string, bytes: Uint8Array): Promise<{ bytes: number }>;
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;
 }

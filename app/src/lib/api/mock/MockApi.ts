@@ -786,6 +786,17 @@ export class MockApi implements Api {
     return { bytes: 2_000 + this.db.persons.size * 140 };
   }
 
+  /** Pictures "saved" by `savePng`, newest last (the mock writes no file). */
+  savedPictures: { dest: string; bytes: Uint8Array }[] = [];
+
+  async savePng(dest: string, bytes: Uint8Array): Promise<{ bytes: number }> {
+    if (!dest.trim()) throw invalid('There is no file name to save the picture to. Choose where to save it and try again.');
+    const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    if (bytes.length <= png.length || png.some((b, i) => bytes[i] !== b)) throw invalid('The picture could not be made. Try saving it again.');
+    this.savedPictures.push({ dest, bytes: bytes.slice() });
+    return { bytes: bytes.length };
+  }
+
   // ---------------------------------------------------------------- settings
 
   async getSettings(): Promise<Settings> {

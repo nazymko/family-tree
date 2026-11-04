@@ -5,10 +5,10 @@
   import { MockPlatform } from '../../api/mock/MockPlatform';
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let { api, view: View, props = {} }: { api: Api; view: Component<any>; props?: Record<string, unknown> } = $props();
-  // The api is fixed for a host's lifetime.
+  let { api, view: View, props = {}, platform = new MockPlatform() }: { api: Api; view: Component<any>; props?: Record<string, unknown>; platform?: MockPlatform } = $props();
+  // The api and platform are fixed for a host's lifetime.
   // svelte-ignore state_referenced_locally
-  setApi(api, new MockPlatform());
+  setApi(api, platform);
 </script>
 
 <View {...props} />
