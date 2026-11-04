@@ -356,6 +356,8 @@ export const uk: Messages = {
     modeTree: 'Дерево',
     modeCards: 'Картки',
     treeLabel: 'Родинне дерево: {who}',
+    treeHusband: 'Чоловік',
+    treeWife: 'Дружина',
     treeGrandfather: 'Дідусь',
     treeGrandmother: 'Бабуся',
     treeChildrenWith: 'Діти разом із {who}',

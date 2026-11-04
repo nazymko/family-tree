@@ -357,6 +357,8 @@ export const en = {
     modeTree: 'Tree',
     modeCards: 'Cards',
     treeLabel: 'Family tree of {who}',
+    treeHusband: 'Husband',
+    treeWife: 'Wife',
     treeGrandfather: 'Grandfather',
     treeGrandmother: 'Grandmother',
     treeChildrenWith: 'Children with {who}',
