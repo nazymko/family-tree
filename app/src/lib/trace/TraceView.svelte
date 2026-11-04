@@ -288,6 +288,9 @@
         <section aria-labelledby="sum-h">
           <h2 id="sum-h">To add</h2>
           <p class="sum" role="status">{summary}</p>
+          {#if draft.cards.length > 0}
+            <p class="sum tip">Select a card, then use Parent of…, Child of… or Partner of… to link people.</p>
+          {/if}
           {#if built.problems.length > 0}
             <ul class="problems">
               {#each built.problems as p (p)}<li>{p}</li>{/each}

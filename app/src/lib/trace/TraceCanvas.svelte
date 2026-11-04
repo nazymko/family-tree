@@ -2,7 +2,7 @@
   import { tick, type Snippet } from 'svelte';
   import Icon from '../ui/Icon.svelte';
   import IconButton from '../ui/IconButton.svelte';
-  import { DEFAULT_BOX, cardName, fitBox, type TraceBox, type TraceDraft } from './model';
+  import { cardName, clickBox, fitBox, type TraceBox, type TraceDraft } from './model';
 
   interface Props {
     imageUrl: string;
@@ -148,7 +148,7 @@
         const dy = Math.abs(p.y - b.y0) * z;
         if (dx < 4 && dy < 4) {
           // A click places a marker with the usual size, centred on the click.
-          onmark(fitBox({ x: p.x / imgW - DEFAULT_BOX.w / 2, y: p.y / imgH - DEFAULT_BOX.h / 2, ...DEFAULT_BOX }));
+          onmark(fitBox(centredBox(p.x, p.y)));
         } else {
           onmark(fitBox({ x: Math.min(b.x0, p.x) / imgW, y: Math.min(b.y0, p.y) / imgH, w: dx / z / imgW, h: dy / z / imgH }));
         }
@@ -156,10 +156,16 @@
     );
   }
 
+  /** The marker a click places, centred on a point given in picture pixels. */
+  function centredBox(px: number, py: number): TraceBox {
+    const b = clickBox(imgW, imgH);
+    return { x: px / imgW - b.w / 2, y: py / imgH - b.h / 2, ...b };
+  }
+
   /** The "Add a person" button: a marker in the middle of what is in view. */
   export function markCenter() {
     const c = toPicture((viewport?.getBoundingClientRect().left ?? 0) + vw / 2, (viewport?.getBoundingClientRect().top ?? 0) + vh / 2);
-    onmark(fitBox({ x: c.x / imgW - DEFAULT_BOX.w / 2, y: c.y / imgH - DEFAULT_BOX.h / 2, ...DEFAULT_BOX }));
+    onmark(fitBox(centredBox(c.x, c.y)));
   }
 
   function cardDown(e: MouseEvent, id: string) {
@@ -303,7 +309,7 @@
     onmousedown={backgroundDown}
     onkeydown={viewportKey}
   >
-    <div class="stage" bind:this={stage} style="width:{imgW}px;height:{imgH}px;transform:translate({tx}px,{ty}px) scale({z})">
+    <div class="stage" bind:this={stage} style="--z:{z};width:{imgW}px;height:{imgH}px;transform:translate({tx}px,{ty}px) scale({z})">
       <img src={imageUrl} alt="The family tree being traced" width={imgW} height={imgH} draggable="false" />
 
       <svg class="links" width={imgW} height={imgH} viewBox="0 0 {imgW} {imgH}" aria-hidden="true">
@@ -484,38 +490,45 @@
   .link.suggested {
     stroke-dasharray: 8 6;
   }
+  /* The mark is an outline only, so the handwriting under it stays readable. Border and label keep one
+     screen size at every zoom (the stage is scaled by --z, so they are divided by it). */
   .card {
     position: absolute;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: block;
     padding: 0;
-    border: 2px solid var(--ribbon);
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--paper-1) 72%, transparent);
+    border: calc(2px / var(--z)) solid var(--ribbon);
+    border-radius: calc(3px / var(--z));
+    background: transparent;
     color: var(--ink-0);
     font: inherit;
     cursor: move;
-    overflow: hidden;
+    overflow: visible;
   }
   .card .name {
-    font-size: max(10px, 0.9em);
-    line-height: 1.1;
-    text-align: center;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    padding: 0 2px;
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    transform: translateX(-50%);
+    margin-top: calc(3px / var(--z));
+    padding: calc(1px / var(--z)) calc(5px / var(--z));
+    border-radius: calc(3px / var(--z));
+    background: var(--paper-0);
+    border: calc(1px / var(--z)) solid var(--rule);
+    font-size: calc(13px / var(--z));
+    line-height: 1.25;
+    white-space: nowrap;
+    pointer-events: none;
   }
   .card.matched {
     border-style: double;
-    border-width: 4px;
+    border-width: calc(4px / var(--z));
   }
   .card.suggested {
     border-style: dashed;
-    background: color-mix(in srgb, var(--paper-1) 45%, transparent);
   }
   .card.selected {
-    box-shadow: 0 0 0 3px var(--paper-0), 0 0 0 5px var(--ribbon);
+    border-width: calc(3px / var(--z));
+    box-shadow: 0 0 0 calc(2px / var(--z)) var(--paper-0), 0 0 0 calc(4px / var(--z)) var(--ribbon);
   }
   .viewport.linking .card {
     cursor: pointer;

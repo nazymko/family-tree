@@ -5,6 +5,7 @@ import {
   activeCards,
   addCard,
   addLink,
+  clickBox,
   buildFamilies,
   counts,
   newDraft,
@@ -183,5 +184,19 @@ describe('trace model', () => {
     // With only one family there is nothing to ask.
     parent.existing = { id: 'x1', name: 'Ivan Koval', families: [{ id: 'f1', label: 'With A' }] };
     expect(buildFamilies(d).problems).toEqual([]);
+  });
+});
+
+describe('clickBox', () => {
+  it('is_about_18_by_7_percent_within_pixel_limits', () => {
+    const mid = clickBox(1000, 800);
+    expect(mid.w).toBeCloseTo(0.18, 3);
+    expect(mid.h).toBeCloseTo(0.07, 3);
+    const big = clickBox(6000, 4000);
+    expect(big.w * 6000).toBe(360);
+    expect(big.h * 4000).toBe(120);
+    const small = clickBox(200, 150);
+    expect(small.w * 200).toBe(60);
+    expect(small.h * 150).toBe(24);
   });
 });

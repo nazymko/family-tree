@@ -59,6 +59,15 @@ export const MAX_CARDS = 500;
 const MIN_SIDE = 0.01;
 export const DEFAULT_BOX = { w: 0.1, h: 0.04 };
 
+/** Size of a click-placed marker: about 18% of the picture width by 7% of its height, within pixel limits. */
+export function clickBox(imgW: number, imgH: number): { w: number; h: number } {
+  const px = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  return {
+    w: px(imgW * 0.18, 60, 360) / Math.max(imgW, 1),
+    h: px(imgH * 0.07, 24, 120) / Math.max(imgH, 1),
+  };
+}
+
 export function newDraft(): TraceDraft {
   return { version: 1, cards: [], links: [], keepPicture: true, nextId: 1 };
 }

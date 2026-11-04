@@ -85,6 +85,18 @@ describe('TraceView', () => {
     expect(screen.getByRole('button', { name: 'Add to tree' })).toBeEnabled();
   });
 
+  it('a_click_marker_is_sized_from_the_picture_and_the_review_shows_a_linking_tip', async () => {
+    const { user } = await setup();
+    expect(screen.queryByText(/Select a card, then use Parent of/)).not.toBeInTheDocument();
+    await drag(300, 300, 301, 301);
+    await screen.findByRole('group', { name: /Person on the picture/ });
+    await user.type(screen.getByLabelText('Given name'), 'Ivan');
+    expect(screen.getByText('Select a card, then use Parent of…, Child of… or Partner of… to link people.')).toBeInTheDocument();
+    const card = screen.getByRole('application').querySelector<HTMLElement>('[data-card]');
+    const w = parseFloat(card?.style.width ?? '0');
+    expect(w).toBeGreaterThanOrEqual(60);
+  });
+
   it('the_add_a_person_button_works_without_a_mouse', async () => {
     const { user } = await setup();
     await user.click(await screen.findByRole('button', { name: /Add a person/ }));
