@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ChartEdge, ChartNode, ChartWindow } from '../api/types';
 import { makeFakeContext } from '../../test-setup';
-import { drawWhole, edgeOnLine, type WholeTheme } from './wholeRenderer';
+import { drawWhole, edgeOnLine, headingSize, type WholeTheme } from './wholeRenderer';
 
 const theme: WholeTheme = {
   paper: '#fff', rule: '#ccc', ink: '#000', ink2: '#555', ribbon: '#900', wash: '#fdd', font: 'sans', serif: 'serif',
@@ -65,3 +65,24 @@ describe('drawWhole highlight', () => {
     expect(hot.length).toBeGreaterThan(0);
   });
 });
+
+describe('block headings', () => {
+  it('keep_a_fixed_screen_size_when_zoomed_out', () => {
+    expect(headingSize(0.1) * 0.1).toBeCloseTo(14, 5);
+    expect(headingSize(0.05) * 0.05).toBeCloseTo(14, 5);
+  });
+
+  it('are_drawn_on_a_plate_at_low_zoom_and_kept_on_screen', () => {
+    const ctx = makeFakeContext();
+    const blocks = [{ title: 'Koval family (9 people)', people: 9, unconnected: false, rect: { x: 0, y: 1000, w: 4000, h: 28 } }];
+    // The view starts well inside the block, so the label slides right to stay visible.
+    drawWhole(ctx as unknown as CanvasRenderingContext2D, { nodes: [], edges: [] }, blocks, { x: 1500, y: 800, zoom: 0.1 }, { w: 800, h: 600, dpr: 1 }, {
+      selected: null, home: null, lineage: null, theme,
+    });
+    const text = ctx.calls.find((c) => c.op === 'fillText' && String(c.args[0]).startsWith('Koval'));
+    expect(text).toBeTruthy();
+    expect(text!.args[1] as number).toBeGreaterThanOrEqual(1500);
+    expect(ctx.calls.some((c) => c.op === 'fillRect')).toBe(true);
+  });
+});
+

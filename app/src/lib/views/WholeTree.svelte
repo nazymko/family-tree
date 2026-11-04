@@ -40,7 +40,7 @@
   {/if}
   {#if ready}
     <div class="body" hidden={empty}>
-      <WholeCanvas homeId={home} onOpenPerson={openPerson} onOpenInPedigree={inPedigree} onOpened={(m) => (meta = m)} />
+      <WholeCanvas homeId={home} focusId={nav.focusPerson} onOpenPerson={openPerson} onOpenInPedigree={inPedigree} onOpened={(m) => (meta = m)} />
     </div>
   {/if}
 </section>
