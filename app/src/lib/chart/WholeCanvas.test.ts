@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import type { MockApi } from '../api/mock/MockApi';
 import type { ChartWindow } from '../api/types';
 import WholeCanvas from './WholeCanvas.svelte';
@@ -25,7 +25,7 @@ async function setup(opts: { home?: boolean } = {}) {
   const ctx = attachContext(canvas);
   canvas.getBoundingClientRect = () => RECT;
   const mini = (await screen.findByRole('application', { name: /Minimap/ })) as HTMLCanvasElement;
-  mini.getBoundingClientRect = () => ({ ...RECT, width: 180, height: mini.height, right: 180, bottom: mini.height });
+  mini.getBoundingClientRect = () => ({ ...RECT, width: 220, height: mini.height, right: 220, bottom: mini.height });
   attachContext(mini);
   await waitFor(() => expect(openSpy).toHaveBeenCalled());
   await waitFor(() => expect(winSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
@@ -89,9 +89,11 @@ describe('WholeCanvas', () => {
     expect(after.zoom).toBeCloseTo(before.zoom, 5);
     expect(after.x !== before.x || after.y !== before.y).toBe(true);
     const b = (await s.openSpy.mock.results[0].value).meta.bounds;
-    const scale = Math.min(180 / b.w, s.mini.height / b.h);
-    expect(after.x + 400 / after.zoom).toBeCloseTo(Math.min(b.w, 150 / scale), 0);
-    expect(after.y + 300 / after.zoom).toBeCloseTo(Math.min(b.h, s.mini.height / 2 / scale), 0);
+    const scale = Math.min((220 - 8) / b.w, (s.mini.height - 8) / b.h);
+    const ox = (220 - b.w * scale) / 2;
+    const oy = (s.mini.height - b.h * scale) / 2;
+    expect(after.x + 400 / after.zoom).toBeCloseTo(Math.min(b.w, Math.max(0, (150 - ox) / scale)), 0);
+    expect(after.y + 300 / after.zoom).toBeCloseTo(Math.min(b.h, Math.max(0, (s.mini.height / 2 - oy) / scale)), 0);
   });
 
   it('double_click_and_enter_open_the_person', async () => {
@@ -149,7 +151,8 @@ describe('WholeCanvas', () => {
     const ref = (await s.api.getPerson(s.fx.persons[index].id)).ref;
     const box = screen.getByRole('combobox', { name: 'Find a person…' });
     await fireEvent.input(box, { target: { value: ref.name } });
-    const opts = await screen.findAllByRole('option', undefined, { timeout: 2000 });
+    const list = await screen.findByRole('listbox', { name: 'Find a person…' });
+    const opts = await within(list).findAllByRole('option', undefined, { timeout: 2000 });
     await fireEvent.click(opts.find((o) => o.textContent?.includes(ref.name))!);
     await settle(s);
     return ref;
@@ -173,6 +176,8 @@ describe('WholeCanvas', () => {
     const s = await setup();
     for (let i = 0; i < 6; i++) await fireEvent.wheel(s.canvas, { deltaY: -300, clientX: 400, clientY: 300 });
     s.raf.pump(2);
+    // The first view selects a person; Escape clears it so the arrows pan.
+    await fireEvent.keyDown(s.canvas, { key: 'Escape' });
     const c0 = lastCamera(s.ctx)!;
     await fireEvent.keyDown(s.canvas, { key: 'ArrowLeft' });
     s.raf.pump(2);
@@ -217,5 +222,34 @@ describe('WholeCanvas', () => {
     expect(help.textContent).toMatch(/Arrow keys move the view/);
     expect(help.textContent).toMatch(/Shift/);
     expect(help.textContent).toMatch(/Escape/);
+  });
+
+  async function nodesInView(s: Setup): Promise<number> {
+    const id = (await s.openSpy.mock.results[0].value).meta.chartId;
+    const cam = lastCamera(s.ctx)!;
+    const win = await s.api.chartWindow(id, { x: cam.x, y: cam.y, w: 800 / cam.zoom, h: 600 / cam.zoom }, 1);
+    return win.nodes.length;
+  }
+
+  it('first_view_shows_people_without_a_home_person', async () => {
+    const s = await setup();
+    expect(lastCamera(s.ctx)!.zoom).toBeGreaterThanOrEqual(0.6);
+    expect(await nodesInView(s)).toBeGreaterThan(0);
+    expect(screen.getByRole('listbox', { name: 'Selected person' }).textContent).not.toBe('');
+  });
+
+  it('first_view_shows_the_home_person', async () => {
+    const s = await setup({ home: true });
+    expect(lastCamera(s.ctx)!.zoom).toBeGreaterThanOrEqual(0.6);
+    expect(await nodesInView(s)).toBeGreaterThan(0);
+    const ref = (await s.api.getPerson(s.fx.persons[0].id)).ref;
+    await waitFor(() => expect(screen.getByRole('listbox', { name: 'Selected person' })).toHaveTextContent(ref.name));
+  });
+
+  it('fit_all_never_goes_below_a_readable_zoom', async () => {
+    const s = await setup();
+    await fireEvent.keyDown(s.canvas, { key: 'f' });
+    await settle(s);
+    expect(lastCamera(s.ctx)!.zoom).toBeGreaterThanOrEqual(0.06 - 1e-9);
   });
 });

@@ -825,6 +825,7 @@ export const en = {
     showInPedigree: 'Show in Pedigree',
     chart: 'Whole tree chart',
     help: 'Arrow keys move the view. With a person selected they move between relatives instead: up to a parent, down to a child, left and right to a sibling. Hold Shift to move the view anyway. Escape clears the selection. Enter opens the person. P shows them in the Pedigree. L turns the family line highlight on or off. F fits everyone. 1 shows 100%. Home goes to the home person.',
+    startNote: 'Showing the oldest generation of the largest family: press F for the overview',
   },
   trace: {
     title: 'Trace a tree picture',
@@ -949,6 +950,7 @@ export const en = {
     errManyFamilies: '{who} is already in more than one family. Open the card and choose which family the children belong to.',
     errNoName: 'A card has no name. Enter a given name or a surname, or remove the card.',
     saveFailed: 'Your trace could not be saved. {reason}',
+    linkTip: 'Select a card, then use Parent of…, Child of… or Partner of… to link people.',
   },
   role: {
     focus: 'starting person',

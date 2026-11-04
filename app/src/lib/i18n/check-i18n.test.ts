@@ -59,4 +59,11 @@ describe('check-i18n: the Ukrainian catalogue matches the English one', () => {
   it('English_has_no_empty_text', () => {
     expect(base.filter(([, text]) => text.trim() === '').map(([p]) => p)).toEqual([]);
   });
+
+  it('has_no_mojibake_or_replacement_characters', () => {
+    // UTF-8 text read as Windows-1251 and saved again turns Cyrillic into Р/С-led pairs; guard against it.
+    const texts = JSON.stringify(uk);
+    expect(texts).not.toContain(String.fromCharCode(0xfffd));
+    for (const bad of ['вЂ', 'Г—', 'Ð', 'Р°', 'Р±', 'Рµ', 'С‚', 'СЃ']) expect(texts).not.toContain(bad);
+  });
 });

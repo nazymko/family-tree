@@ -298,6 +298,9 @@
         <section aria-labelledby="sum-h">
           <h2 id="sum-h">{t('trace.toAdd')}</h2>
           <p class="sum" role="status">{summary}</p>
+          {#if draft.cards.length > 0}
+            <p class="sum tip">{t('trace.linkTip')}</p>
+          {/if}
           {#if built.problems.length > 0}
             <ul class="problems">
               {#each built.problems as p (p)}<li>{p}</li>{/each}
