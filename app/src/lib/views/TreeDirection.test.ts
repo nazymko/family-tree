@@ -41,8 +41,13 @@ describe('tree direction setting', () => {
     const user = userEvent.setup();
     const btn = screen.getByRole('button', { name: 'Flip tree' });
     expect(btn).toHaveAttribute('aria-pressed', 'false');
+    // An icon button: no visible words, the tooltip says what a click does.
+    expect(btn.textContent?.trim()).toBe('');
+    expect(btn.querySelector('svg')).not.toBeNull();
+    expect(btn).toHaveAttribute('title', 'Ancestors at the top. Click to put them at the bottom (the tree grows up).');
     await user.click(btn);
     await waitFor(() => expect(btn).toHaveAttribute('aria-pressed', 'true'));
+    expect(btn).toHaveAttribute('title', 'Ancestors at the bottom. Click to put them back at the top.');
     expect((await api.getSettings()).treeDirection).toBe('reversed');
     await user.click(btn);
     await waitFor(() => expect(btn).toHaveAttribute('aria-pressed', 'false'));

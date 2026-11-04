@@ -2,7 +2,7 @@
   import { getApi } from '../api/context';
   import { settings } from '../state/settings.svelte';
   import { t } from '../i18n';
-  import Button from './Button.svelte';
+  import IconButton from './IconButton.svelte';
 
   const api = getApi();
   const reversed = $derived(settings.value.treeDirection === 'reversed');
@@ -17,4 +17,11 @@
   }
 </script>
 
-<Button aria-pressed={reversed} title={t('tree.flipHint')} onclick={flip}>{t('tree.flip')}</Button>
+<!-- The icon shows the tree as it is drawn now; the tooltip says what a click does. -->
+<IconButton
+  label={t('tree.flip')}
+  title={t(reversed ? 'tree.flipToNormal' : 'tree.flipToReversed')}
+  icon={reversed ? 'tree-reversed' : 'tree-normal'}
+  pressed={reversed}
+  onclick={flip}
+/>

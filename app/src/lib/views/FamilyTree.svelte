@@ -181,6 +181,19 @@
     });
   });
 
+  // A tree wider than the page opens scrolled to the person, not to its left edge.
+  $effect(() => {
+    void view.focus.id;
+    void reversed;
+    void tick().then(() => {
+      const me = treeEl?.querySelector<HTMLElement>('.kid.self');
+      if (!treeEl || !me || treeEl.scrollWidth <= treeEl.clientWidth) return;
+      const tr = treeEl.getBoundingClientRect();
+      const mr = me.getBoundingClientRect();
+      treeEl.scrollLeft += mr.left + mr.width / 2 - (tr.left + tr.width / 2);
+    });
+  });
+
   function keys(e: KeyboardEvent) {
     if (!treeEl) return;
     const from = (e.target as HTMLElement).closest<HTMLElement>('[data-nav]');
@@ -267,6 +280,8 @@
 <div class="treebar"><FlipTreeButton /></div>
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div class="tree" class:reversed data-direction={reversed ? 'reversed' : 'normal'} bind:this={treeEl} role="group" aria-label={t('family.treeLabel', { who: focus.name })} onkeydown={keys}>
+  <!-- Every row keeps to one line (wrapped rows would lose their lines); the tree scrolls sideways when wider. -->
+  <div class="inner">
   {#if view.parentSets.length > 1 || bothParents}
     <div class="sets" role="group" aria-label={t('family.treeParentSets')}>
       {#each view.parentSets.length > 1 ? view.parentSets : [] as ps, i (ps.familyId)}
@@ -349,7 +364,9 @@
         </div>
       {/if}
     </div>
-    <div class="kid self" class:alone={!hasAnyParent && view.siblings.length === 0}>{@render box(focus, null, 2, true)}</div>
+    <div class="kid self" class:alone={!hasAnyParent && view.siblings.length === 0}>
+      {@render box(focus, null, 2, true)}<span class="stem" aria-hidden="true"></span>
+    </div>
     <div class="side right">
       {#each view.partnerships as u (u.familyId)}
         {#if u.partner}
@@ -390,6 +407,7 @@
       <div class="kids"><div class="kid">{@render slot('child', focus, 3)}</div></div>
     {/each}
   </div>
+  </div>
 </div>
 
 <style>
@@ -398,22 +416,25 @@
     justify-content: flex-end;
   }
   .tree {
-    display: grid;
-    /* safe: when a row is wider than the page it starts at the left edge, so the scrollbar reaches every box. */
-    justify-items: safe center;
     min-width: 0;
     max-width: 100%;
     overflow-x: auto;
     padding-block: var(--s-3);
   }
+  /* As wide as the widest row (at least the page), so every row centres on the same axis. */
+  .inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: max-content;
+    min-width: 100%;
+  }
   /*
    * Reversed: the rows run bottom to top (kids, the person, parents, grandparents) and every connector sits on the
    * side that faces the row it joins. The DOM order, and with it the tab order, is unchanged.
    */
-  .tree.reversed {
-    display: flex;
+  .tree.reversed > .inner {
     flex-direction: column-reverse;
-    align-items: safe center;
   }
   .reversed .anc .pcell {
     order: -1;
@@ -438,6 +459,15 @@
   .reversed .side.right {
     padding-top: 0;
     padding-bottom: var(--s-5);
+    align-items: flex-end;
+    align-content: flex-end;
+  }
+  /* Boxes of the person's row sit on the bar side, so the bar meets every box at the same height. */
+  .reversed .me > .side > .kid {
+    align-items: flex-end;
+  }
+  .reversed .kid.self {
+    flex-direction: column-reverse;
   }
   .reversed .kid {
     padding: 0 calc(var(--s-3) / 2) var(--s-5);
@@ -453,11 +483,10 @@
   }
   .row {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: center;
     align-items: stretch;
     gap: var(--s-3) var(--s-5);
-    max-width: 100%;
   }
   .sets {
     display: flex;
@@ -489,7 +518,6 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     width: max-content;
-    max-width: 100%;
     column-gap: 0;
   }
   .gcell {
@@ -563,14 +591,28 @@
   /* The person's row: brothers and sisters, the person, then partners. The person sits on the axis. */
   .me {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    /* Equal sides, each as wide as the wider one, keep the person on the middle axis. */
+    grid-template-columns: 1fr auto 1fr;
     width: 100%;
-    align-items: start;
+    /* Every column takes the row's full height: the bars run along one edge of the row, the stem the other. */
+    align-items: stretch;
+  }
+  .me > .side > .kid {
+    align-items: flex-start;
+  }
+  /* The person's own box, then a line on to the edge of the row that faces the children. */
+  .kid.self {
+    flex-direction: column;
+    align-items: center;
+  }
+  .stem {
+    flex: 1 0 0;
+    width: 0;
+    border-inline-start: 2px solid var(--rule);
   }
   .side {
     display: flex;
-    flex-wrap: wrap;
-    min-width: 0;
+    flex-wrap: nowrap;
   }
   .side.left {
     justify-content: flex-end;
@@ -594,7 +636,7 @@
   }
   .kids {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: center;
     gap: 0;
   }

@@ -50,7 +50,8 @@ export const en = {
   },
   tree: {
     flip: 'Flip tree',
-    flipHint: 'Turn the trees upside down: ancestors at the bottom. Changes the Tree direction setting.',
+    flipToReversed: 'Ancestors at the top. Click to put them at the bottom (the tree grows up).',
+    flipToNormal: 'Ancestors at the bottom. Click to put them back at the top.',
   },
   edit: {
     undoPrefix: 'Undo: {label}',
