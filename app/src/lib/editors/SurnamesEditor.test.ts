@@ -89,4 +89,29 @@ describe('Surnames dialog', () => {
     await user.click(screen.getByRole('button', { name: 'Edit name' }));
     expect(await screen.findByRole('textbox', { name: 'Given name' })).toHaveValue('Olena');
   });
+
+  it('offers_to_move_a_patronymic_out_of_the_married_surname', async () => {
+    // The shape an older Древо Жизни import produced: the patronymic sat in the surname field next to a maiden name.
+    const birth = (await names())[0];
+    await api.apply({ type: 'saveName', person: id, name: { kind: 'married', preferred: true, private: false, given: 'Olena', surnames: ['Іванівна'] } });
+    expect(birth.patronymic).toBeNull();
+    const user = await openSurnames();
+    expect(screen.getByRole('textbox', { name: 'Surname after marriage' })).toHaveValue('Іванівна');
+    await user.click(screen.getByRole('button', { name: 'Move it to the patronymic' }));
+    expect(screen.getByRole('textbox', { name: 'Surname after marriage' })).toHaveValue('');
+    expect(screen.getByText('“Іванівна” will be saved as the patronymic.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save surnames' }));
+    await waitFor(async () => expect((await names()).length).toBe(1));
+    const [n] = await names();
+    expect(n.kind).toBe('birth');
+    expect(n.surnames).toEqual(['Koval']);
+    expect(n.patronymic).toBe('Іванівна');
+    expect(n.preferred).toBe(true);
+  });
+
+  it('does_not_offer_the_move_for_a_real_surname', async () => {
+    const user = await openSurnames();
+    await user.type(screen.getByRole('textbox', { name: 'Surname after marriage' }), 'Shevchuk');
+    expect(screen.queryByRole('button', { name: 'Move it to the patronymic' })).not.toBeInTheDocument();
+  });
 });

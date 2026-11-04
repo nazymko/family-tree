@@ -171,6 +171,26 @@ fn one_name(
     }
 }
 
+/// Female patronymic endings (Ukrainian and Russian). Unlike the male -ович/-евич, which are also common
+/// surnames, these are never surnames.
+const FEMALE_PATRONYMIC_ENDINGS: [&str; 5] = ["івна", "ївна", "овна", "евна", "ична"];
+
+/// A female patronymic typed into the surname field (the patronymic field left empty) is read as the
+/// patronymic. Otherwise, with a maiden name beside it, it would come out as a "married surname".
+fn patronymic_out_of_surname(mut p: NameParts) -> NameParts {
+    let looks_patronymic = |s: &str| {
+        let lower = s.trim().to_lowercase();
+        !lower.contains(' ')
+            && FEMALE_PATRONYMIC_ENDINGS
+                .iter()
+                .any(|e| lower.ends_with(e) && lower.chars().count() > e.chars().count() + 1)
+    };
+    if p.patronymic.is_none() && p.surname.as_deref().is_some_and(looks_patronymic) {
+        p.patronymic = p.surname.take();
+    }
+    p
+}
+
 /// Names of one person; `by_lang` has the main language first.
 fn names_of(by_lang: &[(Option<String>, NameParts)]) -> Vec<Name> {
     let mut out: Vec<Name> = Vec::new();
@@ -462,12 +482,12 @@ fn people(
             .map(|(lang, f)| {
                 (
                     (!lang.is_empty()).then_some(lang),
-                    NameParts {
+                    patronymic_out_of_surname(NameParts {
                         given: non_empty(f.get(&F_GIVEN)),
                         surname: non_empty(f.get(&F_SURNAME)),
                         patronymic: non_empty(f.get(&F_PATRONYMIC)),
                         maiden: non_empty(f.get(&F_MAIDEN)),
-                    },
+                    }),
                 )
             })
             .collect();
@@ -1027,5 +1047,59 @@ fn attach_person_unknowns(b: &mut Builder) {
         if let Some(p) = b.tree.persons.get_mut(&id) {
             p.common.unknown = raw;
         }
+    }
+}
+
+#[cfg(test)]
+mod patronymic_tests {
+    use super::{NameParts, names_of, patronymic_out_of_surname};
+    use gt_core::model::NameKind;
+
+    fn parts(
+        given: &str,
+        surname: Option<&str>,
+        patronymic: Option<&str>,
+        maiden: Option<&str>,
+    ) -> NameParts {
+        NameParts {
+            given: Some(given.into()),
+            surname: surname.map(Into::into),
+            patronymic: patronymic.map(Into::into),
+            maiden: maiden.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn female_patronymic_in_the_surname_field_becomes_the_patronymic() {
+        let p = patronymic_out_of_surname(parts("Olena", Some("Ivanivna"), None, Some("Koval")));
+        // Latin test words do not end in Cyrillic: nothing moves.
+        assert_eq!(p.surname.as_deref(), Some("Ivanivna"));
+        let p = patronymic_out_of_surname(parts("Олена", Some("Іванівна"), None, Some("Коваль")));
+        assert_eq!(p.surname, None);
+        assert_eq!(p.patronymic.as_deref(), Some("Іванівна"));
+        let names = names_of(&[(None, p)]);
+        assert_eq!(names.len(), 1, "no made-up married name");
+        assert_eq!(names[0].kind, NameKind::Birth);
+        assert_eq!(names[0].surnames, vec!["Коваль".to_string()]);
+        assert_eq!(names[0].patronymic.as_deref(), Some("Іванівна"));
+    }
+
+    #[test]
+    fn real_surnames_and_filled_patronymics_are_left_alone() {
+        // Male -ович is also a surname.
+        let p = patronymic_out_of_surname(parts("Петро", Some("Антонович"), None, None));
+        assert_eq!(p.surname.as_deref(), Some("Антонович"));
+        // The patronymic field is already filled: the surname stays a surname.
+        let p = patronymic_out_of_surname(parts("Олена", Some("Петрівна"), Some("Іванівна"), None));
+        assert_eq!(p.surname.as_deref(), Some("Петрівна"));
+        // An ordinary surname.
+        let p = patronymic_out_of_surname(parts("Олена", Some("Коваль"), None, Some("Мельник")));
+        assert_eq!(p.surname.as_deref(), Some("Коваль"));
+        // Married name stays when both are real surnames.
+        let names = names_of(&[(None, p)]);
+        assert_eq!(
+            names.iter().filter(|n| n.kind == NameKind::Married).count(),
+            1
+        );
     }
 }

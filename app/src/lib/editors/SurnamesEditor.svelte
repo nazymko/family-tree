@@ -3,6 +3,8 @@
   import { getApi } from '../api/context';
   import TextField from '../ui/TextField.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
+  import Banner from '../ui/Banner.svelte';
+  import Button from '../ui/Button.svelte';
   import EditorDialog from './EditorDialog.svelte';
   import { errMessage, opt, splitList } from './errors';
   import { t } from '../i18n';
@@ -31,9 +33,19 @@
     useMarried: married?.preferred ?? false,
   };
   let f = $state({ ...init });
+  /** Set when the user moved a patronymic out of the "after marriage" field (old imports put it there). */
+  let movedPatronymic = $state('');
+  /** Female patronymic endings (never surnames); the male -ович is also a surname, so it is not offered. */
+  const FEMALE_PATRONYMIC = /^[^\s]+(івна|ївна|овна|евна|ична)$/iu;
+  const offerMove = $derived(!movedPatronymic && !birth?.patronymic && FEMALE_PATRONYMIC.test(f.marriedSurname.trim()));
+  function movePatronymic() {
+    movedPatronymic = f.marriedSurname.trim();
+    f.marriedSurname = '';
+    f.useMarried = false;
+  }
   let saving = $state(false);
   let error = $state('');
-  const dirty = $derived(JSON.stringify(f) !== JSON.stringify(init));
+  const dirty = $derived(JSON.stringify(f) !== JSON.stringify(init) || movedPatronymic !== '');
 
   /** Every field of an existing name, so saving one field keeps the rest (saveName replaces the whole name). */
   function inputOf(n: NameDto): NameInput {
@@ -66,9 +78,12 @@
       // Saving the married name as preferred takes the main-name mark over by itself.
       const birthPreferred = marriedMain ? !!birth?.preferred : !!birth?.preferred || !!married?.preferred;
       if (birth) {
-        const changed = birthSurnames.join('|') !== birth.surnames.join('|') || birthPreferred !== birth.preferred;
+        const changed =
+          birthSurnames.join('|') !== birth.surnames.join('|') || birthPreferred !== birth.preferred || movedPatronymic !== '';
         if (changed && (birthSurnames.length > 0 || birth.given)) {
-          last = await api.apply({ type: 'saveName', person, name: { ...inputOf(birth), surnames: birthSurnames, preferred: birthPreferred } });
+          const input = { ...inputOf(birth), surnames: birthSurnames, preferred: birthPreferred };
+          if (movedPatronymic) input.patronymic = movedPatronymic;
+          last = await api.apply({ type: 'saveName', person, name: input });
         }
       } else if (birthSurnames.length > 0) {
         last = await api.apply({ type: 'saveName', person, name: { kind: 'birth', preferred: true, private: false, surnames: birthSurnames } });
@@ -99,5 +114,20 @@
 <EditorDialog title={t('surnames.title')} saveLabel={t('surnames.save')} {dirty} {saving} {error} onsave={save} oncancel={onCancel}>
   <TextField label={t('surnames.atBirth')} hint={t('surnames.atBirthHint')} bind:value={f.birthSurname} />
   <TextField label={t('surnames.afterMarriage')} hint={t('surnames.afterMarriageHint')} bind:value={f.marriedSurname} />
+  {#if offerMove}
+    <Banner kind="warning">
+      {t('surnames.looksPatronymic', { value: f.marriedSurname.trim() })}
+      <Button onclick={movePatronymic}>{t('surnames.moveToPatronymic')}</Button>
+    </Banner>
+  {:else if movedPatronymic}
+    <p class="moved">{t('surnames.movedToPatronymic', { value: movedPatronymic })}</p>
+  {/if}
   <Checkbox label={t('surnames.useMarried')} disabled={f.marriedSurname.trim() === ''} bind:checked={f.useMarried} />
 </EditorDialog>
+
+<style>
+  .moved {
+    color: var(--ink-1);
+    font-size: var(--t-sm);
+  }
+</style>
