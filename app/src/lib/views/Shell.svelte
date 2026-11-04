@@ -19,6 +19,7 @@
   import Descendants from './Descendants.svelte';
   import Relatives from './Relatives.svelte';
   import ExportDialog from './ExportDialog.svelte';
+  import TraceView from '../trace/TraceView.svelte';
   import QuickAdd from '../editors/QuickAdd.svelte';
   import CitationList from '../editors/CitationList.svelte';
   import MediaGrid from '../media/MediaGrid.svelte';
@@ -225,6 +226,20 @@
           </button>
         </li>
         <li>
+          <a
+            href="#/trace"
+            class="item"
+            aria-current={current === 'trace' ? 'page' : undefined}
+            onclick={(e) => {
+              e.preventDefault();
+              nav.go({ name: 'trace' });
+            }}
+          >
+            <Icon name="upload" />
+            <span class="lbl">Trace a picture</span>
+          </a>
+        </li>
+        <li>
           <button type="button" class="item" onclick={() => void closeThisTree()}>
             <Icon name="x" />
             <span class="lbl">Close tree</span>
@@ -283,7 +298,7 @@
       </div>
     </header>
     <main id="content" class="main">
-      <div class="page" class:chart={current === 'pedigree' || current === 'descendants' || current === 'relatives' || current === 'whole'}>
+      <div class="page" class:chart={current === 'pedigree' || current === 'descendants' || current === 'relatives' || current === 'whole' || current === 'trace'}>
         {#if nav.route.name === 'family'}
           <FamilyView />
         {:else if nav.route.name === 'people'}
@@ -308,6 +323,8 @@
           {:else}
             <RoutePlaceholder title="Media" note="Choose a person first." />
           {/if}
+        {:else if nav.route.name === 'trace'}
+          <TraceView />
         {:else if nav.route.name === 'settings'}
           <Settings />
         {/if}

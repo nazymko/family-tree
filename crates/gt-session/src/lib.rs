@@ -21,10 +21,10 @@ pub mod settings;
 pub mod undo;
 
 pub use command::{
-    CitationArg, CitationInput, CitationPatch, CloneOf, DeleteImpact, EditCommand, EditResult,
-    EventInput, EventOwner, EventOwnerKind, EvidenceInput, HistoryEntry, HistoryOp, LivingPatch,
-    NameInput, NewSource, NoteInput, OwnerKind, OwnerRef, ParticipantInput, PersonDraft, Relation,
-    ReuseLast, SourceInput, SourceRef, UndoState,
+    CitationArg, CitationInput, CitationPatch, CloneOf, DeleteImpact, DraftFamily, DraftPerson,
+    EditCommand, EditResult, EventInput, EventOwner, EventOwnerKind, EvidenceInput, HistoryEntry,
+    HistoryOp, LivingPatch, NameInput, NewSource, NoteInput, OwnerKind, OwnerRef, ParticipantInput,
+    PersonDraft, Relation, ReuseLast, SourceInput, SourceRef, UndoState,
 };
 pub use dto::*;
 pub use error::{ApiError, ErrorCode};
@@ -35,9 +35,14 @@ pub use settings::SettingsPatch;
 pub mod lookup;
 pub use lookup::parse_date_preview;
 
+pub mod ai_read;
 pub mod media;
 pub mod thumbs;
+pub mod trace;
+pub use ai_read::{AiPerson, AiReadResult, AiRelation, parse_ai_reply};
 pub use media::{AttachFailure, AttachResult, ExifSuggestion, MediaSize};
+pub use thumbs::render_px;
+pub use trace::{TraceDraftState, TraceImageInfo};
 pub mod transfer;
 pub use transfer::{
     ExportOptions, ExportVersion, GroupMedia, ImportPhase, ImportProgress, ImportReportDto,

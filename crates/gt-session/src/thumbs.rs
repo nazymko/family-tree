@@ -143,6 +143,11 @@ fn resized(w: u32, h: u32, rgb: Vec<u8>, longest: u32) -> Result<(u32, u32, Vec<
 /// Decodes `bytes` (with limits), applies EXIF orientation, scales down to `size` (never up)
 /// and encodes a JPEG.
 pub fn render(bytes: &[u8], size: ThumbSize) -> Result<Vec<u8>, ApiError> {
+    render_px(bytes, size.px())
+}
+
+/// Like [`render`] with an explicit longest side in pixels (EXIF orientation applied, never scaled up).
+pub fn render_px(bytes: &[u8], px: u32) -> Result<Vec<u8>, ApiError> {
     let reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|_| ApiError::new(ErrorCode::Invalid, "cannot read image"))?;
@@ -155,7 +160,7 @@ pub fn render(bytes: &[u8], size: ThumbSize) -> Result<Vec<u8>, ApiError> {
     let img = DynamicImage::from_decoder(decoder).map_err(map_image_err)?;
     let (w, h, rgb) = flatten_to_rgb(&img);
     drop(img);
-    let (w, h, rgb) = resized(w, h, rgb, size.px())?;
+    let (w, h, rgb) = resized(w, h, rgb, px)?;
     let mut out = DynamicImage::ImageRgb8(
         image::RgbImage::from_raw(w, h, rgb)
             .ok_or_else(|| ApiError::new(ErrorCode::Internal, "bad pixel buffer"))?,

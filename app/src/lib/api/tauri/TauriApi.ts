@@ -37,6 +37,9 @@ import type {
   SearchHitDto,
   Settings,
   SourceDto,
+  AiReadResult,
+  TraceDraftState,
+  TraceImageInfo,
   UndoState,
   WholeMeta,
 } from '../types';
@@ -165,6 +168,33 @@ export class TauriApi implements Api {
   }
   attachFiles(target: OwnerRef, paths: string[]): Promise<AttachResult> {
     return call('attach_files', { target, paths });
+  }
+  stageTraceImage(path: string): Promise<TraceImageInfo> {
+    return call('stage_trace_image', { path });
+  }
+  traceImageUrl(version: number): string {
+    return `${convertFileSrc('trace', 'gtmedia')}/picture?v=${version}`;
+  }
+  saveTraceDraft(json: string): Promise<void> {
+    return call('save_trace_draft', { json });
+  }
+  loadTraceDraft(): Promise<TraceDraftState> {
+    return call('load_trace_draft');
+  }
+  discardTraceDraft(): Promise<void> {
+    return call('discard_trace_draft');
+  }
+  aiKeyStatus(): Promise<boolean> {
+    return call('ai_key_status');
+  }
+  aiRemoveKey(): Promise<void> {
+    return call('ai_remove_key');
+  }
+  aiCancelRead(): Promise<void> {
+    return call('ai_cancel_read');
+  }
+  aiReadPicture(consent: boolean, key: string | null): Promise<AiReadResult> {
+    return call('ai_read_picture', { consent, key });
   }
   previewExport(opts: ExportOptions): Promise<PrivacyPreview> {
     return call('preview_export', { opts });

@@ -80,13 +80,22 @@ impl Session {
     /// Plans, stores and applies one command; it becomes the newest undo step and clears redo.
     pub fn apply(&mut self, cmd: EditCommand) -> Result<EditResult, ApiError> {
         let (_, now) = (self.clock.0)();
-        let (cs, focus) = plan_with(
-            &self.tree,
-            &cmd,
-            now,
-            self.day_order(),
-            self.edit.last_citation.as_ref(),
-        )?;
+        let (cs, focus) = if let EditCommand::ImportDraft {
+            persons,
+            families,
+            attach_picture,
+        } = &cmd
+        {
+            self.plan_import_draft(persons, families, *attach_picture, now)?
+        } else {
+            plan_with(
+                &self.tree,
+                &cmd,
+                now,
+                self.day_order(),
+                self.edit.last_citation.as_ref(),
+            )?
+        };
         if cs.changes.is_empty() {
             return Ok(self.result(&cs, cs.label.clone(), focus));
         }

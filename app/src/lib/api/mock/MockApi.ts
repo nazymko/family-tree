@@ -48,6 +48,9 @@ import type {
   Settings,
   SexKind,
   SourceDto,
+  AiReadResult,
+  TraceDraftState,
+  TraceImageInfo,
   UndoState,
   WholeMeta,
 } from '../types';
@@ -119,6 +122,7 @@ const LABELS: Record<EditCommand['type'], string> = {
   detachMedia: 'Detach media',
   setPrimaryMedia: 'Set primary media',
   updateMedia: 'Edit media',
+  importDraft: 'Add traced people',
 };
 
 const missing = (what: string, id: Id) => new MockApiError('not_found', `No ${what} with id "${id}" in this project.`);
@@ -143,6 +147,7 @@ export class MockApi implements Api {
   private version = 0;
   private previews = new Map<string, ExportOptions>();
   private projectName: string;
+  private trace: { json: string | null; image: TraceImageInfo | null; version: number } = { json: null, image: null, version: 0 };
   private rowCache: { version: number; rows: PersonRow[]; folded: Map<Id, string> } | null = null;
   private sortCache = new Map<string, PersonRow[]>();
 
@@ -638,6 +643,80 @@ export class MockApi implements Api {
   }
 
   // ------------------------------------------------------------------- media
+
+  async stageTraceImage(path: string): Promise<TraceImageInfo> {
+    const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
+    if (!/\.(jpe?g|png|webp|tiff?|gif)$/i.test(name)) throw invalid('That is not a picture file. Pick a JPG, PNG, WebP, TIFF or GIF.');
+    this.trace.image = { name, width: 1200, height: 800 };
+    this.trace.version++;
+    return { ...this.trace.image };
+  }
+
+  traceImageUrl(version: number): string {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">' +
+      '<rect width="1200" height="800" fill="#f3ecd9"/>' +
+      '<g font-family="serif" font-size="34" fill="#3b2f1d" stroke="#3b2f1d" stroke-width="2">' +
+      '<text x="220" y="120" stroke="none">Ivan Petrovych Koval</text><text x="640" y="120" stroke="none">Olena Koval</text>' +
+      '<text x="420" y="420" stroke="none">Petro Koval</text><text x="120" y="640" stroke="none">Maria Koval</text>' +
+      '<path d="M400 140V280M820 140V280M400 280H820M610 280V380" fill="none"/></g>' +
+      '<!-- ' + version + ' --></svg>';
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+  }
+
+  async saveTraceDraft(json: string): Promise<void> {
+    this.trace.json = json;
+  }
+
+  async loadTraceDraft(): Promise<TraceDraftState> {
+    return { json: this.trace.json, image: this.trace.image ? { ...this.trace.image } : null };
+  }
+
+  async discardTraceDraft(): Promise<void> {
+    this.trace.json = null;
+    this.trace.image = null;
+  }
+
+  /** Mock keychain and reader: no network. Sends are counted so tests can check consent. */
+  aiKeyStored = false;
+  aiSends = 0;
+
+  async aiKeyStatus(): Promise<boolean> {
+    return this.aiKeyStored;
+  }
+
+  async aiRemoveKey(): Promise<void> {
+    this.aiKeyStored = false;
+  }
+
+  aiCancels = 0;
+  async aiCancelRead(): Promise<void> {
+    this.aiCancels += 1;
+  }
+  async aiReadPicture(consent: boolean, key: string | null): Promise<AiReadResult> {
+    if (!consent) throw invalid('Tick "I understand" before sending the picture.');
+    if (!this.aiKeyStored && !key?.trim()) throw invalid('Enter your Anthropic API key first.');
+    if (!this.trace.image) throw invalid('There is no picture to trace.');
+    this.aiSends += 1;
+    if (key?.trim()) this.aiKeyStored = true;
+    const p = (id: string, given: string, surname: string, x: number, y: number, extra: Partial<AiReadResult['people'][number]> = {}) => ({
+      id, given, surname, patronymic: '', sex: null, birth: null, death: null, x, y, w: 0.14, h: 0.05, confidence: 0.9, ...extra,
+    });
+    return {
+      people: [
+        p('p1', 'Ivan', 'Koval', 0.18, 0.15, { patronymic: 'Petrovych', sex: 'male', birth: '1901' }),
+        p('p2', 'Olena', 'Koval', 0.53, 0.15, { sex: 'female', confidence: 0.8 }),
+        p('p3', 'Petro', 'Koval', 0.35, 0.52, { sex: 'male', confidence: 0.6 }),
+      ],
+      relations: [
+        { kind: 'partner', from: 'p1', to: 'p2' },
+        { kind: 'parent', from: 'p1', to: 'p3' },
+        { kind: 'parent', from: 'p2', to: 'p3' },
+      ],
+      skipped: 0,
+      truncated: false,
+    };
+  }
 
   mediaUrl(id: Id, size: 'thumb' | 'preview' | 'original'): string {
     const dim = size === 'thumb' ? 160 : size === 'preview' ? 640 : 1200;
@@ -1460,6 +1539,9 @@ export class MockApi implements Api {
         return { focus: p.id, touched: [p.id, cmd.media] };
       }
 
+      case 'importDraft':
+        return this.importDraft(cmd);
+
       case 'updateMedia': {
         const m = this.db.media.get(cmd.id);
         if (!m) throw missing('media item', cmd.id);
@@ -1469,6 +1551,152 @@ export class MockApi implements Api {
         return { focus: null, touched: [m.id] };
       }
     }
+  }
+
+  private importDraft(cmd: Extract<EditCommand, { type: 'importDraft' }>): { focus: Id | null; touched: Id[] } {
+    const MAX = 500;
+    if (cmd.persons.length > MAX || cmd.families.length > MAX)
+      throw invalid(`A traced picture can add at most ${MAX} people at a time. Remove some and try again.`);
+    if (cmd.persons.length === 0) throw invalid('There is nobody to add. Mark a person first.');
+    // Check everything first; the caller restores the snapshot on any error.
+    const ids = new Map<string, Id>();
+    const usedExisting = new Set<Id>();
+    cmd.persons.forEach((d, i) => {
+      const key = d.key.trim();
+      if (!key || ids.has(key)) throw invalid(`Card ${i + 1} has a missing or repeated label. Close the trace and open it again.`);
+      if (d.existing) {
+        this.person(d.existing);
+        if (usedExisting.has(d.existing)) throw invalid('The same person from the tree is used on two cards. Merge the cards first.');
+        usedExisting.add(d.existing);
+        ids.set(key, d.existing);
+      } else {
+        if (!d.given?.trim() && !d.surname?.trim()) throw invalid(`Card ${i + 1} has no name. Enter a given name or a surname.`);
+        ids.set(key, this.ids.next());
+      }
+    });
+    const ref = (k: string): Id => {
+      const id = ids.get(k.trim());
+      if (!id) throw invalid('A link points at a card that is not in the draft.');
+      return id;
+    };
+    const fams = cmd.families.map((f) => {
+      const p1 = f.partner1 ? ref(f.partner1) : null;
+      const p2 = f.partner2 ? ref(f.partner2) : null;
+      const kids = f.children.map(ref);
+      if (!p1 && !p2) throw invalid('A family needs at least one parent or partner.');
+      if (p1 && p1 === p2) throw invalid('A family needs two different people.');
+      if (new Set(kids).size !== kids.length) throw new MockApiError('conflict', 'A child is listed twice in one family.');
+      if (kids.some((k) => k === p1 || k === p2)) throw invalid('A person cannot be their own child.');
+      // Children of ONE parent from the tree join that parent's family.
+      let into: FamilyRec | undefined;
+      const single = p1 && !p2 ? p1 : p2 && !p1 ? p2 : null;
+      if (f.existingFamily) {
+        into = this.db.families.get(f.existingFamily);
+        if (!into) throw invalid('The family chosen for the new people is not in the tree any more.');
+        if (!single || (into.partner1 !== single && into.partner2 !== single))
+          throw invalid('The family chosen for the new people does not include that parent.');
+      } else if (single) {
+        const mine = this.partnerFamilies(single);
+        if (mine.length > 1)
+          throw new MockApiError('conflict', 'A parent on the picture is in more than one family in the tree. Choose which family the new people belong to.');
+        into = mine[0];
+      }
+      return { p1: into ? into.partner1 : p1, p2: into ? into.partner2 : p2, kids, into };
+    });
+    // A loop of parents and children is refused.
+    const parents = new Map<Id, Id[]>();
+    const addParents = (child: Id, ps: (Id | null)[]) => parents.set(child, [...(parents.get(child) ?? []), ...ps.filter((x): x is Id => !!x)]);
+    for (const f of this.db.families.values()) for (const c of f.children) addParents(c.person, [f.partner1, f.partner2]);
+    for (const f of fams) for (const k of f.kids) addParents(k, [f.p1, f.p2]);
+    for (const f of fams)
+      for (const k of f.kids) {
+        const stack = [f.p1, f.p2].filter((x): x is Id => !!x);
+        const seen = new Set<Id>();
+        while (stack.length) {
+          const n = stack.pop()!;
+          if (n === k) throw invalid('These links make someone their own ancestor. Check the parent and child links.');
+          if (seen.has(n)) continue;
+          seen.add(n);
+          stack.push(...(parents.get(n) ?? []));
+        }
+      }
+
+    // Write.
+    const touched: Id[] = [];
+    let picture: MediaDto | null = null;
+    if (cmd.attachPicture) {
+      if (!this.trace.image) throw new MockApiError('not_found', 'The picture is missing. Pick it again or untick keeping it.');
+      picture = {
+        id: this.ids.next(),
+        title: null,
+        mime: 'image/png',
+        originalName: this.trace.image.name,
+        date: null,
+        description: null,
+        resolved: true,
+        width: this.trace.image.width ?? null,
+        height: this.trace.image.height ?? null,
+        sha256: null,
+      };
+      this.db.media.set(picture.id, picture);
+      const sid = this.ids.next();
+      this.db.sources.set(sid, {
+        id: sid,
+        title: 'Family tree picture',
+        author: null,
+        publication: null,
+        abbreviation: null,
+        text: `File: ${picture.originalName}`,
+        citationCount: 0,
+      });
+      touched.push(sid);
+    }
+    let focus: Id | null = null;
+    for (const d of cmd.persons) {
+      if (d.existing) continue;
+      const id = ids.get(d.key.trim())!;
+      const events: EventDto[] = [];
+      if (d.birthDateRaw?.trim()) events.push(makeEvent(this.ids.next(), 'birth', { dateRaw: d.birthDateRaw.trim(), order: this.settings.dayOrder, preferred: true }));
+      if (d.deathDateRaw?.trim()) events.push(makeEvent(this.ids.next(), 'death', { dateRaw: d.deathDateRaw.trim(), order: this.settings.dayOrder, preferred: true }));
+      const name = makeName(this.ids.next(), {
+        kind: 'birth',
+        preferred: true,
+        private: false,
+        given: d.given?.trim() || undefined,
+        surnames: d.surname?.trim() ? [d.surname.trim()] : [],
+        patronymic: d.patronymic?.trim() || undefined,
+      });
+      this.db.persons.set(id, {
+        id,
+        sex: d.sex,
+        sexText: null,
+        livingOverride: null,
+        private: false,
+        names: [name],
+        events,
+        notes: d.notes?.trim() ? [makeNote(this.ids.next(), 'general', d.notes.trim())] : [],
+        media: picture ? [{ media: picture, primary: false }] : [],
+        citations: [],
+        changed: this.now(),
+      });
+      touched.push(id);
+      focus ??= id;
+    }
+    for (const f of fams) {
+      const same =
+        f.into ??
+        (f.p1 && f.p2
+          ? [...this.db.families.values()].find((x) => (x.partner1 === f.p1 && x.partner2 === f.p2) || (x.partner1 === f.p2 && x.partner2 === f.p1))
+          : undefined);
+      const fam = same ?? this.newFamily(f.p1, f.p2);
+      for (const k of f.kids) {
+        if (fam.children.some((c) => c.person === k)) continue;
+        const hasOther = this.parentFamilies(k).length > 0 || [...this.db.families.values()].some((x) => x !== fam && x.children.some((c) => c.person === k));
+        fam.children.push({ person: k, rel: ['birth', 'birth'], preferred: !hasOther });
+      }
+      touched.push(fam.id);
+    }
+    return { focus, touched };
   }
 
   private quickAdd(cmd: Extract<EditCommand, { type: 'quickAdd' }>): { focus: Id; touched: Id[] } {

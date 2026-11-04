@@ -123,7 +123,7 @@ fn every_api_method_has_a_command() {
     }
     assert!(methods.len() > 30, "parsed {methods:?}");
     // `mediaUrl` is a synchronous string builder (the gtmedia: scheme, not a command).
-    let exempt = ["mediaUrl"];
+    let exempt = ["mediaUrl", "traceImageUrl"];
     for m in methods.iter().filter(|m| !exempt.contains(&m.as_str())) {
         let mut snake = String::new();
         for c in m.chars() {
@@ -139,7 +139,7 @@ fn every_api_method_has_a_command() {
             "no command {snake}"
         );
     }
-    assert_eq!(COMMAND_NAMES.len(), 38);
+    assert_eq!(COMMAND_NAMES.len(), 46);
 }
 
 #[test]

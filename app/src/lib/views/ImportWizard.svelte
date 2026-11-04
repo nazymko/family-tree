@@ -12,7 +12,7 @@
   import { settings } from '../state/settings.svelte';
   import { enterProject } from '../state/openTree';
 
-  let { mode, oncancel }: { mode: 'import' | 'create'; oncancel: () => void } = $props();
+  let { mode, oncancel, thenTrace = false }: { mode: 'import' | 'create'; oncancel: () => void; thenTrace?: boolean } = $props();
 
   const api = getApi();
   const platform = getPlatform();
@@ -83,6 +83,7 @@
       if (mode === 'create') {
         const info = await api.createProject(dir, name.trim());
         await enterProject(api, info);
+        if (thenTrace) nav.go({ name: 'trace' });
       } else {
         phase = 'reading';
         fraction = 0;
@@ -104,7 +105,7 @@
 </script>
 
 <form class="wiz" onsubmit={start} aria-labelledby="wiz-title">
-  <h2 id="wiz-title">{mode === 'import' ? 'Import a family tree file' : 'Create a new tree'}</h2>
+  <h2 id="wiz-title">{mode === 'import' ? 'Import a family tree file' : thenTrace ? 'Create a tree for the picture' : 'Create a new tree'}</h2>
 
   {#if error}<Banner kind="error">{error}</Banner>{/if}
 
