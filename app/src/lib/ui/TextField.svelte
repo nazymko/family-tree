@@ -8,12 +8,15 @@
     hint?: string;
     error?: string;
     value?: string;
+    /** Star after the label and aria-required; `missing` highlights it until filled (see Field). */
+    required?: boolean;
+    missing?: boolean;
   }
-  let { label, hint, error, value = $bindable(''), ...rest }: Props = $props();
+  let { label, hint, error, value = $bindable(''), required = false, missing = false, ...rest }: Props = $props();
 </script>
 
-<Field {label} {hint} {error}>
+<Field {label} {hint} {error} {required} {missing}>
   {#snippet children(f)}
-    <input class="control" id={f.id} aria-describedby={f.describedBy} aria-invalid={f.invalid} bind:value {...rest} />
+    <input class="control" id={f.id} aria-describedby={f.describedBy} aria-invalid={f.invalid} aria-required={required || undefined} bind:value {...rest} />
   {/snippet}
 </Field>

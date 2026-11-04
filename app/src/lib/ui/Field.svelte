@@ -13,8 +13,18 @@
     label,
     hint,
     error,
+    required = false,
+    missing = false,
     children,
-  }: { label: string; hint?: string; error?: string; children: Snippet<[FieldIds]> } = $props();
+  }: {
+    label: string;
+    hint?: string;
+    error?: string;
+    /** Shows a star after the label; `missing` also highlights the field until it is filled. */
+    required?: boolean;
+    missing?: boolean;
+    children: Snippet<[FieldIds]>;
+  } = $props();
 
   const uid = $props.id();
   const id = `${uid}-control`;
@@ -27,8 +37,8 @@
   });
 </script>
 
-<div class="field">
-  <label for={id}>{label}</label>
+<div class="field" data-required={required || undefined} data-missing={(required && missing) || undefined}>
+  <label for={id}>{label}{#if required}<span class="req" aria-hidden="true">*</span>{/if}</label>
   {@render children(ids)}
   {#if hint}<p id={hintId} class="hint">{hint}</p>{/if}
   {#if error}<p id={errId} class="error">{error}</p>{/if}
