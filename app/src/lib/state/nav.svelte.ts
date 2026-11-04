@@ -5,6 +5,7 @@ export type Route =
   | { name: 'importReport' }
   | { name: 'family' }
   | { name: 'people' }
+  | { name: 'whole' }
   | { name: 'pedigree' }
   | { name: 'descendants' }
   | { name: 'person'; id: Id }

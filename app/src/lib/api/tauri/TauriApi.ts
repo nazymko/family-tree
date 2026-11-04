@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import type { Api } from '../api';
 import type {
   AttachResult,
+  ChartLocation,
   ChartMeta,
   ChartRequest,
   ChartWindow,
@@ -37,6 +38,7 @@ import type {
   Settings,
   SourceDto,
   UndoState,
+  WholeMeta,
 } from '../types';
 import { toApiError } from './errors';
 
@@ -141,6 +143,15 @@ export class TauriApi implements Api {
   }
   chartClose(chartId: number): Promise<void> {
     return call('chart_close', { chartId });
+  }
+  chartOpenWhole(): Promise<WholeMeta> {
+    return call('chart_open_whole');
+  }
+  chartLineage(chartId: number, nodeId: number): Promise<number[]> {
+    return call('chart_lineage', { chartId, nodeId });
+  }
+  chartLocate(chartId: number, person: Id): Promise<ChartLocation | null> {
+    return call('chart_locate', { chartId, person });
   }
   mediaUrl(id: Id, size: 'thumb' | 'preview' | 'original'): string {
     // Not convertFileSrc(`${id}/${size}`): that percent-encodes the slash and the protocol handler rejects it.

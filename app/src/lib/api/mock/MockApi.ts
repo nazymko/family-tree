@@ -2,6 +2,7 @@ import type { Api } from '../api';
 import type {
   RelinkResult,
   AttachResult,
+  ChartLocation,
   ChartMeta,
   ChartNode,
   ChartRequest,
@@ -48,12 +49,14 @@ import type {
   SexKind,
   SourceDto,
   UndoState,
+  WholeMeta,
 } from '../types';
 import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } from './build';
 import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
 import type { Layout } from './mockLayout';
 import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } from './layout';
+import { layoutWhole, lineageOf, type WholeResult } from './wholeLayout';
 import { toDateDto, yearOf } from './mockParse';
 import { lifespanText, previewDate } from './mockDate';
 
@@ -77,9 +80,11 @@ interface HistoryRecord {
 }
 
 interface ChartState {
-  kind: 'pedigree' | 'descendants';
+  kind: 'pedigree' | 'descendants' | 'whole';
   layout: Layout;
   version: number;
+  /** Whole-tree charts only. */
+  whole?: { result: WholeResult; surnames: string[]; meta: WholeMeta };
 }
 
 interface OwnerBag {
@@ -510,6 +515,7 @@ export class MockApi implements Api {
   // ------------------------------------------------------------------ charts
 
   async chartOpen(req: ChartRequest): Promise<ChartMeta> {
+    if (req.kind === 'whole') throw invalid('The whole tree has no starting person. Open it with the whole-tree command.');
     this.person(req.root);
     const generations = Math.max(1, Math.min(req.generations, 20));
     const src: RustLayoutSource = {
@@ -531,8 +537,53 @@ export class MockApi implements Api {
     };
   }
 
+  async chartOpenWhole(): Promise<WholeMeta> {
+    for (const c of this.charts.values()) if (c.whole && c.version === this.version) return structuredClone(c.whole.meta);
+    for (const [id, c] of [...this.charts]) if (c.whole) this.charts.delete(id);
+    const persons = [...this.db.persons.values()];
+    const rows = new Map(this.rows().rows.map((r) => [r.id, r]));
+    const result = layoutWhole({
+      persons: persons.map((p) => ({ id: p.id, surname: rows.get(p.id)?.surname ?? '', birth: this.birthSort(p) })),
+      families: [...this.db.families.values()].map((f) => ({ partners: [f.partner1, f.partner2], children: f.children.map((c) => c.person) })),
+      ref: (id) => this.ref(this.person(id)),
+    });
+    const surnames = result.nodes.map((n) => rows.get(n.person!.id)?.surname ?? '');
+    for (const n of result.nodes) {
+      const p = n.person!;
+      n.label = `${p.name}${p.lifespan ? `, ${p.lifespan}` : ''}, generation ${n.gen + 1}`;
+    }
+    const chartId = this.nextChart++;
+    const meta: WholeMeta = {
+      meta: {
+        chartId,
+        kind: 'whole',
+        bounds: result.bounds,
+        nodeCount: result.nodes.length,
+        rootNode: 0,
+        truncated: false,
+        version: this.version,
+      },
+      blocks: result.blocks,
+    };
+    const layout: Layout = { nodes: result.nodes, edges: result.edges, bounds: result.bounds, truncated: false, kids: [], labels: [] };
+    this.charts.set(chartId, { kind: 'whole', layout, version: this.version, whole: { result, surnames, meta } });
+    return structuredClone(meta);
+  }
+
+  async chartLineage(chartId: number, nodeId: number): Promise<number[]> {
+    const c = this.wholeChart(chartId);
+    if (!c.layout.nodes[nodeId]) throw missing('chart node', String(nodeId));
+    return lineageOf(c.whole!.result, nodeId);
+  }
+
+  async chartLocate(chartId: number, person: Id): Promise<ChartLocation | null> {
+    const c = this.wholeChart(chartId);
+    const id = c.whole!.result.nodeOf.get(person);
+    const n = id === undefined ? undefined : c.layout.nodes[id];
+    return n ? { nodeId: n.id, rect: { x: n.x, y: n.y, w: n.w, h: n.h } } : null;
+  }
+
   async chartWindow(chartId: number, rect: Rect, zoom: number): Promise<ChartWindow> {
-    void zoom;
     const c = this.chart(chartId);
     if (c.version !== this.version) throw new MockApiError('stale', 'The tree changed since this chart was opened. Reopen the chart.');
     const nodes: ChartNode[] = c.layout.nodes.filter(
@@ -551,11 +602,20 @@ export class MockApi implements Api {
       }
       return x0 <= rect.x + rect.w && x1 >= rect.x && y0 <= rect.y + rect.h && y1 >= rect.y;
     });
+    if (c.whole && zoom < 0.25) {
+      // Far out the backend sends the surname and sex only.
+      const surnames = c.whole.surnames;
+      return structuredClone({
+        nodes: nodes.map((n) => ({ ...n, label: '', person: { ...n.person!, name: surnames[n.id], lifespan: '' } })),
+        edges,
+      });
+    }
     return structuredClone({ nodes, edges });
   }
 
   async chartOutline(chartId: number, parentNode: number | null, limit: number): Promise<OutlineItem[]> {
     const c = this.chart(chartId);
+    if (c.kind === 'whole') throw invalid('The whole tree has no outline. Use Find a person to move around it.');
     if (parentNode !== null && !c.layout.nodes[parentNode]) throw missing('chart node', String(parentNode));
     return outlineOf(c.kind, c.layout, parentNode, Math.max(0, Math.min(limit, MAX_PAGE)));
   }
@@ -723,6 +783,13 @@ export class MockApi implements Api {
   private chart(id: number): ChartState {
     const c = this.charts.get(id);
     if (!c) throw missing('chart', String(id));
+    return c;
+  }
+
+  private wholeChart(id: number): ChartState {
+    const c = this.chart(id);
+    if (c.version !== this.version) throw new MockApiError('stale', 'The tree changed since this chart was opened. Reopen the chart.');
+    if (!c.whole) throw invalid('This chart is not the whole tree. Open the whole tree first.');
     return c;
   }
 

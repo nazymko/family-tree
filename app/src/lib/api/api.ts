@@ -1,5 +1,6 @@
 import type {
   AttachResult,
+  ChartLocation,
   ChartMeta,
   ChartRequest,
   ChartWindow,
@@ -34,6 +35,7 @@ import type {
   Settings,
   SourceDto,
   UndoState,
+  WholeMeta,
 } from './types';
 
 export type * from './types';
@@ -69,6 +71,12 @@ export interface Api {
   chartWindow(chartId: number, rect: Rect, zoom: number): Promise<ChartWindow>;
   chartOutline(chartId: number, parentNode: number | null, limit: number): Promise<OutlineItem[]>;
   chartClose(chartId: number): Promise<void>;
+  /** Every person of the project in one chart. The layout is kept per tree revision, so asking again is cheap. */
+  chartOpenWhole(): Promise<WholeMeta>;
+  /** The node, its ancestors and its descendants in a whole-tree chart. */
+  chartLineage(chartId: number, nodeId: number): Promise<number[]>;
+  /** Where a person sits in a whole-tree chart; null when the person is not in the project. */
+  chartLocate(chartId: number, person: Id): Promise<ChartLocation | null>;
   /** Synchronous: a gtmedia: URL. */
   /** Opens the media item's original file with the system viewer; Rust resolves the path (no path crosses the IPC). */
   openMediaExternally(id: Id): Promise<void>;
