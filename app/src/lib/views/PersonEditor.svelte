@@ -3,6 +3,7 @@
   import type {
     EditResult,
     EventDto,
+    FamilyViewDto,
     HistoryEntry,
     Id,
     NameDto,
@@ -15,6 +16,8 @@
   import { project } from '../state/project.svelte';
   import { settings } from '../state/settings.svelte';
   import { undoState } from '../state/undo.svelte';
+  import { ui } from '../state/ui.svelte';
+  import FamilyTree from './FamilyTree.svelte';
   import IndexCard from '../ui/IndexCard.svelte';
   import Ribbon from '../ui/Ribbon.svelte';
   import Button from '../ui/Button.svelte';
@@ -68,14 +71,19 @@
     | { kind: 'delete' }
   >(null);
 
+  /** The closest relatives as a small tree; the page still works when this fails to load. */
+  let familyView = $state<FamilyViewDto | null>(null);
+
   let loadSeq = 0;
   async function load() {
     const mine = ++loadSeq;
     try {
       const d = await api.getPerson(id);
       const h = await api.history(id, 20);
+      const fv = await api.getFamilyView(id).catch(() => null);
       if (mine !== loadSeq) return; // a newer load is in flight
       detail = d;
+      familyView = fv;
       sex = d.sex;
       sexText = d.sexText ?? '';
       living = d.livingOverride ?? '';
@@ -226,6 +234,18 @@
     </div>
 
     {#if error}<Banner kind="error">{error}</Banner>{/if}
+
+    {#if familyView}
+      <section aria-labelledby="h-tree" class="tree-sec">
+        <h2 id="h-tree">{t('person.familyTree')}</h2>
+        <FamilyTree
+          view={familyView}
+          homeId={project.info?.homePerson ?? settings.value.homePerson ?? null}
+          onopen={(pid) => nav.go({ name: 'person', id: pid })}
+          onadd={(rel, anchor, newSet) => (newSet ? ui.requestAdd(rel, anchor, true) : ui.requestAdd(rel, anchor))}
+        />
+      </section>
+    {/if}
 
     <section aria-labelledby="h-names">
       <div class="sec-head">
