@@ -556,6 +556,7 @@ export const uk: Messages = {
     noDateOrPlace: 'Ні дати, ні місця',
     editNamed: 'Змінити: {label}',
     relationships: 'Родинні зв’язки',
+    familyTree: 'Родинне дерево',
     noParents: 'Батьків не вказано.',
     partnersAndChildren: 'Партнери та діти',
     unknownPartner: 'Невідомий партнер',

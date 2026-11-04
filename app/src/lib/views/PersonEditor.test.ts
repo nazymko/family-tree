@@ -7,6 +7,8 @@ import { settings } from '../state/settings.svelte';
 import type { MockApi } from '../api/mock/MockApi';
 import { observeApi } from '../state/observe';
 import { toasts } from '../state/toast.svelte';
+import { ui } from '../state/ui.svelte';
+import { nav } from '../state/nav.svelte';
 
 const toastTexts = () => toasts.items.map((t) => t.text);
 
@@ -154,5 +156,32 @@ describe('PersonEditor', () => {
     await user.click(screen.getAllByRole('button', { name: /^Edit (Birth|Death|Occupation|.+)$/ }).find((b) => b.getAttribute('aria-label')?.match(/^Edit [A-Z]/) && !/name|note|family/i.test(b.getAttribute('aria-label')!))!);
     await user.click(screen.getByRole('button', { name: 'Delete event' }));
     await waitFor(() => expect(toastTexts()).toEqual(['Event deleted']));
+  });
+
+  it('shows_the_closest_relatives_tree_with_add_slots', async () => {
+    const user = userEvent.setup();
+    await open();
+    const name = (await api.getPerson(id)).ref.name;
+    const view = await api.getFamilyView(id);
+    const section = (await screen.findByRole('heading', { level: 2, name: 'Family tree' })).closest('section')!;
+    const tree = within(section as HTMLElement);
+    // The person and every partner appear as boxes in the tree.
+    expect(tree.getAllByRole('button', { name: new RegExp(name) }).length).toBeGreaterThan(0);
+    for (const u of view.partnerships) if (u.partner) expect(tree.getAllByRole('button', { name: new RegExp(u.partner.name) }).length).toBeGreaterThan(0);
+    const spy = vi.spyOn(ui, 'requestAdd');
+    await user.click(tree.getByRole('button', { name: `Add partner of ${name}` }));
+    expect(spy).toHaveBeenLastCalledWith('partner', id);
+    ui.closeAdd();
+  });
+
+  it('clicking_a_relative_in_the_tree_opens_their_page', async () => {
+    const user = userEvent.setup();
+    await open();
+    const view = await api.getFamilyView(id);
+    const partner = view.partnerships.find((u) => u.partner)!.partner!;
+    const section = (await screen.findByRole('heading', { level: 2, name: 'Family tree' })).closest('section')!;
+    const go = vi.spyOn(nav, 'go');
+    await user.click(within(section as HTMLElement).getAllByRole('button', { name: new RegExp(`^${partner.name}`) })[0]);
+    expect(go).toHaveBeenCalledWith({ name: 'person', id: partner.id });
   });
 });

@@ -557,6 +557,7 @@ export const en = {
     noDateOrPlace: 'No date or place',
     editNamed: 'Edit {label}',
     relationships: 'Relationships',
+    familyTree: 'Family tree',
     noParents: 'No parents recorded.',
     partnersAndChildren: 'Partners and children',
     unknownPartner: 'Unknown partner',

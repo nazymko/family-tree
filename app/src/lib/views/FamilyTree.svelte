@@ -381,7 +381,8 @@
 <style>
   .tree {
     display: grid;
-    justify-items: center;
+    /* safe: when a row is wider than the page it starts at the left edge, so the scrollbar reaches every box. */
+    justify-items: safe center;
     min-width: 0;
     max-width: 100%;
     overflow-x: auto;
