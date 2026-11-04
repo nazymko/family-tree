@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import type { Api } from '../api';
 import type {
   AttachResult,
+  ChartLocation,
   ChartMeta,
   ChartRequest,
   ChartWindow,
@@ -36,7 +37,11 @@ import type {
   SearchHitDto,
   Settings,
   SourceDto,
+  AiReadResult,
+  TraceDraftState,
+  TraceImageInfo,
   UndoState,
+  WholeMeta,
 } from '../types';
 import { toApiError } from './errors';
 
@@ -142,6 +147,15 @@ export class TauriApi implements Api {
   chartClose(chartId: number): Promise<void> {
     return call('chart_close', { chartId });
   }
+  chartOpenWhole(): Promise<WholeMeta> {
+    return call('chart_open_whole');
+  }
+  chartLineage(chartId: number, nodeId: number): Promise<number[]> {
+    return call('chart_lineage', { chartId, nodeId });
+  }
+  chartLocate(chartId: number, person: Id): Promise<ChartLocation | null> {
+    return call('chart_locate', { chartId, person });
+  }
   mediaUrl(id: Id, size: 'thumb' | 'preview' | 'original'): string {
     // Not convertFileSrc(`${id}/${size}`): that percent-encodes the slash and the protocol handler rejects it.
     return `${convertFileSrc(id, 'gtmedia')}/${size}`;
@@ -154,6 +168,33 @@ export class TauriApi implements Api {
   }
   attachFiles(target: OwnerRef, paths: string[]): Promise<AttachResult> {
     return call('attach_files', { target, paths });
+  }
+  stageTraceImage(path: string): Promise<TraceImageInfo> {
+    return call('stage_trace_image', { path });
+  }
+  traceImageUrl(version: number): string {
+    return `${convertFileSrc('trace', 'gtmedia')}/picture?v=${version}`;
+  }
+  saveTraceDraft(json: string): Promise<void> {
+    return call('save_trace_draft', { json });
+  }
+  loadTraceDraft(): Promise<TraceDraftState> {
+    return call('load_trace_draft');
+  }
+  discardTraceDraft(): Promise<void> {
+    return call('discard_trace_draft');
+  }
+  aiKeyStatus(): Promise<boolean> {
+    return call('ai_key_status');
+  }
+  aiRemoveKey(): Promise<void> {
+    return call('ai_remove_key');
+  }
+  aiCancelRead(): Promise<void> {
+    return call('ai_cancel_read');
+  }
+  aiReadPicture(consent: boolean, key: string | null): Promise<AiReadResult> {
+    return call('ai_read_picture', { consent, key });
   }
   previewExport(opts: ExportOptions): Promise<PrivacyPreview> {
     return call('preview_export', { opts });

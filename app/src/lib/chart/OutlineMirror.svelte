@@ -3,6 +3,7 @@
   import { getApi } from '../api/context';
   import type { Id, OutlineItem } from '../api/types';
   import { t } from '../i18n';
+  import { outlineLabel, relationText } from '../i18n/relation';
 
   let {
     chartId,
@@ -12,7 +13,7 @@
     onSelect,
   }: {
     chartId: number;
-    onPick: (personId: Id) => void;
+    onPick: (personId: Id, relation?: string) => void;
     label?: string;
     /** Selected chart node, shared with the canvas. Roving focus is tracked separately. */
     selected?: number | null;
@@ -24,14 +25,17 @@
   const LIMIT = 50;
 
   let roots = $state<OutlineItem[]>([]);
-  let kids = $state<Record<number, OutlineItem[]>>({});
-  let open = $state<Record<number, boolean>>({});
-  let loading = $state<Record<number, boolean>>({});
-  let focusId = $state<number | null>(null);
+  // Everything below is keyed by PATH ("12/4/9"), not node id: on the relatives chart one person can be listed in
+  // several places, and each listing needs its own open state, children and DOM id.
+  let kids = $state<Record<string, OutlineItem[]>>({});
+  let open = $state<Record<string, boolean>>({});
+  let loading = $state<Record<string, boolean>>({});
+  let focusId = $state<string | null>(null);
+  const pathOf = (parentPath: string, it: OutlineItem) => (parentPath ? `${parentPath}/${it.nodeId}` : String(it.nodeId));
   let failed = $state('');
   // Non-reactive lookup filled while loading.
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
-  const parentOf = new Map<number, number | null>();
+  const parentOf = new Map<string, string | null>();
 
   $effect(() => {
     const id = chartId;
@@ -49,8 +53,10 @@
       .then((items) => {
         if (!live) return;
         roots = items;
-        for (const it of items) parentOf.set(it.nodeId, null);
-        focusId = items[0]?.nodeId ?? null;
+        for (const it of items) {
+          parentOf.set(pathOf('', it), null);
+        }
+        focusId = items[0] ? pathOf('', items[0]) : null;
       })
       .catch((e) => {
         if (live) failed = e instanceof Error ? e.message : t('chartCanvas.outlineFailed');
@@ -60,46 +66,55 @@
     };
   });
 
-  async function expand(it: OutlineItem): Promise<void> {
+  async function expand(it: OutlineItem, path: string): Promise<void> {
     if (!it.hasChildren) return;
-    if (!kids[it.nodeId] && !loading[it.nodeId]) {
-      loading[it.nodeId] = true;
+    if (!kids[path] && !loading[path]) {
+      loading[path] = true;
       try {
         const items = await api.chartOutline(chartId, it.nodeId, LIMIT);
-        for (const k of items) parentOf.set(k.nodeId, it.nodeId);
-        kids[it.nodeId] = items;
+        for (const k of items) {
+          parentOf.set(pathOf(path, k), path);
+        }
+        kids[path] = items;
       } catch (e) {
         failed = e instanceof Error ? e.message : t('chartCanvas.outlineFailed');
         return;
       } finally {
-        loading[it.nodeId] = false;
+        loading[path] = false;
       }
     }
-    open[it.nodeId] = true;
+    open[path] = true;
   }
 
-  function visible(): number[] {
-    const out: number[] = [];
-    const walk = (items: OutlineItem[]) => {
-      for (const it of items) {
-        out.push(it.nodeId);
-        if (open[it.nodeId] && kids[it.nodeId]) walk(kids[it.nodeId]);
+  /** The visible rows in order, as paths. Iterative, so a malformed outline can never overflow the stack. */
+  function visible(): string[] {
+    const out: string[] = [];
+    const stack: { items: OutlineItem[]; path: string; i: number }[] = [{ items: roots, path: '', i: 0 }];
+    while (stack.length) {
+      const top = stack[stack.length - 1];
+      if (top.i >= top.items.length) {
+        stack.pop();
+        continue;
       }
-    };
-    walk(roots);
+      const it = top.items[top.i++];
+      const path = pathOf(top.path, it);
+      out.push(path);
+      if (open[path] && kids[path]) stack.push({ items: kids[path], path, i: 0 });
+    }
     return out;
   }
 
-  async function moveFocus(id: number | null | undefined): Promise<void> {
+  async function moveFocus(id: string | null | undefined): Promise<void> {
     if (id === null || id === undefined) return;
     focusId = id;
     await tick();
-    document.getElementById(`${uid}-${id}`)?.focus();
+    document.getElementById(`${uid}-${id.replaceAll('/', '_')}`)?.focus();
   }
 
-  function onkeydown(e: KeyboardEvent, it: OutlineItem): void {
+  function onkeydown(e: KeyboardEvent, it: OutlineItem, path: string): void {
+    if (e.target !== e.currentTarget) return;
     const vis = visible();
-    const i = vis.indexOf(it.nodeId);
+    const i = vis.indexOf(path);
     switch (e.key) {
       case 'ArrowDown':
         void moveFocus(vis[i + 1]);
@@ -114,16 +129,16 @@
         void moveFocus(vis[vis.length - 1]);
         break;
       case 'ArrowRight':
-        if (it.hasChildren && !open[it.nodeId]) void expand(it);
-        else if (open[it.nodeId]) void moveFocus(kids[it.nodeId]?.[0]?.nodeId);
+        if (it.hasChildren && !open[path]) void expand(it, path);
+        else if (open[path] && kids[path]?.[0]) void moveFocus(pathOf(path, kids[path][0]));
         break;
       case 'ArrowLeft':
-        if (open[it.nodeId]) open[it.nodeId] = false;
-        else void moveFocus(parentOf.get(it.nodeId));
+        if (open[path]) open[path] = false;
+        else void moveFocus(parentOf.get(path));
         break;
       case 'Enter':
       case ' ':
-        if (it.person) onPick(it.person.id);
+        if (it.person) onPick(it.person.id, it.relation === undefined ? undefined : relationText(it));
         break;
       default:
         return;
@@ -133,18 +148,20 @@
   }
 </script>
 
-{#snippet branch(items: OutlineItem[], level: number)}
+{#snippet branch(items: OutlineItem[], level: number, parentPath: string)}
   {#each items as it (it.nodeId)}
+    {@const path = pathOf(parentPath, it)}
     <li
-      id="{uid}-{it.nodeId}"
+      id="{uid}-{path.replaceAll('/', '_')}"
       role="treeitem"
       aria-level={level}
-      aria-expanded={it.hasChildren ? !!open[it.nodeId] : undefined}
+      aria-expanded={it.hasChildren ? !!open[path] : undefined}
       aria-selected={selected === it.nodeId}
-      tabindex={focusId === it.nodeId ? 0 : -1}
-      onkeydown={(e) => onkeydown(e, it)}
-      onfocus={() => {
-        focusId = it.nodeId;
+      tabindex={focusId === path ? 0 : -1}
+      onkeydown={(e) => onkeydown(e, it, path)}
+      onfocus={(e) => {
+        if (e.target !== e.currentTarget) return;
+        focusId = path;
         if (selected !== it.nodeId) onSelect?.(it.nodeId);
       }}
     >
@@ -155,24 +172,24 @@
             class="twist"
             tabindex="-1"
             aria-hidden="true"
-            onclick={() => (open[it.nodeId] ? (open[it.nodeId] = false) : void expand(it))}
-          >{open[it.nodeId] ? '▾' : '▸'}</button>
+            onclick={() => (open[path] ? (open[path] = false) : void expand(it, path))}
+          >{open[path] ? '▾' : '▸'}</button>
         {:else}
           <span class="twist"></span>
         {/if}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <span class="text" ondblclick={() => it.person && onPick(it.person.id)}>
-          <span class="rel">{it.label}</span>
+        <span class="text" ondblclick={() => it.person && onPick(it.person.id, it.relation === undefined ? undefined : relationText(it))}>
+          <span class="rel">{outlineLabel(it)}</span>
           {#if it.person}
             <bdi dir="auto" class="nm">{it.person.name}</bdi>
             {#if it.person.lifespan}<span class="life">{it.person.lifespan}</span>{/if}
           {/if}
         </span>
       </div>
-      {#if open[it.nodeId] && kids[it.nodeId]?.length}
+      {#if open[path] && kids[path]?.length}
         <ul role="group">
-          {@render branch(kids[it.nodeId], level + 1)}
-          {#if kids[it.nodeId].length >= LIMIT}
+          {@render branch(kids[path], level + 1, path)}
+          {#if kids[path].length >= LIMIT}
             <li role="none" class="more">{t('chartCanvas.moreHidden')}</li>
           {/if}
         </ul>
@@ -185,7 +202,7 @@
   <p class="err" role="alert">{failed}</p>
 {/if}
 <ul role="tree" aria-label={label ?? t('chartCanvas.outline')} class="outline">
-  {@render branch(roots, 1)}
+  {@render branch(roots, 1, '')}
 </ul>
 
 <style>

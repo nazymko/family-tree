@@ -44,6 +44,15 @@ export const commandFixtureMap = {
   detachMedia: { type: 'detachMedia', target: { kind: 'person', id: `${ID}1` }, media: `${ID}9` },
   setPrimaryMedia: { type: 'setPrimaryMedia', person: `${ID}1`, media: `${ID}9` },
   updateMedia: { type: 'updateMedia', id: `${ID}9`, title: 'Wedding photograph', description: 'Outside the church', dateRaw: 'abt 1878' },
+  importDraft: {
+    type: 'importDraft',
+    persons: [
+      { key: 'a', given: 'Ivan', surname: 'Koval', patronymic: 'Petrovych', sex: 'male', birthDateRaw: '1901', deathDateRaw: '1975', notes: 'Top row' },
+      { key: 'b', existing: `${ID}1`, sex: 'unknown' },
+    ],
+    families: [{ partner1: 'a', partner2: 'b', children: [] }],
+    attachPicture: true,
+  },
 } satisfies { [K in EditCommand['type']]: Extract<EditCommand, { type: K }> };
 
 export const commandFixtures: EditCommand[] = Object.values(commandFixtureMap) as EditCommand[];

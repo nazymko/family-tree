@@ -218,5 +218,33 @@
     "title": "Wedding photograph",
     "description": "Outside the church",
     "dateRaw": "abt 1878"
+  },
+  {
+    "type": "importDraft",
+    "persons": [
+      {
+        "key": "a",
+        "given": "Ivan",
+        "surname": "Koval",
+        "patronymic": "Petrovych",
+        "sex": "male",
+        "birthDateRaw": "1901",
+        "deathDateRaw": "1975",
+        "notes": "Top row"
+      },
+      {
+        "key": "b",
+        "existing": "018f3a6e-0000-7000-8000-000000000001",
+        "sex": "unknown"
+      }
+    ],
+    "families": [
+      {
+        "partner1": "a",
+        "partner2": "b",
+        "children": []
+      }
+    ],
+    "attachPicture": true
   }
 ]

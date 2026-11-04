@@ -381,7 +381,12 @@ pub struct DatePreview {
 
 // ---- Charts (mirrors ChartRequest .. OutlineItem in types.ts) ----
 
-wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants });
+wire_enum!(RoleKind, "snake_case", {
+    SelfPerson, Focus, Ancestor, Descendant, Sibling, AuntUncle, NieceNephew, Cousin, Partner,
+    PartnerOfSibling, PartnerOfAuntUncle, PartnerOfDescendant, AncestorNo, DescendantNo, Generation
+});
+wire_enum!(OutlineGroupKind, "snake_case", { Parents, Siblings, Partners, Children, AuntsUncles });
+wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants, Relatives, Whole });
 wire_enum!(EdgeKindDto, "lowercase", { Parent, Partner, Dup });
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -390,6 +395,10 @@ pub struct ChartRequest {
     pub kind: ChartKind,
     pub root: Uuid,
     pub generations: u32,
+    /// Relatives chart only: show the parents' brothers and sisters (default on).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub aunts_uncles: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
@@ -446,6 +455,38 @@ pub struct ChartNode {
     pub more_down: bool,
     pub nav: ChartNav,
     pub label: String,
+    /// Relatives chart only: how this person is related to the centred one ("brother", "half sister").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub relation: Option<String>,
+    /// The same information as `relation` / the role inside `label`, as data, so the UI can word it in its own language.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub role: Option<RoleDto>,
+}
+
+/// What a chart person is: how they are related, or which generation / ancestor number they are.
+/// `n` is the number of generations (or the ancestor or generation number), `k` the position among children
+/// in a descendant outline, `sex` the sex of the person described.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct RoleDto {
+    pub kind: RoleKind,
+    pub n: i32,
+    pub half: bool,
+    pub sex: SexKind,
+    pub k: u32,
+}
+
+impl RoleDto {
+    pub fn new(kind: RoleKind, n: i32, sex: SexKind) -> Self {
+        Self {
+            kind,
+            n,
+            half: false,
+            sex,
+            k: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -463,6 +504,34 @@ pub struct ChartWindow {
     pub edges: Vec<ChartEdge>,
 }
 
+/// A heading above one family (connected group of people) in the whole-tree chart.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WholeBlockDto {
+    /// "Koval family (34 people)" or "Unconnected people (12)".
+    pub title: String,
+    pub people: u32,
+    /// The block of people who have no family link at all.
+    pub unconnected: bool,
+    pub rect: Rect,
+}
+
+/// The whole-tree chart: the usual chart meta plus the block headings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WholeMeta {
+    pub meta: ChartMeta,
+    pub blocks: Vec<WholeBlockDto>,
+}
+
+/// Where a person sits in a whole-tree chart.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartLocation {
+    pub node_id: u32,
+    pub rect: Rect,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct OutlineItem {
@@ -471,6 +540,25 @@ pub struct OutlineItem {
     /// "2 Father", "Child 3".
     pub label: String,
     pub has_children: bool,
+    /// Relatives chart only: how the person is related to the centred one, as the plain label ("brother"),
+    /// for callers that need it as data rather than inside `label`. Absent for the centred person and headings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub relation: Option<String>,
+    /// The role as data (see `ChartNode::role`); absent for group headings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub role: Option<RoleDto>,
+    /// Set on the heading rows of the relatives outline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub group: Option<OutlineGroupKind>,
+    /// The person is also drawn earlier on the chart.
+    #[serde(default)]
+    pub appears_earlier: bool,
+    /// The person is also listed higher up in the relatives outline.
+    #[serde(default)]
+    pub also_above: bool,
 }
 
 /// A child in a `FamilyDto`: the child plus whether this family is the child's preferred one.

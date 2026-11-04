@@ -4,12 +4,13 @@
 use crate::settings_file;
 use crate::state::{AppState, no_project};
 use gt_session::{
-    ApiError, AttachResult, ChartMeta, ChartRequest, ChartWindow, CitationDto, DatePreview,
-    DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion, ExportOptions, FamilyDto,
-    FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto, ImportRequest, LocationKind,
-    LocationWarningDto, OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery, PersonRow,
-    PlaceOption, PrivacyPreview, ProjectInfo, RecentProject, Rect, RelinkResult, SearchHitDto,
-    Session, Settings, SettingsPatch, SourceDto, UndoState,
+    ApiError, AttachResult, ChartLocation, ChartMeta, ChartRequest, ChartWindow, CitationDto,
+    DatePreview, DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion, ExportOptions,
+    FamilyDto, FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto, ImportRequest,
+    LocationKind, LocationWarningDto, OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery,
+    PersonRow, PlaceOption, PrivacyPreview, ProjectInfo, RecentProject, Rect, RelinkResult,
+    SearchHitDto, Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo,
+    UndoState, WholeMeta,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -63,11 +64,22 @@ command_list!(
     suggest_sources,
     last_citation,
     chart_open,
+    chart_open_whole,
+    chart_lineage,
+    chart_locate,
     chart_window,
     chart_outline,
     chart_close,
     exif_suggestion,
     attach_files,
+    stage_trace_image,
+    save_trace_draft,
+    load_trace_draft,
+    discard_trace_draft,
+    ai_key_status,
+    ai_remove_key,
+    ai_read_picture,
+    ai_cancel_read,
     open_media_externally,
     preview_export,
     export_gedcom,
@@ -411,6 +423,30 @@ pub async fn chart_open<R: Runtime>(app: AppHandle<R>, req: ChartRequest) -> Api
     blocking(&app, move |s| s.with_session(|se| se.chart_open(&req))).await
 }
 
+/// The whole-tree chart. The layout is kept per tree revision, so reopening the view is instant.
+#[tauri::command]
+pub async fn chart_open_whole<R: Runtime>(app: AppHandle<R>) -> ApiResult<WholeMeta> {
+    blocking(&app, move |s| s.with_session(|se| se.chart_open_whole())).await
+}
+
+#[tauri::command(async)]
+pub fn chart_lineage(
+    state: State<'_, AppState>,
+    chart_id: u32,
+    node_id: u32,
+) -> ApiResult<Vec<u32>> {
+    state.with_session(|s| s.chart_lineage(chart_id, node_id))
+}
+
+#[tauri::command(async)]
+pub fn chart_locate(
+    state: State<'_, AppState>,
+    chart_id: u32,
+    person: Uuid,
+) -> ApiResult<Option<ChartLocation>> {
+    state.with_session(|s| s.chart_locate(chart_id, person))
+}
+
 #[tauri::command(async)]
 pub fn chart_window(
     state: State<'_, AppState>,
@@ -460,6 +496,66 @@ pub async fn attach_files<R: Runtime>(
         s.with_session(|se| se.attach_files(target, &paths))
     })
     .await
+}
+
+// ------------------------------------------------------------ trace a tree picture
+
+/// Copies the picked picture into the open project as the one being traced.
+#[tauri::command(async)]
+pub fn stage_trace_image(state: State<'_, AppState>, path: String) -> ApiResult<TraceImageInfo> {
+    state.with_session(|s| s.stage_trace_image(Path::new(&path)))
+}
+
+#[tauri::command(async)]
+pub fn save_trace_draft(state: State<'_, AppState>, json: String) -> ApiResult<()> {
+    state.with_session(|s| s.save_trace_draft(&json))
+}
+
+#[tauri::command(async)]
+pub fn load_trace_draft(state: State<'_, AppState>) -> ApiResult<TraceDraftState> {
+    state.with_session(|s| s.load_trace_draft())
+}
+
+#[tauri::command(async)]
+pub fn discard_trace_draft(state: State<'_, AppState>) -> ApiResult<()> {
+    state.with_session(|s| s.discard_trace_draft())
+}
+
+#[tauri::command(async)]
+pub fn ai_key_status() -> bool {
+    crate::ai::key_status(&crate::ai::Keychain)
+}
+
+#[tauri::command(async)]
+pub fn ai_remove_key() -> ApiResult<()> {
+    crate::ai::remove_key(&crate::ai::Keychain)
+}
+
+/// Sends the traced picture to Anthropic. `consent` must be true on every call. The picture is read
+/// while the session is locked; the lock is released before the (slow) network call.
+#[tauri::command]
+pub async fn ai_read_picture(
+    state: State<'_, AppState>,
+    consent: bool,
+    key: Option<String>,
+) -> ApiResult<gt_session::AiReadResult> {
+    let (bytes, _) = state.with_session(|s| s.trace_image_bytes())?;
+    crate::ai::CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
+    crate::ai::read_picture_async(
+        std::sync::Arc::new(crate::ai::ReqwestHttp),
+        std::sync::Arc::new(crate::ai::Keychain),
+        consent,
+        key,
+        bytes,
+        crate::ai::DEFAULT_MODEL.to_string(),
+    )
+    .await
+}
+
+/// Stops the read that is in flight; the request is aborted.
+#[tauri::command(async)]
+pub fn ai_cancel_read() {
+    crate::ai::CANCEL.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// The original file of a media item, but only when its CONTENT is an image or a PDF. The type is

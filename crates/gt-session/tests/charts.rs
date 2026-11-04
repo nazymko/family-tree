@@ -80,6 +80,7 @@ fn pedigree_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
         kind: ChartKind::Pedigree,
         root: id_of(s, name),
         generations,
+        aunts_uncles: None,
     }
 }
 
@@ -88,6 +89,7 @@ fn descendants_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
         kind: ChartKind::Descendants,
         root: id_of(s, name),
         generations,
+        aunts_uncles: None,
     }
 }
 
@@ -237,6 +239,7 @@ fn open_unknown_person_is_not_found() {
         kind: ChartKind::Pedigree,
         root: Uuid::nil(),
         generations: 3,
+        aunts_uncles: None,
     };
     assert_eq!(s.chart_open(&req).unwrap_err().code, ErrorCode::NotFound);
 }
@@ -530,4 +533,412 @@ fn chart_window_under_8ms_10k() {
         worst < std::time::Duration::from_millis(8),
         "worst window {worst:?}"
     );
+}
+
+// ---- relatives ----
+
+/// Ivan Koval (1) and Olena Koval (2) with sons Petro (3), Andriy (4) and daughter Maria (5); Ivan's
+/// earlier marriage to Halyna (6) gave Taras (7); Petro and Sofia (8) have Danylo (9).
+fn relatives_ged() -> String {
+    ged(&[
+        indi(1, "Ivan /Koval/", "M", ""),
+        indi(2, "Olena /Koval/", "F", ""),
+        indi(3, "Petro /Koval/", "M", "1 BIRT\n2 DATE 1980\n"),
+        indi(4, "Andriy /Koval/", "M", "1 BIRT\n2 DATE 1975\n"),
+        indi(5, "Maria /Koval/", "F", "1 BIRT\n2 DATE 1985\n"),
+        indi(6, "Halyna /Bondar/", "F", ""),
+        indi(7, "Taras /Koval/", "M", "1 BIRT\n2 DATE 1970\n"),
+        indi(8, "Sofia /Koval/", "F", ""),
+        indi(9, "Danylo /Koval/", "M", ""),
+        fam(1, 1, 2, &[3, 4, 5]),
+        fam(2, 1, 6, &[7]),
+        fam(3, 3, 8, &[9]),
+    ])
+}
+
+fn relatives_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
+    ChartRequest {
+        kind: ChartKind::Relatives,
+        root: id_of(s, name),
+        generations,
+        aunts_uncles: None,
+    }
+}
+
+#[test]
+fn relatives_window_labels_each_person() {
+    let (_d, mut s) = open_ged(&relatives_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 2)).unwrap();
+    assert_eq!(m.kind, ChartKind::Relatives);
+    assert_eq!(m.root_node, 0);
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    let rel = |name: &str| {
+        w.nodes
+            .iter()
+            .find(|n| n.person.as_ref().is_some_and(|p| p.name == name))
+            .unwrap_or_else(|| panic!("no {name}"))
+            .relation
+            .clone()
+    };
+    assert_eq!(rel("Petro Koval").as_deref(), Some("starting person"));
+    assert_eq!(rel("Andriy Koval").as_deref(), Some("brother"));
+    assert_eq!(rel("Maria Koval").as_deref(), Some("sister"));
+    assert_eq!(rel("Taras Koval").as_deref(), Some("half brother"));
+    assert_eq!(rel("Ivan Koval").as_deref(), Some("father"));
+    assert_eq!(rel("Olena Koval").as_deref(), Some("mother"));
+    assert_eq!(rel("Sofia Koval").as_deref(), Some("partner"));
+    assert_eq!(rel("Danylo Koval").as_deref(), Some("son"));
+    // Brothers and sisters are ordered by birth: Taras 1970, Andriy 1975, Petro 1980, Maria 1985.
+    let x = |name: &str| {
+        w.nodes
+            .iter()
+            .find(|n| n.person.as_ref().is_some_and(|p| p.name == name))
+            .unwrap()
+            .x
+    };
+    assert!(x("Taras Koval") < x("Andriy Koval"));
+    assert!(x("Andriy Koval") < x("Petro Koval"));
+    assert!(x("Petro Koval") < x("Maria Koval"));
+    let focus = w.nodes.iter().find(|n| n.id == 0).unwrap();
+    assert!(focus.label.contains("Petro Koval") && focus.label.contains("starting person"));
+    // Dots-only zoom carries no text.
+    let low = s.chart_window(m.chart_id, &everything(), 0.2).unwrap();
+    assert!(low.nodes.iter().all(|n| n.relation.is_none()));
+}
+
+#[test]
+fn relatives_can_hide_aunts_and_wire_shape_has_relation() {
+    let (_d, mut s) = open_ged(&relatives_ged());
+    let mut req = relatives_req(&s, "Petro Koval", 2);
+    req.aunts_uncles = Some(false);
+    let m = s.chart_open(&req).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    let v = serde_json::to_value(&w).unwrap();
+    assert!(v["nodes"][0]["relation"].is_string());
+    let r = serde_json::to_value(&req).unwrap();
+    assert_eq!(r["auntsUncles"], false);
+    assert_eq!(r["kind"], "relatives");
+}
+
+#[test]
+fn relatives_outline_groups_the_related_people() {
+    let (_d, mut s) = open_ged(&relatives_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 2)).unwrap();
+    let root = s.chart_outline(m.chart_id, None, 10).unwrap();
+    assert_eq!(root.len(), 1);
+    assert_eq!(root[0].label, "Starting person");
+    assert!(root[0].has_children);
+    let groups = s
+        .chart_outline(m.chart_id, Some(root[0].node_id), 50)
+        .unwrap();
+    let titles: Vec<&str> = groups.iter().map(|g| g.label.as_str()).collect();
+    assert_eq!(titles, ["Parents", "Siblings", "Partners", "Children"]);
+    assert!(groups.iter().all(|g| g.person.is_none() && g.has_children));
+    let names = |g: &OutlineItem| -> Vec<String> {
+        s.chart_outline(m.chart_id, Some(g.node_id), 50)
+            .unwrap()
+            .into_iter()
+            .map(|i| format!("{} {}", i.label, i.person.unwrap().name))
+            .collect()
+    };
+    assert_eq!(
+        names(&groups[0]),
+        ["Father Ivan Koval", "Mother Olena Koval"]
+    );
+    assert_eq!(
+        names(&groups[1]),
+        [
+            "Half brother Taras Koval",
+            "Brother Andriy Koval",
+            "Sister Maria Koval"
+        ]
+    );
+    assert_eq!(names(&groups[2]), ["Partner Sofia Koval"]);
+    assert_eq!(names(&groups[3]), ["Son Danylo Koval"]);
+    // Unknown group rows are refused.
+    assert!(
+        s.chart_outline(
+            m.chart_id,
+            Some(gt_session::chart::GROUP_BASE | (9999 << 3)),
+            5
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn relatives_generations_are_clamped() {
+    let (_d, mut s) = open_ged(&relatives_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 99)).unwrap();
+    assert_eq!(m.node_count, 8);
+    let m0 = s.chart_open(&relatives_req(&s, "Petro Koval", 0)).unwrap();
+    assert!(m0.node_count >= 1);
+}
+
+/// Petro's father Ivan has a sister Zoya (11) with a daughter Nina (12); their parents are Mykola and Hanna.
+fn relatives_cousins_ged() -> String {
+    ged(&[
+        indi(1, "Ivan /Koval/", "M", ""),
+        indi(2, "Olena /Koval/", "F", ""),
+        indi(3, "Petro /Koval/", "M", "1 BIRT\n2 DATE 1980\n"),
+        indi(10, "Mykola /Koval/", "M", ""),
+        indi(13, "Hanna /Koval/", "F", ""),
+        indi(11, "Zoya /Koval/", "F", ""),
+        indi(12, "Nina /Shevchuk/", "F", ""),
+        fam(1, 1, 2, &[3]),
+        fam(2, 10, 13, &[1, 11]),
+        fam(3, 11, 0, &[12]),
+    ])
+}
+
+#[test]
+fn relatives_label_cousins() {
+    let (_d, mut s) = open_ged(&relatives_cousins_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 3)).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    let rel = |name: &str| {
+        w.nodes
+            .iter()
+            .find(|n| n.person.as_ref().is_some_and(|p| p.name == name))
+            .and_then(|n| n.relation.clone())
+    };
+    assert_eq!(rel("Zoya Koval").as_deref(), Some("aunt"));
+    assert_eq!(rel("Nina Shevchuk").as_deref(), Some("cousin"));
+}
+
+/// Expanding every row of the outline, with a path guard, must end and never list a person twice as expandable.
+#[test]
+fn relatives_outline_expands_fully_and_terminates() {
+    let (_d, mut s) = open_ged(&relatives_cousins_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 3)).unwrap();
+    let mut stack: Vec<(u32, usize)> = s
+        .chart_outline(m.chart_id, None, 50)
+        .unwrap()
+        .into_iter()
+        .map(|i| (i.node_id, 0))
+        .collect();
+    let mut expandable_people = std::collections::HashSet::new();
+    let mut rows = 0;
+    while let Some((id, depth)) = stack.pop() {
+        rows += 1;
+        assert!(rows < 500 && depth < 40, "the outline does not end");
+        for it in s.chart_outline(m.chart_id, Some(id), 50).unwrap() {
+            if it.person.is_some() && it.has_children {
+                assert!(
+                    expandable_people.insert(it.node_id),
+                    "node {} is expandable in two places",
+                    it.node_id
+                );
+            }
+            if it.has_children {
+                stack.push((it.node_id, depth + 1));
+            }
+        }
+    }
+}
+
+/// Focus > Parents > Father > Children lists the focus again, as a reference that cannot be expanded.
+#[test]
+fn relatives_outline_father_children_is_a_reference() {
+    let (_d, mut s) = open_ged(&relatives_cousins_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 3)).unwrap();
+    let root = s.chart_outline(m.chart_id, None, 50).unwrap().remove(0);
+    let groups = s.chart_outline(m.chart_id, Some(root.node_id), 50).unwrap();
+    let parents = s
+        .chart_outline(m.chart_id, Some(groups[0].node_id), 50)
+        .unwrap();
+    let father = parents
+        .iter()
+        .find(|p| p.label.starts_with("Father"))
+        .unwrap();
+    assert!(father.has_children);
+    let fg = s
+        .chart_outline(m.chart_id, Some(father.node_id), 50)
+        .unwrap();
+    let children = fg.iter().find(|g| g.label == "Children").unwrap();
+    let kids = s
+        .chart_outline(m.chart_id, Some(children.node_id), 50)
+        .unwrap();
+    assert_eq!(kids.len(), 1);
+    assert_eq!(kids[0].node_id, root.node_id);
+    assert!(!kids[0].has_children);
+    assert!(kids[0].label.contains("also shown above"));
+}
+
+/// A person whose only relatives are listed elsewhere has no expander; the relation is also carried as data.
+#[test]
+fn relatives_outline_has_no_expander_for_references_only_and_carries_relation() {
+    let (_d, mut s) = open_ged(&relatives_cousins_ged());
+    let m = s.chart_open(&relatives_req(&s, "Petro Koval", 3)).unwrap();
+    let root = s.chart_outline(m.chart_id, None, 50).unwrap().remove(0);
+    assert_eq!(root.relation, None);
+    let groups = s.chart_outline(m.chart_id, Some(root.node_id), 50).unwrap();
+    let parents = s
+        .chart_outline(m.chart_id, Some(groups[0].node_id), 50)
+        .unwrap();
+    let father = parents
+        .iter()
+        .find(|p| p.label.starts_with("Father"))
+        .unwrap();
+    let mother = parents
+        .iter()
+        .find(|p| p.label.starts_with("Mother"))
+        .unwrap();
+    assert_eq!(father.relation.as_deref(), Some("father"));
+    assert!(father.has_children, "his parents are not listed elsewhere");
+    assert_eq!(mother.relation.as_deref(), Some("mother"));
+    assert!(
+        !mother.has_children,
+        "her partner and child are listed above"
+    );
+    let v = serde_json::to_value(mother).unwrap();
+    assert_eq!(v["relation"], "mother");
+}
+
+// ---- whole tree ----
+
+/// The pedigree family (7 people) plus a lone Zed.
+fn whole_ged() -> String {
+    let mut g = pedigree_ged();
+    g.truncate(g.len() - "0 TRLR\n".len());
+    g.push_str(&indi(8, "Zed /Solo/", "M", ""));
+    g.push_str("0 TRLR\n");
+    g
+}
+
+#[test]
+fn whole_tree_has_everyone_once_headings_and_an_unconnected_block() {
+    let (_d, mut s) = open_ged(&whole_ged());
+    let w = s.chart_open_whole().unwrap();
+    assert_eq!(w.meta.kind, ChartKind::Whole);
+    assert_eq!(w.meta.node_count, 8);
+    assert_eq!(w.meta.version, s.revision());
+    let titles: Vec<&str> = w.blocks.iter().map(|b| b.title.as_str()).collect();
+    assert_eq!(titles, ["X family (7 people)", "Unconnected people (1)"]);
+    assert!(w.blocks[1].unconnected && !w.blocks[0].unconnected);
+    let all = s.chart_window(w.meta.chart_id, &everything(), 1.0).unwrap();
+    assert_eq!(all.nodes.len(), 8);
+    assert_eq!(
+        all.edges
+            .iter()
+            .filter(|e| e.kind == EdgeKindDto::Parent)
+            .count(),
+        3
+    );
+    assert!(
+        all.nodes
+            .iter()
+            .all(|n| n.dup_of.is_none() && !n.label.is_empty())
+    );
+    let me = all
+        .nodes
+        .iter()
+        .find(|n| n.person.as_ref().is_some_and(|p| p.name == "Me X"))
+        .unwrap();
+    assert_eq!(me.generation, 2);
+    assert!(me.label.ends_with("generation 3"), "{}", me.label);
+    let v = serde_json::to_value(&w).unwrap();
+    assert!(v["meta"]["chartId"].is_u64() && v["blocks"][0]["rect"]["w"].is_number());
+}
+
+#[test]
+fn whole_tree_is_cached_per_revision() {
+    let (_d, mut s) = open_ged(&whole_ged());
+    let a = s.chart_open_whole().unwrap();
+    let b = s.chart_open_whole().unwrap();
+    assert_eq!(a, b);
+    // Other charts do not push it out.
+    for name in ["Me X", "Fred X", "Mary Y"] {
+        s.chart_open(&pedigree_req(&s, name, 3)).unwrap();
+    }
+    assert!(s.chart_window(a.meta.chart_id, &everything(), 1.0).is_ok());
+    // A change makes it stale; asking again lays it out again.
+    s.set_settings(SettingsPatch {
+        living_max_age: Some(90),
+        ..SettingsPatch::default()
+    })
+    .unwrap();
+    let e = s
+        .chart_window(a.meta.chart_id, &everything(), 1.0)
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Stale);
+    let c = s.chart_open_whole().unwrap();
+    assert_ne!(c.meta.chart_id, a.meta.chart_id);
+    assert_eq!(c.meta.version, s.revision());
+}
+
+#[test]
+fn whole_tree_far_out_sends_surnames_and_sex_only() {
+    let (_d, mut s) = open_ged(&whole_ged());
+    let w = s.chart_open_whole().unwrap();
+    let all = s
+        .chart_window(w.meta.chart_id, &everything(), 0.05)
+        .unwrap();
+    assert_eq!(all.nodes.len(), 8);
+    for n in &all.nodes {
+        assert!(n.label.is_empty());
+        let p = n.person.as_ref().unwrap();
+        assert!(p.lifespan.is_empty());
+        assert!(["X", "Y", "Solo"].contains(&p.name.as_str()), "{}", p.name);
+    }
+    assert!(
+        all.nodes
+            .iter()
+            .any(|n| n.person.as_ref().unwrap().sex == SexKind::Female)
+    );
+}
+
+#[test]
+fn whole_tree_lineage_and_locate() {
+    let (_d, mut s) = open_ged(&whole_ged());
+    let w = s.chart_open_whole().unwrap();
+    let id = w.meta.chart_id;
+    let me = s.chart_locate(id, id_of(&s, "Me X")).unwrap().unwrap();
+    let fred = s.chart_locate(id, id_of(&s, "Fred X")).unwrap().unwrap();
+    assert_ne!(me.node_id, fred.node_id);
+    assert!(me.rect.y > fred.rect.y);
+    // Me: self, two parents, four grandparents. Fred's line: Fred, Me, his parents.
+    assert_eq!(s.chart_lineage(id, me.node_id).unwrap().len(), 7);
+    assert_eq!(s.chart_lineage(id, fred.node_id).unwrap().len(), 4);
+    assert!(s.chart_locate(id, Uuid::nil()).unwrap().is_none());
+    assert_eq!(
+        s.chart_lineage(id, 999).unwrap_err().code,
+        ErrorCode::NotFound
+    );
+}
+
+#[test]
+fn whole_tree_commands_refuse_other_charts_and_other_charts_refuse_whole() {
+    let (_d, mut s) = open_ged(&whole_ged());
+    let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    assert_eq!(
+        s.chart_lineage(m.chart_id, 0).unwrap_err().code,
+        ErrorCode::Invalid
+    );
+    assert_eq!(
+        s.chart_locate(m.chart_id, id_of(&s, "Me X"))
+            .unwrap_err()
+            .code,
+        ErrorCode::Invalid
+    );
+    let req = ChartRequest {
+        kind: ChartKind::Whole,
+        root: id_of(&s, "Me X"),
+        generations: 3,
+        aunts_uncles: None,
+    };
+    assert_eq!(s.chart_open(&req).unwrap_err().code, ErrorCode::Invalid);
+    let w = s.chart_open_whole().unwrap();
+    assert_eq!(
+        s.chart_outline(w.meta.chart_id, None, 5).unwrap_err().code,
+        ErrorCode::Invalid
+    );
+}
+
+#[test]
+fn whole_tree_of_an_empty_project_is_empty() {
+    let (_d, mut s) = open_ged(&ged(&[]));
+    let w = s.chart_open_whole().unwrap();
+    assert_eq!(w.meta.node_count, 0);
+    assert!(w.blocks.is_empty());
 }

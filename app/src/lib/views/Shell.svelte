@@ -15,8 +15,11 @@
   import MediaView from './MediaView.svelte';
   import Settings from './Settings.svelte';
   import Pedigree from './Pedigree.svelte';
+  import WholeTree from './WholeTree.svelte';
   import Descendants from './Descendants.svelte';
+  import Relatives from './Relatives.svelte';
   import ExportDialog from './ExportDialog.svelte';
+  import TraceView from '../trace/TraceView.svelte';
   import QuickAdd from '../editors/QuickAdd.svelte';
   import CitationList from '../editors/CitationList.svelte';
   import MediaGrid from '../media/MediaGrid.svelte';
@@ -38,12 +41,14 @@
 
   const api = getApi();
 
-  type NavName = 'family' | 'people' | 'pedigree' | 'descendants' | 'sources' | 'media' | 'settings';
+  type NavName = 'family' | 'people' | 'whole' | 'pedigree' | 'descendants' | 'relatives' | 'sources' | 'media' | 'settings';
   const ITEMS: { name: NavName; label: MessageKey; icon: IconName }[] = [
     { name: 'family', label: 'nav.family', icon: 'family' },
     { name: 'people', label: 'nav.people', icon: 'people' },
+    { name: 'whole', label: 'nav.whole', icon: 'whole' },
     { name: 'pedigree', label: 'nav.pedigree', icon: 'pedigree' },
     { name: 'descendants', label: 'nav.descendants', icon: 'descendants' },
+    { name: 'relatives', label: 'nav.relatives', icon: 'relatives' },
     { name: 'sources', label: 'nav.sources', icon: 'sources' },
     { name: 'media', label: 'nav.media', icon: 'media' },
   ];
@@ -141,6 +146,12 @@
     { id: 'n6', keys: 'Mod+6', get label() {
       return t('nav.media');
     }, run: () => go('media') },
+    { id: 'n7', keys: 'Mod+7', get label() {
+      return t('nav.relatives');
+    }, run: () => go('relatives') },
+    { id: 'n8', keys: 'Mod+8', get label() {
+      return t('nav.whole');
+    }, run: () => go('whole') },
     { id: 'export', keys: 'Mod+Shift+E', get label() {
       return t('shortcuts.exportGedcom');
     }, run: () => (exportOpen = true) },
@@ -263,6 +274,20 @@
           </button>
         </li>
         <li>
+          <a
+            href="#/trace"
+            class="item"
+            aria-current={current === 'trace' ? 'page' : undefined}
+            onclick={(e) => {
+              e.preventDefault();
+              nav.go({ name: 'trace' });
+            }}
+          >
+            <Icon name="upload" />
+            <span class="lbl">{t('shell.tracePicture')}</span>
+          </a>
+        </li>
+        <li>
           <button type="button" class="item" onclick={() => void closeThisTree()}>
             <Icon name="x" />
             <span class="lbl">{t('shell.closeTree')}</span>
@@ -321,15 +346,19 @@
       </div>
     </header>
     <main id="content" class="main">
-      <div class="page" class:chart={current === 'pedigree' || current === 'descendants'}>
+      <div class="page" class:chart={current === 'pedigree' || current === 'descendants' || current === 'relatives' || current === 'whole' || current === 'trace'}>
         {#if nav.route.name === 'family'}
           <FamilyView />
         {:else if nav.route.name === 'people'}
           <People />
+        {:else if nav.route.name === 'whole'}
+          <WholeTree onOpenPerson={openPerson} />
         {:else if nav.route.name === 'pedigree'}
           <Pedigree onOpenPerson={openPerson} />
         {:else if nav.route.name === 'descendants'}
           <Descendants onOpenPerson={openPerson} />
+        {:else if nav.route.name === 'relatives'}
+          <Relatives onOpenPerson={openPerson} />
         {:else if nav.route.name === 'person'}
           {#key nav.route.id}
             <PersonEditor id={nav.route.id} {mediaSection} {sourcesSection} />
@@ -342,6 +371,8 @@
           {:else}
             <RoutePlaceholder title={t('nav.media')} note={t('shell.chooseFirst')} />
           {/if}
+        {:else if nav.route.name === 'trace'}
+          <TraceView />
         {:else if nav.route.name === 'settings'}
           <Settings />
         {/if}

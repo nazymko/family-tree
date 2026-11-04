@@ -1,10 +1,11 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { getApi } from '../api/context';
-  import type { ChartMeta, ChartNode, ChartWindow, Id, Rect } from '../api/types';
+  import type { ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
   import { project } from '../state/project.svelte';
   import { undoState as undo } from '../state/undo.svelte';
   import Button from '../ui/Button.svelte';
+  import Checkbox from '../ui/Checkbox.svelte';
   import IconButton from '../ui/IconButton.svelte';
   import Select from '../ui/Select.svelte';
   import { centerOn, fit, panBy, tween, viewRect, zoomAt, type Camera } from './camera';
@@ -12,6 +13,7 @@
   import { draw, themeFromCss, type Theme } from './renderer';
   import { WindowCache } from './window';
   import { t, plural } from '../i18n';
+  import { nodeLabel, relationText } from '../i18n/relation';
 
   let {
     kind,
@@ -20,18 +22,25 @@
     onRecentre,
     onOpenPerson,
     onGenerations,
+    auntsUncles = true,
+    onAunts,
     onOpened,
     onSelect,
     selectId = null,
     hidden = false,
   }: {
-    kind: 'pedigree' | 'descendants';
+    kind: ChartKind;
     root: Id;
     generations: number;
-    onRecentre: (id: Id) => void;
+    /** Called with the person to centre on and, on the relatives chart, how they are related to the current centre. */
+    onRecentre: (id: Id, relation?: string) => void;
     onOpenPerson: (id: Id) => void;
     /** Shows the generations Select in the toolbar when given. */
     onGenerations?: (n: number) => void;
+    /** Relatives chart: whether the parents' brothers and sisters are shown. */
+    auntsUncles?: boolean;
+    /** Shows the "Show aunts and uncles" checkbox in the toolbar when given. */
+    onAunts?: (show: boolean) => void;
     /** Called with the chart meta each time a chart is (re)opened. */
     onOpened?: (meta: ChartMeta) => void;
     /** Called whenever the selected node changes (also from the keyboard). */
@@ -62,6 +71,9 @@
   let sized = false;
   let userMoved = false;
   let childrenRect: Rect | null = null;
+  /** Relatives: the centred person with partners, parents and children, for the first view. */
+  let frameRect: Rect | null = null;
+  let parentsRect: Rect | null = null;
   let childCount = 0;
   let hint = $state('');
   let rootRect: Rect | null = null;
@@ -73,10 +85,16 @@
   let theme: Theme | null = null;
   let rootNodeId = 0;
   let pendingAnnounce = false;
+  // Relatives chart: the person the previous chart was centred on, to glide from when re-centring.
+  let lastRoot: Id | null = null;
 
   const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const chartLabel = $derived(kind === 'pedigree' ? t('chartCanvas.pedigreeChart') : t('chartCanvas.descendantChart'));
-  const toolsLabel = $derived(kind === 'pedigree' ? t('chartCanvas.pedigreeTools') : t('chartCanvas.descendantTools'));
+  const chartLabel = $derived(
+    kind === 'pedigree' ? t('chartCanvas.pedigreeChart') : kind === 'relatives' ? t('chartCanvas.relativesChart') : t('chartCanvas.descendantChart'),
+  );
+  const toolsLabel = $derived(
+    kind === 'pedigree' ? t('chartCanvas.pedigreeTools') : kind === 'relatives' ? t('chartCanvas.relativesTools') : t('chartCanvas.descendantTools'),
+  );
 
   function invalidate(): void {
     dirty = true;
@@ -127,6 +145,28 @@
         cam = { zoom: 0.55, x: rootRect.x + rootRect.w / 2 - size.w / 0.55 / 2, y: rootRect.y - 40 / 0.55 };
         hint = plural('chartCanvas.wide', childCount);
       }
+    } else if (kind === 'relatives') {
+      // The centred person with parents and children, fully visible and centred at a readable zoom (about 1:1).
+      // If that is too wide, keep the parents and at least the person; if even that is wider than the
+      // window at a readable zoom, start at the readable zoom, centred on the person.
+      const m = 32;
+      const tryFrame = (u: Rect | null): Camera | null => {
+        if (!u) return null;
+        const z = Math.min(1, (size.w - 2 * m) / u.w, (size.h - 2 * m) / u.h);
+        return z >= 0.55 ? { zoom: z, x: u.x + u.w / 2 - size.w / z / 2, y: u.y + u.h / 2 - size.h / z / 2 } : null;
+      };
+      const union = (a: Rect, b: Rect | null): Rect => {
+        if (!b) return a;
+        const x0 = Math.min(a.x, b.x);
+        const y0 = Math.min(a.y, b.y);
+        return { x: x0, y: y0, w: Math.max(a.x + a.w, b.x + b.w) - x0, h: Math.max(a.y + a.h, b.y + b.h) - y0 };
+      };
+      const c = tryFrame(frameRect) ?? tryFrame(union(rootRect, parentsRect)) ?? tryFrame(rootRect);
+      if (c) cam = c;
+      else {
+        const z = 0.55;
+        cam = { zoom: z, x: rootRect.x + rootRect.w / 2 - size.w / z / 2, y: rootRect.y + rootRect.h / 2 - size.h / z / 2 };
+      }
     } else if (f.zoom >= 0.55 && kind === 'pedigree') cam = f;
     else if (kind === 'descendants' && f.zoom >= 0.55) cam = f;
     else if (kind === 'pedigree') cam = { zoom: 1, x: rootRect.x - 40, y: rootRect.y + rootRect.h / 2 - size.h / 2 };
@@ -175,7 +215,8 @@
     selNode = null;
     let m: ChartMeta;
     try {
-      m = await api.chartOpen({ kind, root, generations });
+      const req: ChartRequest = kind === 'relatives' ? { kind, root, generations, auntsUncles } : { kind, root, generations };
+      m = await api.chartOpen(req);
     } catch (e) {
       if (seq === openSeq) errorText = e instanceof Error ? e.message : t('chartCanvas.openFailed');
       return;
@@ -209,7 +250,13 @@
       invalidate();
     });
     // Find the root node with a thin query, then place the camera.
-    const probe: Rect = kind === 'pedigree' ? { x: -1, y: 0, w: 178, h: Math.max(1, m.bounds.h) } : { x: 0, y: -1, w: Math.max(1, m.bounds.w), h: 58 };
+    // Relatives: the starting person can be anywhere, so ask for the whole chart once.
+    const probe: Rect =
+      kind === 'relatives'
+        ? { x: 0, y: 0, w: Math.max(1, m.bounds.w), h: Math.max(1, m.bounds.h) }
+        : kind === 'pedigree'
+          ? { x: -1, y: 0, w: 178, h: Math.max(1, m.bounds.h) }
+          : { x: 0, y: -1, w: Math.max(1, m.bounds.w), h: 58 };
     let first: ChartWindow;
     try {
       first = await api.chartWindow(m.chartId, probe, 1);
@@ -231,6 +278,27 @@
     } else rootRect = null;
     childrenRect = null;
     childCount = 0;
+    frameRect = null;
+    parentsRect = null;
+    if (kind === 'relatives' && rn && rootRect) {
+      const byId = new Map(first.nodes.map((n) => [n.id, n]));
+      const box = (ns: ChartNode[], extra: Rect | null): Rect | null => {
+        if (!ns.length) return extra;
+        const x0 = Math.min(...ns.map((n) => n.x), extra?.x ?? Infinity);
+        const y0 = Math.min(...ns.map((n) => n.y), extra?.y ?? Infinity);
+        const x1 = Math.max(...ns.map((n) => n.x + n.w), extra ? extra.x + extra.w : -Infinity);
+        const y1 = Math.max(...ns.map((n) => n.y + n.h), extra ? extra.y + extra.h : -Infinity);
+        return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+      };
+      const of = (pred: (e: ChartEdge) => boolean, pick: (e: ChartEdge) => number): ChartNode[] =>
+        first.edges.filter(pred).map((e) => byId.get(pick(e))).filter((n): n is ChartNode => !!n);
+      const partners = of((e) => e.kind === 'partner' && e.from === rn.id, (e) => e.to);
+      const parents = of((e) => e.kind === 'parent' && e.to === rn.id, (e) => e.from);
+      const kids = of((e) => e.kind === 'parent' && e.from === rn.id, (e) => e.to);
+      rootRect = box(partners, rootRect) ?? rootRect;
+      parentsRect = box(parents, null);
+      frameRect = box(kids, box(parents, rootRect));
+    }
     if (kind === 'descendants' && rn && rootRect) {
       try {
         const band = await api.chartWindow(m.chartId, { x: -1, y: rn.y + rn.h + 1, w: Math.max(1, m.bounds.w + 2), h: 400 }, 1);
@@ -251,6 +319,18 @@
     userMoved = false;
     pendingAnnounce = true;
     place();
+    // Re-centred on another person: start from where the previous centre is in the new chart and glide to the new one.
+    const before = lastRoot;
+    lastRoot = root;
+    if (kind === 'relatives' && before && before !== root && sized) {
+      const old = first.nodes.find((n) => n.person?.id === before);
+      if (old) {
+        const target = cam;
+        cam = centerOn(target, old, size);
+        cache?.need(viewRect(cam, size), cam.zoom);
+        animateTo(target);
+      }
+    }
     onOpened?.(m);
   }
 
@@ -258,6 +338,7 @@
     void kind;
     void root;
     void generations;
+    void auntsUncles;
     untrack(() => void open());
     return () => {
       openSeq++;
@@ -375,7 +456,7 @@
   }
 
   function announce(): void {
-    announcement = selNode ? `${selNode.label}${counts()}` : '';
+    announcement = selNode ? `${nodeLabel(selNode)}${counts()}` : '';
   }
 
   function select(n: ChartNode): void {
@@ -480,7 +561,8 @@
   function recentre(n: ChartNode): void {
     if (!n.person) return;
     animateTo(centerOn(cam, n, size));
-    onRecentre(n.person.id);
+    if (n.relation) onRecentre(n.person.id, relationText(n));
+    else onRecentre(n.person.id);
   }
 
   // ------------------------------------------------------------ pointer
@@ -542,7 +624,8 @@
     const w = toWorld(e);
     const handle = hitHandle(cur.win, kind, w.x, w.y, cam.zoom);
     if (handle?.person) {
-      onRecentre(handle.person.id);
+      if (handle.relation) onRecentre(handle.person.id, relationText(handle));
+      else onRecentre(handle.person.id);
       return;
     }
     const n = hitTest(cur.win, w.x, w.y);
@@ -562,6 +645,10 @@
   // ------------------------------------------------------------ keyboard
 
   function dirFor(key: string): Dir | null {
+    // Relatives: up to a parent, down to a child, left and right along the row (siblings and partners).
+    if (kind === 'relatives') {
+      return key === 'ArrowUp' ? 'parent' : key === 'ArrowDown' ? 'child' : key === 'ArrowLeft' ? 'up' : key === 'ArrowRight' ? 'down' : null;
+    }
     if (kind === 'pedigree') {
       return key === 'ArrowRight' ? 'child' : key === 'ArrowLeft' ? 'parent' : key === 'ArrowUp' ? 'up' : key === 'ArrowDown' ? 'down' : null;
     }
@@ -603,8 +690,14 @@
     if (meta) animateTo(fit(meta.bounds, size));
   }
 
-  const genOptions = $derived([3, 4, 5, 6, 7, 8].map((n) => ({ value: String(n), label: plural('chartCanvas.nGenerations', n) })));
-  let genValue = $derived(String(Math.min(8, Math.max(3, generations))));
+  const genRange = $derived(kind === 'relatives' ? { min: 1, max: 6 } : { min: 3, max: 8 });
+  const genOptions = $derived(
+    Array.from({ length: genRange.max - genRange.min + 1 }, (_, i) => genRange.min + i).map((n) => ({
+      value: String(n),
+      label: plural('chartCanvas.nGenerations', n),
+    })),
+  );
+  let genValue = $derived(String(Math.min(genRange.max, Math.max(genRange.min, generations))));
 </script>
 
 <div class="chart" {hidden}>
@@ -612,7 +705,14 @@
     <Button onclick={() => zoomBy(1.25)}>{t('chartCanvas.zoomIn')}</Button>
     <Button onclick={() => zoomBy(0.8)}>{t('chartCanvas.zoomOut')}</Button>
     <Button onclick={fitAll}>{t('chartCanvas.fit')}</Button>
-    <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={!homeId} onclick={() => homeId && onRecentre(homeId)} />
+    {#if kind === 'relatives'}
+      <Button disabled={!homeId} onclick={() => homeId && onRecentre(homeId)}>{t('chartCanvas.centreOnMe')}</Button>
+    {:else}
+      <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={!homeId} onclick={() => homeId && onRecentre(homeId)} />
+    {/if}
+    {#if onAunts}
+      <Checkbox label={t('chartCanvas.showAunts')} checked={auntsUncles} onchange={onAunts} />
+    {/if}
     {#if onGenerations}
       <div class="gens">
         <Select label={t('chartCanvas.generations')} options={genOptions} bind:value={genValue} onchange={(v) => onGenerations(Number(v))} />
@@ -637,7 +737,7 @@
     ></canvas>
     <div class="sr-only" role="listbox" aria-label={t('chartCanvas.selectedPerson')}>
       {#if selNode}
-        <div id="{uid}-sel" role="option" aria-selected="true">{selNode.label}</div>
+        <div id="{uid}-sel" role="option" aria-selected="true">{nodeLabel(selNode)}</div>
       {/if}
     </div>
     {#if hint}

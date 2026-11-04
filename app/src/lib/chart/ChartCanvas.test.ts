@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import type { ChartNode } from '../api/types';
+import type { ChartKind, ChartNode } from '../api/types';
 import { MockApi } from '../api/mock/MockApi';
 import ChartCanvas from './ChartCanvas.svelte';
 import Host from './testing/Host.svelte';
-import { allNodes, attachContext, fakeRaf, lastCamera, makeApi, richestRoot } from './testing/helpers';
+import { BIG, allNodes, attachContext, fakeRaf, lastCamera, makeApi, richestRoot } from './testing/helpers';
 
 type Setup = Awaited<ReturnType<typeof setup>>;
 
-async function setup(opts: { kind?: 'pedigree' | 'descendants'; root?: string; reducedMotion?: boolean } = {}) {
+async function setup(opts: { kind?: ChartKind; root?: string; reducedMotion?: boolean } = {}) {
   const raf = fakeRaf();
   const { api, fx } = makeApi();
   const kind = opts.kind ?? 'pedigree';
@@ -238,6 +238,58 @@ describe('ChartCanvas', () => {
     const sx = (r.x - cam.x) * cam.zoom;
     expect(sx).toBeGreaterThanOrEqual(-1);
     expect(sx).toBeLessThan(800);
+  });
+
+  it('relatives_first_view_shows_the_person_with_parents_and_children_uncut', async () => {
+    const { api, fx } = makeApi();
+    // A person with both parents and children, so all three rows have to be in view.
+    let root: string | null = null;
+    for (const p of fx.persons.slice(0, 300)) {
+      const m = await api.chartOpen({ kind: 'relatives', root: p.id, generations: 3 });
+      const w = await api.chartWindow(m.chartId, BIG, 1);
+      await api.chartClose(m.chartId);
+      const hasParents = w.edges.some((e) => e.kind === 'parent' && e.to === m.rootNode);
+      const hasKids = w.edges.some((e) => e.kind === 'parent' && e.from === m.rootNode);
+      if (!hasParents || !hasKids) continue;
+      // Pick one whose three rows fit a window of this size at a readable zoom.
+      const ids = new Set<number>([m.rootNode]);
+      for (const e of w.edges) {
+        if (e.kind === 'parent' && (e.to === m.rootNode || e.from === m.rootNode)) {
+          ids.add(e.from);
+          ids.add(e.to);
+        }
+        if (e.kind === 'partner' && e.from === m.rootNode) ids.add(e.to);
+      }
+      const ns = w.nodes.filter((n) => ids.has(n.id));
+      const width = Math.max(...ns.map((n) => n.x + n.w)) - Math.min(...ns.map((n) => n.x));
+      if (width <= 1000) {
+        root = p.id;
+        break;
+      }
+    }
+    expect(root).not.toBeNull();
+    const s = await setup({ kind: 'relatives', root: root! });
+    const win = await (s.api as MockApi).chartWindow((await s.openSpy.mock.results[0].value).chartId, BIG, 1);
+    const rootId = (await s.openSpy.mock.results[0].value).rootNode;
+    const byId = new Map(win.nodes.map((n) => [n.id, n]));
+    const ids = new Set<number>([rootId]);
+    for (const e of win.edges) {
+      if (e.kind === 'parent' && (e.to === rootId || e.from === rootId)) {
+        ids.add(e.from);
+        ids.add(e.to);
+      }
+      if (e.kind === 'partner' && e.from === rootId) ids.add(e.to);
+    }
+    const cam = lastCamera(s.ctx)!;
+    expect(cam.zoom).toBeGreaterThanOrEqual(0.55);
+    expect(cam.zoom).toBeLessThanOrEqual(1);
+    for (const id of ids) {
+      const n = byId.get(id)!;
+      expect((n.x - cam.x) * cam.zoom).toBeGreaterThanOrEqual(0);
+      expect((n.y - cam.y) * cam.zoom).toBeGreaterThanOrEqual(0);
+      expect((n.x + n.w - cam.x) * cam.zoom).toBeLessThanOrEqual(800);
+      expect((n.y + n.h - cam.y) * cam.zoom).toBeLessThanOrEqual(600);
+    }
   });
 
   it('resize_updates_backing_store_size', async () => {

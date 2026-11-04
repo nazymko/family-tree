@@ -9,6 +9,8 @@ use tauri::{Manager, Runtime};
 use uuid::Uuid;
 
 pub const SCHEME: &str = "gtmedia";
+/// `gtmedia://localhost/trace/picture`: the picture being traced.
+pub const TRACE_PATH: &str = "/trace/picture";
 pub const CACHE_CONTROL: &str = "private, max-age=31536000, immutable";
 
 /// `Some` only for exactly `/<hyphenated uuid>/<thumb|preview|original>`.
@@ -51,6 +53,18 @@ fn status_for(e: &ApiError) -> StatusCode {
 
 /// Builds the response for a request path. Pure apart from reading the session.
 pub fn respond(state: &AppState, path: &str) -> Response<Vec<u8>> {
+    if path == TRACE_PATH {
+        // The picture being traced; never cached, because a new one replaces it.
+        return match state.with_session(|s| s.trace_image_bytes()) {
+            Ok((bytes, mime)) => Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, mime)
+                .header(header::CACHE_CONTROL, "no-store")
+                .body(bytes)
+                .unwrap_or_default(),
+            Err(e) => text(status_for(&e), &e.message),
+        };
+    }
     let Some((id, size)) = parse_path(path) else {
         return text(StatusCode::BAD_REQUEST, "Malformed media address.");
     };

@@ -10,11 +10,15 @@ pub type Union = (Option<Key>, Vec<Key>);
 pub struct MapSource {
     pub parents: HashMap<Key, [Option<Key>; 2]>,
     pub unions: HashMap<Key, Vec<Union>>,
+    pub births: HashMap<Key, i32>,
 }
 
 impl ChartSource for MapSource {
     fn parents(&self, p: Key) -> [Option<Key>; 2] {
         self.parents.get(&p).copied().unwrap_or([None, None])
+    }
+    fn birth_sort(&self, p: Key) -> Option<i32> {
+        self.births.get(&p).copied()
     }
     fn unions(&self, p: Key) -> Vec<Union> {
         self.unions.get(&p).cloned().unwrap_or_default()
@@ -22,6 +26,21 @@ impl ChartSource for MapSource {
 }
 
 impl MapSource {
+    /// A family: `a` and `b` (either may be unknown) with `kids`; every kid gets both as parents.
+    pub fn family(&mut self, a: Option<Key>, b: Option<Key>, kids: &[Key]) {
+        for (p, other) in [(a, b), (b, a)] {
+            if let Some(p) = p {
+                self.unions
+                    .entry(p)
+                    .or_default()
+                    .push((other, kids.to_vec()));
+            }
+        }
+        for &k in kids {
+            self.parents.insert(k, [a, b]);
+        }
+    }
+
     /// Key = Ahnentafel number; everyone below `last` has both parents.
     pub fn ahnen_tree(last: Key) -> Self {
         let mut s = MapSource::default();

@@ -3,6 +3,7 @@
 
 mod cite;
 mod delete;
+pub(crate) mod draft;
 mod event;
 mod family;
 mod media;
@@ -156,6 +157,14 @@ impl<'a> Planner<'a> {
                 }
             }
         }
+    }
+
+    /// Families written by this plan so far (their latest state).
+    pub fn written_families(&self) -> impl Iterator<Item = &Family> {
+        self.ov.values().filter_map(|(_, after)| match after {
+            Some(Record::Family(f)) => Some(f),
+            _ => None,
+        })
     }
 
     /// Notes and citations that `keep` no longer references are deleted when `finish` finds
@@ -383,6 +392,16 @@ pub fn plan_with(
         C::AttachMedia { target, media } => media::attach_media(&mut p, *target, media)?,
         C::DetachMedia { target, media } => media::detach_media(&mut p, *target, *media)?,
         C::SetPrimaryMedia { person, media } => media::set_primary(&mut p, *person, *media)?,
+        C::ImportDraft {
+            persons,
+            families,
+            attach_picture,
+        } => {
+            if *attach_picture {
+                return Err(invalid("The picture must be stored by the session first."));
+            }
+            draft::import_draft(&mut p, persons, families, None)?
+        }
         C::UpdateMedia {
             id,
             title,
@@ -397,6 +416,26 @@ pub fn plan_with(
         )?,
     };
     Ok((p.finish(cmd.label()), focus))
+}
+
+/// `importDraft` with its picture (already stored by the session) attached.
+pub(crate) fn plan_draft(
+    tree: &Tree,
+    persons: &[crate::command::DraftPerson],
+    families: &[crate::command::DraftFamily],
+    picture: Option<&draft::StagedPicture>,
+    now_ms: i64,
+    day_order: DayOrder,
+) -> Result<(ChangeSet, Option<Uuid>), ApiError> {
+    let mut p = Planner::new(tree, now_ms, day_order);
+    let focus = draft::import_draft(&mut p, persons, families, picture)?;
+    let label = EditCommand::ImportDraft {
+        persons: Vec::new(),
+        families: Vec::new(),
+        attach_picture: false,
+    }
+    .label();
+    Ok((p.finish(label), focus))
 }
 
 /// Writes `cs` into `tree`: `after` present -> insert or replace, absent -> remove.

@@ -289,6 +289,55 @@ pub struct SourceInput {
     pub text: Option<String>,
 }
 
+/// One person on the trace screen. `existing` set: the card stands for a person already in the
+/// tree and nothing is created for it; otherwise a new person is made from the other fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftPerson {
+    /// The caller's name for this card; families refer to it. Unique within one draft.
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub existing: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub given: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub surname: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub patronymic: Option<String>,
+    pub sex: SexKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub birth_date_raw: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub death_date_raw: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub notes: Option<String>,
+}
+
+/// A family of the draft: partners and children are `DraftPerson::key`s.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftFamily {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub partner1: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub partner2: Option<String>,
+    /// The family already in the tree that the children join. Needed only when a parent from the
+    /// tree is in more than one family; with exactly one, that family is used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub existing_family: Option<Uuid>,
+    pub children: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum Relation {
@@ -444,6 +493,13 @@ pub enum EditCommand {
         #[ts(optional)]
         date_raw: Option<String>,
     },
+    /// Everything traced from a picture, in ONE undoable step. With `attach_picture` the staged
+    /// trace picture is stored as a media item attached to every new person and to a new source.
+    ImportDraft {
+        persons: Vec<DraftPerson>,
+        families: Vec<DraftFamily>,
+        attach_picture: bool,
+    },
 }
 
 impl EditCommand {
@@ -474,6 +530,7 @@ impl EditCommand {
             EditCommand::DetachMedia { .. } => "Detach media".into(),
             EditCommand::SetPrimaryMedia { .. } => "Set primary media".into(),
             EditCommand::UpdateMedia { .. } => "Edit media".into(),
+            EditCommand::ImportDraft { .. } => "Add traced people".into(),
         }
     }
 }
