@@ -503,21 +503,22 @@ pub fn ai_remove_key() -> ApiResult<()> {
 
 /// Sends the traced picture to Anthropic. `consent` must be true on every call. The picture is read
 /// while the session is locked; the lock is released before the (slow) network call.
-#[tauri::command(async)]
-pub fn ai_read_picture(
+#[tauri::command]
+pub async fn ai_read_picture(
     state: State<'_, AppState>,
     consent: bool,
     key: Option<String>,
 ) -> ApiResult<gt_session::AiReadResult> {
     let (bytes, _) = state.with_session(|s| s.trace_image_bytes())?;
-    crate::ai::read_picture(
-        &crate::ai::ReqwestHttp,
-        &crate::ai::Keychain,
+    crate::ai::read_picture_async(
+        std::sync::Arc::new(crate::ai::ReqwestHttp),
+        std::sync::Arc::new(crate::ai::Keychain),
         consent,
-        key.as_deref(),
-        &bytes,
-        crate::ai::DEFAULT_MODEL,
+        key,
+        bytes,
+        crate::ai::DEFAULT_MODEL.to_string(),
     )
+    .await
 }
 
 /// The original file of a media item, but only when its CONTENT is an image or a PDF. The type is

@@ -14,6 +14,10 @@ export interface TraceBox {
 export interface ExistingMatch {
   id: string;
   name: string;
+  /** The families this person is already a partner in (filled in by the card form). */
+  families?: { id: string; label: string }[];
+  /** The one of those families that new children of this person join (needed when there are several). */
+  familyId?: string;
 }
 
 export interface TraceCard extends TraceBox {
@@ -29,6 +33,8 @@ export interface TraceCard extends TraceBox {
   existing: ExistingMatch | null;
   /** Drawn dashed until the user accepts it (from the AI reader). */
   suggested: boolean;
+  /** Set on a suggestion the AI reader was unsure about; shown in the form, never saved as a note. */
+  unsure?: boolean;
 }
 
 /** `parent`: `from` is a parent of `to`. `partner`: the two are partners. */
@@ -183,7 +189,16 @@ export function buildFamilies(d: TraceDraft): Built {
     if (list.length === 2) family(list[0], list[1]).children.push(child);
     else {
       const only = partners.get(list[0]) ?? [];
-      (only.length === 1 ? family(list[0], only[0]) : family(list[0])).children.push(child);
+      if (only.length === 1) family(list[0], only[0]).children.push(child);
+      else {
+        // One parent: if they are already in the tree, the children join that parent's family.
+        const f = family(list[0]);
+        f.children.push(child);
+        const ex = cards.get(list[0])?.existing;
+        if (ex?.familyId) f.existingFamily = ex.familyId;
+        else if ((ex?.families?.length ?? 0) > 1)
+          problems.push(`${label(list[0])} is already in more than one family. Open the card and choose which family the children belong to.`);
+      }
     }
   }
   for (const c of cards.values()) if (!hasName(c)) problems.push('A card has no name. Enter a given name or a surname, or remove the card.');
@@ -273,7 +288,7 @@ export function addSuggestions(d: TraceDraft, r: AiReadResult): { cards: number;
     card.sex = p.sex === 'male' || p.sex === 'female' ? p.sex : 'unknown';
     card.birth = p.birth ?? '';
     card.death = p.death ?? '';
-    card.notes = p.confidence < 0.5 ? 'The AI reader was not sure about this one. Check the name.' : '';
+    if (p.confidence < 0.5) card.unsure = true;
     card.suggested = true;
     byAiId.set(p.id, card.id);
   }
@@ -292,6 +307,18 @@ export function addSuggestions(d: TraceDraft, r: AiReadResult): { cards: number;
 const SEXES: SexKind[] = ['male', 'female', 'intersex', 'unknown', 'other'];
 const str = (v: unknown, max = 500): string => (typeof v === 'string' ? v.slice(0, max) : '');
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
+
+function existingOf(ex: Record<string, unknown>): ExistingMatch {
+  const out: ExistingMatch = { id: String(ex.id), name: str(ex.name) };
+  if (Array.isArray(ex.families)) {
+    out.families = ex.families.flatMap((f: unknown) => {
+      const o = f as Record<string, unknown> | null;
+      return o && typeof o.id === 'string' ? [{ id: o.id, label: str(o.label) }] : [];
+    });
+  }
+  if (typeof ex.familyId === 'string') out.familyId = ex.familyId;
+  return out;
+}
 
 /** Reads a saved draft defensively: anything malformed is skipped, never thrown. */
 export function parseDraft(json: string | null): TraceDraft | null {
@@ -323,8 +350,9 @@ export function parseDraft(json: string | null): TraceDraft | null {
       birth: str(c.birth, 60),
       death: str(c.death, 60),
       notes: str(c.notes, 5000),
-      existing: ex && typeof ex.id === 'string' ? { id: ex.id, name: str(ex.name) } : null,
+      existing: ex && typeof ex.id === 'string' ? existingOf(ex) : null,
       suggested: c.suggested === true,
+      ...(c.unsure === true ? { unsure: true } : {}),
     });
   }
   const seen = new Set<string>();

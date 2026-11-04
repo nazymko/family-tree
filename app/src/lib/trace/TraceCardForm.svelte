@@ -54,6 +54,26 @@
   });
   onDestroy(() => clearTimeout(timer));
 
+  // A person from the tree may be in several families; find out so the form can ask which one new
+  // children belong to.
+  $effect(() => {
+    const ex = card.existing;
+    if (!ex || ex.families !== undefined) return;
+    const id = ex.id;
+    void api
+      .getPerson(id)
+      .then((d) => {
+        if (card.existing?.id !== id) return;
+        card.existing.families = d.partnerships.map((x) => ({
+          id: x.familyId,
+          label: x.partner ? `With ${x.partner.name}` : 'No partner recorded',
+        }));
+      })
+      .catch(() => {
+        if (card.existing?.id === id) card.existing.families = [];
+      });
+  });
+
   function sameAs(p: PersonRef) {
     card.existing = { id: p.id, name: p.name };
     matches = [];
@@ -67,6 +87,7 @@
 
   {#if card.suggested}
     <p class="note">The AI reader suggested this card. It is not added until you accept it.</p>
+    {#if card.unsure}<p class="need" role="status">The AI reader was not sure about this one. Check the name.</p>{/if}
     <div class="row">
       <Button variant="primary" onclick={onaccept}>Accept this person</Button>
       <Button onclick={onreject}>Remove suggestion</Button>
@@ -75,6 +96,16 @@
 
   {#if card.existing}
     <p class="same">Same as <strong>{card.existing.name}</strong>. Nothing new is created for this card.</p>
+    {#if (card.existing.families?.length ?? 0) > 1}
+      {@const ex = card.existing}
+      <Select
+        label="Family the children belong to"
+        options={[{ value: '', label: 'Choose a family' }, ...(ex.families ?? []).map((f) => ({ value: f.id, label: f.label }))]}
+        value={ex.familyId ?? ''}
+        onchange={(v) => (ex.familyId = v || undefined)}
+      />
+      <p class="note">This person is in more than one family in your tree. Children linked to this card are added to the family you choose.</p>
+    {/if}
     <Button onclick={() => (card.existing = null)}>Not the same person</Button>
   {:else}
     <TextField label="Given name" bind:value={card.given} autocomplete="off" />

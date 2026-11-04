@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { tick, type Snippet } from 'svelte';
   import Icon from '../ui/Icon.svelte';
   import IconButton from '../ui/IconButton.svelte';
   import { DEFAULT_BOX, cardName, fitBox, type TraceBox, type TraceDraft } from './model';
@@ -18,8 +18,10 @@
     ondelete: (id: string) => void;
     /** The person form; it is placed next to the selected card. */
     popover?: Snippet;
+    /** Lets keyboard users jump past the cards to the review panel. */
+    onskip?: () => void;
   }
-  let { imageUrl, imgW, imgH, draft = $bindable(), selectedId, linking, onmark, onselect, onpick, ondelete, popover }: Props = $props();
+  let { imageUrl, imgW, imgH, draft = $bindable(), selectedId, linking, onmark, onselect, onpick, ondelete, popover, onskip }: Props = $props();
 
   const MIN_ZOOM = 0.05;
   const MAX_ZOOM = 8;
@@ -218,6 +220,28 @@
     e.preventDefault();
   }
 
+  let stage = $state<HTMLElement>();
+  let shownFor: string | null = null;
+
+  // A keyboard user must not have to Tab through every card to reach the form: when a card is selected,
+  // focus moves to the form's first field; when the form closes, focus goes back to that card.
+  $effect(() => {
+    const id = selectedId;
+    if (id === shownFor) return;
+    const was = shownFor;
+    shownFor = id;
+    void tick().then(() => {
+      if (id) {
+        const first = viewport?.querySelector<HTMLElement>('.pop input, .pop select, .pop textarea, .pop button');
+        first?.focus();
+      } else if (was) {
+        // The form is gone, so focus fell back to the page: put it on the card.
+        const active = document.activeElement;
+        if (!active || active === document.body) stage?.querySelector<HTMLElement>(`[data-card="${was}"]`)?.focus();
+      }
+    });
+  });
+
   const selected = $derived(draft.cards.find((c) => c.id === selectedId) ?? null);
   const popStyle = $derived.by(() => {
     if (!selected) return '';
@@ -242,12 +266,14 @@
       <Icon name="user-plus" /> Add a person
     </button>
     <div class="group" role="group" aria-label="Zoom">
-      <IconButton label="Zoom out" icon="chevron-left" onclick={() => zoomAt(1 / 1.25)} />
+      <IconButton label="Zoom out" icon="minus" onclick={() => zoomAt(1 / 1.25)} />
       <span class="pct tnum" aria-live="polite">{Math.round(z * 100)}%</span>
       <IconButton label="Zoom in" icon="plus" onclick={() => zoomAt(1.25)} />
       <button type="button" class="tool" onclick={() => fit()}>Fit</button>
     </div>
   </div>
+
+  <button type="button" class="skip" onclick={() => onskip?.()}>Skip the picture and go to the review panel</button>
 
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
   <div
@@ -261,7 +287,7 @@
     onmousedown={backgroundDown}
     onkeydown={viewportKey}
   >
-    <div class="stage" style="width:{imgW}px;height:{imgH}px;transform:translate({tx}px,{ty}px) scale({z})">
+    <div class="stage" bind:this={stage} style="width:{imgW}px;height:{imgH}px;transform:translate({tx}px,{ty}px) scale({z})">
       <img src={imageUrl} alt="The family tree being traced" width={imgW} height={imgH} draggable="false" />
 
       <svg class="links" width={imgW} height={imgH} viewBox="0 0 {imgW} {imgH}" aria-hidden="true">
@@ -290,6 +316,7 @@
         <button
           type="button"
           class="card"
+          data-card={c.id}
           class:selected={c.id === selectedId}
           class:suggested={c.suggested}
           class:matched={!!c.existing}
@@ -359,6 +386,33 @@
     background: var(--ribbon);
     border-color: var(--ribbon);
     color: var(--paper-0);
+  }
+  .canvas {
+    position: relative;
+  }
+  .skip {
+    position: absolute;
+    inset-inline-start: var(--s-3);
+    inset-block-start: var(--s-3);
+    z-index: 5;
+    padding: var(--s-2) var(--s-4);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-1);
+    background: var(--paper-0);
+    color: var(--ink-0);
+    font: inherit;
+    clip-path: inset(50%);
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .skip:focus {
+    clip-path: none;
+    width: auto;
+    height: auto;
+    outline: 2px solid var(--focus, var(--ribbon));
+    outline-offset: 2px;
   }
   .tool:focus-visible,
   .viewport:focus-visible,

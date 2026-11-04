@@ -96,9 +96,20 @@ fn request_has_headers_model_and_an_image_block() {
     for k in ["temperature", "top_p", "top_k", "tool_choice"] {
         assert!(body.get(k).is_none(), "{k}");
     }
+    assert_eq!(body["output_config"]["effort"], "high");
+    assert_eq!(body["output_config"]["format"]["type"], "json_schema");
+    assert_eq!(
+        body["output_config"]["format"]["schema"]["additionalProperties"],
+        false
+    );
+    assert_eq!(body["fallbacks"], "default");
     let h = ai::build_headers(FAKE_KEY);
+    assert!(h.contains(&(
+        "anthropic-beta".into(),
+        "server-side-fallback-2026-07-01".into()
+    )));
     assert!(h.contains(&("x-api-key".into(), FAKE_KEY.into())));
-    assert!(h.contains(&("anthropic-version".into(), "2023-06-01".into())));
+    assert!(h.contains(&("anthropic-version".into(), "2026-10-21".into())));
     assert!(h.contains(&("content-type".into(), "application/json".into())));
 }
 
@@ -159,8 +170,8 @@ fn errors_say_what_to_do_and_never_contain_the_key() {
         (529, "{}", "not working right now"),
         (
             400,
-            r#"{"error":{"message":"image too large"}}"#,
-            "image too large",
+            r#"{"error":{"message":"messages.0.content.0.image.source.base64: too big"}}"#,
+            "smaller or clearer picture",
         ),
     ];
     for (status, body, expect) in cases {
@@ -248,4 +259,129 @@ fn key_store_functions_and_validation() {
     ai::remove_key(&keys).unwrap();
     assert!(!ai::key_status(&keys));
     let _: Value = serde_json::json!(null);
+}
+
+/// A JPEG whose stored size is 300x100 and whose EXIF orientation says "turn 90 degrees clockwise".
+fn rotated_jpeg() -> Vec<u8> {
+    let img = image::RgbImage::from_pixel(300, 100, image::Rgb([200, 30, 30]));
+    let mut plain = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut plain, image::ImageFormat::Jpeg).unwrap();
+    let plain = plain.into_inner();
+    // APP1 "Exif" segment: big-endian TIFF with one tag, Orientation (0x0112) = 6.
+    let mut tiff = vec![
+        b'M', b'M', 0, 42, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0,
+        0, 0,
+    ];
+    let mut seg = b"Exif  ".to_vec();
+    seg.append(&mut tiff);
+    let len = u16::try_from(seg.len() + 2).unwrap();
+    let mut out = vec![0xFF, 0xD8, 0xFF, 0xE1];
+    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(&seg);
+    out.extend_from_slice(&plain[2..]);
+    out
+}
+
+#[test]
+fn the_picture_is_turned_upright_before_it_is_sent() {
+    let jpeg = ai::downscale_to_jpeg(&rotated_jpeg()).unwrap();
+    let img = image::load_from_memory(&jpeg).unwrap();
+    assert_eq!((img.width(), img.height()), (100, 300));
+}
+
+#[test]
+fn a_cut_off_answer_is_marked_and_other_stop_reasons_have_plain_messages() {
+    let keys = FakeKeys::default();
+    let cut =
+        serde_json::json!({"stop_reason":"max_tokens","content":[{"type":"text","text":ANSWER}]})
+            .to_string();
+    let r = ai::read_picture(
+        &FakeHttp::answering(200, &cut),
+        &keys,
+        true,
+        Some(FAKE_KEY),
+        &picture(10, 10),
+        "m",
+    )
+    .unwrap();
+    assert!(r.truncated);
+    let big =
+        serde_json::json!({"stop_reason":"model_context_window_exceeded","content":[]}).to_string();
+    let e = ai::read_picture(
+        &FakeHttp::answering(200, &big),
+        &keys,
+        true,
+        Some(FAKE_KEY),
+        &picture(10, 10),
+        "m",
+    )
+    .unwrap_err();
+    assert!(e.message.contains("too detailed"));
+}
+
+#[test]
+fn a_typed_key_that_is_not_a_key_is_never_sent() {
+    let http = FakeHttp::answering(200, &ok_body(ANSWER));
+    let keys = FakeKeys::default();
+    let e = ai::read_picture(
+        &http,
+        &keys,
+        true,
+        Some("two words here"),
+        &picture(10, 10),
+        "m",
+    )
+    .unwrap_err();
+    assert!(e.message.contains("does not look like"));
+    assert_eq!(http.calls(), 0);
+}
+
+// The Tauri command runs inside a Tokio runtime. A blocking reqwest call made directly there panics, so
+// these drive the same path the command uses and the raw client from a blocking-pool thread.
+
+#[test]
+fn the_real_http_client_does_not_panic_when_driven_from_the_runtime() {
+    let out = tauri::async_runtime::block_on(async {
+        tauri::async_runtime::spawn_blocking(|| {
+            // Port 1 on localhost is closed: the call must fail with an error, not panic.
+            ai::ReqwestHttp.post_json(
+                "http://127.0.0.1:1/v1/messages",
+                &[],
+                "{}",
+                Duration::from_secs(5),
+            )
+        })
+        .await
+    });
+    assert!(out.expect("the blocking task must not panic").is_err());
+}
+
+#[test]
+fn the_command_path_runs_inside_a_runtime() {
+    use std::sync::Arc;
+    let http = Arc::new(FakeHttp::answering(200, &ok_body(ANSWER)));
+    let keys = Arc::new(FakeKeys::default());
+    let r = tauri::async_runtime::block_on(ai::read_picture_async(
+        http.clone(),
+        keys,
+        true,
+        Some(FAKE_KEY.into()),
+        picture(40, 30),
+        "m".into(),
+    ))
+    .unwrap();
+    assert_eq!(r.people.len(), 1);
+    assert_eq!(http.calls(), 1);
+    // An error comes back as an error, not a hang.
+    let bad = Arc::new(FakeHttp::failing("dns"));
+    let e = tauri::async_runtime::block_on(ai::read_picture_async(
+        bad,
+        Arc::new(FakeKeys::default()),
+        true,
+        Some(FAKE_KEY.into()),
+        picture(40, 30),
+        "m".into(),
+    ))
+    .unwrap_err();
+    assert!(e.message.contains("internet connection"));
 }

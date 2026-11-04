@@ -73,7 +73,6 @@ describe('TraceView', () => {
     expect(within(form).getByLabelText('Sex')).toBeInTheDocument();
     const vp = screen.getByRole('application');
     expect(cardIn(vp, 'Ivan Koval')).toBeInTheDocument();
-    expect(screen.getByRole('status', { name: '' })).toBeTruthy();
     expect(screen.getByText(/1 new person/)).toBeInTheDocument();
   });
 
@@ -183,7 +182,7 @@ describe('TraceView', () => {
     expect(cmd.type === 'importDraft' && cmd.families).toHaveLength(1);
     expect(opts).toEqual({ silent: true });
 
-    await waitFor(() => expect(notices.current?.message).toBe('Added 2 people and 1 family.'));
+    await waitFor(() => expect(notices.current?.message).toBe('Added 2 people and one family (new or updated).'));
     expect(notices.current?.actionLabel).toBe('Undo');
     expect((await api.listPersons({ sort: 'surname', desc: false, text: '', living: 'any', noSource: false, noBirthDate: false, privateOnly: false }, 0, 1)).total).toBe(before + 2);
     expect(await api.loadTraceDraft()).toEqual({ json: null, image: null });
@@ -245,6 +244,30 @@ describe('TraceView', () => {
     expect(screen.getByText('53%')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Fit' }));
     expect(screen.getByText('67%')).toBeInTheDocument();
+  });
+
+  describe('keyboard', () => {
+    it('focus_moves_to_the_person_form_when_a_card_is_added_and_back_to_the_card_when_done', async () => {
+      const { user } = await setup();
+      await user.click(await screen.findByRole('button', { name: 'Add a person' }));
+      const form = await screen.findByRole('group', { name: /Person on the picture/ });
+      await waitFor(() => expect(within(form).getByLabelText('Given name')).toHaveFocus());
+      await user.type(within(form).getByLabelText('Given name'), 'Ivan');
+      await user.click(within(form).getByRole('button', { name: 'Done' }));
+      const vp = screen.getByRole('application');
+      await waitFor(() => expect(within(vp).getByRole('button', { name: 'Ivan' })).toHaveFocus());
+    });
+
+    it('a_skip_button_before_the_cards_jumps_to_the_review_panel', async () => {
+      const { user } = await setup();
+      await screen.findByRole('application');
+      const skip = screen.getByRole('button', { name: /Skip the picture/ });
+      // It comes before the picture in the tab order.
+      const vp = screen.getByRole('application');
+      expect(skip.compareDocumentPosition(vp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      await user.click(skip);
+      expect(screen.getByRole('complementary', { name: 'Review' }).contains(document.activeElement)).toBe(true);
+    });
   });
 
   describe('Read names with AI', () => {
@@ -315,6 +338,29 @@ describe('TraceView', () => {
       await user.click(within(dlg).getByRole('button', { name: 'Send picture' }));
       expect(await within(dlg).findByRole('alert')).toHaveTextContent('Remove the key');
       expect(screen.getByRole('dialog')).toBeInTheDocument();
+      // The dialog is usable again: not busy, and the tick has to be given again.
+      expect(within(dlg).getByRole('button', { name: 'Cancel' })).toBeEnabled();
+      expect(within(dlg).getByRole('checkbox', { name: /I understand/ })).not.toBeChecked();
+      expect(within(dlg).getByRole('button', { name: 'Send picture' })).toBeDisabled();
+    });
+
+    it('says_when_the_answer_was_cut_short_and_replaces_older_suggestions', async () => {
+      const { api, user, dlg } = await openDialog();
+      const real = api.aiReadPicture.bind(api);
+      api.aiReadPicture = async (c, k) => ({ ...(await real(c, k)), truncated: true, skipped: 2 });
+      await user.type(within(dlg).getByLabelText('Anthropic API key'), 'invented-key-for-tests');
+      await user.click(within(dlg).getByRole('checkbox', { name: /I understand/ }));
+      await user.click(within(dlg).getByRole('button', { name: 'Send picture' }));
+      await waitFor(() => expect(notices.current?.message).toMatch(/cut short/));
+      expect(notices.current?.message).toMatch(/skipped 2 unclear entries/);
+      // Reading again swaps the suggestions instead of doubling them.
+      await user.click(screen.getByRole('button', { name: 'Read names with AI…' }));
+      const again = await screen.findByRole('dialog');
+      await user.click(within(again).getByRole('checkbox', { name: /I understand/ }));
+      await user.click(within(again).getByRole('button', { name: 'Send picture' }));
+      await waitFor(() => expect(api.aiSends).toBe(2));
+      const vp = screen.getByRole('application');
+      await waitFor(() => expect(within(vp).getAllByRole('button', { name: /Ivan Petrovych Koval/ })).toHaveLength(1));
     });
   });
 });

@@ -168,4 +168,20 @@ describe('trace model', () => {
     expect(broken.links.map((l) => l.id)).toEqual(['l3']);
     expect(broken.nextId).toBeGreaterThan(3);
   });
+
+  it('asks_which_family_when_the_one_parent_is_in_several_and_passes_the_choice', () => {
+    const d = newDraft();
+    const [p, k] = people(d, 'Ivan', 'Petro');
+    const parent = d.cards.find((c) => c.id === p)!;
+    parent.existing = { id: 'x1', name: 'Ivan Koval', families: [{ id: 'f1', label: 'With A' }, { id: 'f2', label: 'With B' }] };
+    addLink(d, 'parent', p, k);
+    expect(buildFamilies(d).problems.join(' ')).toMatch(/more than one family/);
+    parent.existing.familyId = 'f2';
+    const built = buildFamilies(d);
+    expect(built.problems).toEqual([]);
+    expect(built.families[0]).toMatchObject({ partner1: p, existingFamily: 'f2', children: [k] });
+    // With only one family there is nothing to ask.
+    parent.existing = { id: 'x1', name: 'Ivan Koval', families: [{ id: 'f1', label: 'With A' }] };
+    expect(buildFamilies(d).problems).toEqual([]);
+  });
 });

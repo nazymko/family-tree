@@ -40,6 +40,7 @@ pub mod thumbs;
 pub mod trace;
 pub use ai_read::{AiPerson, AiReadResult, AiRelation, parse_ai_reply};
 pub use media::{AttachFailure, AttachResult, ExifSuggestion, MediaSize};
+pub use thumbs::render_px;
 pub use trace::{TraceDraftState, TraceImageInfo};
 pub mod transfer;
 pub use transfer::{

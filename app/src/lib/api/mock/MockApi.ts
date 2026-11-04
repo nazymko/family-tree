@@ -1503,7 +1503,21 @@ export class MockApi implements Api {
       if (p1 && p1 === p2) throw invalid('A family needs two different people.');
       if (new Set(kids).size !== kids.length) throw new MockApiError('conflict', 'A child is listed twice in one family.');
       if (kids.some((k) => k === p1 || k === p2)) throw invalid('A person cannot be their own child.');
-      return { p1, p2, kids };
+      // Children of ONE parent from the tree join that parent's family.
+      let into: FamilyRec | undefined;
+      const single = p1 && !p2 ? p1 : p2 && !p1 ? p2 : null;
+      if (f.existingFamily) {
+        into = this.db.families.get(f.existingFamily);
+        if (!into) throw invalid('The family chosen for the new people is not in the tree any more.');
+        if (!single || (into.partner1 !== single && into.partner2 !== single))
+          throw invalid('The family chosen for the new people does not include that parent.');
+      } else if (single) {
+        const mine = this.partnerFamilies(single);
+        if (mine.length > 1)
+          throw new MockApiError('conflict', 'A parent on the picture is in more than one family in the tree. Choose which family the new people belong to.');
+        into = mine[0];
+      }
+      return { p1: into ? into.partner1 : p1, p2: into ? into.partner2 : p2, kids, into };
     });
     // A loop of parents and children is refused.
     const parents = new Map<Id, Id[]>();
@@ -1586,9 +1600,10 @@ export class MockApi implements Api {
     }
     for (const f of fams) {
       const same =
-        f.p1 && f.p2
+        f.into ??
+        (f.p1 && f.p2
           ? [...this.db.families.values()].find((x) => (x.partner1 === f.p1 && x.partner2 === f.p2) || (x.partner1 === f.p2 && x.partner2 === f.p1))
-          : undefined;
+          : undefined);
       const fam = same ?? this.newFamily(f.p1, f.p2);
       for (const k of f.kids) {
         if (fam.children.some((c) => c.person === k)) continue;

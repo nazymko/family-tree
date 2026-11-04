@@ -330,6 +330,11 @@ pub struct DraftFamily {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub partner2: Option<String>,
+    /// The family already in the tree that the children join. Needed only when a parent from the
+    /// tree is in more than one family; with exactly one, that family is used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub existing_family: Option<Uuid>,
     pub children: Vec<String>,
 }
 

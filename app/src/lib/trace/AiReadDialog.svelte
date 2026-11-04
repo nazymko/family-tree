@@ -44,6 +44,8 @@
       onresult(r);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
+      // The picture may already have left the computer: ask again before any retry.
+      understood = false;
     } finally {
       busy = false;
     }

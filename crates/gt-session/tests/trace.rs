@@ -33,6 +33,7 @@ fn fam(p1: Option<&str>, p2: Option<&str>, kids: &[&str]) -> DraftFamily {
     DraftFamily {
         partner1: p1.map(Into::into),
         partner2: p2.map(Into::into),
+        existing_family: None,
         children: kids.iter().map(|k| (*k).into()).collect(),
     }
 }
@@ -361,4 +362,72 @@ fn the_picture_becomes_media_on_every_new_person_and_a_source() {
     assert_eq!(disk(&s), before);
     s.redo().unwrap();
     assert_eq!(disk(&s), after);
+}
+
+#[test]
+fn a_child_of_one_parent_from_the_tree_joins_that_parents_family() {
+    let (_d, mut s) = setup();
+    let anna = find(s.tree(), "Anna");
+    let families = s.tree().families.len();
+    s.apply(cmd(
+        vec![existing("a", anna), person("c", "Greta", "Schmidt")],
+        vec![fam(Some("a"), None, &["c"])],
+        false,
+    ))
+    .unwrap();
+    // No second family for Anna: the child is in the family she already has with Karl.
+    assert_eq!(s.tree().families.len(), families);
+    assert_eq!(s.tree().families.values().next().unwrap().children.len(), 2);
+    s.undo().unwrap();
+    assert_eq!(s.tree().families.values().next().unwrap().children.len(), 1);
+}
+
+#[test]
+fn a_parent_in_several_families_must_say_which_one() {
+    let (_d, mut s) = setup();
+    let karl = find(s.tree(), "Karl");
+    let eva = find(s.tree(), "Eva");
+    let first = s.tree().families.keys().next().copied().unwrap();
+    // Karl gets a second family, with Eva.
+    s.apply(cmd(
+        vec![existing("k", karl), existing("e", eva)],
+        vec![fam(Some("k"), Some("e"), &[])],
+        false,
+    ))
+    .unwrap();
+    assert_eq!(s.tree().families.len(), 2);
+    let before = disk(&s);
+    let kid = || vec![existing("k", karl), person("c", "Greta", "Schmidt")];
+
+    let e = s
+        .apply(cmd(kid(), vec![fam(Some("k"), None, &["c"])], false))
+        .unwrap_err();
+    assert!(e.message.contains("Choose which family"), "{}", e.message);
+    assert_eq!(disk(&s), before);
+
+    let mut chosen = fam(Some("k"), None, &["c"]);
+    chosen.existing_family = Some(first);
+    s.apply(cmd(kid(), vec![chosen], false)).unwrap();
+    assert_eq!(s.tree().families.len(), 2);
+    assert_eq!(s.tree().families[&first].children.len(), 2);
+
+    // A family that does not include that parent is refused.
+    let anna = find(s.tree(), "Anna");
+    let other = s
+        .tree()
+        .families
+        .values()
+        .find(|f| f.partner1 != Some(anna) && f.partner2 != Some(anna))
+        .map(|f| f.common.id)
+        .unwrap();
+    let mut wrong = fam(Some("a"), None, &["d"]);
+    wrong.existing_family = Some(other);
+    let e = s
+        .apply(cmd(
+            vec![existing("a", anna), person("d", "Otto", "Schmidt")],
+            vec![wrong],
+            false,
+        ))
+        .unwrap_err();
+    assert!(e.message.contains("does not include"), "{}", e.message);
 }

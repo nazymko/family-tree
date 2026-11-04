@@ -57,22 +57,23 @@ pub struct AiReadResult {
 
 /// Finds the complete `{...}` objects inside the array that follows `"key"`. Returns them and
 /// whether the array was cut off before its `]`.
-fn array_objects<'a>(text: &'a str, key: &str) -> (Vec<&'a str>, bool) {
+fn array_objects<'a>(text: &'a str, key: &str) -> (Vec<&'a str>, bool, u32) {
     let needle = format!("\"{key}\"");
     let Some(at) = text.find(&needle) else {
-        return (Vec::new(), false);
+        return (Vec::new(), false, 0);
     };
     let rest = &text[at + needle.len()..];
     let Some(open) = rest.find('[') else {
-        return (Vec::new(), true);
+        return (Vec::new(), false, 0);
     };
     // Only whitespace and a colon may sit between the key and the bracket.
     if !rest[..open].chars().all(|c| c.is_whitespace() || c == ':') {
-        return (Vec::new(), false);
+        return (Vec::new(), false, 0);
     }
     let body = &rest[open + 1..];
     let bytes = body.as_bytes();
     let (mut out, mut depth, mut start) = (Vec::new(), 0usize, 0usize);
+    let (mut item_start, mut junk) = (true, 0u32);
     let (mut in_str, mut esc) = (false, false);
     for (i, &b) in bytes.iter().enumerate() {
         if in_str {
@@ -84,6 +85,16 @@ fn array_objects<'a>(text: &'a str, key: &str) -> (Vec<&'a str>, bool) {
                 in_str = false;
             }
             continue;
+        }
+        if depth == 0 && !b.is_ascii_whitespace() {
+            if b == b',' {
+                item_start = true;
+                continue;
+            }
+            if item_start && b != b'{' && b != b']' {
+                junk += 1;
+            }
+            item_start = false;
         }
         match b {
             b'"' => in_str = true,
@@ -99,11 +110,11 @@ fn array_objects<'a>(text: &'a str, key: &str) -> (Vec<&'a str>, bool) {
                     out.push(&body[start..=i]);
                 }
             }
-            b']' if depth == 0 => return (out, false),
+            b']' if depth == 0 => return (out, false, junk),
             _ => {}
         }
     }
-    (out, true)
+    (out, true, junk)
 }
 
 fn text_of(v: Option<&Value>) -> Option<String> {
@@ -157,9 +168,10 @@ fn person_of(v: &Value) -> Option<AiPerson> {
 
 /// Parses the model's text. See the module comment for what is tolerated.
 pub fn parse_ai_reply(text: &str) -> AiReadResult {
-    let (raw_people, cut_people) = array_objects(text, "people");
-    let (raw_rels, cut_rels) = array_objects(text, "relations");
-    let mut skipped = 0u32;
+    let (raw_people, cut_people, junk_people) = array_objects(text, "people");
+    let (raw_rels, cut_rels, junk_rels) = array_objects(text, "relations");
+    // Entries that are not objects at all (a string, a number) count as skipped too.
+    let mut skipped = junk_people + junk_rels;
     let mut people: Vec<AiPerson> = Vec::new();
     let mut ids = HashSet::new();
     for raw in raw_people {

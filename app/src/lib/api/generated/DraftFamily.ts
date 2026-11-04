@@ -3,4 +3,9 @@
 /**
  * A family of the draft: partners and children are `DraftPerson::key`s.
  */
-export type DraftFamily = { partner1?: string, partner2?: string, children: Array<string>, };
+export type DraftFamily = { partner1?: string, partner2?: string, 
+/**
+ * The family already in the tree that the children join. Needed only when a parent from the
+ * tree is in more than one family; with exactly one, that family is used.
+ */
+existingFamily?: string, children: Array<string>, };

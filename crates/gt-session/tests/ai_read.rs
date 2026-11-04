@@ -42,7 +42,8 @@ fn skips_malformed_entries_and_counts_them() {
     let r = parse_ai_reply(t);
     assert_eq!(r.people.len(), 1);
     assert_eq!(r.people[0].id, "a");
-    assert_eq!(r.skipped, 5 + 1);
+    // Five bad objects, two entries that are not objects, one bad relation.
+    assert_eq!(r.skipped, 5 + 2 + 1);
 }
 
 #[test]
@@ -80,6 +81,7 @@ fn wrong_types_and_garbage_give_an_empty_result() {
         let r = parse_ai_reply(t);
         assert!(r.people.is_empty(), "{t}");
         assert!(r.relations.is_empty());
+        assert!(!r.truncated, "{t}");
     }
 }
 

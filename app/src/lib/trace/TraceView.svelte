@@ -11,6 +11,7 @@
   import type { AiReadResult, TraceImageInfo } from '../api/types';
   import { nav } from '../state/nav.svelte';
   import AiReadDialog from './AiReadDialog.svelte';
+  import { MEDIA_EXTENSIONS } from '../media/Dropzone.svelte';
   import TraceCanvas from './TraceCanvas.svelte';
   import TraceCardForm from './TraceCardForm.svelte';
   import {
@@ -36,7 +37,7 @@
   const api = getApi();
   const platform = getPlatform();
 
-  const PICTURE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'tif', 'tiff', 'gif'];
+  const PICTURE_EXTENSIONS = MEDIA_EXTENSIONS.filter((e) => e !== 'pdf');
 
   let draft = $state<TraceDraft>(newDraft());
   let image = $state<TraceImageInfo | null>(null);
@@ -48,17 +49,24 @@
   let busy = $state(false);
   let discardOpen = $state(false);
   let aiOpen = $state(false);
+  let side = $state<HTMLElement>();
 
   function aiDone(r: AiReadResult) {
     aiOpen = false;
+    // Suggestions from an earlier read that were not accepted are replaced, not doubled.
+    rejectAll(draft);
     const res = addSuggestions(draft, r);
     if (res.cards === 0) {
       error = 'The AI reader did not find any names on this picture. Mark them by hand instead.';
       return;
     }
     error = '';
+    const skipped = res.skipped
+      ? ` It skipped ${res.skipped} unclear ${res.skipped === 1 ? 'entry' : 'entries'}.`
+      : '';
+    const cut = r.truncated ? ' The answer was cut short, so some names may be missing.' : '';
     notices.show({
-      message: `The AI reader suggested ${res.cards} ${res.cards === 1 ? 'person' : 'people'}${res.skipped ? ` and skipped ${res.skipped} unclear ${res.skipped === 1 ? 'entry' : 'entries'}` : ''}. Check them, then accept.`,
+      message: `The AI reader suggested ${res.cards} ${res.cards === 1 ? 'person' : 'people'}.${skipped}${cut} Check them, then accept.`,
     });
   }
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -180,7 +188,7 @@
       const people = total.newPeople;
       const families = total.families;
       notices.show(
-        undoNotice(api, `Added ${plural(people, 'person', 'people')} and ${plural(families, 'family', 'families')}.`, r.undo),
+        undoNotice(api, (people > 0 ? `Added ${plural(people, 'person', 'people')}` : 'Linked the people on the picture') + (families > 0 ? ` and ${families === 1 ? 'one family' : plural(families, 'family', 'families')} (new or updated).` : '.'), r.undo),
       );
       await api.discardTraceDraft();
       draft = newDraft();
@@ -251,6 +259,7 @@
         }}
         onpick={pick}
         ondelete={deleteCard}
+        onskip={() => side?.querySelector<HTMLElement>('button, input')?.focus()}
       >
         {#snippet popover()}
           {#if selected}
@@ -266,7 +275,7 @@
         {/snippet}
       </TraceCanvas>
 
-      <aside class="side" aria-label="Review">
+      <aside class="side" aria-label="Review" bind:this={side}>
         <section>
           <h2>Picture</h2>
           <p class="file" title={image.name}>{image.name}</p>
@@ -463,6 +472,10 @@
     font: inherit;
   }
   .foot {
+    position: sticky;
+    inset-block-end: 0;
+    z-index: 1;
+    background: var(--paper-0);
     display: grid;
     gap: var(--s-4);
     padding-block-start: var(--s-4);

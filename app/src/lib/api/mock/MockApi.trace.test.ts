@@ -62,4 +62,31 @@ describe('MockApi importDraft and trace draft', () => {
     await api.discardTraceDraft();
     expect(await api.loadTraceDraft()).toEqual({ json: null, image: null });
   });
+
+  it('children of one parent from the tree join that parents family, or ask which one', async () => {
+    const api = fresh();
+    const made = await api.apply({
+      type: 'importDraft',
+      persons: [person('a', 'Ivan'), person('b', 'Olena'), person('c', 'Petro')],
+      families: [{ partner1: 'a', partner2: 'b', children: ['c'] }],
+      attachPicture: false,
+    });
+    const ivan = made.focus!;
+    const fams = async () => (await api.getPerson(ivan)).partnerships;
+    expect(await fams()).toHaveLength(1);
+    const ex = (key: string): DraftPerson => ({ key, existing: ivan, sex: 'unknown' });
+    await api.apply({ type: 'importDraft', persons: [ex('i'), person('d', 'Mykola')], families: [{ partner1: 'i', children: ['d'] }], attachPicture: false });
+    const after = await fams();
+    expect(after).toHaveLength(1);
+    expect(after[0].children).toHaveLength(2);
+    // A second family for Ivan: now the choice is needed.
+    await api.apply({ type: 'importDraft', persons: [ex('i'), person('w', 'Halyna')], families: [{ partner1: 'i', partner2: 'w', children: [] }], attachPicture: false });
+    expect(await fams()).toHaveLength(2);
+    await expect(
+      api.apply({ type: 'importDraft', persons: [ex('i'), person('e', 'Taras')], families: [{ partner1: 'i', children: ['e'] }], attachPicture: false }),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    const first = (await fams())[0].familyId;
+    await api.apply({ type: 'importDraft', persons: [ex('i'), person('e', 'Taras')], families: [{ partner1: 'i', existingFamily: first, children: ['e'] }], attachPicture: false });
+    expect((await fams()).find((f) => f.familyId === first)!.children).toHaveLength(3);
+  });
 });

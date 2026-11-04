@@ -12,7 +12,8 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 pub const API_URL: &str = "https://api.anthropic.com/v1/messages";
-pub const API_VERSION: &str = "2023-06-01";
+pub const API_VERSION: &str = "2026-10-21";
+pub const BETA_FALLBACKS: &str = "server-side-fallback-2026-07-01";
 pub const DEFAULT_MODEL: &str = "claude-opus-5-5";
 pub const TIMEOUT: Duration = Duration::from_secs(120);
 /// The longest side of the picture that is sent, in pixels.
@@ -123,35 +124,64 @@ fn err(code: ErrorCode, msg: &str) -> ApiError {
 
 /// Shrinks the picture so its longest side is at most [`MAX_SIDE`] and encodes it as JPEG.
 pub fn downscale_to_jpeg(bytes: &[u8]) -> Result<Vec<u8>, ApiError> {
-    let img = image::load_from_memory(bytes).map_err(|_| {
+    // The session's renderer applies the EXIF orientation first, so the reader sees the picture
+    // upright, as the screen shows it, and the boxes it returns match what the user sees.
+    gt_session::thumbs::render_px(bytes, MAX_SIDE).map_err(|_| {
         err(
             ErrorCode::Invalid,
             "The picture could not be opened. Choose a JPEG, PNG, WebP, GIF or TIFF picture.",
         )
-    })?;
-    let img = if img.width().max(img.height()) > MAX_SIDE {
-        img.resize(MAX_SIDE, MAX_SIDE, image::imageops::FilterType::Lanczos3)
-    } else {
-        img
-    };
-    let rgb = img.to_rgb8();
-    let mut out = Vec::new();
-    let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85);
-    enc.encode_image(&rgb).map_err(|_| {
-        err(
-            ErrorCode::Internal,
-            "The picture could not be prepared for sending.",
-        )
-    })?;
-    Ok(out)
+    })
 }
 
-/// The request body. No sampling parameters, no prefill, no forced tool use.
+/// The JSON the reader must answer with (structured output). Optional fields may be left out.
+pub fn answer_schema() -> Value {
+    let text = json!({ "type": "string" });
+    let num = json!({ "type": "number" });
+    json!({
+        "type": "object",
+        "properties": {
+            "people": { "type": "array", "items": {
+                "type": "object",
+                "properties": {
+                    "id": text, "given": text, "surname": text, "patronymic": text,
+                    "sex": { "type": "string", "enum": ["male", "female", "unknown"] },
+                    "birth": text, "death": text,
+                    "box": { "type": "object",
+                        "properties": { "x": num, "y": num, "w": num, "h": num },
+                        "required": ["x", "y", "w", "h"], "additionalProperties": false },
+                    "confidence": num
+                },
+                "required": ["id", "given", "surname", "patronymic", "box", "confidence"],
+                "additionalProperties": false
+            } },
+            "relations": { "type": "array", "items": {
+                "type": "object",
+                "properties": {
+                    "kind": { "type": "string", "enum": ["parent", "partner"] },
+                    "from": text, "to": text
+                },
+                "required": ["kind", "from", "to"], "additionalProperties": false
+            } }
+        },
+        "required": ["people", "relations"],
+        "additionalProperties": false
+    })
+}
+
+/// The request body. Structured output (`output_config.format`) with an explicit effort; no
+/// sampling parameters, no prefill, no forced tool use. `fallbacks: "default"` lets Anthropic
+/// retry on another model if a safety check declines the picture.
 pub fn build_request(model: &str, jpeg: &[u8]) -> Value {
     let data = base64::engine::general_purpose::STANDARD.encode(jpeg);
     json!({
         "model": model,
         "max_tokens": MAX_TOKENS,
+        "output_config": {
+            "effort": "high",
+            "format": { "type": "json_schema", "schema": answer_schema() }
+        },
+        "fallbacks": "default",
         "messages": [{
             "role": "user",
             "content": [
@@ -167,18 +197,14 @@ pub fn build_headers(key: &str) -> Vec<(String, String)> {
     vec![
         ("x-api-key".into(), key.into()),
         ("anthropic-version".into(), API_VERSION.into()),
+        ("anthropic-beta".into(), BETA_FALLBACKS.into()),
         ("content-type".into(), "application/json".into()),
     ]
 }
 
-fn api_message(body: &str) -> Option<String> {
-    let v: Value = serde_json::from_str(body).ok()?;
-    let m = v.get("error")?.get("message")?.as_str()?;
-    Some(m.chars().take(200).collect())
-}
-
 /// Turns the HTTP reply into the model's text, or into an error that says what to do.
-pub fn reply_text(reply: &HttpReply) -> Result<String, ApiError> {
+/// The second value is true when the answer was cut off at the output limit.
+pub fn reply_text(reply: &HttpReply) -> Result<(String, bool), ApiError> {
     match reply.status {
         200..=299 => {}
         401 | 403 => {
@@ -194,12 +220,15 @@ pub fn reply_text(reply: &HttpReply) -> Result<String, ApiError> {
             ));
         }
         400 => {
-            let why = api_message(&reply.body).unwrap_or_default();
             return Err(err(
                 ErrorCode::Invalid,
-                &format!(
-                    "Anthropic could not use this request. {why} Try a smaller or clearer picture."
-                ),
+                "Anthropic could not use this picture. It may be too large or in a form it cannot read. Try a smaller or clearer picture.",
+            ));
+        }
+        413 => {
+            return Err(err(
+                ErrorCode::Invalid,
+                "The picture is too large to send. Try a smaller picture.",
             ));
         }
         s if s >= 500 => {
@@ -227,6 +256,14 @@ pub fn reply_text(reply: &HttpReply) -> Result<String, ApiError> {
             "The AI reader declined to read this picture. Trace it by hand instead.",
         ));
     }
+    let stop = v.get("stop_reason").and_then(Value::as_str);
+    if stop == Some("model_context_window_exceeded") {
+        return Err(err(
+            ErrorCode::Invalid,
+            "The picture is too detailed to read in one go. Try a smaller part of it.",
+        ));
+    }
+    let cut = stop == Some("max_tokens");
     let text: String = v
         .get("content")
         .and_then(Value::as_array)
@@ -239,7 +276,7 @@ pub fn reply_text(reply: &HttpReply) -> Result<String, ApiError> {
                 .join("\n")
         })
         .unwrap_or_default();
-    Ok(text)
+    Ok((text, cut))
 }
 
 /// Is a key stored?
@@ -247,7 +284,8 @@ pub fn key_status(keys: &dyn KeyStore) -> bool {
     keys.get().is_some()
 }
 
-pub fn set_key(keys: &dyn KeyStore, key: &str) -> Result<(), ApiError> {
+/// A key must be one run of printable characters; this stops a pasted sentence from being sent as a header.
+pub fn check_key(key: &str) -> Result<&str, ApiError> {
     let key = key.trim();
     if key.len() < 8 || key.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return Err(err(
@@ -255,6 +293,11 @@ pub fn set_key(keys: &dyn KeyStore, key: &str) -> Result<(), ApiError> {
             "That does not look like an API key. Copy the whole key from your Anthropic account and try again.",
         ));
     }
+    Ok(key)
+}
+
+pub fn set_key(keys: &dyn KeyStore, key: &str) -> Result<(), ApiError> {
+    let key = check_key(key)?;
     keys.set(key).map_err(|_| {
         err(
             ErrorCode::Io,
@@ -289,6 +332,9 @@ pub fn read_picture(
         ));
     }
     let typed = new_key.map(str::trim).filter(|k| !k.is_empty());
+    if let Some(k) = typed {
+        check_key(k)?;
+    }
     let stored = keys.get();
     let key = match (typed, stored.as_deref()) {
         (Some(k), _) | (None, Some(k)) => k,
@@ -316,10 +362,45 @@ pub fn read_picture(
                 )
             }
         })?;
-    let text = reply_text(&reply)?;
+    let (text, cut) = reply_text(&reply)?;
     if let Some(k) = typed {
         // Anthropic accepted it; keep it for next time. A failure to save is not fatal.
         let _ = keys.set(k);
     }
-    Ok(parse_ai_reply(&text))
+    let mut result = parse_ai_reply(&text);
+    result.truncated |= cut;
+    Ok(result)
+}
+
+/// [`read_picture`] for async callers (the Tauri command). The blocking HTTP client must never run on
+/// an async worker thread, so the whole read goes to the blocking pool.
+pub async fn read_picture_async<H, K>(
+    http: std::sync::Arc<H>,
+    keys: std::sync::Arc<K>,
+    consent: bool,
+    new_key: Option<String>,
+    picture: Vec<u8>,
+    model: String,
+) -> Result<AiReadResult, ApiError>
+where
+    H: AiHttp + 'static,
+    K: KeyStore + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || {
+        read_picture(
+            &*http,
+            &*keys,
+            consent,
+            new_key.as_deref(),
+            &picture,
+            &model,
+        )
+    })
+    .await
+    .map_err(|_| {
+        err(
+            ErrorCode::Internal,
+            "The reader stopped unexpectedly. Try again.",
+        )
+    })?
 }

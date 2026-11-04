@@ -48,6 +48,8 @@ fn event(p: &Planner, kind: EventKind, raw: &str, person: Uuid) -> Event {
 struct Fam {
     p1: Option<Uuid>,
     p2: Option<Uuid>,
+    /// A family already in the tree that the kids join.
+    into: Option<Uuid>,
     kids: Vec<Uuid>,
 }
 
@@ -131,7 +133,43 @@ pub(super) fn import_draft(
                 return Err(conflict("A child is listed twice in one family."));
             }
         }
-        fams.push(Fam { p1, p2, kids });
+        // Children of ONE parent from the tree join that parent's family; they do not start a second one.
+        let mut into = None;
+        let (mut p1, mut p2) = (p1, p2);
+        let single = match (p1, p2) {
+            (Some(a), None) | (None, Some(a)) => Some(a),
+            _ => None,
+        };
+        if let Some(fid) = f.existing_family {
+            let fam = p.tree.families.get(&fid).ok_or_else(|| {
+                invalid("The family chosen for the new people is not in the tree any more.")
+            })?;
+            let ok = single.is_some_and(|a| fam.partner1 == Some(a) || fam.partner2 == Some(a));
+            if !ok {
+                return Err(invalid(
+                    "The family chosen for the new people does not include that parent.",
+                ));
+            }
+            into = Some(fid);
+        } else if let Some(a) = single {
+            let mine: Vec<Uuid> = p.tree.families_as_partner(a).map(|x| x.common.id).collect();
+            match mine.as_slice() {
+                [] => {}
+                [only] => into = Some(*only),
+                _ => {
+                    return Err(conflict(
+                        "A parent on the picture is in more than one family in the tree. Choose which family the new people belong to.",
+                    ));
+                }
+            }
+        }
+        if let Some(fid) = into {
+            // Both parents of that family count for the loop check below.
+            if let Some(fam) = p.tree.families.get(&fid) {
+                (p1, p2) = (fam.partner1, fam.partner2);
+            }
+        }
+        fams.push(Fam { p1, p2, into, kids });
     }
     check_no_cycle(p, &fams)?;
 
@@ -218,6 +256,7 @@ pub(super) fn import_draft(
     for f in &fams {
         // A family between two people who already share one in the tree is reused.
         let reuse = match (f.p1, f.p2) {
+            _ if f.into.is_some() => f.into,
             (Some(a), Some(b)) => p
                 .tree
                 .families
