@@ -1,5 +1,14 @@
 import type { Api } from '../api';
 import type {
+  ActorDto,
+  BatchDto,
+  BatchRef,
+  LogChangeDto,
+  LogFactDto,
+  LogFilterDto,
+  LogRowDto,
+  ReviewScopeDto,
+  UndoReport,
   RelinkResult,
   AttachResult,
   ChartLocation,
@@ -85,6 +94,45 @@ interface HistoryRecord {
   touched: Set<Id>;
 }
 
+/** One row of the change log; `fact` is what an agent's undo has to take away. */
+interface AgentLogEntry {
+  group: string;
+  ts: number;
+  actor: ActorDto;
+  batch: BatchRef | null;
+  label: string;
+  changes: LogChangeDto[];
+  people: { id: Id; name: string; reviewed: number | null }[];
+  reverted: boolean;
+  fact?: { person: Id; note: Id; conflict: boolean };
+}
+
+/** See `MockApi.recordAgentBatch`. A batch exists only when `title` is given. */
+export interface AgentBatchSpec {
+  agent?: string;
+  title?: string;
+  sourceFile?: string;
+  report?: string;
+  open?: boolean;
+  changes: {
+    person: Id;
+    note?: string;
+    label?: string;
+    kind?: string;
+    op?: HistoryEntry['op'];
+    fact?: LogFactDto;
+    sources?: string[];
+    conflict?: boolean;
+  }[];
+}
+
+export interface AgentBatchResult {
+  batch: string | null;
+  groups: string[];
+  touched: string[];
+  agent: string;
+}
+
 interface ChartState {
   kind: ChartRequest['kind'];
   layout: Layout | RelLayout;
@@ -149,6 +197,9 @@ export class MockApi implements Api {
   private redoStack: Snapshot[] = [];
   private lastCit: CitationDto | null = null;
   private log: HistoryRecord[] = [];
+  private logRows: AgentLogEntry[] = [];
+  private logBatches = new Map<string, Omit<BatchDto, 'groups' | 'people' | 'unreviewed'>>();
+  private agentIds = new Map<string, string>();
   private charts = new Map<number, ChartState>();
   private nextChart = 1;
   private version = 0;
@@ -445,6 +496,139 @@ export class MockApi implements Api {
       .slice(-Math.max(0, limit))
       .reverse()
       .map((h) => ({ ts: h.ts, label: h.label, op: h.op }));
+  }
+
+  // -------------------------------------------------------------- change log
+
+  async changeLog(filter: LogFilterDto, offset: number, limit: number): Promise<Page<LogRowDto>> {
+    const unreviewed = (e: AgentLogEntry) => this.standing(e) && e.people.some((p) => p.reviewed === null && (!filter.person || p.id === filter.person));
+    const rows = this.logRows
+      .filter((e) => {
+        if (filter.actorKind && e.actor.kind !== filter.actorKind) return false;
+        if (filter.actorId && (e.actor.kind !== 'agent' || e.actor.id !== filter.actorId)) return false;
+        if (filter.batch && e.batch?.id !== filter.batch) return false;
+        if (filter.person && !e.people.some((p) => p.id === filter.person)) return false;
+        return !filter.unreviewedOnly || unreviewed(e);
+      })
+      .reverse();
+    const take = Math.min(limit, MAX_PAGE);
+    return { total: rows.length, offset, items: rows.slice(offset, offset + take).map((e) => this.logRow(e)) };
+  }
+
+  async changeBatches(): Promise<BatchDto[]> {
+    return [...this.logBatches.values()].reverse().map((b) => {
+      const rows = this.logRows.filter((e) => e.batch?.id === b.id);
+      const left = rows.filter((e) => this.standing(e)).flatMap((e) => e.people);
+      return {
+        ...b,
+        groups: rows.length,
+        people: new Set(rows.flatMap((e) => e.people.map((p) => p.id))).size,
+        unreviewed: new Set(left.filter((p) => p.reviewed === null).map((p) => p.id)).size,
+      };
+    });
+  }
+
+  async markReviewed(scope: ReviewScopeDto): Promise<void> {
+    const at = this.now();
+    if (scope.kind === 'group') this.logGroup(scope.id);
+    else if (scope.kind === 'batch' && !this.logBatches.has(scope.id)) throw missing('batch', scope.id);
+    for (const e of this.logRows) {
+      if (e.actor.kind !== 'agent') continue;
+      if (scope.kind === 'group' && e.group !== scope.id) continue;
+      if (scope.kind === 'batch' && e.batch?.id !== scope.id) continue;
+      for (const p of e.people) if ((scope.kind !== 'person' || p.id === scope.id) && p.reviewed === null) p.reviewed = at;
+    }
+  }
+
+  async unreviewedPeople(): Promise<Id[]> {
+    const left = this.logRows.filter((e) => this.standing(e)).flatMap((e) => e.people);
+    return [...new Set(left.filter((p) => p.reviewed === null).map((p) => p.id))];
+  }
+
+  async personAgentChanges(id: Id): Promise<LogRowDto[]> {
+    const rows = this.logRows.filter((e) => this.standing(e) && e.people.some((p) => p.id === id));
+    return rows.reverse().map((e) => this.logRow(e));
+  }
+
+  async undoChangeGroup(group: string): Promise<UndoReport> {
+    const e = this.logGroup(group);
+    if (e.actor.kind !== 'agent') throw invalid("Only an agent's change can be undone from the change log.");
+    return this.revertGroup(e);
+  }
+
+  async undoChangeBatch(batch: string): Promise<UndoReport> {
+    if (!this.logBatches.has(batch)) throw missing('batch', batch);
+    const report: UndoReport = { undone: 0, skipped: [] };
+    for (const e of this.logRows.filter((r) => r.batch?.id === batch).reverse()) {
+      const r = this.revertGroup(e);
+      report.undone += r.undone;
+      report.skipped.push(...r.skipped);
+    }
+    return report;
+  }
+
+  /**
+   * Test helper: what an agent's write leaves behind. Each change is one group holding a note on the person;
+   * the Ctrl+Z stack stays as it was. `conflict` makes a later undo find the fact changed, so it is skipped.
+   * Pair with `MockPlatform.simulateAgentBatch`, which also fires the event. Limit: the mock's Ctrl+Z restores a
+   * whole snapshot, so undoing an owner edit made before an agent's write also drops that write's note.
+   */
+  recordAgentBatch(spec: AgentBatchSpec): AgentBatchResult {
+    const agent = spec.agent ?? 'Claude';
+    let agentId = this.agentIds.get(agent);
+    if (!agentId) {
+      agentId = this.ids.next();
+      this.agentIds.set(agent, agentId);
+    }
+    const actor: ActorDto = { kind: 'agent', id: agentId, name: agent };
+    let batch: BatchRef | null = null;
+    if (spec.title !== undefined) {
+      batch = { id: this.ids.next(), title: spec.title };
+      const started = this.now();
+      this.logBatches.set(batch.id, {
+        ...batch,
+        sourceFile: spec.sourceFile ?? null,
+        actorName: agent,
+        started,
+        ended: spec.open ? null : started,
+        report: spec.report ?? null,
+      });
+    }
+    const groups: string[] = [];
+    const touched = new Set<Id>();
+    for (const c of spec.changes) {
+      const text = c.note ?? 'Agent note';
+      this.db = structuredClone(this.db);
+      this.execute({ type: 'saveNote', target: { kind: 'person', id: c.person }, note: { kind: 'general', text } });
+      const p = this.person(c.person);
+      const note = p.notes[p.notes.length - 1].id;
+      p.changed = this.now();
+      const fact: LogFactDto = c.fact ?? { kind: 'text', text };
+      const entry = this.addLogEntry({
+        actor,
+        batch,
+        label: c.label ?? 'Save note',
+        changes: [{ kind: c.kind ?? 'note', op: c.op ?? 'create', detail: text, fact, sources: c.sources ?? [] }],
+        people: [{ id: c.person, name: this.ref(p).name, reviewed: null }],
+        fact: { person: c.person, note, conflict: c.conflict ?? false },
+      });
+      groups.push(entry.group);
+      touched.add(c.person).add(note);
+    }
+    this.touch();
+    return { batch: batch?.id ?? null, groups, touched: [...touched], agent };
+  }
+
+  /** Test helper: a row written before changes had authors. */
+  recordBeforeTracking(label: string, person: Id): void {
+    const name = this.ref(this.person(person)).name;
+    this.addLogEntry({
+      actor: { kind: 'beforeTracking' },
+      batch: null,
+      label,
+      changes: [{ kind: 'person', op: 'update', detail: name, fact: { kind: 'text', text: name }, sources: [] }],
+      people: [{ id: person, name, reviewed: null }],
+    });
   }
 
   // ------------------------------------------------------------------- edits
@@ -882,6 +1066,73 @@ export class MockApi implements Api {
   private record(label: string, op: HistoryEntry['op'], touched: Set<Id>): void {
     this.log.push({ ts: this.now(), label, op, touched });
     if (this.log.length > 2000) this.log.shift();
+    const people = [...touched].flatMap((id) => {
+      const p = this.db.persons.get(id);
+      return p ? [{ id, name: this.ref(p).name, reviewed: null }] : [];
+    });
+    this.addLogEntry({
+      actor: { kind: 'user' },
+      batch: null,
+      label,
+      changes: people.map((p) => ({ kind: 'person', op, detail: p.name, fact: { kind: 'text', text: p.name }, sources: [] })),
+      people,
+    });
+  }
+
+  private addLogEntry(row: Omit<AgentLogEntry, 'group' | 'ts' | 'reverted'>): AgentLogEntry {
+    const entry: AgentLogEntry = { ...row, group: this.ids.next(), ts: this.now(), reverted: false };
+    this.logRows.push(entry);
+    return entry;
+  }
+
+  private logRow(e: AgentLogEntry): LogRowDto {
+    return structuredClone({
+      group: e.group,
+      ts: e.ts,
+      actor: e.actor,
+      batch: e.batch,
+      label: e.label,
+      changes: e.changes,
+      people: e.people.map((p) => ({ ...p, exists: this.db.persons.has(p.id) })),
+      reverted: e.reverted,
+      canUndo: e.actor.kind === 'agent' && !e.reverted,
+    });
+  }
+
+  private logGroup(group: string): AgentLogEntry {
+    const e = this.logRows.find((r) => r.group === group);
+    if (!e) throw missing('change', group);
+    return e;
+  }
+
+  /** A change that counts against the review: an agent's, not undone. */
+  private standing(e: AgentLogEntry): boolean {
+    return e.actor.kind === 'agent' && !e.reverted;
+  }
+
+  /** Undoes one agent change in place. Reports what stayed; a skipped change keeps the group open. */
+  private revertGroup(e: AgentLogEntry): UndoReport {
+    const report: UndoReport = { undone: 0, skipped: [] };
+    if (!e.fact || e.reverted) return report;
+    const { person, note, conflict } = e.fact;
+    if (conflict) {
+      const p = this.db.persons.get(person);
+      const change = e.changes[0];
+      report.skipped.push({ kind: change.kind, person: p ? this.ref(p) : null, detail: change.detail, fact: change.fact });
+      return report;
+    }
+    if (this.db.persons.has(person)) this.execute({ type: 'deleteNote', target: { kind: 'person', id: person }, note });
+    e.reverted = true;
+    report.undone = 1;
+    this.touch();
+    this.addLogEntry({
+      actor: { kind: 'user' },
+      batch: null,
+      label: `Undo: ${e.label}`,
+      changes: e.changes.map((c) => ({ ...c, op: 'delete' })),
+      people: e.people.map((p) => ({ ...p, reviewed: null })),
+    });
+    return report;
   }
 
   private currentUndo(): UndoState {

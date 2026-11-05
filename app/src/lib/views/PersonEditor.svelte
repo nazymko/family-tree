@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { setContext, type Snippet } from 'svelte';
   import type {
     EditResult,
     EventDto,
@@ -17,7 +17,10 @@
   import { settings } from '../state/settings.svelte';
   import { undoState } from '../state/undo.svelte';
   import { ui } from '../state/ui.svelte';
+  import { agentChanges, EDITOR_RELOAD } from '../state/agentChanges.svelte';
   import FamilyTree from './FamilyTree.svelte';
+  import AgentChangesPanel from './AgentChangesPanel.svelte';
+  import AgentBadge from '../ui/AgentBadge.svelte';
   import IndexCard from '../ui/IndexCard.svelte';
   import Ribbon from '../ui/Ribbon.svelte';
   import Button from '../ui/Button.svelte';
@@ -198,6 +201,31 @@
   function closeDialog() {
     dialog = null;
   }
+  /**
+   * An agent changed what the open dialog shows: reopen it on what the tree says now, or close it if that is gone.
+   * False when the open editor is not one of this page's own (one the family tree opened): that one closes itself.
+   */
+  let dialogEpoch = $state(0);
+  setContext(EDITOR_RELOAD, async () => {
+    if (!dialog) return false;
+    await load();
+    const d = dialog;
+    if (d?.kind === 'name' && d.name) {
+      const id = d.name.id;
+      const name = detail?.names.find((n) => n.id === id);
+      dialog = name ? { kind: 'name', name } : null;
+    } else if (d?.kind === 'event' && d.event) {
+      const id = d.event.id;
+      const event = detail?.events.find((e) => e.id === id);
+      dialog = event ? { ...d, event } : null;
+    } else if (d?.kind === 'note' && d.note) {
+      const id = d.note.id;
+      const note = detail?.notes.find((n) => n.id === id);
+      dialog = note ? { kind: 'note', note } : null;
+    }
+    dialogEpoch++;
+    return true;
+  });
   /** "Event saved" or "Event deleted", from what the edit actually did. */
   async function saved(r: EditResult) {
     dialog = null;
@@ -234,7 +262,7 @@
     <div class="card">
     <IndexCard as="section" ribbon={isHome}>
       <div class="head">
-        <h1><bdi dir="auto">{detail.ref.name}</bdi></h1>
+        <h1><bdi dir="auto">{detail.ref.name}</bdi>{#if agentChanges.unreviewed.has(id)} <AgentBadge />{/if}</h1>
         <p class="life">{detail.ref.lifespan || t('person.noDates')}</p>
         <div class="head-actions" role="group" aria-label={t('person.quickEdit')}>
           <Button
@@ -261,6 +289,7 @@
       {/snippet}
     </IndexCard>
     </div>
+    <AgentChangesPanel {id} />
 
     {#if error}<Banner kind="error">{error}</Banner>{/if}
 
@@ -452,6 +481,7 @@
   {/if}
 </div>
 
+{#key dialogEpoch}
 {#if detail && dialog?.kind === 'name'}
   <NameEditor person={id} name={dialog.name} onCancel={closeDialog} onSaved={(r) => saved(r)} />
 {:else if detail && dialog?.kind === 'event'}
@@ -497,6 +527,7 @@
     {/snippet}
   </Dialog>
 {/if}
+{/key}
 
 <style>
   .page {

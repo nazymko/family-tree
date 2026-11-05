@@ -1,6 +1,7 @@
 <script lang="ts">
   import Ribbon from './Ribbon.svelte';
   import Lock from './Lock.svelte';
+  import AgentBadge from './AgentBadge.svelte';
   import { t, type MessageKey } from '../i18n';
 
   type Sex = 'male' | 'female' | 'intersex' | 'unknown' | 'other';
@@ -27,6 +28,7 @@
     chips = [],
     detail,
     flipKey,
+    agentChanged = false,
   }: {
     name: string;
     lifespan?: string;
@@ -46,10 +48,14 @@
     detail?: string;
     /** Value for data-flip-key (re-centring animation). */
     flipKey?: string;
+    /** An agent changed this person and nobody has reviewed it yet. */
+    agentChanged?: boolean;
   } = $props();
 
   const accName = $derived(
-    relationship ? [name, lifespan, relationship].filter((x) => x && x.length > 0).join(', ') : undefined,
+    relationship || agentChanged
+      ? [name, lifespan, relationship, agentChanged ? t('changeLog.badgeLabel') : ''].filter((x) => x && x.length > 0).join(', ')
+      : undefined,
   );
 </script>
 
@@ -61,6 +67,7 @@
       {#if living}<span class="living"><span class="dot" aria-hidden="true"></span>{t('common.living')}</span>{/if}
       {#if lifespan}<span>{lifespan}</span>{/if}
       {#if isPrivate}<Lock />{/if}
+      {#if agentChanged}<AgentBadge />{/if}
     </span>
     {#if chips.length > 0 || detail}
       <span class="meta">

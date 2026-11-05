@@ -139,7 +139,7 @@ fn every_api_method_has_a_command() {
             "no command {snake}"
         );
     }
-    assert_eq!(COMMAND_NAMES.len(), 48);
+    assert_eq!(COMMAND_NAMES.len(), 55);
 }
 
 #[test]

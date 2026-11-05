@@ -32,7 +32,7 @@ pub use command::{
 pub use dto::*;
 pub use error::{ApiError, ErrorCode};
 pub use log::{
-    ActorDto, BatchDto, BatchRef, LogChangeDto, LogFilterDto, LogPersonDto, LogRowDto,
+    ActorDto, BatchDto, BatchRef, LogChangeDto, LogFactDto, LogFilterDto, LogPersonDto, LogRowDto,
     ReviewScopeDto,
 };
 pub use names::{display_name, lifespan};

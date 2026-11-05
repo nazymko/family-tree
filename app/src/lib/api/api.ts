@@ -1,4 +1,9 @@
 import type {
+  BatchDto,
+  LogFilterDto,
+  LogRowDto,
+  ReviewScopeDto,
+  UndoReport,
   AttachResult,
   ChartLocation,
   ChartMeta,
@@ -115,6 +120,22 @@ export interface Api {
   savePicture(dest: string, bytes: Uint8Array): Promise<{ bytes: number }>;
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;
+  /** Who changed what, newest first. The owner's changes never count as "not yet reviewed". */
+  changeLog(filter: LogFilterDto, offset: number, limit: number): Promise<Page<LogRowDto>>;
+  changeBatches(): Promise<BatchDto[]>;
+  markReviewed(scope: ReviewScopeDto): Promise<void>;
+  /** People an agent changed that nobody has reviewed yet; these carry the badge. */
+  unreviewedPeople(): Promise<Id[]>;
+  personAgentChanges(id: Id): Promise<LogRowDto[]>;
+  /** Undoes one agent change; a fact someone changed since stays and is named in the report. */
+  undoChangeGroup(group: string): Promise<UndoReport>;
+  undoChangeBatch(batch: string): Promise<UndoReport>;
+}
+
+/** What an agent's write tells the open window. `touched` holds the ids of the people and records it changed. */
+export interface AgentChangeEvent {
+  touched: string[];
+  agent: string;
 }
 
 /** OS dialogs and drag-drop; separate from Api so the mock can fake it. */
@@ -124,5 +145,6 @@ export interface Platform {
   pickFolder(title: string): Promise<string | null>;
   pickSavePath(opts: { title: string; defaultName: string; extensions: string[]; filters?: { name: string; extensions: string[] }[] }): Promise<string | null>;
   onFilesDropped(cb: (paths: string[]) => void, onHover?: (over: boolean) => void): () => void;
+  onTreeChangedByAgent(cb: (e: AgentChangeEvent) => void): () => void;
   reveal(path: string): Promise<void>;
 }

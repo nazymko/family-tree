@@ -1,10 +1,11 @@
-import type { Api, EditResult } from '../api/api';
+import type { Api, EditResult, UndoReport } from '../api/api';
 import { project } from './project.svelte';
 import { toasts } from './toast.svelte';
 import { undoIfMine } from './ownUndo';
 import { undoState } from './undo.svelte';
 import { t, plural } from '../i18n';
 import { editDoneText, editLabel } from '../i18n/backend';
+import { errMessage } from '../editors/errors';
 
 /** "Save event" -> "Event saved", in the active language. */
 export function toastText(label: string): string {
@@ -52,6 +53,27 @@ export function observeApi(inner: Api): Api {
     };
   }
 
+  /**
+   * A failed undo or redo: says why, and puts the buttons right, since the backend may have dropped the step.
+   * Resolves rather than rejects because the callers are key presses and toast buttons, with nobody to catch it.
+   */
+  async function refused(e: unknown): Promise<null> {
+    // A conflict left the tree as it was, so nothing failed to save.
+    if ((e as { code?: string } | null)?.code === 'conflict') project.save = 'saved';
+    supersede();
+    toasts.push({ text: errMessage(e), kind: 'error' });
+    await undoState.refresh(inner).catch(() => {});
+    return null;
+  }
+
+  /** Undo from the change log is off the Ctrl+Z stacks, but it can leave a step there unavailable. */
+  async function logUndo(work: () => Promise<UndoReport>): Promise<UndoReport> {
+    const r = await tracked(work);
+    supersede();
+    await undoState.refresh(inner);
+    return r;
+  }
+
   const wrapped: Partial<Api> = {
     async apply(cmd, opts) {
       const r: EditResult = await tracked(() => inner.apply(cmd, opts));
@@ -61,14 +83,24 @@ export function observeApi(inner: Api): Api {
       return r;
     },
     async undo() {
-      const r = await tracked(() => inner.undo());
+      let r: EditResult | null;
+      try {
+        r = await tracked(() => inner.undo());
+      } catch (e) {
+        return refused(e);
+      }
       undoState.ingest(r);
       supersede();
       if (r) toasts.push({ text: t('edit.undone', { label: editLabel(r.label.replace(/^Undo: /, '')) }) });
       return r;
     },
     async redo() {
-      const r = await tracked(() => inner.redo());
+      let r: EditResult | null;
+      try {
+        r = await tracked(() => inner.redo());
+      } catch (e) {
+        return refused(e);
+      }
       undoState.ingest(r);
       supersede();
       if (r) toasts.push({ text: t('edit.redone', { label: editLabel(r.label.replace(/^Redo: /, '')) }) });
@@ -87,6 +119,8 @@ export function observeApi(inner: Api): Api {
     relinkMedia: (folder) => tracked(() => inner.relinkMedia(folder)),
     discardImport: () => tracked(() => inner.discardImport()),
     setSettings: (patch) => tracked(() => inner.setSettings(patch)),
+    undoChangeGroup: (group) => logUndo(() => inner.undoChangeGroup(group)),
+    undoChangeBatch: (batch) => logUndo(() => inner.undoChangeBatch(batch)),
   };
   return new Proxy(inner, {
     get(target, prop) {

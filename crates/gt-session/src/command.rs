@@ -605,6 +605,8 @@ pub struct SkippedFact {
     pub kind: String,
     pub person: Option<PersonRef>,
     pub detail: String,
+    /// The same fact as data, for the UI to word in its own language.
+    pub fact: crate::log::LogFactDto,
 }
 
 /// What an undo from the change log did.

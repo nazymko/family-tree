@@ -173,6 +173,7 @@
 <EditorDialog
   title={event ? t('editor.editEvent', { kind: eventKindLabel(event.kind, event.label).toLowerCase() }) : t('editor.addEvent')}
   saveLabel={t('edit.saveEvent')}
+  watch={[event?.id, owner.id]}
   {dirty}
   {saving}
   {error}

@@ -1,4 +1,5 @@
-import type { Platform } from '../api';
+import type { AgentChangeEvent, Platform } from '../api';
+import type { AgentBatchSpec, AgentBatchResult, MockApi } from './MockApi';
 
 /**
  * Fake OS dialogs. Every call is recorded in `calls`; results come from `next` (set it before the
@@ -8,6 +9,7 @@ export class MockPlatform implements Platform {
   calls: { method: string; args: unknown[] }[] = [];
   next: { file?: string | null; files?: string[]; folder?: string | null; save?: string | null } = {};
   private dropCallbacks = new Set<{ cb: (paths: string[]) => void; onHover?: (over: boolean) => void }>();
+  private agentCallbacks = new Set<(e: AgentChangeEvent) => void>();
 
   async pickFile(opts: { title: string; extensions?: string[] }): Promise<string | null> {
     this.calls.push({ method: 'pickFile', args: [opts] });
@@ -33,6 +35,18 @@ export class MockPlatform implements Platform {
     const entry = { cb, onHover };
     this.dropCallbacks.add(entry);
     return () => this.dropCallbacks.delete(entry);
+  }
+
+  onTreeChangedByAgent(cb: (e: AgentChangeEvent) => void): () => void {
+    this.agentCallbacks.add(cb);
+    return () => this.agentCallbacks.delete(cb);
+  }
+
+  /** An agent's write as the open window sees it: the change lands in `api`, then the event fires. */
+  simulateAgentBatch(api: MockApi, spec: AgentBatchSpec): AgentBatchResult {
+    const r = api.recordAgentBatch(spec);
+    for (const cb of this.agentCallbacks) cb({ touched: r.touched, agent: r.agent });
+    return r;
   }
 
   async reveal(path: string): Promise<void> {

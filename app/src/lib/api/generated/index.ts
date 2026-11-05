@@ -65,6 +65,7 @@ export * from './LivingPatch';
 export * from './LocationKind';
 export * from './LocationWarningDto';
 export * from './LogChangeDto';
+export * from './LogFactDto';
 export * from './LogFilterDto';
 export * from './LogPersonDto';
 export * from './LogRowDto';

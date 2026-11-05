@@ -175,6 +175,7 @@
 <EditorDialog
   title={linked ? t('editor.quickTitleLinked', { kind: kindLabel, name: anchor.name }) : t(`editor.quickTitle.${rel}`, { name: anchor.name })}
   saveLabel={linked ? t('editor.addLinked', { kind: kindLabel }) : t(ADD_KEY[rel])}
+  watch={[anchor.id]}
   {dirty}
   {saving}
   {error}

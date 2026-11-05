@@ -267,6 +267,7 @@
 <EditorDialog
   title={editing ? t('famEd.editFamily') : t('famEd.addFamily')}
   saveLabel={t('edit.saveFamily')}
+  watch={[family, anchor]}
   {dirty}
   {saving}
   {error}

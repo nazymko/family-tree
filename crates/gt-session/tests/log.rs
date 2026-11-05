@@ -546,6 +546,65 @@ fn log_change_detail_is_readable() {
 }
 
 #[test]
+fn log_change_fact_is_structured_for_translation() {
+    let (_d, mut s, anna) = setup();
+    s.commit_command_as(add_note(anna, "From the recording"), agent(), None)
+        .unwrap();
+    let r = rows(&s);
+    let n = r[0].changes.iter().find(|c| c.kind == "note").unwrap();
+    assert_eq!(
+        n.fact,
+        LogFactDto::Text {
+            text: "From the recording".into()
+        }
+    );
+
+    s.commit_command_as(birth(find(s.tree(), "Eva"), "1 Jan 1900"), agent(), None)
+        .unwrap();
+    let r = rows(&s);
+    let e = r[0].changes.iter().find(|c| c.kind == "event").unwrap();
+    assert_eq!(
+        e.fact,
+        LogFactDto::Event {
+            event: "birth".into(),
+            label: "Birth".into(),
+            date: Some("1 Jan 1900".into()),
+            place: None,
+        }
+    );
+
+    let family = *s.tree().families.keys().next().unwrap();
+    let eva = find(s.tree(), "Eva");
+    s.commit_command_as(link_child(family, eva), agent(), None)
+        .unwrap();
+    let r = rows(&s);
+    let f = r[0].changes.iter().find(|c| c.kind == "family").unwrap();
+    let LogFactDto::Family { partners } = &f.fact else {
+        panic!("{:?}", f.fact);
+    };
+    assert_eq!(partners.join(" and "), f.detail);
+}
+
+#[test]
+fn skipped_fact_is_structured_for_translation() {
+    let (_d, mut s, anna) = setup();
+    s.commit_command_as(add_note(anna, "From the recording"), agent(), None)
+        .unwrap();
+    let group = rows(&s)[0].group;
+    let note = *s.tree().notes.keys().next().unwrap();
+    s.apply(edit_note(anna, note, "Mine now")).unwrap();
+    let report = s.undo_group(group).unwrap();
+    let skipped = report.skipped.iter().find(|f| f.kind == "note").unwrap();
+    // The fact as the agent wrote it: that is what stayed unreverted, whatever it says now.
+    assert_eq!(
+        skipped.fact,
+        LogFactDto::Text {
+            text: "From the recording".into()
+        }
+    );
+}
+
+#[test]
 fn log_filters_reviews_and_batches() {
     let (d, s, anna) = setup();
     let batch = Uuid::from_u128(44);

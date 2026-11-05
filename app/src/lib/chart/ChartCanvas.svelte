@@ -20,6 +20,7 @@
   import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
   import { t, plural } from '../i18n';
   import { nodeLabel, relationText } from '../i18n/relation';
+  import { agentChanges } from '../state/agentChanges.svelte';
 
   let {
     kind,
@@ -122,8 +123,13 @@
     const ctx = canvas.getContext('2d');
     if (!cur || !ctx) return;
     theme ??= themeFromCss();
-    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, theme, kind, reversed });
+    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, theme, kind, reversed, badged: agentChanges.unreviewed });
   }
+
+  $effect(() => {
+    void agentChanges.unreviewed;
+    invalidate();
+  });
 
   function setCam(c: Camera): void {
     userMoved = true;

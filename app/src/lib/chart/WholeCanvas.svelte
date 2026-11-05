@@ -19,6 +19,7 @@
   import { founderOf } from './wholeStart';
   import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
+  import { agentChanges } from '../state/agentChanges.svelte';
   import { compactX, isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
 
@@ -102,8 +103,13 @@
     const ctx = canvas.getContext('2d');
     if (!cur || !ctx) return;
     theme ??= wholeThemeFromCss();
-    drawWhole(ctx, cur.win, meta.blocks, cam, { w: size.w, h: size.h, dpr }, { selected, home: homeNode, lineage, theme });
+    drawWhole(ctx, cur.win, meta.blocks, cam, { w: size.w, h: size.h, dpr }, { selected, home: homeNode, lineage, theme, badged: agentChanges.unreviewed });
   }
+
+  $effect(() => {
+    void agentChanges.unreviewed;
+    invalidate();
+  });
 
   function setCam(c: Camera, byUser = true): void {
     if (byUser) userMoved = true;

@@ -17,6 +17,8 @@
   import { toasts } from '../state/toast.svelte';
   import { errMessage } from '../editors/errors';
   import CoupleEndDialog from './CoupleEndDialog.svelte';
+  import AgentBadge from '../ui/AgentBadge.svelte';
+  import { agentChanges } from '../state/agentChanges.svelte';
   import { coupleEnd, type CoupleEnd } from './coupleEnd';
 
   let {
@@ -540,7 +542,7 @@
     data-row={row}
     tabindex={activeKey === `p:${p.id}` ? 0 : -1}
     aria-current={current ? 'true' : undefined}
-    aria-label={[p.name, p.lifespan, role ? t(roleKey(role)) : '', note ?? ''].filter(Boolean).join(', ')}
+    aria-label={[p.name, p.lifespan, role ? t(roleKey(role)) : '', note ?? '', agentChanges.unreviewed.has(p.id) ? t('changeLog.badgeLabel') : ''].filter(Boolean).join(', ')}
     onfocus={() => (active = `p:${p.id}`)}
     onclick={() => {
       if (!current) onopen(p.id);
@@ -554,6 +556,7 @@
       {#if p.living}<span class="living">{t('common.living')}</span>{/if}
       {#if p.lifespan}<span>{p.lifespan}</span>{/if}
       {#if p.private}<Lock />{/if}
+      {#if agentChanges.unreviewed.has(p.id)}<AgentBadge />{/if}
     </span>
     {#if p.id === homeId}<span class="rib"><Ribbon size="0.9rem" /></span>{/if}
   </button>
