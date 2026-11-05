@@ -124,7 +124,7 @@ describe('MockApi honours the direction', () => {
 });
 
 describe('FamilyTree direction', () => {
-  const ref = (id: string, name: string, sex: PersonRef['sex']): PersonRef => ({ id, name, lifespan: '1850-1921', sex, living: false, private: false });
+  const ref = (id: string, name: string, sex: PersonRef['sex']): PersonRef => ({ id, name, lifespan: '1850-1921', sex, living: false, private: false, siblingMarker: false });
   const dad = ref('d', 'Ivan Koval', 'male');
   const mum = ref('m', 'Olena Koval', 'female');
   const me = ref('me', 'Taras Koval', 'male');

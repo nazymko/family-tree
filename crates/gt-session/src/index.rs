@@ -290,6 +290,8 @@ pub struct PersonSummary {
     pub sex: SexKind,
     pub living: bool,
     pub private: bool,
+    /// The unnamed-siblings marker (kept in the index so charts and the family view can draw it).
+    pub sibling_marker: bool,
     pub source_count: u32,
     pub changed: i64,
     pub letter: LetterClass,
@@ -306,6 +308,7 @@ impl PersonSummary {
             sex: self.sex,
             living: self.living,
             private: self.private,
+            sibling_marker: self.sibling_marker,
         }
     }
 
@@ -390,7 +393,11 @@ fn summarize(
             .sum::<usize>();
     PersonSummary {
         id,
-        name: crate::names::display_name(p, order),
+        name: if p.sibling_marker {
+            String::new()
+        } else {
+            crate::names::display_name(p, order)
+        },
         letter: LetterClass::of(&surname),
         surname,
         given,
@@ -410,6 +417,7 @@ fn summarize(
         sex: crate::names::sex_kind(&p.sex).0,
         living: living.get(&id).copied().unwrap_or(true),
         private: p.common.private,
+        sibling_marker: p.sibling_marker,
         source_count: u32::try_from(sources).unwrap_or(u32::MAX),
         changed: p.common.changed.unwrap_or(0),
         folded,

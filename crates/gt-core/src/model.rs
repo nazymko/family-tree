@@ -58,6 +58,11 @@ pub struct Person {
     pub sex: Sex,
     pub names: Vec<Name>,
     pub living_override: Option<LivingOverride>,
+    /// The "some more brothers and sisters, unnamed" entry of a family: no names, no events, not
+    /// counted, searched, exported or used in kinship and living calculations. Old change-log
+    /// rows have no such field.
+    #[serde(default)]
+    pub sibling_marker: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

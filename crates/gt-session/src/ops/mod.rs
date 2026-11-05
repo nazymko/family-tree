@@ -153,6 +153,18 @@ impl<'a> Planner<'a> {
             .ok_or_else(|| ApiError::not_found(T::NAME, id))
     }
 
+    /// A person who can take part in relationships: not the unnamed-siblings marker, which
+    /// belongs to the one family it was added to.
+    pub fn real_person(&self, id: Uuid) -> Result<Person, ApiError> {
+        let person: Person = self.get(id)?;
+        if person.sibling_marker {
+            return Err(invalid(
+                "The entry for unnamed brothers and sisters cannot be linked to anyone. Delete it instead.",
+            ));
+        }
+        Ok(person)
+    }
+
     pub fn put<T: Rec>(&mut self, rec: T) {
         let id = rec.rid();
         let after = Some(rec.wrap());
@@ -415,6 +427,7 @@ pub fn plan_with(
         } => family::update_child_link(&mut p, *family, *child, *rel, *preferred)?,
         C::UnlinkChild { family, child } => family::unlink_child(&mut p, *family, *child)?,
         C::ReorderChildren { family, order } => family::reorder_children(&mut p, *family, order)?,
+        C::AddSiblingMarker { family } => family::add_sibling_marker(&mut p, *family)?,
         C::SaveNote { target, note } => cite::save_note(&mut p, *target, note)?,
         C::DeleteNote { target, note } => cite::delete_note(&mut p, *target, *note)?,
         C::SaveSource { source } => cite::save_source(&mut p, source)?,

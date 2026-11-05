@@ -690,7 +690,11 @@ impl Session {
                     }
                 });
                 let label = s.filter(|_| text).map_or_else(String::new, |s| {
-                    let mut l = s.name.clone();
+                    let mut l = if s.sibling_marker {
+                        "more brothers and sisters, not named".to_string()
+                    } else {
+                        s.name.clone()
+                    };
                     if !s.lifespan.is_empty() {
                         l = format!("{l}, {}", s.lifespan);
                     }

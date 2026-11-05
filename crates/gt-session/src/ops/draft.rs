@@ -240,6 +240,7 @@ pub(super) fn import_draft(
                 unknown: Vec::new(),
             }],
             living_override: None,
+            sibling_marker: false,
         });
         for (kind, raw) in [
             (EventKind::Birth, d.birth_date_raw.as_deref()),

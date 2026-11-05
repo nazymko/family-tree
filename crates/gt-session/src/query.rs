@@ -39,6 +39,10 @@ impl Filter {
     }
 
     fn matches(&self, s: &PersonSummary) -> bool {
+        // The unnamed-siblings marker is never listed.
+        if s.sibling_marker {
+            return false;
+        }
         match self.living {
             LivingFilter::Living if !s.living => return false,
             LivingFilter::Deceased if s.living => return false,
@@ -60,7 +64,8 @@ impl PersonIndex {
         let limit = limit.min(MAX_PAGE);
         let order = self.order(q.sort, q.desc);
         let filter = Filter::new(q);
-        let slots: Cow<[u32]> = if filter.is_empty() {
+        let any_marker = self.summaries.iter().any(|s| s.sibling_marker);
+        let slots: Cow<[u32]> = if filter.is_empty() && !any_marker {
             Cow::Borrowed(order.as_slice())
         } else {
             Cow::Owned(

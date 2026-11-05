@@ -118,6 +118,7 @@ const LABELS: Record<EditCommand['type'], string> = {
   updateChildLink: 'Edit child link',
   unlinkChild: 'Remove child from family',
   reorderChildren: 'Reorder children',
+  addSiblingMarker: 'Add unnamed brothers and sisters',
   saveNote: 'Save note',
   deleteNote: 'Delete note',
   saveSource: 'Save source',
@@ -286,6 +287,7 @@ export class MockApi implements Api {
 
   async getPerson(id: Id): Promise<PersonDetail> {
     const p = this.person(id);
+    if (p.siblingMarker) throw missing('person', id);
     return structuredClone({
       ref: this.ref(p),
       sex: p.sex,
@@ -357,10 +359,11 @@ export class MockApi implements Api {
     const starts: SearchHitDto[] = [];
     const contains: SearchHitDto[] = [];
     for (const r of rows) {
+      if (r.siblingMarker) continue;
       const f = folded.get(r.id)!;
       const at = f.indexOf(q);
       if (at < 0) continue;
-      const person: PersonRef = { id: r.id, name: r.name, lifespan: r.lifespan, sex: r.sex, living: r.living, private: r.private };
+      const person: PersonRef = { id: r.id, name: r.name, lifespan: r.lifespan, sex: r.sex, living: r.living, private: r.private, siblingMarker: false };
       const hit: SearchHitDto = { kind: 'person', id: r.id, label: r.name, snippet: r.lifespan || null, person };
       (at === 0 || f[at - 1] === ' ' ? starts : contains).push(hit);
       if (starts.length >= lim) break;
@@ -861,7 +864,7 @@ export class MockApi implements Api {
     return {
       dir,
       name: name ?? (dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || this.projectName),
-      personCount: this.db.persons.size,
+      personCount: [...this.db.persons.values()].filter((p) => !p.siblingMarker).length,
       homePerson: this.settings.homePerson,
       sourceVersion: '5.5.1',
       locationWarning: await this.checkLocation(dir),
@@ -980,6 +983,7 @@ export class MockApi implements Api {
       sex: p.sex,
       living: this.isLiving(p),
       private: p.private,
+      siblingMarker: p.siblingMarker === true,
     };
   }
 
@@ -992,8 +996,8 @@ export class MockApi implements Api {
     p.names.forEach((nm) => take(nm.citations));
     return {
       ...this.ref(p),
-      surname: n.surnames.join(' '),
-      given: n.given ?? '',
+      surname: n?.surnames.join(' ') ?? '',
+      given: n?.given ?? '',
       birth: this.birth(p)?.date?.display ?? '',
       death: this.death(p)?.date?.display ?? '',
       sourceCount: sources.size,
@@ -1022,6 +1026,7 @@ export class MockApi implements Api {
     const { rows, folded } = this.rows();
     const text = fold(q.text.trim());
     let out = rows.filter((r) => {
+      if (r.siblingMarker) return false;
       if (text && !folded.get(r.id)!.includes(text)) return false;
       if (q.living === 'living' && !r.living) return false;
       if (q.living === 'deceased' && r.living) return false;
@@ -1447,7 +1452,18 @@ export class MockApi implements Api {
       case 'deleteFamily': {
         const f = this.family(cmd.id);
         this.db.families.delete(cmd.id);
+        for (const c of f.children) if (this.db.persons.get(c.person)?.siblingMarker) this.db.persons.delete(c.person);
         return { focus: null, touched: [f.id, ...[f.partner1, f.partner2, ...f.children.map((c) => c.person)].filter((x): x is Id => !!x)] };
+      }
+
+      case 'addSiblingMarker': {
+        const f = this.family(cmd.family);
+        if (f.children.some((c) => this.db.persons.get(c.person)?.siblingMarker))
+          throw new MockApiError('conflict', 'This family already has an entry for unnamed brothers and sisters.');
+        const id = this.ids.next();
+        this.db.persons.set(id, { id, sex: 'unknown', sexText: null, livingOverride: null, private: false, names: [], events: [], notes: [], media: [], citations: [], changed: this.now(), siblingMarker: true });
+        f.children.push({ person: id, rel: ['birth', 'birth'], preferred: true });
+        return { focus: id, touched: [f.id, id] };
       }
 
       case 'linkChild': {
@@ -1475,6 +1491,7 @@ export class MockApi implements Api {
         const n = f.children.length;
         f.children = f.children.filter((c) => c.person !== cmd.child);
         if (f.children.length === n) throw missing('child link', cmd.child);
+        if (this.db.persons.get(cmd.child)?.siblingMarker) this.db.persons.delete(cmd.child);
         return { focus: cmd.child, touched: [f.id, cmd.child] };
       }
 

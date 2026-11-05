@@ -228,7 +228,7 @@ pub(super) fn quick_add(
     new_parent_set: bool,
     parent_rel: Option<ParentRelId>,
 ) -> Result<Option<Uuid>, ApiError> {
-    p.get::<Person>(anchor)?;
+    p.real_person(anchor)?;
     let kind = linked_kind(relation, parent_rel)?;
     let sex = match relation {
         Relation::Father => SexKind::Male,
@@ -371,8 +371,8 @@ pub(super) fn link_existing(
     new_parent_set: bool,
     parent_rel: Option<ParentRelId>,
 ) -> Result<Option<Uuid>, ApiError> {
-    p.get::<Person>(anchor)?;
-    p.get::<Person>(person)?;
+    p.real_person(anchor)?;
+    p.real_person(person)?;
     let kind = linked_kind(relation, parent_rel)?;
     if person == anchor {
         return Err(invalid("A person cannot be their own relative."));
