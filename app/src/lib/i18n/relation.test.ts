@@ -13,7 +13,7 @@ describe('relationship words in Ukrainian', () => {
     expect(roleText(role('ancestor', 'female'))).toBe('мати');
     expect(roleText(role('ancestor', 'male', { n: 2 }))).toBe('дідусь');
     expect(roleText(role('ancestor', 'female', { n: 2 }))).toBe('бабуся');
-    expect(roleText(role('ancestor', 'male', { n: 3 }))).toBe('прадід');
+    expect(roleText(role('ancestor', 'male', { n: 3 }))).toBe('прадідусь');
     expect(roleText(role('descendant', 'female', { n: 2 }))).toBe('онука');
     expect(roleText(role('descendant', 'male', { n: 3 }))).toBe('правнук');
     expect(roleText(role('sibling', 'male'))).toBe('брат');
@@ -39,7 +39,7 @@ describe('relationship words in Ukrainian', () => {
   });
 
   it('counts_far_generations_with_a_multiplier', () => {
-    expect(roleText(role('ancestor', 'male', { n: 5 }))).toBe('3× прадід');
+    expect(roleText(role('ancestor', 'male', { n: 5 }))).toBe('3× прадідусь');
     expect(roleText(role('descendant', 'female', { n: 5 }))).toContain('3×');
   });
 
