@@ -218,10 +218,18 @@ describe('Gene Tree end to end', () => {
           li.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
         });
       }, level);
-      await browser.pause(1200);
+      // The rows load on demand: the next level can only be expanded once they are there.
+      await browser.waitUntil(() => browser.execute((lv: number) => document.querySelectorAll(`[role="treeitem"][aria-level="${lv}"]`).length > 0, level + 1), {
+        timeout: 15000,
+        timeoutMsg: `the outline should show level ${level + 1}`,
+      });
     }
-    const outlineCount = await browser.execute(() => document.querySelectorAll('[role="treeitem"][aria-level="4"]').length);
-    expect(outlineCount).toBe(chartCount);
+    const outlineCount = () => browser.execute(() => document.querySelectorAll('[role="treeitem"][aria-level="4"]').length);
+    await browser.waitUntil(async () => (await outlineCount()) === chartCount, {
+      timeout: 15000,
+      timeoutMsg: `the outline should show ${chartCount} people in generation 3`,
+    });
+    expect(await outlineCount()).toBe(chartCount);
   });
 
   it('rtl_and_cjk_names_visible', async () => {

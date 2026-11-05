@@ -39,8 +39,8 @@ describe('Ukrainian screens of the newer views', () => {
     fakeRaf();
     const { api } = makeApi(120);
     render(Host, { props: { api, view: WholeTree } });
-    expect(screen.getByRole('heading', { name: 'Усе дерево' })).toBeInTheDocument();
-    attachContext((await screen.findByRole('application', { name: 'Діаграма всього дерева' })) as HTMLCanvasElement);
+    expect(screen.getByRole('heading', { name: 'Увесь родовід' })).toBeInTheDocument();
+    attachContext((await screen.findByRole('application', { name: 'Діаграма всього родоводу' })) as HTMLCanvasElement);
     expect(await screen.findByText(/осіб у \d+ групах|осіб у 1 групі/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Вписати все' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Показати в родоводі' })).toBeInTheDocument();
@@ -51,7 +51,7 @@ describe('Ukrainian screens of the newer views', () => {
     const api = new MockApi(fixtureTree(40));
     project.open(await api.openProject('C:/Genealogy/Test'));
     render(TraceView, { context: apiContext(api, new MockPlatform()) });
-    expect(await screen.findByRole('heading', { name: 'Відтворення дерева зі світлини' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Відтворення родоводу зі світлини' })).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Вибрати світлину…' })).toBeInTheDocument();
     expect(screen.queryByText('Choose a picture')).toBeNull();
   });
@@ -62,7 +62,7 @@ describe('Ukrainian screens of the newer views', () => {
     await api.stageTraceImage('C:/Mock/wall chart.png');
     render(TraceView, { context: apiContext(api, new MockPlatform()) });
     expect(await screen.findByRole('complementary', { name: 'Перевірка' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Додати до дерева' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Додати до родоводу' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Прочитати імена за допомогою ШІ…' })).toBeInTheDocument();
     expect(screen.getByText('Обведіть рамкою ім’я на світлині або клацніть, щоб поставити позначку.')).toBeInTheDocument();
   });
