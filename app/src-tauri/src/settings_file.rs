@@ -40,6 +40,10 @@ pub struct ConnectionDto {
 pub struct AgentAccessSettings {
     pub enabled: bool,
     pub port: u16,
+    /// Whether a request needs a key. Off by default, also for a file written before this existed:
+    /// the owner chose that any program on this computer may connect once access is on. Access
+    /// itself stays off until the owner turns it on.
+    pub require_key: bool,
     pub connections: Vec<ConnectionDto>,
     /// Revoked connections whose key hash may still be stored: a later start removes it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -51,6 +55,7 @@ impl Default for AgentAccessSettings {
         Self {
             enabled: false,
             port: 8765,
+            require_key: false,
             connections: Vec::new(),
             revoked: Vec::new(),
         }

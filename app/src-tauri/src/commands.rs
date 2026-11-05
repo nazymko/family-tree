@@ -99,6 +99,7 @@ command_list!(
     set_settings,
     agent_access_state,
     agent_access_set,
+    agent_access_require_key,
     agent_connection_create,
     agent_connection_revoke,
     agent_rules,
@@ -922,6 +923,14 @@ pub fn agent_access_set<R: Runtime>(
     port: u32,
 ) -> ApiResult<agent_access::AgentAccessState> {
     agent_access::set_access(&app, enabled, port)
+}
+
+#[tauri::command(async)]
+pub fn agent_access_require_key(
+    state: State<'_, AppState>,
+    required: bool,
+) -> ApiResult<agent_access::AgentAccessState> {
+    agent_access::set_require_key(&state, required)
 }
 
 #[tauri::command(async)]

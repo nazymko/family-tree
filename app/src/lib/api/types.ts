@@ -25,6 +25,10 @@ export interface AgentAccessState {
   running: boolean;
   /** Plain words, for example when the port is taken; null when all is well. */
   error: string | null;
+  /** Whether a request needs a key. Off by default. */
+  requireKey: boolean;
+  /** The command that connects an agent while no key is required; null when one is. */
+  keylessCommand: string | null;
   connections: ConnectionDto[];
 }
 

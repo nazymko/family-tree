@@ -14,7 +14,7 @@
   import Dialog from '../ui/Dialog.svelte';
   import Select from '../ui/Select.svelte';
   import { currentLocale, plural, t } from '../i18n';
-  import { editLabel, factText, recordKindLabel } from '../i18n/backend';
+  import { agentLabel, editLabel, factText, recordKindLabel } from '../i18n/backend';
   import LogChanges from './LogChanges.svelte';
 
   const PAGE = 50;
@@ -45,7 +45,7 @@
     { value: '', label: t('changeLog.anyAuthor') },
     { value: 'user', label: t('changeLog.you') },
     { value: 'agent', label: t('changeLog.anyAgent'), group: t('changeLog.agents') },
-    ...agents.map((a) => ({ value: `agent:${a.id}`, label: a.name, group: t('changeLog.agents') })),
+    ...agents.map((a) => ({ value: `agent:${a.id}`, label: agentLabel(a.id, a.name), group: t('changeLog.agents') })),
   ]);
   const batchOptions = $derived([{ value: '', label: t('changeLog.anyBatch') }, ...batches.map((b) => ({ value: b.id, label: b.title }))]);
 
@@ -190,7 +190,7 @@
 
   function who(r: LogRowDto): string {
     if (r.actor.kind === 'user') return t('changeLog.you');
-    return r.actor.kind === 'agent' ? r.actor.name : t('changeLog.beforeTracking');
+    return r.actor.kind === 'agent' ? agentLabel(r.actor.id, r.actor.name) : t('changeLog.beforeTracking');
   }
 
   /** The backend's word for a person with no name, in the active language. */
@@ -258,7 +258,7 @@
             <h2 {id}><bdi dir="auto">{s.ref.title}</bdi></h2>
             {#if s.info}
               <p class="meta">
-                <span>{t('changeLog.by', { agent: s.info.actorName })}</span>
+                <span>{t('changeLog.by', { agent: agentLabel(s.info.actorId, s.info.actorName) })}</span>
                 <span>{plural('changeLog.changes', s.info.groups)}</span>
                 <span>{plural('common.people', s.info.people)}</span>
                 {#if s.info.unreviewed > 0}<span>{plural('changeLog.unreviewed', s.info.unreviewed)}</span>{/if}

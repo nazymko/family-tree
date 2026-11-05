@@ -25,6 +25,7 @@ import { project } from '../state/project.svelte';
 import { settings } from '../state/settings.svelte';
 import { toasts } from '../state/toast.svelte';
 import { setLanguage } from '../i18n';
+import { KEYLESS_AGENT_ID, KEYLESS_AGENT_NAME } from '../i18n/backend';
 import { en } from '../i18n/en';
 import { uk } from '../i18n/uk';
 
@@ -79,6 +80,52 @@ describe('ChangeLog', () => {
     expect(agentRow).toHaveTextContent('Told at the kitchen table');
     await user.click(within(agentRow).getByRole('button', { name: people[0].name }));
     expect(nav.route).toEqual({ name: 'person', id: people[0].id });
+  });
+
+  it('the_agent_without_a_key_has_a_translated_label_in_the_log_and_the_filter', async () => {
+    const { raw, platform, people } = await logScreen();
+    platform.simulateAgentBatch(raw, {
+      agent: KEYLESS_AGENT_NAME,
+      agentId: KEYLESS_AGENT_ID,
+      title: 'Recording 1',
+      changes: [{ person: people[0].id, note: 'Told' }],
+    });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(1));
+    expect(within(rowsOnScreen()[0]).getByText('Agent without a key')).toBeInTheDocument();
+    expect(within(screen.getByRole('combobox', { name: 'Author' })).getByRole('option', { name: 'Agent without a key' })).toBeInTheDocument();
+
+    setLanguage('uk');
+    const ukRows = () => within(screen.getByRole('group', { name: 'Зміни' })).queryAllByRole('listitem');
+    await waitFor(() => expect(within(ukRows()[0]).getByText('Агент без ключа')).toBeInTheDocument());
+    expect(within(screen.getByRole('combobox', { name: 'Автор' })).getByRole('option', { name: 'Агент без ключа' })).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('Agent without a key');
+    setLanguage('en');
+  });
+
+  it('a_connection_that_already_had_the_reserved_name_shows_as_itself_by_its_own_id', async () => {
+    const { raw, platform, people } = await logScreen();
+    platform.simulateAgentBatch(raw, { agent: 'Агент без ключа', title: 'Recording 1', changes: [{ person: people[0].id, note: 'Told' }] });
+    platform.simulateAgentBatch(raw, { agent: 'Agent without a key', title: 'Recording 2', changes: [{ person: people[1].id, note: 'Told' }] });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(2));
+    expect(screen.getAllByText('Агент без ключа').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Agent without a key').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^By Агент без ключа$|^By Agent without a key$/)).toHaveLength(2);
+  });
+
+  it('a_batch_header_is_labelled_by_the_agents_id_not_its_name', async () => {
+    const { raw, platform, people } = await logScreen();
+    platform.simulateAgentBatch(raw, { agent: KEYLESS_AGENT_NAME, agentId: KEYLESS_AGENT_ID, title: 'Recording 1', changes: [{ person: people[0].id, note: 'Told' }] });
+    await waitFor(() => expect(screen.getByText('By Agent without a key')).toBeInTheDocument());
+    setLanguage('uk');
+    await waitFor(() => expect(screen.getByText('Автор: Агент без ключа')).toBeInTheDocument());
+    setLanguage('en');
+  });
+
+  it('a_connection_with_another_id_keeps_its_own_name', async () => {
+    const { raw, platform, people } = await logScreen();
+    platform.simulateAgentBatch(raw, { agent: 'Transcript reader', changes: [{ person: people[0].id, note: 'Told' }] });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(1));
+    expect(within(rowsOnScreen()[0]).getByText('Transcript reader')).toBeInTheDocument();
   });
 
   it('before_tracking_label', async () => {

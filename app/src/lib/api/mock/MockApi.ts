@@ -113,8 +113,16 @@ interface AgentLogEntry {
 }
 
 /** See `MockApi.recordAgentBatch`. A batch exists only when `title` is given. */
+/** The built-in agent's name in either language, ignoring case and spacing: no connection may take it. */
+function isBuiltinAgentName(name: string): boolean {
+  const plain = name.split(/\s+/).filter(Boolean).join(' ').toLowerCase();
+  return plain === 'agent without a key' || plain === 'агент без ключа';
+}
+
 export interface AgentBatchSpec {
   agent?: string;
+  /** The agent's id, for a test that needs a fixed one; otherwise one is made per name. */
+  agentId?: string;
   title?: string;
   sourceFile?: string;
   report?: string;
@@ -593,7 +601,7 @@ export class MockApi implements Api {
    */
   recordAgentBatch(spec: AgentBatchSpec): AgentBatchResult {
     const agent = spec.agent ?? 'Claude';
-    let agentId = this.agentIds.get(agent);
+    let agentId = spec.agentId ?? this.agentIds.get(agent);
     if (!agentId) {
       agentId = this.ids.next();
       this.agentIds.set(agent, agentId);
@@ -606,6 +614,7 @@ export class MockApi implements Api {
       this.logBatches.set(batch.id, {
         ...batch,
         sourceFile: spec.sourceFile ?? null,
+        actorId: agentId,
         actorName: agent,
         started,
         ended: spec.open ? null : started,
@@ -1066,13 +1075,19 @@ export class MockApi implements Api {
 
   // ---------------------------------------------------------------- agent access (in memory)
 
-  private agent: AgentAccessState = { enabled: false, port: 8765, running: false, error: null, connections: [] };
+  private agent: AgentAccessState = { enabled: false, port: 8765, running: false, error: null, requireKey: false, keylessCommand: null, connections: [] };
   private agentSeq = 0;
   /** Ports another program already holds, for tests. */
   agentTakenPorts = new Set<number>();
 
   private agentSnapshot(): AgentAccessState {
-    return { ...this.agent, connections: this.agent.connections.map((c) => ({ ...c })) };
+    const keylessCommand = this.agent.requireKey ? null : `claude mcp add --transport http gene-tree http://127.0.0.1:${this.agent.port}/mcp`;
+    return { ...this.agent, keylessCommand, connections: this.agent.connections.map((c) => ({ ...c })) };
+  }
+
+  async agentAccessRequireKey(required: boolean): Promise<AgentAccessState> {
+    this.agent = { ...this.agent, requireKey: required };
+    return this.agentSnapshot();
   }
 
   async agentAccessState(): Promise<AgentAccessState> {
@@ -1103,7 +1118,7 @@ export class MockApi implements Api {
     if ([...clean].length > 100) throw invalid('Keep the connection name to 100 characters or fewer.');
     // eslint-disable-next-line no-control-regex
     if (/[\u0000-\u001f\u007f-\u009f]/.test(clean)) throw invalid('The connection name cannot contain line breaks or other control characters.');
-    if (this.agent.connections.some((c) => c.name.toLowerCase() === clean.toLowerCase())) {
+    if (isBuiltinAgentName(clean) || this.agent.connections.some((c) => c.name.toLowerCase() === clean.toLowerCase())) {
       throw invalid(`A connection named "${clean}" already exists. Choose another name.`);
     }
     const bytes = new Uint8Array(16);

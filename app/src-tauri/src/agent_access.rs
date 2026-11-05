@@ -15,6 +15,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
@@ -30,7 +31,11 @@ const MAX_PORT: u32 = 65535;
 const EXIT_WAIT: Duration = Duration::from_secs(2);
 /// Most characters in a connection's name.
 const MAX_NAME: usize = 100;
+/// The built-in agent's label in Ukrainian, which no connection may take either.
+const BUILTIN_NAME_UK: &str = "Агент без ключа";
 const REVOKE_NOT_RECORDED: &str = "Access stopped for now, but this could not be recorded; it may return after restart. Try again.";
+const REQUIRE_NOT_SAVED: &str = "A key is required now, but this could not be saved, so after the next start no key will be required.";
+const BOTH_NOT_SAVED: &str = "Agent access is off now, but this could not be saved, so it will come back on at the next start. A key is required now, but this could not be saved, so after the next start no key will be required.";
 const OFF_NOT_SAVED: &str = "Agent access is off now, but this could not be saved, so it will come back on at the next start.";
 
 type ApiResult<T> = Result<T, ApiError>;
@@ -43,6 +48,10 @@ pub struct AgentAccessState {
     pub port: u16,
     pub running: bool,
     pub error: Option<String>,
+    /// Whether a request needs a key.
+    pub require_key: bool,
+    /// The command that connects an agent while no key is required, for display; none otherwise.
+    pub keyless_command: Option<String>,
     pub connections: Vec<ConnectionDto>,
 }
 
@@ -180,6 +189,9 @@ struct Server {
     pending_revokes: Vec<ConnectionDto>,
     /// The settings in memory are ahead of the file.
     unsaved: bool,
+    /// What is ahead of the file, for the words that say so: access turned off, a key required.
+    off_unsaved: bool,
+    require_unsaved: bool,
 }
 
 /// In [`AppState`]. `server` also orders every change of switch, port and connections.
@@ -187,6 +199,10 @@ pub struct AgentAccess {
     server: Mutex<Server>,
     /// What the running server accepts: loaded when it starts, emptied when it stops.
     keys: Mutex<Vec<KnownKey>>,
+    /// Whether the running server lets in a request with no key: it runs, and no key is required.
+    /// Read on every such request, twice, so that turning the requirement on stops the very next
+    /// one and one already past its head.
+    keyless: AtomicBool,
     hashes: Box<dyn HashStore>,
 }
 
@@ -195,6 +211,7 @@ impl AgentAccess {
         Self {
             server: Mutex::new(Server::default()),
             keys: Mutex::new(Vec::new()),
+            keyless: AtomicBool::new(false),
             hashes,
         }
     }
@@ -243,6 +260,15 @@ impl<R: Runtime> Host for AppHost<R> {
             .try_state::<AppState>()?
             .agent
             .authenticate(key_sha256)
+    }
+
+    fn authenticate_keyless(&self) -> Option<AgentCtx> {
+        let state = self.app.try_state::<AppState>()?;
+        state
+            .agent
+            .keyless
+            .load(Ordering::SeqCst)
+            .then(gt_mcp::keyless_agent)
     }
 
     fn changed(&self, touched: &[Uuid], agent: &AgentCtx) {
@@ -300,12 +326,18 @@ fn save_access(
     settings_file::save_settings(&state.config_dir, &next)?;
     *settings = next;
     server.unsaved = false;
+    server.off_unsaved = false;
+    server.require_unsaved = false;
     Ok(())
 }
 
 fn save_memory(state: &AppState, server: &mut Server) {
     let settings = AppState::lock(&state.settings);
     server.unsaved = settings_file::save_settings(&state.config_dir, &settings).is_err();
+    if !server.unsaved {
+        server.off_unsaved = false;
+        server.require_unsaved = false;
+    }
 }
 
 /// Tries again to record what could not be recorded: the settings, then the hashes of revoked
@@ -372,6 +404,13 @@ fn start<R: Runtime>(app: &AppHandle<R>, state: &AppState, server: &mut Server, 
             server.error = Some(bind_error(port, &e));
         }
     }
+    sync_keyless(state, server);
+}
+
+/// Lets requests with no key in exactly while a server runs and the owner has not required one.
+fn sync_keyless(state: &AppState, server: &Server) {
+    let open = server.handle.is_some() && !AppState::lock(&state.settings).agent_access.require_key;
+    state.agent.keyless.store(open, Ordering::SeqCst);
 }
 
 /// Ends the accept loop and frees the port. Requests still on their way then find no key.
@@ -381,6 +420,7 @@ fn stop(state: &AppState, server: &mut Server) {
     }
     AppState::lock(&state.agent.keys).clear();
     server.error = None;
+    sync_keyless(state, server);
 }
 
 fn snapshot(state: &AppState, server: &Server) -> AgentAccessState {
@@ -388,8 +428,12 @@ fn snapshot(state: &AppState, server: &Server) -> AgentAccessState {
     let access = &settings.agent_access;
     let error = if !server.pending_revokes.is_empty() {
         Some(REVOKE_NOT_RECORDED.to_string())
-    } else if server.unsaved && !access.enabled {
+    } else if server.unsaved && server.off_unsaved && server.require_unsaved {
+        Some(BOTH_NOT_SAVED.to_string())
+    } else if server.unsaved && server.off_unsaved {
         Some(OFF_NOT_SAVED.to_string())
+    } else if server.unsaved && server.require_unsaved {
+        Some(REQUIRE_NOT_SAVED.to_string())
     } else {
         server.error.clone()
     };
@@ -398,6 +442,8 @@ fn snapshot(state: &AppState, server: &Server) -> AgentAccessState {
         port: access.port,
         running: server.handle.is_some(),
         error,
+        require_key: access.require_key,
+        keyless_command: (!access.require_key).then(|| keyless_snippet(access.port)),
         connections: access
             .connections
             .iter()
@@ -472,6 +518,7 @@ pub fn set_access<R: Runtime>(
         stop(&state, &mut server);
         change(&mut AppState::lock(&state.settings).agent_access);
         server.unsaved = true;
+        server.off_unsaved = true;
     } else if server.handle.as_ref().is_some_and(|h| h.port() == port) {
         save_access(&state, &mut server, change)?;
         server.error = load_keys(&state);
@@ -497,8 +544,33 @@ pub fn set_access<R: Runtime>(
             }
         }
     }
+    sync_keyless(&state, &server);
     settle(&state, &mut server);
     Ok(snapshot(&state, &server))
+}
+
+/// Requires a key, or stops requiring one. Requiring takes effect first of all, whatever then
+/// fails: the next request is refused, and so is one already past its head. If that cannot be saved
+/// it is said, and trying again (or any later action) saves it. Not requiring is the loosening
+/// step, so it applies only once it is saved.
+pub fn set_require_key(state: &AppState, required: bool) -> ApiResult<AgentAccessState> {
+    if required {
+        // Before even waiting for the server's lock, which a slow keychain can hold. The setting
+        // goes first, so that a `sync_keyless` running meanwhile reads it and also closes the door,
+        // instead of reopening what is closed here.
+        AppState::lock(&state.settings).agent_access.require_key = true;
+        state.agent.keyless.store(false, Ordering::SeqCst);
+    }
+    let mut server = AppState::lock(&state.agent.server);
+    if required {
+        server.unsaved = true;
+        server.require_unsaved = true;
+    } else {
+        save_access(state, &mut server, |a| a.require_key = false)?;
+    }
+    sync_keyless(state, &server);
+    settle(state, &mut server);
+    Ok(snapshot(state, &server))
 }
 
 fn now_millis() -> i64 {
@@ -520,10 +592,25 @@ fn new_key() -> ApiResult<String> {
     Ok(format!("gt_{}", to_hex(&bytes)))
 }
 
+fn keyless_snippet(port: u16) -> String {
+    format!("claude mcp add --transport http gene-tree http://127.0.0.1:{port}/mcp")
+}
+
 fn snippet(port: u16, key: &str) -> String {
     format!(
         "claude mcp add --transport http gene-tree http://127.0.0.1:{port}/mcp --header \"Authorization: Bearer {key}\""
     )
+}
+
+/// The built-in agent's name in either language, ignoring case and spacing, so that no connection
+/// reads like it in the log.
+fn is_builtin_name(name: &str) -> bool {
+    let plain = name
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    plain == gt_mcp::KEYLESS_AGENT_NAME.to_lowercase() || plain == BUILTIN_NAME_UK.to_lowercase()
 }
 
 fn checked_name(name: &str) -> ApiResult<&str> {
@@ -549,7 +636,9 @@ pub fn create_connection(state: &AppState, name: &str) -> ApiResult<NewConnectio
     let mut server = AppState::lock(&state.agent.server);
     settle(state, &mut server);
     let same_name = |c: &ConnectionDto| c.name.to_lowercase() == name.to_lowercase();
-    let taken = server.pending_revokes.iter().any(same_name)
+    // The built-in agent's name is taken, so no connection can pass for it in the log.
+    let taken = is_builtin_name(name)
+        || server.pending_revokes.iter().any(same_name)
         || AppState::lock(&state.settings)
             .agent_access
             .connections

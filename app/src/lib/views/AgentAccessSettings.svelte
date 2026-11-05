@@ -14,6 +14,7 @@
 
   let agent = $state<AgentAccessState | null>(null);
   let enabled = $state(false);
+  let requireKey = $state(false);
   let port = $state('8765');
   let error = $state('');
   let busy = $state(false);
@@ -30,6 +31,7 @@
   function take(next: AgentAccessState) {
     agent = next;
     enabled = next.enabled;
+    requireKey = next.requireKey;
     port = String(next.port);
   }
 
@@ -55,6 +57,20 @@
     } catch (e) {
       error = message(e);
       if (agent) take(agent);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function applyRequireKey(required: boolean) {
+    error = '';
+    busy = true;
+    try {
+      take(await api.agentAccessRequireKey(required));
+    } catch (e) {
+      error = message(e);
+      // Not requiring a key applies only once saved: show what is true now.
+      await api.agentAccessState().then(take, () => agent && take(agent));
     } finally {
       busy = false;
     }
@@ -145,6 +161,19 @@
       onchange={(on) => void apply(on, Number(port) || agent?.port || 8765)}
     />
     <Banner kind="warning">{t('agent.warning')}</Banner>
+    <Checkbox
+      label={t('agent.requireKey')}
+      bind:checked={requireKey}
+      disabled={!agent || busy}
+      onchange={(on) => void applyRequireKey(on)}
+    />
+    {#if agent && !agent.requireKey}
+      <Banner kind="warning">{t('agent.noKeyWarning')}</Banner>
+      {#if agent.keylessCommand}
+        <p class="label">{t('agent.keylessCommandLabel')}</p>
+        <code class="secret" data-testid="agent-keyless-command">{agent.keylessCommand}</code>
+      {/if}
+    {/if}
     <TextField
       label={t('agent.port')}
       type="number"

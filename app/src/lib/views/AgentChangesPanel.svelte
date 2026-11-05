@@ -8,7 +8,7 @@
   import { toasts } from '../state/toast.svelte';
   import Button from '../ui/Button.svelte';
   import { currentLocale, t } from '../i18n';
-  import { editLabel } from '../i18n/backend';
+  import { agentLabel, editLabel } from '../i18n/backend';
   import LogChanges from './LogChanges.svelte';
 
   let { id }: { id: Id } = $props();
@@ -49,7 +49,7 @@
     }
   }
 
-  const who = (r: LogRowDto) => (r.actor.kind === 'agent' ? r.actor.name : '');
+  const who = (r: LogRowDto) => (r.actor.kind === 'agent' ? agentLabel(r.actor.id, r.actor.name) : '');
 </script>
 
 {#if rows.length > 0}
