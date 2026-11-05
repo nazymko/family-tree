@@ -9,10 +9,11 @@
 //!    constraints (data errors, marriages across generations) lose against the constraint met
 //!    first, so the walk visits every person once and always ends.
 //! 2. Units: people in the same row who are partners form one box group.
-//! 3. Order: sibling groups stay together, siblings by birth; barycenter sweeps order the groups.
-//! 4. Positions: alternating down and up sweeps, each row solved exactly by isotonic regression
-//!    (least displacement from where parents and children pull, without overlap).
-//! 5. Lines: one connector per child from the couple to a bar, bars in lanes so they do not merge.
+//! 3. Positions: a walk over the families from the top makes a tree of units. Each part is drawn on its own and
+//!    packed against the others row by row (a tidy tree): children under their parents, siblings together by birth,
+//!    the parents of someone who married in on the outer side of the couple.
+//! 4. Lines: one connector per child from the couple to a bar; bars that would touch go in separate lanes, in the
+//!    order that crosses the fewest lines. A line that passes a row goes through a column free of boxes.
 //!
 //! Everything is a function of the input order, so the same data gives the same picture.
 
@@ -107,9 +108,21 @@ const HEADING_H: f64 = 28.0;
 const HEADING_GAP: f64 = 12.0;
 const BLOCK_GAP: f64 = 96.0;
 const MIN_BLOCK_W: f64 = 240.0;
-const LANE: f64 = 8.0;
-const SWEEPS_ORDER: usize = 6;
-const SWEEPS_PLACE: usize = 4;
+/// Distance between the lanes of a channel.
+const LANE: f64 = 12.0;
+/// The first lane, below the boxes of a row.
+const BUS_TOP: f64 = 14.0;
+/// Two bars closer than this end to end read as one line, so they take different lanes.
+const BAR_GAP: f64 = 28.0;
+const LANE_PASSES: usize = 8;
+/// How many placements are tried per family block, and up to which size.
+const MAX_TRIES: usize = 48;
+const MAX_UNITS_TO_TRY: usize = 1500;
+/// Lines to a child with two sets of parents arrive this far apart.
+const SECOND_LINE: f64 = 14.0;
+/// Horizontal gaps as parts of `Metrics::gap_x`: brothers and sisters closer than separate families.
+const GAP_SIBLINGS: f64 = 0.6;
+const GAP_GROUPS: f64 = 1.2;
 
 struct Fam {
     partners: Vec<usize>,
@@ -196,191 +209,735 @@ struct Unit {
     members: Vec<usize>,
     row: usize,
     w: f64,
-    x: f64,
-    group: usize,
 }
 
-struct Group {
-    row: usize,
-    fam: Option<usize>,
-    units: Vec<usize>,
-    anchors: Vec<usize>,
+/// What a placed part of the chart occupies, row by row, and the units placed directly in it.
+struct Shape {
+    spans: Vec<(f64, f64)>,
+    items: Vec<(usize, f64)>,
 }
 
-/// Least-squares positions `x_i` with `x_{i+1} >= x_i + w_i + gap_i`, closest to `desired`
-/// (pool-adjacent-violators on the offset-corrected targets).
-fn solve_row(widths: &[f64], gaps: &[f64], desired: &[f64]) -> Vec<f64> {
-    let n = widths.len();
-    let mut offset = Vec::with_capacity(n);
-    let mut acc = 0.0;
-    for (i, w) in widths.iter().enumerate() {
-        offset.push(acc);
-        acc += w + gaps.get(i).copied().unwrap_or(0.0);
+impl Shape {
+    fn empty(rows: usize) -> Self {
+        Self {
+            spans: vec![(f64::INFINITY, f64::NEG_INFINITY); rows],
+            items: Vec::new(),
+        }
     }
-    // Blocks of (sum of targets, count).
-    let mut blocks: Vec<(f64, usize)> = Vec::with_capacity(n);
-    for i in 0..n {
-        blocks.push((desired[i] - offset[i], 1));
-        while blocks.len() >= 2 {
-            let (s2, c2) = blocks[blocks.len() - 1];
-            let (s1, c1) = blocks[blocks.len() - 2];
-            if s1 / c1 as f64 > s2 / c2 as f64 {
-                blocks.truncate(blocks.len() - 2);
-                blocks.push((s1 + s2, c1 + c2));
-            } else {
-                break;
+
+    fn is_used(span: (f64, f64)) -> bool {
+        span.0 <= span.1
+    }
+
+    /// The shift nearest to `want` that keeps `other` wholly on one side of this shape, in every row both use.
+    /// Without a wish, as close as it can go.
+    fn clear_shift(
+        &self,
+        other: &Self,
+        want: Option<f64>,
+        right: bool,
+        gap: impl Fn(usize) -> f64,
+    ) -> f64 {
+        let mut limit: Option<f64> = None;
+        for (r, (&a, &b)) in self.spans.iter().zip(&other.spans).enumerate() {
+            if Self::is_used(a) && Self::is_used(b) {
+                let s = if right {
+                    a.1 + gap(r) - b.0
+                } else {
+                    a.0 - gap(r) - b.1
+                };
+                limit = Some(limit.map_or(s, |l: f64| if right { l.max(s) } else { l.min(s) }));
+            }
+        }
+        match (want, limit) {
+            (Some(w), Some(l)) => {
+                if right {
+                    w.max(l)
+                } else {
+                    w.min(l)
+                }
+            }
+            (Some(w), None) => w,
+            (None, Some(l)) => l,
+            (None, None) => 0.0,
+        }
+    }
+
+    fn add(&mut self, other: Self, dx: f64) {
+        for (a, b) in self.spans.iter_mut().zip(other.spans) {
+            if Self::is_used(b) {
+                *a = (a.0.min(b.0 + dx), a.1.max(b.1 + dx));
+            }
+        }
+        self.items
+            .extend(other.items.into_iter().map(|(u, x)| (u, x + dx)));
+    }
+}
+
+/// A unit in a family's row of children, through `person`; `end` is the side of the row it was moved to.
+struct Kid {
+    unit: usize,
+    person: usize,
+    end: Option<bool>,
+}
+
+/// A family reached from a parent: its children hang below the unit.
+struct Down {
+    fam: usize,
+    kids: Vec<Kid>,
+    others: Vec<usize>,
+}
+
+/// A family reached from a child: the parents sit above and the brothers and sisters beside the unit.
+struct Up {
+    member: usize,
+    fam: usize,
+    right: bool,
+    parents: Vec<usize>,
+    sibs: Vec<Kid>,
+}
+
+#[derive(Default)]
+struct Branches {
+    downs: Vec<Down>,
+    ups: Vec<Up>,
+}
+
+/// A member of the unit with parents the walk has not reached: they hang off the side of the unit.
+fn rising(unit: &Unit, fam_seen: &[bool], sh: &Shared) -> Option<usize> {
+    unit.members
+        .iter()
+        .copied()
+        .find(|&m| sh.child_in[m].iter().any(|&f| !fam_seen[f]))
+}
+
+/// Children with parents-in-law go to the end of the row, the side their partner's family hangs from, because a
+/// line to them from outside would otherwise cross every line to the brothers and sisters on that side. The others
+/// keep their birth order. With `only` every such child goes to that side. `forced` holds the sides chosen to bring
+/// the two ends of a loop together, which win over the rest.
+fn arrange(
+    (fam, kids): (usize, Vec<(usize, usize)>),
+    units: &mut [Unit],
+    fam_seen: &[bool],
+    only: Option<bool>,
+    forced: &Forced,
+    sh: &Shared,
+    sc: &mut Scratch,
+) -> Vec<Kid> {
+    let n = kids.len();
+    let rises: Vec<Option<usize>> = kids
+        .iter()
+        .map(|&(u, _)| rising(&units[u], fam_seen, sh))
+        .collect();
+    let pinned = |unit: usize| forced.get(&(fam, unit)).filter(|_| only.is_none());
+    let count = kids
+        .iter()
+        .zip(&rises)
+        .filter(|((u, _), r)| r.is_some() && pinned(*u).is_none())
+        .count();
+    let (mut left, mut middle, mut right) = (Vec::new(), Vec::new(), Vec::new());
+    let mut nth = 0;
+    for (i, &(unit, person)) in kids.iter().enumerate() {
+        let pin = pinned(unit).copied();
+        if rises[i].is_none() && pin.is_none() {
+            middle.push(Kid {
+                unit,
+                person,
+                end: None,
+            });
+            continue;
+        }
+        let to_right = pin.map_or_else(
+            || {
+                let free = only.unwrap_or(if count == 1 { i * 2 >= n - 1 } else { nth > 0 });
+                nth += 1;
+                free
+            },
+            |(side, _)| side,
+        );
+        // Whoever links the unit to the other family, if anybody but the child does.
+        let who = rises[i]
+            .or_else(|| {
+                let m = &units[unit].members;
+                m.iter()
+                    .copied()
+                    .find(|&q| q != person && !sh.child_in[q].is_empty())
+            })
+            .unwrap_or(person);
+        // The partner with the parents goes on the outside.
+        let (pos_who, pos_kid) = (sc.pos_in_unit[who], sc.pos_in_unit[person]);
+        if who != person && (pos_who > pos_kid) != to_right {
+            units[unit].members.reverse();
+            for (k, &m) in units[unit].members.iter().enumerate() {
+                sc.pos_in_unit[m] = k;
+            }
+        }
+        let kid = Kid {
+            unit,
+            person,
+            end: Some(to_right),
+        };
+        if to_right {
+            right.push(kid);
+        } else {
+            left.push(kid);
+        }
+    }
+    // Stable: the far end of a loop stays outside the near end, the others keep their order.
+    right.sort_by_key(|k: &Kid| pinned(k.unit).map_or(0, |&(_, rank)| rank));
+    left.append(&mut middle);
+    left.append(&mut right);
+    left
+}
+
+/// The unit to start from: on the top row, with the most people below it.
+fn pick_root(units: &[Unit], sh: &Shared, sc: &Scratch) -> usize {
+    let mut by_row: Vec<usize> = (0..units.len()).collect();
+    by_row.sort_by_key(|&u| std::cmp::Reverse(units[u].row));
+    let mut below = vec![0.0f64; units.len()];
+    for &u in &by_row {
+        let mut seen: Vec<usize> = Vec::new();
+        for &p in &units[u].members {
+            for &f in &sh.partner_in[p] {
+                for &c in &sh.fams[f].kids {
+                    let cu = sc.unit_of[c];
+                    if units[cu].row > units[u].row && !seen.contains(&cu) {
+                        seen.push(cu);
+                        below[u] += 1.0 + below[cu];
+                    }
+                }
             }
         }
     }
-    let mut out = Vec::with_capacity(n);
-    for (s, c) in blocks {
-        let mean = s / c as f64;
-        for _ in 0..c {
-            let i = out.len();
-            out.push(mean + offset[i]);
+    let top = units.iter().map(|u| u.row).min().unwrap_or(0);
+    let mut root = 0;
+    let mut best = f64::NEG_INFINITY;
+    for (u, unit) in units.iter().enumerate() {
+        if unit.row == top && below[u] > best {
+            best = below[u];
+            root = u;
         }
     }
-    out
+    root
 }
 
-/// Stable sort of the items that have a key; items without one keep their slot.
-fn sort_keyed(items: &mut [usize], key: impl Fn(usize) -> Option<f64>) {
-    let slots: Vec<usize> = (0..items.len())
-        .filter(|&i| key(items[i]).is_some())
-        .collect();
-    let mut keyed: Vec<(f64, usize)> = slots
-        .iter()
-        .map(|&i| (key(items[i]).unwrap_or(0.0), items[i]))
-        .collect();
-    keyed.sort_by(|a, b| a.0.total_cmp(&b.0));
-    for (&slot, (_, item)) in slots.iter().zip(keyed) {
-        items[slot] = item;
-    }
-}
-
-struct Comp {
-    units: Vec<Unit>,
-    groups: Vec<Group>,
-    rows: Vec<Vec<usize>>,
-    kids_units: Vec<Vec<usize>>,
-    gap_in: f64,
-    gap_group: f64,
-}
-
-impl Comp {
-    fn centre(&self, u: usize) -> f64 {
-        self.units[u].x + self.units[u].w / 2.0
-    }
-
-    fn group_width(&self, g: usize) -> f64 {
-        let us = &self.groups[g].units;
-        us.iter().map(|&u| self.units[u].w).sum::<f64>()
-            + self.gap_in * us.len().saturating_sub(1) as f64
-    }
-
-    fn lay_group(&mut self, g: usize, left: f64) {
-        let mut x = left;
-        for i in 0..self.groups[g].units.len() {
-            let u = self.groups[g].units[i];
-            self.units[u].x = x;
-            x += self.units[u].w + self.gap_in;
-        }
-    }
-
-    fn pack_row(&mut self, r: usize) {
-        let mut x = 0.0;
-        for i in 0..self.rows[r].len() {
-            let g = self.rows[r][i];
-            self.lay_group(g, x);
-            x += self.group_width(g) + self.gap_group;
-        }
-    }
-
-    /// Down sweep key: where the parents of the group are.
-    fn parent_key(&self, g: usize) -> Option<f64> {
-        let a = &self.groups[g].anchors;
-        if a.is_empty() {
-            return None;
-        }
-        Some(a.iter().map(|&u| self.centre(u)).sum::<f64>() / a.len() as f64)
-    }
-
-    /// Up sweep: where the children of the unit are.
-    fn kids_key(&self, u: usize) -> Option<f64> {
-        let k = &self.kids_units[u];
-        if k.is_empty() {
-            return None;
-        }
-        Some(k.iter().map(|&c| self.centre(c)).sum::<f64>() / k.len() as f64)
-    }
-
-    fn group_kids_key(&self, g: usize) -> Option<f64> {
-        let ks: Vec<f64> = self.groups[g]
-            .units
-            .iter()
-            .filter_map(|&u| self.kids_key(u))
-            .collect();
-        if ks.is_empty() {
-            return None;
-        }
-        Some(ks.iter().sum::<f64>() / ks.len() as f64)
-    }
-
-    fn down(&mut self, r: usize, order: bool) {
-        let mut row = std::mem::take(&mut self.rows[r]);
-        if order {
-            sort_keyed(&mut row, |g| self.parent_key(g));
-        }
-        let widths: Vec<f64> = row.iter().map(|&g| self.group_width(g)).collect();
-        let desired: Vec<f64> = row
-            .iter()
-            .zip(&widths)
-            .map(|(&g, w)| {
-                self.parent_key(g)
-                    .map_or_else(|| self.units[self.groups[g].units[0]].x, |k| k - w / 2.0)
-            })
-            .collect();
-        let gaps = vec![self.gap_group; row.len().saturating_sub(1)];
-        let lefts = solve_row(&widths, &gaps, &desired);
-        for (&g, &l) in row.iter().zip(&lefts) {
-            self.lay_group(g, l);
-        }
-        self.rows[r] = row;
-    }
-
-    fn up(&mut self, r: usize, order: bool) {
-        let mut row = std::mem::take(&mut self.rows[r]);
-        if order {
-            sort_keyed(&mut row, |g| self.group_kids_key(g));
-        }
-        let flat: Vec<usize> = row
-            .iter()
-            .flat_map(|&g| self.groups[g].units.iter().copied())
-            .collect();
-        let widths: Vec<f64> = flat.iter().map(|&u| self.units[u].w).collect();
-        let desired: Vec<f64> = flat
-            .iter()
-            .map(|&u| {
-                self.kids_key(u)
-                    .map_or(self.units[u].x, |k| k - self.units[u].w / 2.0)
-            })
-            .collect();
-        let gaps: Vec<f64> = flat
-            .windows(2)
-            .map(|p| {
-                if self.units[p[0]].group == self.units[p[1]].group {
-                    self.gap_in
-                } else {
-                    self.gap_group
+/// Walks the families from the root. Each unit and family is reached once, so the walk is a tree, and links that
+/// close a loop (cousins who marry, a second set of parents) stay plain lines. Returns the units in walk order.
+fn walk(
+    units: &mut [Unit],
+    root: usize,
+    forced: &Forced,
+    sh: &Shared,
+    sc: &mut Scratch,
+    branches: &mut [Branches],
+) -> Walked {
+    let mut fam_seen = vec![false; sh.fams.len()];
+    let mut parent: Vec<Option<(usize, usize, bool)>> = vec![None; units.len()];
+    let mut loops: Vec<(usize, usize)> = Vec::new();
+    let mut ends: Vec<(usize, usize, bool)> = Vec::new();
+    let mut seen = vec![false; units.len()];
+    let mut entry: Vec<Option<usize>> = vec![None; units.len()];
+    let mut prefers_right = vec![true; units.len()];
+    seen[root] = true;
+    let mut order = vec![root];
+    let mut head = 0;
+    while head < order.len() {
+        let u = order[head];
+        head += 1;
+        let members = units[u].members.clone();
+        for &p in &members {
+            for &f in &sh.partner_in[p] {
+                if std::mem::replace(&mut fam_seen[f], true) {
+                    continue;
                 }
-            })
-            .collect();
-        let lefts = solve_row(&widths, &gaps, &desired);
-        for (&u, &l) in flat.iter().zip(&lefts) {
-            self.units[u].x = l;
+                let mut others = Vec::new();
+                for &q in &sh.fams[f].partners {
+                    let qu = sc.unit_of[q];
+                    if !std::mem::replace(&mut seen[qu], true) {
+                        parent[qu] = Some((u, f, false));
+                        others.push(qu);
+                        order.push(qu);
+                    } else if qu != u {
+                        loops.push((u, qu));
+                    }
+                }
+                let mut kids = Vec::new();
+                for &c in &sh.fams[f].kids {
+                    let cu = sc.unit_of[c];
+                    if !std::mem::replace(&mut seen[cu], true) {
+                        parent[cu] = Some((u, f, true));
+                        entry[cu] = Some(c);
+                        kids.push((cu, c));
+                        order.push(cu);
+                    } else if cu != u && parent[cu] != Some((u, f, true)) {
+                        loops.push((u, cu));
+                    }
+                }
+                let kids = arrange((f, kids), units, &fam_seen, None, forced, sh, sc);
+                for k in &kids {
+                    prefers_right[k.unit] = k.end.unwrap_or(true);
+                    if let Some(side) = k.end {
+                        ends.push((f, k.unit, side));
+                    }
+                }
+                branches[u].downs.push(Down {
+                    fam: f,
+                    kids,
+                    others,
+                });
+            }
         }
-        self.rows[r] = row;
+        for &p in &members {
+            for &f in &sh.child_in[p] {
+                if std::mem::replace(&mut fam_seen[f], true) {
+                    continue;
+                }
+                let right = match entry[u].filter(|&e| e != p) {
+                    Some(e) => sc.pos_in_unit[p] > sc.pos_in_unit[e],
+                    None => {
+                        let (pos, last) = (sc.pos_in_unit[p] * 2, members.len() - 1);
+                        if pos == last {
+                            prefers_right[u]
+                        } else {
+                            pos > last
+                        }
+                    }
+                };
+                let mut parents = Vec::new();
+                for &q in &sh.fams[f].partners {
+                    let qu = sc.unit_of[q];
+                    if !std::mem::replace(&mut seen[qu], true) {
+                        parent[qu] = Some((u, f, false));
+                        prefers_right[qu] = right;
+                        parents.push(qu);
+                        order.push(qu);
+                    } else if qu != u {
+                        loops.push((u, qu));
+                    }
+                }
+                let mut sibs = Vec::new();
+                for &c in &sh.fams[f].kids {
+                    let cu = sc.unit_of[c];
+                    if !std::mem::replace(&mut seen[cu], true) {
+                        parent[cu] = Some((u, f, false));
+                        entry[cu] = Some(c);
+                        prefers_right[cu] = right;
+                        sibs.push((cu, c));
+                        order.push(cu);
+                    } else if cu != u && parent[cu] != Some((u, f, false)) {
+                        loops.push((u, cu));
+                    }
+                }
+                let sibs = arrange((f, sibs), units, &fam_seen, Some(right), forced, sh, sc);
+                branches[u].ups.push(Up {
+                    member: p,
+                    fam: f,
+                    right,
+                    parents,
+                    sibs,
+                });
+            }
+        }
     }
+    Walked {
+        order,
+        parent,
+        loops,
+        ends,
+    }
+}
+
+/// Sides of the row of children, by (family, unit): which side, and the order among those moved to the right.
+type Forced = HashMap<(usize, usize), (bool, u8)>;
+
+struct Walked {
+    order: Vec<usize>,
+    /// The unit, family and "as a child below it" each unit was reached through.
+    parent: Vec<Option<(usize, usize, bool)>>,
+    /// Pairs of units joined by a family the walk had already passed.
+    loops: Vec<(usize, usize)>,
+    /// The children moved to an end of their row: family, unit, side.
+    ends: Vec<(usize, usize, bool)>,
+}
+
+/// Bends the branches around each loop towards each other, so the line that closes it is short: on the way up from
+/// both ends of the link every child moves to the side of its family's row that faces the other end, and the two
+/// branches that meet end up next to each other.
+fn bend_loops(walked: &Walked, xs: &[f64]) -> Forced {
+    let mut depth = vec![0usize; xs.len()];
+    for &u in &walked.order {
+        if let Some((p, _, _)) = walked.parent[u] {
+            depth[u] = depth[p] + 1;
+        }
+    }
+    let mut forced = Forced::new();
+    for &(a, b) in &walked.loops {
+        let (a, b) = if xs[a] <= xs[b] { (a, b) } else { (b, a) };
+        let (mut p, mut q) = (a, b);
+        let (mut tops_a, mut tops_b): (Option<usize>, Option<usize>) = (None, None);
+        while p != q {
+            let up_a = depth[p] >= depth[q];
+            let v = if up_a { p } else { q };
+            let Some((up, fam, kid)) = walked.parent[v] else {
+                break;
+            };
+            if kid {
+                forced.entry((fam, v)).or_insert((up_a, 0));
+            }
+            if up_a {
+                tops_a = Some(v);
+                p = up;
+            } else {
+                tops_b = Some(v);
+                q = up;
+            }
+        }
+        if let (Some(ta), Some(tb)) = (tops_a, tops_b)
+            && let (Some((_, fa, true)), Some((_, fb, true))) =
+                (walked.parent[ta], walked.parent[tb])
+            && fa == fb
+        {
+            forced.insert((fa, ta), (true, 0));
+            forced.insert((fa, tb), (true, 1));
+        }
+    }
+    forced
+}
+
+/// How far children are from their parents, added up: the shorter, the easier to follow.
+fn spread(xs: &[f64], units: &[Unit], sh: &Shared, sc: &Scratch) -> f64 {
+    let x_of = |p: usize| {
+        let u = sc.unit_of[p];
+        xs[u] + sc.pos_in_unit[p] as f64 * f64::from(sh.m.node_w + sh.m.couple_gap)
+    };
+    let mut total = 0.0;
+    for unit in units {
+        for &p in &unit.members {
+            for &f in &sh.partner_in[p] {
+                total += sh.fams[f]
+                    .kids
+                    .iter()
+                    .map(|&k| (x_of(k) - x_of(p)).abs())
+                    .sum::<f64>();
+            }
+        }
+    }
+    total
+}
+
+/// Places every unit of a component: returns the left edge of each. Children sit under their parents, a family's
+/// descendants stay together, and in-laws hang off the outer side. Parts are packed row by row, as close as their
+/// outlines allow, so no two boxes can ever overlap whatever the data says.
+fn place_units(units: &mut [Unit], rows_n: usize, sh: &Shared, sc: &mut Scratch) -> Vec<f64> {
+    let start: Vec<Vec<usize>> = units.iter().map(|u| u.members.clone()).collect();
+    let restore = |units: &mut [Unit], sc: &mut Scratch| {
+        for (u, m) in units.iter_mut().zip(&start) {
+            u.members.clone_from(m);
+            for (k, &p) in m.iter().enumerate() {
+                sc.pos_in_unit[p] = k;
+            }
+        }
+    };
+    // The plain walk, then the loops bent together, then each child at the end of a row tried on the other end;
+    // whatever makes the lines shorter stays. Every try is a full placement, so big families get few.
+    let mut forced = Forced::new();
+    let (first, walked) = place_once(units, rows_n, &forced, sh, sc);
+    let mut score = spread(&first, units, sh, sc);
+    let mut ends = walked.ends.clone();
+    if !walked.loops.is_empty() {
+        let bent = bend_loops(&walked, &first);
+        restore(units, sc);
+        let (xs, w) = place_once(units, rows_n, &bent, sh, sc);
+        let s = spread(&xs, units, sh, sc);
+        if s < score {
+            (score, forced, ends) = (s, bent, w.ends);
+        }
+    }
+    let tries = if units.len() > MAX_UNITS_TO_TRY {
+        0
+    } else {
+        MAX_TRIES
+    };
+    for &(fam, unit, side) in ends.iter().take(tries) {
+        let mut trial = forced.clone();
+        trial.insert((fam, unit), (!side, 0));
+        restore(units, sc);
+        let (xs, _) = place_once(units, rows_n, &trial, sh, sc);
+        let s = spread(&xs, units, sh, sc);
+        if s < score {
+            (score, forced) = (s, trial);
+        }
+    }
+    restore(units, sc);
+    place_once(units, rows_n, &forced, sh, sc).0
+}
+
+fn place_once(
+    units: &mut [Unit],
+    rows_n: usize,
+    forced: &Forced,
+    sh: &Shared,
+    sc: &mut Scratch,
+) -> (Vec<f64>, Walked) {
+    let m = sh.m;
+    let node_w = f64::from(m.node_w);
+    let step = node_w + f64::from(m.couple_gap);
+    let gap_sibling = f64::from(m.gap_x) * GAP_SIBLINGS;
+    let gap_group = f64::from(m.gap_x) * GAP_GROUPS;
+    let root = pick_root(units, sh, sc);
+    let mut branches: Vec<Branches> = (0..units.len()).map(|_| Branches::default()).collect();
+    let walked = walk(units, root, forced, sh, sc, &mut branches);
+    let order = &walked.order;
+
+    let units: &[Unit] = units;
+    let (pos, unit_of) = (&sc.pos_in_unit, &sc.unit_of);
+    let centre = |p: usize| pos[p] as f64 * step + node_w / 2.0;
+    let mut shapes: Vec<Option<Shape>> = (0..units.len()).map(|_| None).collect();
+    let mut placed: Vec<Vec<(usize, f64)>> = vec![Vec::new(); units.len()];
+
+    for &u in order.iter().rev() {
+        let mut c = Shape::empty(rows_n);
+        c.spans[units[u].row] = (0.0, units[u].w);
+        let groups = |_: usize| gap_group;
+        let mut downs = std::mem::take(&mut branches[u].downs);
+        let anchor = |f: usize| {
+            let inside: Vec<f64> = sh.fams[f]
+                .partners
+                .iter()
+                .filter(|&&q| unit_of[q] == u)
+                .map(|&q| centre(q))
+                .collect();
+            inside.iter().sum::<f64>() / inside.len().max(1) as f64
+        };
+        downs.sort_by(|a, b| anchor(a.fam).total_cmp(&anchor(b.fam)));
+        for d in downs {
+            let at = anchor(d.fam);
+            let kid_row = |r: usize, k: &Kid| {
+                if r == units[k.unit].row {
+                    gap_sibling
+                } else {
+                    gap_group
+                }
+            };
+            let mut mid = Shape::empty(rows_n);
+            let mut ends: Vec<f64> = Vec::new();
+            let (mut lefts, mut rights) = (Vec::new(), Vec::new());
+            let mut balance = 0.0;
+            for k in d.kids {
+                let width = units[k.unit].w + gap_sibling;
+                match k.end {
+                    Some(true) => {
+                        balance -= width / 2.0;
+                        rights.push(k);
+                    }
+                    Some(false) => {
+                        balance += width / 2.0;
+                        lefts.push(k);
+                    }
+                    None => {
+                        if let Some(t) = shapes[k.unit].take() {
+                            let dx = mid.clear_shift(&t, None, true, |r| kid_row(r, &k));
+                            mid.add(t, dx);
+                            ends.push(dx + centre(k.person));
+                        }
+                    }
+                }
+            }
+            let has_middle = !ends.is_empty();
+            if has_middle {
+                let middle_of = (ends[0] + ends[ends.len() - 1]) / 2.0;
+                let dx = c.clear_shift(&mid, Some(at - middle_of + balance), true, groups);
+                c.add(mid, dx);
+            }
+            let mut wish_centre = !has_middle;
+            for k in rights {
+                if let Some(t) = shapes[k.unit].take() {
+                    let want = wish_centre.then(|| at - centre(k.person));
+                    wish_centre = false;
+                    let dx = c.clear_shift(&t, want, true, |r| kid_row(r, &k));
+                    c.add(t, dx);
+                }
+            }
+            for k in lefts.iter().rev() {
+                if let Some(t) = shapes[k.unit].take() {
+                    let want = wish_centre.then(|| at - centre(k.person));
+                    wish_centre = false;
+                    let dx = c.clear_shift(&t, want, false, |r| kid_row(r, k));
+                    c.add(t, dx);
+                }
+            }
+            for o in d.others {
+                if let Some(t) = shapes[o].take() {
+                    let dx = c.clear_shift(&t, None, true, groups);
+                    c.add(t, dx);
+                }
+            }
+        }
+
+        // Parents and their other children, each block on its own side.
+        let row = units[u].row;
+        let near = |r: usize| if r == row { gap_sibling } else { gap_group };
+        let mut blocks: Vec<(Shape, f64, bool)> = Vec::new();
+        for up in std::mem::take(&mut branches[u].ups) {
+            let member_cx = centre(up.member);
+            let mut block = Shape::empty(rows_n);
+            let mut sib_ends: Vec<f64> = Vec::new();
+            for k in &up.sibs {
+                if let Some(t) = shapes[k.unit].take() {
+                    let dx = block.clear_shift(&t, None, true, near);
+                    block.add(t, dx);
+                    sib_ends.push(dx + centre(k.person));
+                }
+            }
+            // Where the member sits in the block's frame, next to the nearest brother or sister.
+            let span = block.spans[row];
+            let member_at = if !Shape::is_used(span) {
+                0.0
+            } else if up.right {
+                span.0 - gap_sibling - (units[u].w - member_cx)
+            } else {
+                span.1 + gap_sibling + member_cx
+            };
+            let lo = sib_ends.iter().copied().fold(member_at, f64::min);
+            let hi = sib_ends.iter().copied().fold(member_at, f64::max);
+            let over = f64::midpoint(lo, hi);
+            let mut parents = Shape::empty(rows_n);
+            let mut xs: Vec<f64> = Vec::new();
+            for &q in &up.parents {
+                if let Some(t) = shapes[q].take() {
+                    let dx = parents.clear_shift(&t, None, true, groups);
+                    parents.add(t, dx);
+                    for &p in &sh.fams[up.fam].partners {
+                        if unit_of[p] == q {
+                            xs.push(dx + centre(p));
+                        }
+                    }
+                }
+            }
+            if !xs.is_empty() {
+                let mean = xs.iter().sum::<f64>() / xs.len() as f64;
+                let dx = block.clear_shift(&parents, Some(over - mean), up.right, groups);
+                block.add(parents, dx);
+            }
+            blocks.push((block, member_cx - member_at, up.right));
+        }
+        // Parents of both partners: share the room above the couple evenly.
+        let first_left = blocks.iter().position(|b| !b.2);
+        let first_right = blocks.iter().position(|b| b.2);
+        if let (Some(l), Some(r)) = (first_left, first_right) {
+            let (lw, rw) = (blocks[l].1, blocks[r].1);
+            let mut excess = 0.0f64;
+            for (i, (&a, &b)) in blocks[l].0.spans.iter().zip(&blocks[r].0.spans).enumerate() {
+                if Shape::is_used(a) && Shape::is_used(b) {
+                    excess = excess.max(a.1 + lw + groups(i) - (b.0 + rw));
+                }
+            }
+            blocks[l].1 -= excess / 2.0;
+            blocks[r].1 += excess / 2.0;
+        }
+        for (block, want, right) in blocks {
+            let dx = c.clear_shift(&block, Some(want), right, near);
+            c.add(block, dx);
+        }
+
+        placed[u] = std::mem::take(&mut c.items);
+        c.items.push((u, 0.0));
+        shapes[u] = Some(c);
+    }
+
+    let mut xs = vec![0.0f64; units.len()];
+    for &u in order {
+        for &(v, dx) in &placed[u] {
+            xs[v] = xs[u] + dx;
+        }
+    }
+    (xs, walked)
+}
+
+/// A column free of boxes in the rows between `r0` and `r1`, nearest to the two ends of a line.
+fn free_column(
+    row_px: &[Vec<f64>],
+    (r0, r1): (usize, usize),
+    (xa, xb): (f64, f64),
+    node_w: f64,
+    side: f64,
+) -> f64 {
+    let between = &row_px[r0 + 1..r1];
+    let mut cands = vec![xa, xb];
+    for &x in between.iter().flatten() {
+        cands.push(x - side);
+        cands.push(x + node_w + side);
+    }
+    let free = |x: f64| {
+        between
+            .iter()
+            .flatten()
+            .all(|&px| x < px - 2.0 || x > px + node_w + 2.0)
+    };
+    cands
+        .into_iter()
+        .filter(|&x| free(x))
+        .min_by(|p, q| {
+            ((p - xa).abs() + (p - xb).abs())
+                .total_cmp(&((q - xa).abs() + (q - xb).abs()))
+                .then(p.total_cmp(q))
+        })
+        .unwrap_or(xa)
+}
+
+/// Where a couple's child lines start, and the extent of their bar.
+struct Link {
+    fam: usize,
+    anchor_x: f64,
+    anchor_row: usize,
+    /// Start at the vertical middle of a partner line instead of below the boxes.
+    mid: bool,
+    kid_xs: Vec<f64>,
+    lo: f64,
+    hi: f64,
+}
+
+/// The bars of one channel, top to bottom: each one goes in the first lane below every earlier bar it would touch.
+/// Neighbours swap when that makes fewer lines cross. Returns the number of lanes.
+fn assign_lanes(links: &[Link], ids: &mut [usize], lane_of: &mut [usize]) -> usize {
+    ids.sort_by(|&a, &b| {
+        let key = |l: &Link| (l.lo, l.hi, l.fam);
+        key(&links[a])
+            .partial_cmp(&key(&links[b]))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let touches = |a: &Link, b: &Link| a.lo < b.hi + BAR_GAP && b.lo < a.hi + BAR_GAP;
+    // How many lines cross with `a`'s bar above `b`'s.
+    let cost = |a: &Link, b: &Link| {
+        let inside = |x: f64, l: &Link| x > l.lo && x < l.hi;
+        a.kid_xs.iter().filter(|&&x| inside(x, b)).count() + usize::from(inside(b.anchor_x, a))
+    };
+    for _ in 0..LANE_PASSES {
+        let mut changed = false;
+        for i in 1..ids.len() {
+            let (a, b) = (&links[ids[i - 1]], &links[ids[i]]);
+            if touches(a, b) && cost(b, a) < cost(a, b) {
+                ids.swap(i - 1, i);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    let mut lanes = 0;
+    for i in 0..ids.len() {
+        let a = &links[ids[i]];
+        let lane = ids[..i]
+            .iter()
+            .filter(|&&b| touches(a, &links[b]))
+            .map(|&b| lane_of[b] + 1)
+            .max()
+            .unwrap_or(0);
+        lane_of[ids[i]] = lane;
+        lanes = lanes.max(lane + 1);
+    }
+    lanes
 }
 
 fn generations(members: &[usize], sh: &Shared, sc: &mut Scratch) {
@@ -550,8 +1107,6 @@ fn make_units(members: &[usize], sh: &Shared, sc: &mut Scratch) -> Vec<Unit> {
             row: sc.level[order[0]] as usize,
             members: order,
             w,
-            x: 0.0,
-            group: NONE,
         });
     }
     units
@@ -573,149 +1128,32 @@ fn layout_component(members: &[usize], sh: &Shared, sc: &mut Scratch) -> CompOut
         sc.level[p] = UNSET;
     }
     generations(members, sh, sc);
-    let units = make_units(members, sh, sc);
+    let mut units = make_units(members, sh, sc);
     let rows_n = members
         .iter()
         .map(|&p| sc.level[p] as usize)
         .max()
         .unwrap_or(0)
         + 1;
-
-    // Sibling groups: a unit sits with the siblings of its first member that has parents.
-    let primary = |p: usize| sh.child_in[p].first().copied();
-    let mut groups: Vec<Group> = Vec::new();
-    let mut by_fam: HashMap<(usize, usize), usize> = HashMap::new();
-    let mut kpos = vec![0usize; units.len()];
-    let mut units = units;
-    for u in 0..units.len() {
-        let pick = units[u]
-            .members
-            .iter()
-            .copied()
-            .find_map(|p| primary(p).map(|f| (p, f)));
-        let row = units[u].row;
-        let g = match pick {
-            Some((p, f)) => {
-                kpos[u] = sh.fams[f].kids.iter().position(|&c| c == p).unwrap_or(0);
-                *by_fam.entry((f, row)).or_insert_with(|| {
-                    groups.push(Group {
-                        row,
-                        fam: Some(f),
-                        units: Vec::new(),
-                        anchors: Vec::new(),
-                    });
-                    groups.len() - 1
-                })
-            }
-            None => {
-                groups.push(Group {
-                    row,
-                    fam: None,
-                    units: Vec::new(),
-                    anchors: Vec::new(),
-                });
-                groups.len() - 1
-            }
-        };
-        groups[g].units.push(u);
-        units[u].group = g;
-    }
-    for g in &mut groups {
-        g.units.sort_by_key(|&u| (kpos[u], u));
-    }
-    for (g, grp) in groups.iter_mut().enumerate() {
-        let Some(f) = grp.fam else { continue };
-        let mut anchors: Vec<usize> = Vec::new();
-        for &q in &sh.fams[f].partners {
-            let u = sc.unit_of[q];
-            if units[u].group != g && !anchors.contains(&u) {
-                anchors.push(u);
-            }
-        }
-        grp.anchors = anchors;
-    }
-    // Units holding the primary children of each unit's families.
-    let mut kids_units: Vec<Vec<usize>> = vec![Vec::new(); units.len()];
-    for (u, ku) in kids_units.iter_mut().enumerate() {
-        for &p in &units[u].members {
-            for &f in &sh.partner_in[p] {
-                for &c in &sh.fams[f].kids {
-                    let cu = sc.unit_of[c];
-                    if primary(c) == Some(f) && cu != u && !ku.contains(&cu) {
-                        ku.push(cu);
-                    }
-                }
-            }
-        }
-    }
-
-    // First-visit order of a depth-first walk over parent and child links.
-    let mut disc = vec![NONE; units.len()];
-    let mut counter = 0;
-    for s in 0..units.len() {
-        let mut stack = vec![s];
-        while let Some(u) = stack.pop() {
-            if disc[u] != NONE {
-                continue;
-            }
-            disc[u] = counter;
-            counter += 1;
-            let mut next: Vec<usize> = groups[units[u].group].anchors.clone();
-            next.extend(kids_units[u].iter().copied());
-            stack.extend(next.into_iter().rev());
-        }
-    }
-    let mut rows: Vec<Vec<usize>> = vec![Vec::new(); rows_n];
-    for (g, grp) in groups.iter().enumerate() {
-        rows[grp.row].push(g);
-    }
-    let rank =
-        |g: usize, groups: &[Group]| groups[g].units.iter().map(|&u| disc[u]).min().unwrap_or(0);
-    for row in &mut rows {
-        row.sort_by_key(|&g| (rank(g, &groups), g));
-    }
-
-    let mut c = Comp {
-        units,
-        groups,
-        rows,
-        kids_units,
-        gap_in: f64::from(m.gap_x) * 0.6,
-        gap_group: f64::from(m.gap_x) * 0.8,
-    };
-    for r in 0..rows_n {
-        c.pack_row(r);
-    }
-    for s in 0..SWEEPS_ORDER + SWEEPS_PLACE {
-        let order = s < SWEEPS_ORDER;
-        for r in 1..rows_n {
-            c.down(r, order);
-        }
-        for r in (0..rows_n.saturating_sub(1)).rev() {
-            c.up(r, order);
-        }
-    }
+    let xs = place_units(&mut units, rows_n, sh, sc);
 
     // Left edge to zero, person boxes.
-    let min_x = c.units.iter().map(|u| u.x).fold(f64::INFINITY, f64::min);
-    for u in &c.units {
+    let min_x = xs.iter().copied().fold(f64::INFINITY, f64::min);
+    for (u, &x) in units.iter().zip(&xs) {
         for (k, &p) in u.members.iter().enumerate() {
-            sc.px[p] = u.x - min_x + k as f64 * step_p;
+            sc.px[p] = x - min_x + k as f64 * step_p;
             sc.row[p] = u.row;
         }
     }
     let cx = |sc: &Scratch, p: usize| sc.px[p] + node_w / 2.0;
 
+    // Where each child line ends: a child with two sets of parents gets two lines side by side.
+    let kid_x = |sc: &Scratch, k: usize, f: usize| {
+        let sets = &sh.child_in[k];
+        let i = sets.iter().position(|&s| s == f).unwrap_or(0) as f64;
+        cx(sc, k) + (i - (sets.len() - 1) as f64 / 2.0) * SECOND_LINE
+    };
     // Where each child line starts (anchor), and the lane of its bar.
-    struct Link {
-        fam: usize,
-        anchor_x: f64,
-        anchor_row: usize,
-        /// Start at the vertical middle of a partner line instead of below the boxes.
-        mid: bool,
-        lo: f64,
-        hi: f64,
-    }
     let mut links: Vec<Link> = Vec::new();
     for &p in members {
         for &f in &sh.partner_in[p] {
@@ -741,46 +1179,32 @@ fn layout_component(members: &[usize], sh: &Shared, sc: &mut Scratch) -> CompOut
                     }
                 }
             };
-            let mut lo = ax;
-            let mut hi = ax;
-            for &k in &fam.kids {
-                lo = lo.min(cx(sc, k));
-                hi = hi.max(cx(sc, k));
-            }
+            let kid_xs: Vec<f64> = fam.kids.iter().map(|&k| kid_x(sc, k, f)).collect();
+            let lo = kid_xs.iter().copied().fold(ax, f64::min);
+            let hi = kid_xs.iter().copied().fold(ax, f64::max);
             links.push(Link {
                 fam: f,
                 anchor_x: ax,
                 anchor_row: arow,
                 mid,
+                kid_xs,
                 lo,
                 hi,
             });
         }
     }
-    // Lanes per channel (the gap below a row), greedy over left edges.
-    let mut order: Vec<usize> = (0..links.len()).collect();
-    order.sort_by(|&a, &b| {
-        (links[a].anchor_row, links[a].lo, links[a].hi, links[a].fam)
-            .partial_cmp(&(links[b].anchor_row, links[b].lo, links[b].hi, links[b].fam))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // Lanes per channel (the gap below a row).
     let mut lane_of = vec![0usize; links.len()];
-    let mut lanes: Vec<Vec<f64>> = vec![Vec::new(); rows_n];
-    for &i in &order {
-        let l = &links[i];
-        let lane_rights = &mut lanes[l.anchor_row];
-        match lane_rights.iter().position(|&right| right + 6.0 < l.lo) {
-            Some(k) => {
-                lane_rights[k] = l.hi;
-                lane_of[i] = k;
-            }
-            None => {
-                lane_rights.push(l.hi);
-                lane_of[i] = lane_rights.len() - 1;
-            }
-        }
+    let mut lanes = vec![0usize; rows_n];
+    let mut by_channel: Vec<Vec<usize>> = vec![Vec::new(); rows_n];
+    for (i, l) in links.iter().enumerate() {
+        by_channel[l.anchor_row].push(i);
     }
-    let channel = |r: usize| (f64::from(m.gap_y) * 4.0).max(28.0 + lanes[r].len() as f64 * LANE);
+    for (r, ids) in by_channel.iter_mut().enumerate() {
+        lanes[r] = assign_lanes(&links, ids, &mut lane_of);
+    }
+    let channel =
+        |r: usize| (f64::from(m.gap_y) * 4.0).max(BUS_TOP + 14.0 + lanes[r] as f64 * LANE);
     let mut row_y = vec![0.0f64; rows_n];
     for r in 1..rows_n {
         row_y[r] = row_y[r - 1] + node_h + channel(r - 1);
@@ -844,27 +1268,7 @@ fn layout_component(members: &[usize], sh: &Shared, sc: &mut Scratch) -> CompOut
             let (yr, yl) = (row_y[r0], row_y[r1]);
             let side = f64::from(m.gap_x) * 0.3;
             let (xa, xb) = (cx(sc, ra), cx(sc, rb) + 14.0);
-            let between = &row_px[r0 + 1..r1];
-            let mut cands = vec![xa];
-            for &x in between.iter().flatten() {
-                cands.push(x - side);
-                cands.push(x + node_w + side);
-            }
-            let free = |x: f64| {
-                between
-                    .iter()
-                    .flatten()
-                    .all(|&px| x < px - 2.0 || x > px + node_w + 2.0)
-            };
-            let xv = cands
-                .into_iter()
-                .filter(|&x| free(x))
-                .min_by(|p, q| {
-                    ((p - xa).abs() + (p - xb).abs(), *p)
-                        .partial_cmp(&((q - xa).abs() + (q - xb).abs(), *q))
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .unwrap_or(xa);
+            let xv = free_column(&row_px, (r0, r1), (xa, xb), node_w, side);
             let (ca, cb) = (yr + node_h + 4.0, yl - 6.0);
             vec![xa, yr + node_h, xa, ca, xv, ca, xv, cb, xb, cb, xb, yl]
         } else {
@@ -896,16 +1300,25 @@ fn layout_component(members: &[usize], sh: &Shared, sc: &mut Scratch) -> CompOut
             } else {
                 node_h + if fam.partners.len() > 1 { 8.0 } else { 0.0 }
             };
-        let bus = row_y[l.anchor_row] + node_h + 12.0 + lane_of[i] as f64 * LANE;
-        for &k in &fam.kids {
-            let kx = cx(sc, k);
-            let below = sc.row[k] > l.anchor_row;
-            let end = if below {
-                row_y[sc.row[k]]
+        let bus = row_y[l.anchor_row] + node_h + BUS_TOP + lane_of[i] as f64 * LANE;
+        for (&k, &kx) in fam.kids.iter().zip(&l.kid_xs) {
+            let row = sc.row[k];
+            let end = if row > l.anchor_row {
+                row_y[row]
             } else {
-                row_y[sc.row[k]] + node_h
+                row_y[row] + node_h
             };
-            let mut pts = vec![l.anchor_x, ay, l.anchor_x, bus, kx, bus, kx, end];
+            let mut pts = vec![l.anchor_x, ay, l.anchor_x, bus];
+            if row > l.anchor_row + 1 {
+                // Past a row of boxes: through a free column, then along the channel above the child.
+                let side = f64::from(m.gap_x) * 0.3;
+                let xv = free_column(&row_px, (l.anchor_row, row), (l.anchor_x, kx), node_w, side);
+                let near = row_y[row] - 6.0;
+                pts.extend([xv, bus, xv, near, kx, near]);
+            } else {
+                pts.extend([kx, bus]);
+            }
+            pts.extend([kx, end]);
             dedupe_points(&mut pts);
             out.edges.push((fam.partners[0], k, EdgeKind::Parent, pts));
         }
@@ -1196,26 +1609,5 @@ pub fn whole_directed(input: &WholeInput, m: &Metrics, reversed: bool) -> WholeL
             children,
             node_of,
         },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn row_solver_keeps_order_and_gaps() {
-        let x = solve_row(&[10.0, 10.0, 10.0], &[5.0, 5.0], &[0.0, 0.0, 0.0]);
-        assert_eq!(x, vec![-15.0, 0.0, 15.0]);
-        let x = solve_row(&[10.0, 10.0], &[5.0], &[100.0, 0.0]);
-        assert!(x[1] >= x[0] + 15.0 - 1e-9);
-    }
-
-    #[test]
-    fn keyless_items_keep_their_slot() {
-        let mut v = vec![0usize, 1, 2, 3];
-        let keys = [Some(3.0), None, Some(1.0), Some(2.0)];
-        sort_keyed(&mut v, |i| keys[i]);
-        assert_eq!(v, vec![2, 1, 3, 0]);
     }
 }

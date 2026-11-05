@@ -486,23 +486,10 @@ impl Session {
         Ok(meta)
     }
 
-    /// Lays out every person of the project in one chart. The layout is kept for the current tree
-    /// revision: asking again returns the same chart, so panning and reopening the view never
-    /// lay it out twice. An edit makes it stale and the next call lays it out again.
-    pub fn chart_open_whole(&mut self) -> Result<WholeMeta, ApiError> {
-        let revision = self.charts.revision;
-        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
-        if let Some(c) =
-            self.charts.open.iter().find(|c| {
-                c.kind == ChartKind::Whole && c.version == revision && c.reversed == reversed
-            })
-        {
-            self.charts.touch(c);
-            return Ok(whole_meta(c));
-        }
-        self.charts.open.retain(|c| c.kind != ChartKind::Whole);
+    /// What the whole-tree chart is laid out from.
+    pub fn whole_input(&self) -> WholeInput {
         let summaries = &self.index.summaries;
-        let input = WholeInput {
+        WholeInput {
             count: summaries.len(),
             families: self
                 .tree
@@ -520,7 +507,25 @@ impl Session {
                 .collect(),
             birth: summaries.iter().map(|s| s.birth_sort).collect(),
             surname: summaries.iter().map(|s| s.surname.clone()).collect(),
-        };
+        }
+    }
+
+    /// Lays out every person of the project in one chart. The layout is kept for the current tree
+    /// revision: asking again returns the same chart, so panning and reopening the view never
+    /// lay it out twice. An edit makes it stale and the next call lays it out again.
+    pub fn chart_open_whole(&mut self) -> Result<WholeMeta, ApiError> {
+        let revision = self.charts.revision;
+        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
+        if let Some(c) =
+            self.charts.open.iter().find(|c| {
+                c.kind == ChartKind::Whole && c.version == revision && c.reversed == reversed
+            })
+        {
+            self.charts.touch(c);
+            return Ok(whole_meta(c));
+        }
+        self.charts.open.retain(|c| c.kind != ChartKind::Whole);
+        let input = self.whole_input();
         let gt_layout::WholeLayout { layout, extras } =
             gt_layout::whole_directed(&input, &Metrics::default(), reversed);
         let blocks = extras

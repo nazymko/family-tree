@@ -3,7 +3,9 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
-use gt_layout::{BlockKind, EdgeKind, Metrics, Rect, WholeFamily, WholeInput, WholeLayout, whole};
+use gt_layout::{
+    BlockKind, EdgeKind, Metrics, Rect, WholeFamily, WholeInput, WholeLayout, quality, whole,
+};
 
 fn input(count: usize, fams: &[(Option<u32>, Option<u32>, &[u32])]) -> WholeInput {
     WholeInput {
@@ -584,4 +586,150 @@ fn reversed_flips_each_family_but_keeps_headings_ids_and_blocks() {
         assert!(last[1] == child.y + child.h || last[1] == child.y);
     }
     assert_no_overlap(&b);
+}
+
+#[test]
+fn nothing_lies_on_top_of_anything_in_big_trees() {
+    for (size, seed) in [(300, 2), (1000, 3), (5000, 7)] {
+        let q = quality(&run(&synthetic(size, seed)).layout);
+        assert_eq!(q.box_overlaps, 0, "{size}: {q:?}");
+        assert_eq!(q.lines_through_boxes, 0, "{size}: {q:?}");
+        assert_eq!(q.line_overlaps, 0, "{size}: {q:?}");
+    }
+}
+
+/// Grandparents (0, 1) with children 2, 3 and 4. Child 3 married 5, whose parents are 6 and 7 with another child 8.
+/// Child 2 married 9, whose parents are 10 and 11. The couple 3 + 5 has children 12 and 13.
+fn in_laws_on_both_sides() -> WholeInput {
+    input(
+        14,
+        &[
+            (Some(0), Some(1), &[2, 3, 4]),
+            (Some(6), Some(7), &[5, 8]),
+            (Some(10), Some(11), &[9]),
+            (Some(2), Some(9), &[]),
+            (Some(3), Some(5), &[12, 13]),
+        ],
+    )
+}
+
+#[test]
+fn parents_in_law_hang_off_the_side_without_a_crossing() {
+    let w = run(&in_laws_on_both_sides());
+    let q = quality(&w.layout);
+    assert_eq!(q.line_crossings, 0, "{q:?}");
+    assert_eq!(q.line_overlaps, 0, "{q:?}");
+    assert_eq!(q.lines_through_boxes, 0, "{q:?}");
+    assert_no_overlap(&w);
+}
+
+#[test]
+fn a_family_stays_together_under_its_parents() {
+    let w = run(&in_laws_on_both_sides());
+    let cx = |k| {
+        let r = node(&w, k).rect;
+        r.x + r.w / 2.0
+    };
+    // The children of the couple are centred under it.
+    let couple = f32::midpoint(cx(3), cx(5));
+    let kids = f32::midpoint(cx(12), cx(13));
+    assert!((couple - kids).abs() < 1.0, "{couple} vs {kids}");
+    // Nobody from another family sits between 12 and 13, or between the partner 5 and the sister 8.
+    let row_of = |k: u32| node(&w, k).rect.y;
+    let between = |a: f32, b: f32, k: u32| cx(k) > a.min(b) && cx(k) < a.max(b);
+    for k in 0..14 {
+        if ![12, 13].contains(&k) && row_of(k) == row_of(12) {
+            assert!(!between(cx(12), cx(13), k), "{k}");
+        }
+        if ![3, 5, 8].contains(&k) && row_of(k) == row_of(5) {
+            assert!(!between(cx(5), cx(8), k), "{k}");
+        }
+    }
+}
+
+#[test]
+fn the_bars_of_two_families_do_not_read_as_one_line() {
+    // Two sets of cousins side by side under one couple.
+    let w = run(&input(
+        14,
+        &[
+            (Some(0), Some(1), &[2, 4]),
+            (Some(2), Some(3), &[6, 7, 8]),
+            (Some(4), Some(5), &[9, 10, 11]),
+        ],
+    ));
+    let bar = |parent: u32| {
+        let from = node(&w, parent).id;
+        let (mut lo, mut hi, mut y) = (f32::MAX, f32::MIN, 0.0);
+        for e in w
+            .layout
+            .edges
+            .iter()
+            .filter(|e| e.kind == EdgeKind::Parent && e.from == from)
+        {
+            let n = e.pts.len();
+            y = e.pts[n - 3];
+            lo = lo.min(e.pts[n - 2]);
+            hi = hi.max(e.pts[n - 2]);
+        }
+        (lo, hi, y)
+    };
+    let (a, b) = (bar(2), bar(4));
+    let apart = a.0.max(b.0) - a.1.min(b.1);
+    assert!(a.2 != b.2 || apart >= 28.0, "{a:?} {b:?}");
+}
+
+#[test]
+fn a_child_with_two_sets_of_parents_gets_two_lines_that_do_not_coincide() {
+    // Child 2 of 0 + 1, and also of 1 + 3 (a stepfather).
+    let w = run(&input(
+        4,
+        &[(Some(0), Some(1), &[2]), (Some(1), Some(3), &[2])],
+    ));
+    let child = node(&w, 2).id;
+    let ends: Vec<f32> = w
+        .layout
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Parent && e.to == child)
+        .map(|e| e.pts[e.pts.len() - 2])
+        .collect();
+    assert_eq!(ends.len(), 2);
+    assert!((ends[0] - ends[1]).abs() > 10.0, "{ends:?}");
+    assert_eq!(quality(&w.layout).line_overlaps, 0);
+}
+
+#[test]
+fn a_line_past_a_row_goes_around_its_boxes() {
+    // 0 + 1 have child 2, who is pushed two rows down by marrying 5, a grandchild of 3 + 4 through 6 + 7; 8 and 9 fill
+    // the row in between.
+    let w = run(&input(
+        10,
+        &[
+            (Some(0), Some(1), &[2, 8, 9]),
+            (Some(3), Some(4), &[6]),
+            (Some(6), Some(7), &[5]),
+            (Some(2), Some(5), &[]),
+        ],
+    ));
+    assert_eq!(quality(&w.layout).lines_through_boxes, 0);
+    assert_no_overlap(&w);
+}
+
+#[test]
+fn cousins_who_marry_stay_readable() {
+    // Brothers 2 and 4 have children 6 and 8, who marry; their other children and an uncle sit around them.
+    let w = run(&input(
+        11,
+        &[
+            (Some(0), Some(1), &[9, 2, 10, 4]),
+            (Some(2), Some(3), &[6]),
+            (Some(4), Some(5), &[8]),
+            (Some(6), Some(8), &[]),
+        ],
+    ));
+    let q = quality(&w.layout);
+    assert_eq!(q.box_overlaps, 0);
+    assert_eq!(q.lines_through_boxes, 0);
+    assert!(q.line_crossings <= 2, "{q:?}");
 }
