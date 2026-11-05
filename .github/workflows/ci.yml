@@ -30,6 +30,8 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --workspace
+      # The heavy tier (docs/testing.md): ignored by default, so run it by name on every push.
+      - run: cargo test --workspace -- --ignored heavy_
   frontend:
     runs-on: ubuntu-22.04
     defaults:

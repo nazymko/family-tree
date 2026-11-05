@@ -14,5 +14,7 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     globals: false,
     css: true,
+    // One jsdom per worker instead of one per file; files stay isolated (no-isolate was measured flaky).
+    pool: 'vmThreads',
   },
 });

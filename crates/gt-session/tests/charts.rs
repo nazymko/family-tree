@@ -295,7 +295,8 @@ fn wide_ged(n: u32) -> String {
 }
 
 #[test]
-fn truncation_at_20000() {
+#[ignore = "heavy: runs before merge"]
+fn heavy_truncation_at_20000() {
     let (_d, mut s) = open_ged(&wide_ged(30_000));
     let m = s.chart_open(&descendants_req(&s, "Dad W", 3)).unwrap();
     assert!(m.truncated);

@@ -1285,7 +1285,8 @@ fn drain(
 }
 
 #[test]
-fn owner_and_agent_interleaved_stay_consistent() {
+#[ignore = "heavy: runs before merge"]
+fn heavy_owner_and_agent_interleaved_stay_consistent() {
     for seed in 0..8u64 {
         let (_d, mut s, _) = setup();
         let mut x = seed.wrapping_mul(2_654_435_761).wrapping_add(11);
