@@ -113,6 +113,12 @@ interface AgentLogEntry {
 }
 
 /** See `MockApi.recordAgentBatch`. A batch exists only when `title` is given. */
+/** The built-in agent's name in either language, ignoring case and spacing: no connection may take it. */
+function isBuiltinAgentName(name: string): boolean {
+  const plain = name.split(/\s+/).filter(Boolean).join(' ').toLowerCase();
+  return plain === 'agent without a key' || plain === 'агент без ключа';
+}
+
 export interface AgentBatchSpec {
   agent?: string;
   /** The agent's id, for a test that needs a fixed one; otherwise one is made per name. */
@@ -608,6 +614,7 @@ export class MockApi implements Api {
       this.logBatches.set(batch.id, {
         ...batch,
         sourceFile: spec.sourceFile ?? null,
+        actorId: agentId,
         actorName: agent,
         started,
         ended: spec.open ? null : started,
@@ -1111,7 +1118,7 @@ export class MockApi implements Api {
     if ([...clean].length > 100) throw invalid('Keep the connection name to 100 characters or fewer.');
     // eslint-disable-next-line no-control-regex
     if (/[\u0000-\u001f\u007f-\u009f]/.test(clean)) throw invalid('The connection name cannot contain line breaks or other control characters.');
-    if (clean.toLowerCase() === 'agent without a key' || this.agent.connections.some((c) => c.name.toLowerCase() === clean.toLowerCase())) {
+    if (isBuiltinAgentName(clean) || this.agent.connections.some((c) => c.name.toLowerCase() === clean.toLowerCase())) {
       throw invalid(`A connection named "${clean}" already exists. Choose another name.`);
     }
     const bytes = new Uint8Array(16);

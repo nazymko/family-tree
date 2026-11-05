@@ -1123,6 +1123,7 @@ fn a_stored_hash_with_a_sign_is_not_a_hash() {
 // ---- no key required (the default) ----
 
 const KEYLESS_COMMAND: &str = "claude mcp add --transport http gene-tree http://127.0.0.1:8765/mcp";
+const BOTH_NOT_SAVED: &str = "Agent access is off now, but this could not be saved, so it will come back on at the next start. A key is required now, but this could not be saved, so after the next start no key will be required.";
 const REQUIRE_NOT_SAVED: &str = "A key is required now, but this could not be saved, so after the next start no key will be required.";
 
 fn require(w: &WebviewWindow<MockRuntime>, required: bool) -> Result<Value, Value> {
@@ -1399,17 +1400,122 @@ fn stopping_closes_the_door_for_a_request_with_no_key_too() {
 }
 
 #[test]
-fn no_connection_can_take_the_builtin_agents_name() {
+fn no_connection_can_take_the_builtin_agents_name_in_either_language() {
     let dir = tempfile::tempdir().unwrap();
     let (_app, w) = app_with(state_in(dir.path()));
-    let e = invoke(
+    for name in [
+        " agent WITHOUT a key ",
+        "Agent without a key",
+        "agent   without\ta  key",
+        "Агент без ключа",
+        "  агент   БЕЗ\tКЛЮЧА ",
+    ] {
+        let e = invoke(&w, "agent_connection_create", json!({ "name": name })).unwrap_err();
+        assert_eq!(e["code"], "invalid", "{name:?}");
+    }
+    assert_eq!(state_of(&w)["connections"], json!([]));
+    // Near misses are fine.
+    invoke(
         &w,
         "agent_connection_create",
-        json!({ "name": " agent WITHOUT a key " }),
+        json!({ "name": "Agent without a key 2" }),
     )
-    .unwrap_err();
-    assert_eq!(e["code"], "invalid");
-    assert_eq!(state_of(&w)["connections"], json!([]));
+    .unwrap();
+}
+
+#[test]
+fn a_connection_that_already_had_the_name_still_works_under_its_own_id() {
+    // Made before the name was reserved: it is in the file and keeps working.
+    let dir = tempfile::tempdir().unwrap();
+    let project = empty_project(dir.path());
+    let config = dir.path().join("config");
+    let id = Uuid::from_u128(5);
+    let key = "gt_old_connection_key";
+    let mut saved = settings_file::load_settings(&config);
+    saved
+        .agent_access
+        .connections
+        .push(settings_file::ConnectionDto {
+            id,
+            name: "Агент без ключа".into(),
+            created: 1,
+        });
+    settings_file::save_settings(&config, &saved).unwrap();
+    FileHashes::new(&config).set(&id, &key_hash(key)).unwrap();
+    let state = state_in(dir.path());
+    open(&state, &project);
+    let (_app, w) = app_with(state);
+    let port = free_port();
+    set(&w, true, port);
+    let batch = tool_json(&post(
+        port,
+        key,
+        &rpc(
+            "tools/call",
+            json!({ "name": "begin_batch", "arguments": { "title": "Recording 1" } }),
+        ),
+    ))["batch"]
+        .clone();
+    tool_json(&post(
+        port,
+        key,
+        &rpc(
+            "tools/call",
+            json!({ "name": "add_person", "arguments": { "batch": batch, "given": "Ivan", "surnames": ["Koval"] } }),
+        ),
+    ));
+    let agents = invoke(&w, "change_log_agents", json!({})).unwrap();
+    assert_eq!(
+        agents[0]["id"],
+        json!(id),
+        "its own id, not the built-in one: {agents}"
+    );
+    let batches = invoke(&w, "change_batches", json!({})).unwrap();
+    assert_eq!(batches[0]["actorId"], json!(id));
+    set(&w, false, port);
+}
+
+#[test]
+fn a_batch_names_its_agent_by_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = empty_project(dir.path());
+    let state = state_in(dir.path());
+    open(&state, &project);
+    let (_app, w) = app_with(state);
+    let port = free_port();
+    set(&w, true, port);
+    tool_bare(port, "begin_batch", json!({ "title": "Recording 1" }));
+    let batches = invoke(&w, "change_batches", json!({})).unwrap();
+    assert_eq!(batches[0]["actorId"], json!(gt_mcp::KEYLESS_AGENT_ID));
+    set(&w, false, port);
+}
+
+#[test]
+fn a_key_that_could_not_be_saved_is_not_hidden_by_access_being_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    // Access off from the start, and nothing about it unsaved: only the key is.
+    break_settings(dir.path());
+    let on = require(&w, true).unwrap();
+    assert_eq!(on["enabled"], false);
+    assert_eq!(on["error"], REQUIRE_NOT_SAVED);
+    heal_settings(dir.path());
+    assert_eq!(state_of(&w)["error"], Value::Null);
+}
+
+#[test]
+fn both_failed_saves_are_said_together() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    break_settings(dir.path());
+    assert_eq!(set(&w, false, port)["error"], OFF_NOT_SAVED);
+    assert_eq!(require(&w, true).unwrap()["error"], BOTH_NOT_SAVED);
+    heal_settings(dir.path());
+    assert_eq!(state_of(&w)["error"], Value::Null);
+    let file = saved(dir.path());
+    assert!(!file.agent_access.enabled && file.agent_access.require_key);
 }
 
 #[test]
@@ -1421,7 +1527,7 @@ fn requiring_a_key_stops_a_request_already_past_its_head() {
     let body = rpc("ping", json!({})).to_string();
     let mut s = connect(port);
     let head = format!(
-        "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: {}\r\n\r\n",
+        "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
         body.len()
     );
     s.write_all(head.as_bytes()).unwrap();

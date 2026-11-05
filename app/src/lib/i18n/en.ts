@@ -97,6 +97,8 @@ export const en = {
     errKeyNotSaved: 'The key could not be saved in the system keychain. Check that the keychain is available.',
     errOffNotSaved: 'Agent access is off now, but this could not be saved, so it will come back on at the next start.',
     errRequireNotSaved: 'A key is required now, but this could not be saved, so after the next start no key will be required.',
+    errOffAndRequireNotSaved:
+      'Agent access is off now, but this could not be saved, so it will come back on at the next start. A key is required now, but this could not be saved, so after the next start no key will be required.',
     errRevokeNotRecorded: 'Access stopped for now, but this could not be recorded; it may return after restart. Try again.',
     errNotFound: 'No connection with id "{id}".',
     errNoName: 'Give the connection a name.',

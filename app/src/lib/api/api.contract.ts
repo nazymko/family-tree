@@ -345,7 +345,10 @@ export function runApiContract(make: () => Promise<Api>): void {
 
     it('a_connection_cannot_take_the_name_of_the_agent_without_a_key', async () => {
       const api = await make();
-      await expect(api.agentConnectionCreate('Agent without a key')).rejects.toBeTruthy();
+      for (const name of ['Agent without a key', '  AGENT  without\ta key ', 'Агент без ключа', ' агент   БЕЗ ключа ']) {
+        await expect(api.agentConnectionCreate(name)).rejects.toBeTruthy();
+      }
+      await expect(api.agentConnectionCreate('Agent without a key 2')).resolves.toBeTruthy();
     });
 
     it('agent_access_set_starts_and_stops', async () => {

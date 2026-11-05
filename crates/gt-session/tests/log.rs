@@ -723,6 +723,7 @@ fn log_filters_reviews_and_batches() {
     assert_eq!(b[0].title, "Recording 2 summary");
     assert_eq!(b[0].source_file.as_deref(), Some("recording-2.md"));
     assert_eq!(b[0].actor_name, "Transcript reader");
+    assert_eq!(b[0].actor_id, Uuid::from_u128(7));
     assert_eq!((b[0].groups, b[0].people, b[0].unreviewed), (2, 2, 2));
 
     assert_eq!(s.person_agent_changes(anna).unwrap().len(), 1);

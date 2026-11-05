@@ -109,7 +109,7 @@ impl<H> Fixture<H> {
             head.push_str("\r\n");
         }
         head.push_str(&format!(
-            "Content-Length: {length}\r\nConnection: close\r\n\r\n"
+            "Content-Type: application/json\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n"
         ));
         head
     }
@@ -541,7 +541,7 @@ fn body_at_the_limit_is_read() {
     let mut body = initialize_body().to_string().into_bytes();
     body.resize(8 * 1024 * 1024, b' ');
     let head = format!(
-        "POST /mcp HTTP/1.1\r\n{}\r\nAuthorization: Bearer {KEY}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+        "POST /mcp HTTP/1.1\r\n{}\r\nAuthorization: Bearer {KEY}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
         f.host_line(),
         body.len()
     );
@@ -554,7 +554,7 @@ fn body_at_the_limit_is_read() {
 fn bad_json_400() {
     let f = start();
     let head = format!(
-        "POST /mcp HTTP/1.1\r\n{}\r\nAuthorization: Bearer {KEY}\r\nConnection: close\r\nContent-Length: 5\r\n\r\n",
+        "POST /mcp HTTP/1.1\r\n{}\r\nAuthorization: Bearer {KEY}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: 5\r\n\r\n",
         f.host_line()
     );
     let r = f.raw(&head, b"{nope");
@@ -809,7 +809,7 @@ fn one_request_per_connection() {
     let f = start();
     let body = request("ping", json!({})).to_string();
     let head = format!(
-        "POST /mcp HTTP/1.1\r\n{}\r\n{}\r\nContent-Length: {}\r\n\r\n",
+        "POST /mcp HTTP/1.1\r\n{}\r\n{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
         f.host_line(),
         f.key_line(),
         body.len()
@@ -1227,7 +1227,7 @@ fn call_at_once(f: &Fixture<SlowHost>, calls: usize) -> Vec<Value> {
                     request("tools/call", json!({"name": "tree_summary", "arguments": {}}))
                         .to_string();
                 let head = format!(
-                    "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {KEY}\r\nContent-Length: {}\r\n\r\n{body}",
+                    "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {KEY}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
                     body.len()
                 );
                 let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
@@ -1646,7 +1646,7 @@ fn keyless_at_most_two_tool_calls_run_at_once() {
                     request("tools/call", json!({"name": "tree_summary", "arguments": {}}))
                         .to_string();
                 let head = format!(
-                    "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: {}\r\n\r\n{body}",
+                    "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
                     body.len()
                 );
                 let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
@@ -1746,4 +1746,159 @@ fn keyless_gate_refusals_and_living_status_hold() {
         let note = &s.tree().notes[&owners_note];
         assert!(format!("{note:?}").contains("The owner wrote this"));
     });
+}
+
+// ---- a second layer against web pages: media type and fetch metadata, in both modes ----
+
+/// A POST with exactly the header lines given (after the request line and Host).
+fn raw_post<H>(f: &Fixture<H>, lines: &[&str], body: &str) -> Reply {
+    let mut head = format!("POST /mcp HTTP/1.1\r\nHost: {}\r\n", f.good_host());
+    for line in lines {
+        head.push_str(line);
+        head.push_str("\r\n");
+    }
+    head.push_str(&format!(
+        "Connection: close\r\nContent-Length: {}\r\n\r\n",
+        body.len()
+    ));
+    f.raw(&head, body.as_bytes())
+}
+
+/// Both modes: with the key, and with none while none is required.
+fn both_modes(check: impl Fn(&Fixture, &[String])) {
+    let keyed = start();
+    check(&keyed, &[format!("Authorization: Bearer {KEY}")]);
+    let keyless = start_keyless();
+    check(&keyless, &[]);
+}
+
+#[test]
+fn json_media_type_is_required_to_post() {
+    both_modes(|f, auth| {
+        let body = initialize_body().to_string();
+        let with = |ct: Option<&str>| {
+            let mut lines: Vec<String> = auth.to_vec();
+            if let Some(ct) = ct {
+                lines.push(format!("Content-Type: {ct}"));
+            }
+            let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+            raw_post(f, &refs, &body).status
+        };
+        // What the MCP SDKs send, with and without parameters, in any case.
+        for ok in [
+            "application/json",
+            "application/json; charset=utf-8",
+            "Application/JSON;charset=UTF-8",
+            "application/json ; charset=utf-8",
+        ] {
+            assert_eq!(with(Some(ok)), 200, "{ok}");
+        }
+        // What a page can send without asking first: no preflight for these.
+        for bad in [
+            "text/plain",
+            "text/plain;charset=UTF-8",
+            "application/x-www-form-urlencoded",
+            "multipart/form-data; boundary=x",
+            "application/jsonp",
+            "application/json-seq",
+            "text/json",
+            "",
+        ] {
+            assert_eq!(with(Some(bad)), 415, "{bad:?}");
+        }
+        assert_eq!(with(None), 415, "no Content-Type");
+        assert!(f.host.changes.lock().unwrap().is_empty());
+    });
+}
+
+#[test]
+fn two_content_types_are_refused() {
+    both_modes(|f, auth| {
+        let mut lines: Vec<&str> = auth.iter().map(String::as_str).collect();
+        lines.extend(["Content-Type: application/json", "Content-Type: text/plain"]);
+        assert_eq!(
+            raw_post(f, &lines, &initialize_body().to_string()).status,
+            415
+        );
+    });
+}
+
+#[test]
+fn a_cross_site_request_is_refused_even_with_no_origin() {
+    both_modes(|f, auth| {
+        let body = initialize_body().to_string();
+        let status = |site: &str| {
+            let mut lines: Vec<String> = auth.to_vec();
+            lines.push("Content-Type: application/json".into());
+            lines.push(format!("Sec-Fetch-Site: {site}"));
+            let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+            raw_post(f, &refs, &body).status
+        };
+        for bad in ["cross-site", "same-site", "Cross-Site", "", "nonsense"] {
+            assert_eq!(status(bad), 403, "{bad:?}");
+        }
+        for ok in ["none", "same-origin", "NONE"] {
+            assert_eq!(status(ok), 200, "{ok}");
+        }
+        assert!(f.host.changes.lock().unwrap().is_empty());
+    });
+}
+
+#[test]
+fn the_bad_combinations_a_page_could_send() {
+    both_modes(|f, auth| {
+        let body = initialize_body().to_string();
+        let run = |extra: &[&str]| {
+            let mut lines: Vec<&str> = auth.iter().map(String::as_str).collect();
+            lines.extend(extra);
+            raw_post(f, &lines, &body).status
+        };
+        // text/plain with no Origin: the classic simple request.
+        assert_eq!(run(&["Content-Type: text/plain"]), 415);
+        // A form post.
+        assert_eq!(
+            run(&[
+                "Content-Type: application/x-www-form-urlencoded",
+                "Origin: https://evil.example"
+            ]),
+            403
+        );
+        assert_eq!(
+            run(&["Content-Type: application/x-www-form-urlencoded"]),
+            415
+        );
+        // A cross-site fetch that left out Origin.
+        assert_eq!(
+            run(&[
+                "Content-Type: application/json",
+                "Sec-Fetch-Site: cross-site"
+            ]),
+            403
+        );
+        assert_eq!(
+            run(&["Content-Type: text/plain", "Sec-Fetch-Site: cross-site"]),
+            403
+        );
+        // JSON from another origin.
+        assert_eq!(
+            run(&[
+                "Content-Type: application/json",
+                "Origin: https://evil.example"
+            ]),
+            403
+        );
+        // The ordinary client: JSON, no Origin, no fetch metadata.
+        assert_eq!(run(&["Content-Type: application/json"]), 200);
+    });
+}
+
+#[test]
+fn headers_alone_are_enough_to_refuse_a_cross_site_request() {
+    // The fetch-site check runs on the head, before any body byte is waited for.
+    let f = start_keyless();
+    let head = f.head_only(
+        &[f.host_line(), "Sec-Fetch-Site: cross-site".to_string()],
+        UNREAD,
+    );
+    assert_eq!(f.raw(&head, b"").status, 403);
 }

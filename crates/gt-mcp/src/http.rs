@@ -216,6 +216,7 @@ fn reason(status: u16) -> &'static str {
         408 => "Request Timeout",
         411 => "Length Required",
         413 => "Content Too Large",
+        415 => "Unsupported Media Type",
         431 => "Request Header Fields Too Large",
         501 => "Not Implemented",
         503 => "Service Unavailable",
@@ -280,7 +281,7 @@ fn serve_one<H: Host>(
         Ok(read) => read,
         Err(answer) => return answer,
     };
-    if !allowed_host(&head, port) || !allowed_origin(&head, port) {
+    if !allowed_host(&head, port) || !allowed_origin(&head, port) || !allowed_fetch_site(&head) {
         return Some(Answer::status(403));
     }
     if head.path() != "/mcp" {
@@ -297,6 +298,11 @@ fn serve_one<H: Host>(
         Ok(length) => length,
         Err(status) => return Some(Answer::status(status)),
     };
+    // A web page can send a body as text/plain, a form, or with no Origin, without a preflight.
+    // Demanding JSON makes a browser ask first, and the Origin check then answers it.
+    if !is_json(&head) {
+        return Some(Answer::status(415));
+    }
     let mut versions = head.values("MCP-Protocol-Version");
     if let Some(first) = versions.next()
         && versions.any(|other| other != first)
@@ -527,6 +533,24 @@ fn allowed_host(head: &Head, port: u16) -> bool {
     };
     value.eq_ignore_ascii_case(&format!("127.0.0.1:{port}"))
         || value.eq_ignore_ascii_case(&format!("localhost:{port}"))
+}
+
+/// Exactly one `Content-Type`, `application/json`, with or without parameters such as a charset.
+fn is_json(head: &Head) -> bool {
+    let mut values = head.values("Content-Type");
+    let (Some(value), None) = (values.next(), values.next()) else {
+        return false;
+    };
+    let media = value.split(';').next().unwrap_or_default().trim_ascii();
+    media.eq_ignore_ascii_case("application/json")
+}
+
+/// A browser says where a request comes from. Anything but "none" (typed in, not a page) or
+/// "same-origin" is a page of another site, refused whatever Origin says. Clients that are not
+/// browsers send none.
+fn allowed_fetch_site(head: &Head) -> bool {
+    head.values("Sec-Fetch-Site")
+        .all(|v| v.eq_ignore_ascii_case("none") || v.eq_ignore_ascii_case("same-origin"))
 }
 
 /// No Origin (not a browser), or this server's own.

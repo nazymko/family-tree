@@ -102,6 +102,25 @@ describe('ChangeLog', () => {
     setLanguage('en');
   });
 
+  it('a_connection_that_already_had_the_reserved_name_shows_as_itself_by_its_own_id', async () => {
+    const { raw, platform, people } = await logScreen();
+    platform.simulateAgentBatch(raw, { agent: 'Агент без ключа', title: 'Recording 1', changes: [{ person: people[0].id, note: 'Told' }] });
+    platform.simulateAgentBatch(raw, { agent: 'Agent without a key', title: 'Recording 2', changes: [{ person: people[1].id, note: 'Told' }] });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(2));
+    expect(screen.getAllByText('Агент без ключа').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Agent without a key').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^By Агент без ключа$|^By Agent without a key$/)).toHaveLength(2);
+  });
+
+  it('a_batch_header_is_labelled_by_the_agents_id_not_its_name', async () => {
+    const { raw, platform, people } = await logScreen();
+    platform.simulateAgentBatch(raw, { agent: KEYLESS_AGENT_NAME, agentId: KEYLESS_AGENT_ID, title: 'Recording 1', changes: [{ person: people[0].id, note: 'Told' }] });
+    await waitFor(() => expect(screen.getByText('By Agent without a key')).toBeInTheDocument());
+    setLanguage('uk');
+    await waitFor(() => expect(screen.getByText('Автор: Агент без ключа')).toBeInTheDocument());
+    setLanguage('en');
+  });
+
   it('a_connection_with_another_id_keeps_its_own_name', async () => {
     const { raw, platform, people } = await logScreen();
     platform.simulateAgentBatch(raw, { agent: 'Transcript reader', changes: [{ person: people[0].id, note: 'Told' }] });

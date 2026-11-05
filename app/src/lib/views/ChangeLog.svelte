@@ -258,7 +258,7 @@
             <h2 {id}><bdi dir="auto">{s.ref.title}</bdi></h2>
             {#if s.info}
               <p class="meta">
-                <span>{t('changeLog.by', { agent: agentLabel(null, s.info.actorName) })}</span>
+                <span>{t('changeLog.by', { agent: agentLabel(s.info.actorId, s.info.actorName) })}</span>
                 <span>{plural('changeLog.changes', s.info.groups)}</span>
                 <span>{plural('common.people', s.info.people)}</span>
                 {#if s.info.unreviewed > 0}<span>{plural('changeLog.unreviewed', s.info.unreviewed)}</span>{/if}

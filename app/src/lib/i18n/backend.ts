@@ -74,11 +74,11 @@ export const KEYLESS_AGENT_ID = '01927a00-0000-7000-8000-6e6f6b657900';
 export const KEYLESS_AGENT_NAME = 'Agent without a key';
 
 /**
- * An agent's name for the screen. The built-in agent is known by its fixed id and gets a translated label;
- * where only a name is at hand (a batch), its stored name stands for the id, which no connection can take.
+ * An agent's name for the screen. The built-in agent is known by its fixed id and gets a translated label.
+ * Never by its name: a connection that already had that name before it was reserved shows as itself.
  */
-export function agentLabel(id: string | null | undefined, name: string): string {
-  return id === KEYLESS_AGENT_ID || (id == null && name === KEYLESS_AGENT_NAME) ? t('agent.keylessAgent') : name;
+export function agentLabel(id: string, name: string): string {
+  return id === KEYLESS_AGENT_ID ? t('agent.keylessAgent') : name;
 }
 
 /** An error of agent access in the active language; other text is shown as the backend wrote it. */
