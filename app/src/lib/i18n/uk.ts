@@ -599,6 +599,7 @@ export const uk: Messages = {
     save: 'Зберегти прізвища',
   },
   fieldChange: {
+    surname: 'Прізвище',
     empty: 'порожньо',
     yes: 'так',
     no: 'ні',

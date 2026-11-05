@@ -149,12 +149,11 @@ describe('PersonEditor', () => {
   }
 
   it('history_says_what_a_name_change_changed_in_english', async () => {
-    const d = await api.getPerson(id);
-    const was = d.names[0].surnames.join(', ');
+    await renameSurname(['Koval']);
     await renameSurname(['Kovalchuk']);
     await open();
     const row = await historyRow();
-    expect(row.textContent?.replace(/\s+/g, ' ')).toContain(`Surnames: ${was || 'empty'} → Kovalchuk`);
+    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Surname: Koval → Kovalchuk');
     expect(row.querySelectorAll('bdi[dir="auto"]').length).toBeGreaterThanOrEqual(1);
   });
 

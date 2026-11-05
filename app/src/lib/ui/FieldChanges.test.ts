@@ -13,7 +13,7 @@ describe('FieldChanges', () => {
     render(FieldChanges, { fields: [surname, { field: 'given', before: 'Ivan', after: 'Olena' }] });
     const items = screen.getAllByRole('listitem');
     expect(items).toHaveLength(2);
-    expect(items[0].textContent?.replace(/\s+/g, ' ').trim()).toBe('Surnames: Koval → Kovalchuk');
+    expect(items[0].textContent?.replace(/\s+/g, ' ').trim()).toBe('Surname: Koval → Kovalchuk');
     expect(items[1].textContent?.replace(/\s+/g, ' ').trim()).toBe('Given name: Ivan → Olena');
   });
 
@@ -57,8 +57,13 @@ describe('FieldChanges', () => {
     setLanguage('uk');
     render(FieldChanges, { fields: [{ ...surname, nameNumber: 2, nameKind: 'married' }] });
     const text = screen.getByRole('listitem').textContent?.replace(/\s+/g, ' ').trim() ?? '';
-    expect(text).toBe('Ім’я 2 (Ім’я в шлюбі) Прізвища: Koval → Kovalchuk');
+    expect(text).toBe('Ім’я 2 (Ім’я в шлюбі) Прізвище: Koval → Kovalchuk');
     expect(text).not.toMatch(/дерев/i);
+  });
+
+  it('uses the plural label only when a side holds several surnames', () => {
+    render(FieldChanges, { fields: [{ field: 'surnames', before: 'Koval', after: 'Koval, Petrenko' }] });
+    expect(screen.getByRole('listitem').textContent?.replace(/\s+/g, ' ').trim()).toBe('Surnames: Koval → Koval, Petrenko');
   });
 
   it('renders nothing for no fields', () => {

@@ -32,7 +32,9 @@
   const KINDS = ['birth', 'married', 'aka', 'religious', 'nickname', 'immigrant', 'professional'];
   const SEXES = ['male', 'female', 'intersex', 'unknown'];
 
-  function label(field: string): string {
+  /** Singular `Surname` unless either side holds several surnames (joined with a comma). */
+  function label(field: string, f?: FieldChangeDto): string {
+    if (field === 'surnames' && f && !(f.before ?? '').includes(', ') && !(f.after ?? '').includes(', ')) return t('fieldChange.surname');
     const key = LABELS[field];
     return key ? t(key) : field;
   }
@@ -64,7 +66,7 @@
       {@const a = word(f.field, f.after)}
       <li>
         {#if f.nameNumber !== undefined}<span class="who">{who(f)}</span>{/if}
-        <span class="label">{label(f.field)}:</span>
+        <span class="label">{label(f.field, f)}:</span>
         <span class="val before">{#if b === null}<em class="none">{t('fieldChange.empty')}</em>{:else}<bdi dir="auto">{b}</bdi>{/if}</span>
         <span class="arrow" aria-hidden="true">→</span>
         <span class="val after">{#if a === null}<em class="none">{t('fieldChange.empty')}</em>{:else}<bdi dir="auto">{a}</bdi>{/if}</span>
