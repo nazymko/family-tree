@@ -76,11 +76,16 @@
     }
   }
 
-  function commitPort() {
-    if (!agent) return;
+  /** The typed port brought into 1024-65535 (the backend refuses any other); the saved one when it is not a number. */
+  function clampedPort(fallback: number): number {
     const n = Math.round(Number(port));
     const ok = String(port ?? '').trim() !== '' && Number.isFinite(n);
-    const next = ok ? Math.min(65535, Math.max(1024, n)) : agent.port;
+    return ok ? Math.min(65535, Math.max(1024, n)) : fallback;
+  }
+
+  function commitPort() {
+    if (!agent) return;
+    const next = clampedPort(agent.port);
     port = String(next);
     if (next !== agent.port) void apply(agent.enabled, next);
   }
@@ -158,7 +163,7 @@
       label={t('agent.enable')}
       bind:checked={enabled}
       disabled={!agent || busy}
-      onchange={(on) => void apply(on, Number(port) || agent?.port || 8765)}
+      onchange={(on) => void apply(on, clampedPort(agent?.port ?? 8765))}
     />
     <Banner kind="warning">{t('agent.warning')}</Banner>
     <Checkbox
