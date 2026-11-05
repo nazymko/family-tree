@@ -144,6 +144,39 @@ function drawHandle(ctx: CanvasRenderingContext2D, h: { x: number; y: number }, 
   ctx.stroke();
 }
 
+/** The unnamed-siblings entries: a paper card with a dashed outline, never a sex-coloured or filled block. */
+export function drawMarkerBoxes(ctx: CanvasRenderingContext2D, nodes: ChartNode[], theme: Theme, zoom: number) {
+  if (nodes.length === 0) return;
+  ctx.beginPath();
+  for (const n of nodes) ctx.rect(n.x, n.y, n.w, n.h);
+  ctx.fillStyle = theme.paper;
+  ctx.fill();
+  ctx.setLineDash([5 / zoom, 3 / zoom]);
+  ctx.strokeStyle = theme.ink2;
+  ctx.lineWidth = 1 / zoom;
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+/**
+ * The label of an unnamed-siblings entry, nothing else (no dates, no relationship). Zoomed in it sits like a
+ * card's name; far out it is written at a fixed screen size while the box is wide enough on screen to hold it.
+ */
+export function drawMarkerLabel(ctx: CanvasRenderingContext2D, n: ChartNode, theme: Theme, zoom: number, mode: 'full' | 'far') {
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = theme.ink2;
+  if (mode === 'full') {
+    ctx.font = `italic 11px ${theme.font}`;
+    ctx.fillText(fit(ctx, t('person.siblingMarker'), n.w - 20), n.x + 10, n.y + 23);
+    return;
+  }
+  if (n.w * zoom < 34) return;
+  const px = 11 / zoom;
+  ctx.font = `italic ${px}px ${theme.font}`;
+  ctx.fillText(fit(ctx, t('person.siblingMarker'), n.w - 4 / zoom), n.x + 2 / zoom, n.y + n.h / 2 + px * 0.35);
+}
+
 /** Draws the window. Returns the number of nodes drawn (all of them: the window is the culling). */
 export function draw(
   ctx: CanvasRenderingContext2D,
@@ -173,9 +206,11 @@ export function draw(
 
   if (lod === 'dots') {
     ctx.beginPath();
-    for (const n of win.nodes) ctx.rect(n.x, n.y, n.w, n.h);
+    for (const n of win.nodes) if (!n.person?.siblingMarker) ctx.rect(n.x, n.y, n.w, n.h);
     ctx.fillStyle = theme.ink2;
     ctx.fill();
+    drawMarkerBoxes(ctx, win.nodes.filter((n) => n.person?.siblingMarker), theme, z);
+    for (const n of win.nodes) if (n.person?.siblingMarker) drawMarkerLabel(ctx, n, theme, z, 'far');
     if (selected !== null) {
       const s = win.nodes.find((n) => n.id === selected);
       if (s) {
@@ -246,15 +281,13 @@ export function draw(
 
   if (opts.handles !== false) for (const n of win.nodes.filter((x) => !x.person?.siblingMarker)) for (const h of handleSpots(n, kind, opts.reversed ?? false)) drawHandle(ctx, h, theme, z);
 
+  if (lod === 'boxes') for (const n of win.nodes) if (n.person?.siblingMarker) drawMarkerLabel(ctx, n, theme, z, 'far');
   if (lod === 'full') {
     ctx.textBaseline = 'alphabetic';
     for (const n of win.nodes) {
       if (n.person?.siblingMarker) {
         // A dashed, muted card with the label and nothing else: no dates, no relationship, no number.
-        ctx.textAlign = 'left';
-        ctx.fillStyle = theme.ink2;
-        ctx.font = `italic 11px ${theme.font}`;
-        ctx.fillText(fit(ctx, t('person.siblingMarker'), n.w - 20), n.x + 10, n.y + 23);
+        drawMarkerLabel(ctx, n, theme, z, 'full');
         continue;
       }
       const isDup = n.dupOf !== null;
