@@ -182,7 +182,7 @@
         const z = 0.55;
         cam = { zoom: z, x: rootRect.x + rootRect.w / 2 - size.w / z / 2, y: rootRect.y + rootRect.h / 2 - size.h / z / 2 };
       }
-    } else if (f.zoom >= 0.55 && kind === 'pedigree') cam = f;
+    } else if (kind === 'pedigree' && (f.zoom >= 0.55 || generations >= ALL_GENERATIONS)) cam = f;
     else if (kind === 'descendants' && f.zoom >= 0.55) cam = f;
     else if (kind === 'pedigree') {
       const x = reversed ? rootRect.x + rootRect.w + 40 - size.w : rootRect.x - 40;
@@ -878,14 +878,18 @@
     if (meta) animateTo(fit(meta.bounds, size));
   }
 
+  /** "Show all" in the pedigree: the most the backend takes, far beyond any real family line. */
+  const ALL_GENERATIONS = 255;
   const genRange = $derived(kind === 'relatives' ? { min: 1, max: 6 } : { min: 3, max: 8 });
   const genOptions = $derived(
     Array.from({ length: genRange.max - genRange.min + 1 }, (_, i) => genRange.min + i).map((n) => ({
       value: String(n),
       label: plural('chartCanvas.nGenerations', n),
-    })),
+    })).concat(kind === 'pedigree' ? [{ value: String(ALL_GENERATIONS), label: t('chartCanvas.showAll') }] : []),
   );
-  let genValue = $derived(String(Math.min(genRange.max, Math.max(genRange.min, generations))));
+  let genValue = $derived(
+    String(kind === 'pedigree' && generations >= ALL_GENERATIONS ? ALL_GENERATIONS : Math.min(genRange.max, Math.max(genRange.min, generations))),
+  );
 </script>
 
 <div class="chart" {hidden}>
@@ -934,6 +938,8 @@
     </div>
     {#if hint}
       <p class="hint">{hint}</p>
+    {:else if meta?.truncated}
+      <p class="hint" role="status">{t('chartCanvas.cutOff', { n: meta.nodeCount })}</p>
     {/if}
     {#if savingPicture}
       <p class="hint saving" role="status">{t('picture.saving')}</p>

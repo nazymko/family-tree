@@ -462,9 +462,11 @@ fn generations_clamped() {
             .unwrap()
             .node_count
     };
-    assert_eq!(ped(&mut s, 99), 12);
     assert_eq!(ped(&mut s, 12), 12);
     assert_eq!(ped(&mut s, 0), 1);
+    // "Show all" asks for the most there is: every ancestor, whatever the number.
+    assert_eq!(ped(&mut s, 255), 20);
+    assert_eq!(ped(&mut s, 100_000), 20);
     // Descendants of the oldest person: down the chain.
     let desc = |s: &mut Session, g: u32| {
         s.chart_open(&descendants_req(s, "P20 L", g))
