@@ -533,6 +533,12 @@ pub enum EditCommand {
         families: Vec<DraftFamily>,
         attach_picture: bool,
     },
+    /// An agent's own number for a person, unique within one named source file. Never exported.
+    AddNumber {
+        person: Uuid,
+        source_file: String,
+        number: String,
+    },
 }
 
 impl EditCommand {
@@ -579,6 +585,7 @@ impl EditCommand {
             EditCommand::SetPrimaryMedia { .. } => "Set primary media".into(),
             EditCommand::UpdateMedia { .. } => "Edit media".into(),
             EditCommand::ImportDraft { .. } => "Add traced people".into(),
+            EditCommand::AddNumber { .. } => "Record number".into(),
         }
     }
 }

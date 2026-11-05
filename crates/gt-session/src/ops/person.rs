@@ -193,6 +193,35 @@ pub(super) fn save_name(
     Ok(Some(person_id))
 }
 
+/// How an agent's number is stored: the source file is in the scheme, so that two files can share
+/// a number. Both parts trimmed; `None` when either is blank.
+pub(crate) fn agent_number(source_file: &str, number: &str) -> Option<ExternalId> {
+    let (file, value) = (text(Some(source_file))?, text(Some(number))?);
+    Some(ExternalId {
+        kind: ExtIdKind::Exid {
+            scheme: format!("{AGENT_NUMBER_SCHEME}{file}"),
+        },
+        value,
+    })
+}
+
+pub(super) fn add_number(
+    p: &mut Planner,
+    person_id: Uuid,
+    source_file: &str,
+    number: &str,
+) -> Result<Option<Uuid>, ApiError> {
+    let id = agent_number(source_file, number)
+        .ok_or_else(|| invalid("Give both the source file and the number."))?;
+    let mut person: Person = p.get(person_id)?;
+    if !person.common.ext_ids.contains(&id) {
+        person.common.ext_ids.push(id);
+        person.common.changed = Some(p.now);
+        p.put(person);
+    }
+    Ok(Some(person_id))
+}
+
 pub(super) fn delete_name(
     p: &mut Planner,
     person_id: Uuid,

@@ -465,6 +465,11 @@ fn extended_command(s: &Session, rng: &mut Rng, n: usize) -> Option<EditCommand>
                 EditCommand::SaveEvent { owner, event }
             }
         }
+        14 => EditCommand::AddNumber {
+            person: *rng.pick(&persons),
+            source_file: rng.pick(&["one.txt", "two.txt"]).to_string(),
+            number: rng.below(5).to_string(),
+        },
         _ => {
             // An event with several participants.
             let mut event = event_input(rng, None);
@@ -580,6 +585,7 @@ fn incremental_refresh_equals_rebuild_over_random_edit_undo_redo_sequences() {
         "DeleteMedia",
         "SetPrimaryMedia",
         "UpdateMedia",
+        "AddNumber",
         "SaveFamily",
         "SaveEvent",
         "DeleteEvent",

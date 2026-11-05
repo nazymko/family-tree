@@ -157,6 +157,7 @@ impl<'a> Bld<'a> {
                 }
                 ExtIdKind::FamilySearch => self.kv("_FSFTID", &e.value),
                 ExtIdKind::AncestryApid => self.kv("_APID", &e.value),
+                ExtIdKind::Exid { scheme } if scheme.starts_with(AGENT_NUMBER_SCHEME) => continue,
                 ExtIdKind::Exid { scheme } => {
                     let mut n = self.kv("EXID", &e.value);
                     if !scheme.is_empty() {
