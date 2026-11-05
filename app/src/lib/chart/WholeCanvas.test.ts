@@ -115,6 +115,20 @@ describe('WholeCanvas', () => {
     expect(s.onOpenInPedigree).toHaveBeenCalledWith(ref.id);
   });
 
+  it('selected_card_has_a_button_that_opens_its_pedigree', async () => {
+    const s = await setup();
+    const ref = (await s.api.getPerson(s.fx.persons[3].id)).ref;
+    const box = screen.getByRole('combobox', { name: 'Find a person…' });
+    await fireEvent.input(box, { target: { value: ref.name } });
+    await fireEvent.click(await screen.findByRole('option', { name: new RegExp(ref.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }, { timeout: 2000 }));
+    await settle(s);
+    const button = await screen.findByRole('button', { name: `Pedigree: ${ref.name}` });
+    await fireEvent.click(button);
+    expect(s.onOpenInPedigree).toHaveBeenCalledWith(ref.id);
+    await fireEvent.keyDown(s.canvas, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Pedigree: / })).toBeNull());
+  });
+
   it('far_out_draws_bars_with_surnames_and_near_draws_full_names', async () => {
     const s = await setup();
     for (let i = 0; i < 30; i++) await fireEvent.wheel(s.canvas, { deltaY: 400, clientX: 400, clientY: 300 });
