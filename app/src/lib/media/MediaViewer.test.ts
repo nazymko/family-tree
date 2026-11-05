@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/svelte';
+import { screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import MediaViewer from './MediaViewer.svelte';
 import { renderWith } from '../testing/renderWith';
@@ -86,6 +86,68 @@ describe('MediaViewer', () => {
     }
     await user.keyboard('{Escape}');
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('unlink_detaches_from_this_person_only', async () => {
+    const user = userEvent.setup();
+    const { api, target } = await setup();
+    const spy = vi.spyOn(api, 'apply').mockResolvedValue({} as never);
+    await user.click(screen.getByRole('button', { name: 'Remove from this person' }));
+    expect(spy).toHaveBeenCalledWith({ type: 'detachMedia', target, media: 'm0' });
+  });
+
+  it('delete_asks_first_and_can_be_declined', async () => {
+    const user = userEvent.setup();
+    const { api } = await setup();
+    const spy = vi.spyOn(api, 'apply').mockResolvedValue({} as never);
+    await user.click(screen.getByRole('button', { name: 'Delete from the tree' }));
+    expect(spy).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toContain('Photo m0');
+    await user.click(screen.getByRole('button', { name: 'Keep it' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('delete_after_confirming', async () => {
+    const user = userEvent.setup();
+    const { api } = await setup();
+    const spy = vi.spyOn(api, 'apply').mockResolvedValue({} as never);
+    await user.click(screen.getByRole('button', { name: 'Delete from the tree' }));
+    await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Delete from the tree' }));
+    expect(spy).toHaveBeenCalledWith({ type: 'deleteMedia', id: 'm0' });
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
+  it('keeps_focus_inside_when_the_confirmation_goes', async () => {
+    const user = userEvent.setup();
+    const { api, onClose } = await setup();
+    vi.spyOn(api, 'apply').mockResolvedValue({} as never);
+    const stage = document.querySelector('.stage');
+    await user.click(screen.getByRole('button', { name: 'Delete from the tree' }));
+    await user.click(screen.getByRole('button', { name: 'Keep it' }));
+    await waitFor(() => expect(document.activeElement).toBe(stage));
+    await user.click(screen.getByRole('button', { name: 'Delete from the tree' }));
+    await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Delete from the tree' }));
+    await waitFor(() => expect(document.activeElement).toBe(stage));
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('closes_when_the_only_picture_goes', async () => {
+    const user = userEvent.setup();
+    const { api, onClose } = await setup(1);
+    vi.spyOn(api, 'apply').mockResolvedValue({} as never);
+    await user.click(screen.getByRole('button', { name: 'Remove from this person' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('keeps_the_picture_and_shows_why_when_removing_fails', async () => {
+    const user = userEvent.setup();
+    const { api, onClose } = await setup(1);
+    vi.spyOn(api, 'apply').mockRejectedValue(new Error('disk is full'));
+    await user.click(screen.getByRole('button', { name: 'Remove from this person' }));
+    expect(await screen.findByText('disk is full')).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('open_original_and_inline_title_edit', async () => {

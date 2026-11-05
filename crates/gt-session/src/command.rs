@@ -500,6 +500,10 @@ pub enum EditCommand {
         target: OwnerRef,
         media: Uuid,
     },
+    /// Removes the media record and every link to it. The file stays in the project, so undo can bring it back.
+    DeleteMedia {
+        id: Uuid,
+    },
     SetPrimaryMedia {
         person: Uuid,
         media: Uuid,
@@ -564,6 +568,7 @@ impl EditCommand {
             EditCommand::RemoveCitation { .. } => "Remove citation".into(),
             EditCommand::AttachMedia { .. } => "Attach media".into(),
             EditCommand::DetachMedia { .. } => "Detach media".into(),
+            EditCommand::DeleteMedia { .. } => "Delete media".into(),
             EditCommand::SetPrimaryMedia { .. } => "Set primary media".into(),
             EditCommand::UpdateMedia { .. } => "Edit media".into(),
             EditCommand::ImportDraft { .. } => "Add traced people".into(),

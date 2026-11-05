@@ -1,4 +1,4 @@
-//! attachMedia, detachMedia, setPrimaryMedia, updateMedia.
+//! attachMedia, detachMedia, deleteMedia, setPrimaryMedia, updateMedia.
 
 use super::cite::with_owner;
 use super::{Planner, invalid, parse_date, text};
@@ -62,6 +62,55 @@ pub(super) fn detach_media(
         Ok(())
     })?;
     Ok(focus)
+}
+
+/// Takes the link out of one record; the next link becomes primary if that one was.
+fn drop_link(common: &mut Common, media: Uuid, now: i64) {
+    let Some(i) = common.media.iter().position(|l| l.media == media) else {
+        return;
+    };
+    let gone = common.media.remove(i);
+    if gone.primary
+        && !common.media.iter().any(|l| l.primary)
+        && let Some(first) = common.media.first_mut()
+    {
+        first.primary = true;
+    }
+    common.changed = Some(now);
+}
+
+/// Deletes the media record and takes it off every record it is linked to. The file stays in the project's content
+/// store: undo needs it, and the same content may be attached again.
+pub(super) fn delete_media(p: &mut Planner, id: Uuid) -> Result<Option<Uuid>, ApiError> {
+    let media: Media = p.get(id)?;
+    macro_rules! sweep {
+        ($($field:ident),*) => {$(
+            let hits: Vec<_> = p
+                .tree
+                .$field
+                .values()
+                .filter(|x| x.common.media.iter().any(|l| l.media == id))
+                .cloned()
+                .collect();
+            for mut x in hits {
+                drop_link(&mut x.common, id, p.now);
+                p.put(x);
+            }
+        )*};
+    }
+    sweep!(
+        persons,
+        families,
+        events,
+        places,
+        sources,
+        repositories,
+        citations,
+        notes
+    );
+    p.abandon(&media.common.citations, &media.common.notes, true);
+    p.remove::<Media>(id);
+    Ok(None)
 }
 
 pub(super) fn set_primary(
