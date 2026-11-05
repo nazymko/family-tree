@@ -1899,3 +1899,396 @@ fn a_birthday_crossing_the_rule_does_not_stop_every_write() {
     day.store(today() + 5 * 366, Ordering::Relaxed);
     done(s.apply_as_agent(note(ivan, "From the recording"), &me(), b));
 }
+
+// ---- review round 2 -------------------------------------------------------------------------
+
+fn census(who: Uuid, others: &[(Uuid, &str)]) -> EditCommand {
+    let participants = (!others.is_empty()).then(|| {
+        others
+            .iter()
+            .map(|(person, role)| ParticipantInput {
+                person: *person,
+                role: (*role).into(),
+            })
+            .collect()
+    });
+    EditCommand::SaveEvent {
+        owner: person_owner(who),
+        event: EventInput {
+            participants,
+            ..event_input("census", Some("1900"))
+        },
+    }
+}
+
+fn censuses(s: &Session) -> usize {
+    s.tree()
+        .events
+        .values()
+        .filter(|e| e.kind == EventKind::Census)
+        .count()
+}
+
+#[test]
+fn own_census_is_not_a_repeat_of_being_witness_at_someone_elses() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let (ivan, oksana) = (find(s.tree(), "Ivan"), find(s.tree(), "Oksana"));
+    done(s.apply_as_agent(
+        census(oksana, &[(oksana, "principal"), (ivan, "witness")]),
+        &me(),
+        b,
+    ));
+    done(s.apply_as_agent(census(ivan, &[]), &me(), b));
+    assert_eq!(censuses(&s), 2);
+}
+
+#[test]
+fn event_with_another_participant_or_role_is_stored() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let (ivan, oksana) = (find(s.tree(), "Ivan"), find(s.tree(), "Oksana"));
+    done(s.apply_as_agent(census(ivan, &[]), &me(), b));
+    let with_witness = [(ivan, "principal"), (oksana, "witness")];
+    done(s.apply_as_agent(census(ivan, &with_witness), &me(), b));
+    done(s.apply_as_agent(
+        census(ivan, &[(ivan, "principal"), (oksana, "principal")]),
+        &me(),
+        b,
+    ));
+    assert_eq!(censuses(&s), 3);
+    // The same people in the same roles, named in another order, are the same event.
+    already(s.apply_as_agent(
+        census(ivan, &[(oksana, "witness"), (ivan, "principal")]),
+        &me(),
+        b,
+    ));
+    assert_eq!(censuses(&s), 3);
+}
+
+#[test]
+fn event_differing_in_private_or_preferred_is_stored() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    let flagged = |private: bool, preferred: bool| EditCommand::SaveEvent {
+        owner: person_owner(ivan),
+        event: EventInput {
+            private,
+            preferred,
+            ..event_input("census", Some("1900"))
+        },
+    };
+    done(s.apply_as_agent(flagged(false, false), &me(), b));
+    done(s.apply_as_agent(flagged(true, false), &me(), b));
+    done(s.apply_as_agent(flagged(false, true), &me(), b));
+    already(s.apply_as_agent(flagged(false, true), &me(), b));
+    assert_eq!(censuses(&s), 3);
+}
+
+#[test]
+fn citation_differing_in_quality_or_evidence_is_stored() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    let rated = |quality: Option<u8>, original: Option<bool>| EditCommand::AddCitation {
+        target: person_ref(ivan),
+        citation: CitationArg::New(CitationInput {
+            source: SourceRef::New(NewSource {
+                title: "Recording".into(),
+            }),
+            page: Some("1".into()),
+            date_raw: None,
+            text: None,
+            quality,
+            evidence: original.map(|original| EvidenceInput {
+                original: Some(original),
+                primary_info: None,
+                direct: None,
+            }),
+        }),
+    };
+    done(s.apply_as_agent(rated(Some(2), None), &me(), b));
+    done(s.apply_as_agent(rated(Some(3), None), &me(), b));
+    done(s.apply_as_agent(rated(Some(3), Some(true)), &me(), b));
+    already(s.apply_as_agent(rated(Some(3), Some(true)), &me(), b));
+    assert_eq!(s.tree().citations.len(), 3);
+}
+
+#[test]
+fn note_of_another_kind_is_stored() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    let research = EditCommand::SaveNote {
+        target: person_ref(ivan),
+        note: NoteInput {
+            id: None,
+            kind: NoteKindDto::Research,
+            text: "Same words".into(),
+        },
+    };
+    done(s.apply_as_agent(note(ivan, "Same words"), &me(), b));
+    done(s.apply_as_agent(research.clone(), &me(), b));
+    already(s.apply_as_agent(research, &me(), b));
+    assert_eq!(s.tree().persons[&ivan].common.notes.len(), 2);
+}
+
+#[test]
+fn a_note_on_own_event_does_not_stop_it_being_a_repeat() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    done(s.apply_as_agent(census(ivan, &[]), &me(), b));
+    let id = *s.tree().events.keys().next().unwrap();
+    done(s.apply_as_agent(
+        EditCommand::SaveNote {
+            target: OwnerRef {
+                kind: OwnerKind::Event,
+                id,
+            },
+            note: NoteInput {
+                id: None,
+                kind: NoteKindDto::General,
+                text: "Added later".into(),
+            },
+        },
+        &me(),
+        b,
+    ));
+    assert_eq!(already(s.apply_as_agent(census(ivan, &[]), &me(), b)), id);
+}
+
+/// Two men recorded as a couple, with a child: a same-sex couple, or a mistyped sex.
+const TWO_MEN: &str = "0 @I1@ INDI\n1 NAME Adam /Koval/\n1 SEX M\n1 FAMS @F1@\n\
+0 @I2@ INDI\n1 NAME Bohdan /Koval/\n1 SEX M\n1 FAMS @F1@\n\
+0 @I3@ INDI\n1 NAME Danylo /Koval/\n1 SEX M\n\
+0 @I4@ INDI\n1 NAME Petro /Koval/\n1 SEX M\n1 FAMC @F1@\n\
+0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n1 CHIL @I4@\n";
+
+/// The same couple with no child yet.
+const CHILDLESS_TWO_MEN: &str = "0 @I1@ INDI\n1 NAME Adam /Koval/\n1 SEX M\n1 FAMS @F1@\n\
+0 @I2@ INDI\n1 NAME Bohdan /Koval/\n1 SEX M\n1 FAMS @F1@\n\
+0 @I3@ INDI\n1 NAME Danylo /Koval/\n1 SEX M\n\
+0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n";
+
+#[test]
+fn same_sex_couple_can_get_children_added() {
+    for tree in [TWO_MEN, CHILDLESS_TWO_MEN] {
+        let (_d, mut s) = open_tree(&tree_of(tree));
+        let b = batch(&mut s, &me());
+        let (adam, danylo) = (find(s.tree(), "Adam"), find(s.tree(), "Danylo"));
+        let family = *s.tree().families.keys().next().unwrap();
+        let child = |rel: Option<ParentRelId>| EditCommand::QuickAdd {
+            anchor: adam,
+            relation: Relation::Child,
+            draft: draft("Nadia", SexKind::Female),
+            family: Some(family),
+            new_parent_set: None,
+            parent_rel: rel,
+        };
+        done(s.apply_as_agent(child(None), &me(), b));
+        done(s.apply_as_agent(child(Some(ParentRelId::Unknown)), &me(), b));
+        done(s.apply_as_agent(child(Some(ParentRelId::Adopted)), &me(), b));
+        done(s.apply_as_agent(
+            EditCommand::LinkChild {
+                family,
+                child: danylo,
+                rel: (ParentRelId::Birth, ParentRelId::Birth),
+                preferred: false,
+            },
+            &me(),
+            b,
+        ));
+    }
+}
+
+#[test]
+fn a_couple_with_a_mistyped_sex_can_still_get_a_child() {
+    let mistyped = "0 @I1@ INDI\n1 NAME Olena /Koval/\n1 SEX M\n1 FAMS @F1@\n\
+                    0 @I2@ INDI\n1 NAME Petro /Koval/\n1 SEX M\n1 FAMS @F1@\n\
+                    0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n";
+    let (_d, mut s) = open_tree(&tree_of(mistyped));
+    let b = batch(&mut s, &me());
+    let olena = find(s.tree(), "Olena");
+    done(s.apply_as_agent(
+        quick_add(olena, Relation::Child, draft("Ivan", SexKind::Male)),
+        &me(),
+        b,
+    ));
+}
+
+#[test]
+fn a_held_role_still_clashes_when_a_child_gets_a_second_parent() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    let xeno = done(s.apply_as_agent(
+        EditCommand::CreatePerson {
+            draft: draft("Xeno", SexKind::Unknown),
+        },
+        &me(),
+        b,
+    ))
+    .focus
+    .unwrap();
+    done(s.apply_as_agent(link_existing(ivan, Relation::Mother, xeno), &me(), b));
+    // Neither Petro's old role nor the change of sex is excused by the new rule.
+    refuse(&mut s, update_sex(xeno, SexKind::Male), &me(), b);
+}
+
+fn lone_family(partner: Uuid) -> EditCommand {
+    EditCommand::SaveFamily {
+        id: None,
+        partner1: Some(partner),
+        partner2: None,
+        kind: UnionKindId::Unknown,
+    }
+}
+
+#[test]
+fn one_partner_family_does_not_fold_onto_the_owners_family_with_children() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let (ivan, petro) = (find(s.tree(), "Ivan"), find(s.tree(), "Petro"));
+    let owners = *s
+        .tree()
+        .families
+        .iter()
+        .find(|(_, f)| f.children.iter().any(|c| c.person == ivan))
+        .unwrap()
+        .0;
+    let new = done(s.apply_as_agent(lone_family(petro), &me(), b)).touched[0];
+    assert_ne!(new, owners);
+    // Now there is one without children to fold onto.
+    assert_eq!(already(s.apply_as_agent(lone_family(petro), &me(), b)), new);
+}
+
+#[test]
+fn one_partner_family_folds_onto_the_owners_childless_family() {
+    let childless = "0 @I1@ INDI\n1 NAME Petro /Koval/\n1 SEX M\n1 FAMS @F1@\n\
+                     0 @F1@ FAM\n1 HUSB @I1@\n";
+    let (_d, mut s) = open_tree(&tree_of(childless));
+    let b = batch(&mut s, &me());
+    let petro = find(s.tree(), "Petro");
+    let owners = *s.tree().families.keys().next().unwrap();
+    assert_eq!(
+        already(s.apply_as_agent(lone_family(petro), &me(), b)),
+        owners
+    );
+}
+
+#[test]
+fn one_partner_family_folds_onto_own_family_with_children() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let eva = done(s.apply_as_agent(
+        EditCommand::CreatePerson {
+            draft: draft("Eva", SexKind::Female),
+        },
+        &me(),
+        b,
+    ))
+    .focus
+    .unwrap();
+    let family = done(s.apply_as_agent(lone_family(eva), &me(), b)).touched[0];
+    done(s.apply_as_agent(
+        EditCommand::QuickAdd {
+            anchor: eva,
+            relation: Relation::Child,
+            draft: draft("Nadia", SexKind::Female),
+            family: Some(family),
+            new_parent_set: None,
+            parent_rel: None,
+        },
+        &me(),
+        b,
+    ));
+    assert_eq!(
+        already(s.apply_as_agent(lone_family(eva), &me(), b)),
+        family
+    );
+}
+
+#[test]
+fn partner_into_a_family_with_children_cannot_make_a_birth_parent() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let (ivan, petro) = (find(s.tree(), "Ivan"), find(s.tree(), "Petro"));
+    let family = *s
+        .tree()
+        .families
+        .iter()
+        .find(|(_, f)| f.children.iter().any(|c| c.person == ivan))
+        .unwrap()
+        .0;
+    let msg = refuse(
+        &mut s,
+        EditCommand::QuickAdd {
+            anchor: petro,
+            relation: Relation::Partner,
+            draft: draft("Maria", SexKind::Female),
+            family: Some(family),
+            new_parent_set: None,
+            parent_rel: None,
+        },
+        &me(),
+        b,
+    );
+    assert!(msg.contains("Ivan"), "{msg}");
+    let maria = done(s.apply_as_agent(
+        EditCommand::CreatePerson {
+            draft: draft("Maria", SexKind::Female),
+        },
+        &me(),
+        b,
+    ))
+    .focus
+    .unwrap();
+    let msg = refuse(
+        &mut s,
+        EditCommand::LinkExisting {
+            anchor: petro,
+            relation: Relation::Partner,
+            person: maria,
+            family: Some(family),
+            new_parent_set: None,
+            parent_rel: None,
+        },
+        &me(),
+        b,
+    );
+    assert!(msg.contains("Ivan"), "{msg}");
+    // Said outright, she is his mother; and a partner in a family of their own is no parent.
+    done(s.apply_as_agent(link_existing(ivan, Relation::Mother, maria), &me(), b));
+}
+
+#[test]
+fn partner_in_a_family_of_their_own_is_allowed() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let petro = find(s.tree(), "Petro");
+    done(s.apply_as_agent(
+        quick_add(petro, Relation::Partner, draft("Maria", SexKind::Female)),
+        &me(),
+        b,
+    ));
+}
+
+#[test]
+fn family_with_nobody_in_it_refused() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let msg = refuse(
+        &mut s,
+        EditCommand::SaveFamily {
+            id: None,
+            partner1: None,
+            partner2: None,
+            kind: UnionKindId::Unknown,
+        },
+        &me(),
+        b,
+    );
+    assert!(msg.contains("parent or child"), "{msg}");
+}

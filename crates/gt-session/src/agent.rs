@@ -60,6 +60,15 @@ const ONLY_ADD: &str = "Agents only add to the tree. Leave what is there as it i
 fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
     use EditCommand as C;
     match cmd {
+        C::SaveFamily {
+            id: None,
+            partner1: None,
+            partner2: None,
+            ..
+        } => Err(refused(
+            "A family needs someone in it. Add a parent or child through the family's people \
+             instead.",
+        )),
         C::CreatePerson { .. }
         | C::QuickAdd { .. }
         | C::LinkExisting { .. }
@@ -195,20 +204,42 @@ fn has_birth_link(f: &Family, child: Uuid) -> bool {
         .any(|l| l.person == child && is_birth_link(f, l))
 }
 
-/// Every field an agent can give a name, so anything else is a different name.
-fn same_name(a: &Name, b: &Name) -> bool {
-    a.kind == b.kind
-        && a.private == b.private
-        && a.prefix == b.prefix
-        && a.given == b.given
-        && a.call == b.call
-        && a.surname_prefix == b.surname_prefix
-        && a.surnames == b.surnames
-        && a.patronymic == b.patronymic
-        && a.suffix == b.suffix
-        && a.nickname == b.nickname
-        && a.lang == b.lang
-        && a.date == b.date
+/// What a record says, as a whole value, so that a new field is compared without anyone having to
+/// remember it. Left out: its id and stamp, and what is attached to it later, since a citation on
+/// an event does not make the event say something else. Who took part is compared whatever the
+/// order they were named in, and a text whatever the space around it.
+fn fact_value(r: &Record) -> Option<Value> {
+    let (mut v, _) = stripped(r)?;
+    let body = v.as_object_mut()?.values_mut().next()?;
+    let common = body.get_mut("common")?.as_object_mut()?;
+    for attached in ["id", "citations", "notes", "media", "ext_ids", "unknown"] {
+        common.remove(attached);
+    }
+    if let Some(people) = body.get_mut("participants").and_then(Value::as_array_mut) {
+        people.sort_by_key(Value::to_string);
+    }
+    if let Some(Value::String(text)) = body.get_mut("text") {
+        *text = text.trim().to_string();
+    }
+    Some(v)
+}
+
+fn same_fact(a: &Record, b: &Record) -> bool {
+    match (fact_value(a), fact_value(b)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
+}
+
+/// `fact_value` for a name, which is no record of its own. Its preferred flag is left out too: an
+/// agent's name never has it.
+fn name_value(n: &Name) -> Option<Value> {
+    let mut v = serde_json::to_value(n).ok()?;
+    let body = v.as_object_mut()?;
+    for attached in ["id", "assertion", "raw", "citations", "notes", "unknown"] {
+        body.remove(attached);
+    }
+    Some(v)
 }
 
 /// The families changed by a plan, each with what it is after (`None`: removed).
@@ -465,6 +496,7 @@ impl Session {
         self.check_one_of_a_kind(&cs)?;
         self.check_birth_family(&cs)?;
         self.check_parent_roles(&cs)?;
+        self.check_partner_is_no_parent(&cmd, &cs)?;
         for ch in &cs.changes {
             self.check_change(ch, ctx.id)?;
         }
@@ -625,10 +657,10 @@ impl Session {
         }
     }
 
-    /// Step 3: the record that already says what this addition says. Notes, events and citations
-    /// count when this connection wrote them; a source, name or family that is identical counts
-    /// whoever wrote it, since a copy of it adds nothing. Only additions: an edit names its record
-    /// and is never a repeat.
+    /// Step 3: the record that already says what this addition says, in every field the agent can
+    /// give (`fact_value`). Notes, events and citations count when this connection wrote them; a
+    /// source, name or family counts whoever wrote it, since a copy of it adds nothing. Only
+    /// additions: an edit names its record and is never a repeat.
     fn repeat_of(
         &self,
         cmd: &EditCommand,
@@ -645,6 +677,13 @@ impl Session {
         };
         match cmd {
             EditCommand::SaveNote { target, note } if note.id.is_none() => {
+                let Some(new) = added(cs, |r| match r {
+                    Record::Note(n) => Some(n),
+                    _ => None,
+                }) else {
+                    return Ok(None);
+                };
+                let new = Record::Note(new.clone());
                 let (notes, _) = self.lists_of(*target).unwrap_or_default();
                 mine(
                     notes
@@ -654,22 +693,19 @@ impl Session {
                             self.tree
                                 .notes
                                 .get(id)
-                                .is_some_and(|n| n.text.trim() == note.text.trim())
+                                .is_some_and(|n| same_fact(&Record::Note(n.clone()), &new))
                         })
                         .collect(),
                 )
             }
-            EditCommand::SaveEvent { owner, event } if event.id.is_none() => {
+            EditCommand::SaveEvent { event, .. } if event.id.is_none() => {
                 let Some(new) = added(cs, |r| match r {
                     Record::Event(e) => Some(e),
                     _ => None,
                 }) else {
                     return Ok(None);
                 };
-                let target = match owner.kind {
-                    crate::command::EventOwnerKind::Person => ParticipantRef::Person(owner.id),
-                    crate::command::EventOwnerKind::Family => ParticipantRef::Family(owner.id),
-                };
+                let whole = Record::Event(new.clone());
                 mine(
                     self.tree
                         .events
@@ -677,12 +713,7 @@ impl Session {
                         .filter(|e| {
                             e.kind == new.kind
                                 && e.date == new.date
-                                && e.place == new.place
-                                && e.description == new.description
-                                && e.age == new.age
-                                && e.cause == new.cause
-                                && e.negative == new.negative
-                                && e.participants.iter().any(|p| p.target == target)
+                                && same_fact(&Record::Event((*e).clone()), &whole)
                         })
                         .map(|e| e.common.id)
                         .collect(),
@@ -695,18 +726,17 @@ impl Session {
                 }) else {
                     return Ok(None);
                 };
+                let new = Record::Citation(new.clone());
                 let (_, citations) = self.lists_of(*target).unwrap_or_default();
                 mine(
                     citations
                         .iter()
                         .copied()
                         .filter(|id| {
-                            self.tree.citations.get(id).is_some_and(|c| {
-                                c.source == new.source
-                                    && c.page == new.page
-                                    && c.text == new.text
-                                    && c.date == new.date
-                            })
+                            self.tree
+                                .citations
+                                .get(id)
+                                .is_some_and(|c| same_fact(&Record::Citation(c.clone()), &new))
                         })
                         .collect(),
                 )
@@ -725,20 +755,13 @@ impl Session {
                 }) else {
                     return Ok(None);
                 };
-                if new.title.is_none() {
-                    return Ok(None);
-                }
+                let whole = Record::Source(new.clone());
                 Ok(self
                     .tree
                     .sources
                     .values()
                     .find(|x| {
-                        x.title == new.title
-                            && x.author == new.author
-                            && x.publication == new.publication
-                            && x.abbreviation == new.abbreviation
-                            && x.text == new.text
-                            && x.repositories == new.repositories
+                        x.title == new.title && same_fact(&Record::Source((*x).clone()), &whole)
                     })
                     .map(|x| x.common.id))
             }
@@ -755,13 +778,14 @@ impl Session {
                         .iter()
                         .find(|n| !existing.names.iter().any(|old| old.id == n.id))
                 });
-                Ok(new.and_then(|new| {
-                    existing
-                        .names
-                        .iter()
-                        .find(|old| same_name(old, new))
-                        .map(|old| old.id)
-                }))
+                let Some(new) = new.and_then(name_value) else {
+                    return Ok(None);
+                };
+                Ok(existing
+                    .names
+                    .iter()
+                    .find(|old| name_value(old).as_ref() == Some(&new))
+                    .map(|old| old.id))
             }
             EditCommand::SaveFamily { id: None, .. } => {
                 let Some(new) = added(cs, |r| match r {
@@ -770,19 +794,23 @@ impl Session {
                 }) else {
                     return Ok(None);
                 };
-                if new.partner1.is_none() && new.partner2.is_none() {
-                    return Ok(None);
+                let one_partner = new.partner1.is_none() || new.partner2.is_none();
+                for f in self.tree.families.values() {
+                    let same_people = (f.partner1 == new.partner1 && f.partner2 == new.partner2)
+                        || (f.partner1 == new.partner2 && f.partner2 == new.partner1);
+                    if !same_people || f.kind != new.kind {
+                        continue;
+                    }
+                    // One person with children is someone's parent, not yet a couple: handing out
+                    // such a family would invite a partner into the owner's children's parents.
+                    if !one_partner
+                        || f.children.is_empty()
+                        || self.introduced_by(f.common.id, me)?
+                    {
+                        return Ok(Some(f.common.id));
+                    }
                 }
-                Ok(self
-                    .tree
-                    .families
-                    .values()
-                    .find(|f| {
-                        f.kind == new.kind
-                            && ((f.partner1 == new.partner1 && f.partner2 == new.partner2)
-                                || (f.partner1 == new.partner2 && f.partner2 == new.partner1))
-                    })
-                    .map(|f| f.common.id))
+                Ok(None)
             }
             _ => Ok(None),
         }
@@ -927,10 +955,16 @@ impl Session {
                     }
             };
             let too_many = before.len() >= 2 && after.iter().any(|p| !before.contains(p));
+            // Only a role someone held, or a sex that changed: a child new to a couple takes no
+            // role from anyone, whatever sexes that couple has.
+            let involved = |p: &Uuid| before.contains(p) || new_sex.contains(p);
             let clash = after.iter().any(|a| {
-                after
-                    .iter()
-                    .any(|b| a != b && clashes_now(a, b) && !clashed_before(a, b))
+                after.iter().any(|b| {
+                    a != b
+                        && (involved(a) || involved(b))
+                        && clashes_now(a, b)
+                        && !clashed_before(a, b)
+                })
             });
             if too_many || clash {
                 return Err(refused(format!(
@@ -938,6 +972,48 @@ impl Session {
                      Add a note giving both versions and the source.",
                     self.person_name(child)
                 )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Step 4 on the plan: joining a family as a partner says nothing about its children, but the
+    /// slot would make them that person's children by birth. Whichever way the agent got the
+    /// family's id, that has to be said outright. Adding a parent to a child does say it.
+    fn check_partner_is_no_parent(
+        &self,
+        cmd: &EditCommand,
+        cs: &ChangeSet,
+    ) -> Result<(), ApiError> {
+        use crate::command::Relation as R;
+        let (EditCommand::QuickAdd {
+            relation: R::Partner,
+            ..
+        }
+        | EditCommand::LinkExisting {
+            relation: R::Partner,
+            ..
+        }) = cmd
+        else {
+            return Ok(());
+        };
+        for ch in &cs.changes {
+            let (Some(Record::Family(old)), Some(Record::Family(f))) = (&ch.before, &ch.after)
+            else {
+                continue;
+            };
+            for link in &f.children {
+                let before = role_holders(std::iter::once(old), link.person);
+                let after = role_holders(std::iter::once(f), link.person);
+                if after.iter().any(|p| !before.contains(p)) {
+                    let child = self.person_name(link.person);
+                    return Err(refused(format!(
+                        "A partner in this family would become a parent of {child} by birth. If \
+                         the source says so, add them as a parent of {child}, or as a step \
+                         parent. Otherwise add them as a partner in a family of their own, or \
+                         add a note."
+                    )));
+                }
             }
         }
         Ok(())
