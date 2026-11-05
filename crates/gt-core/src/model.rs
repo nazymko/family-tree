@@ -20,6 +20,10 @@ pub struct ExternalId {
     pub value: String,
 }
 
+/// `ExtIdKind::Exid` schemes starting with this hold an agent's own numbering (`agent:<file>`).
+/// They stay in the project and are left out of every export.
+pub const AGENT_NUMBER_SCHEME: &str = "agent:";
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ExtIdKind {
     Xref,

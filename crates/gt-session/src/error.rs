@@ -13,6 +13,8 @@ pub enum ErrorCode {
     NoProject,
     Stale,
     Internal,
+    /// The agent gate said no; the message says what to do instead.
+    AgentRefused,
 }
 
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

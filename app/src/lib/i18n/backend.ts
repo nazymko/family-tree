@@ -30,6 +30,7 @@ const EDIT_KEYS: Record<string, [label: MessageKey, done: MessageKey]> = {
   'Delete media': ['edit.deleteMedia', 'edit.doneMediaDeleted'],
   'Set primary media': ['edit.setPrimaryMedia', 'edit.donePrimaryMediaSet'],
   'Edit media': ['edit.editMedia', 'edit.doneMediaSaved'],
+  'Record number': ['edit.recordNumber', 'edit.doneNumberRecorded'],
   'Link media files': ['edit.linkMediaFiles', 'edit.doneMediaFilesLinked'],
   'Add father': ['edit.addFather', 'edit.doneFatherAdded'],
   'Add mother': ['edit.addMother', 'edit.doneMotherAdded'],

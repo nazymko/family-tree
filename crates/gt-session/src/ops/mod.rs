@@ -9,6 +9,7 @@ mod family;
 mod media;
 pub(crate) use media::plan_attach;
 mod person;
+pub(crate) use person::agent_number;
 pub mod places;
 mod quick_add;
 
@@ -451,6 +452,11 @@ pub fn plan_with(
             description.as_deref(),
             date_raw.as_deref(),
         )?,
+        C::AddNumber {
+            person,
+            source_file,
+            number,
+        } => person::add_number(&mut p, *person, source_file, number)?,
     };
     Ok((p.finish(cmd.label()), focus))
 }

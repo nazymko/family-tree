@@ -130,6 +130,7 @@ const LABELS: Record<EditCommand['type'], string> = {
   setPrimaryMedia: 'Set primary media',
   updateMedia: 'Edit media',
   importDraft: 'Add traced people',
+  addNumber: 'Record number',
 };
 
 const missing = (what: string, id: Id) => new MockApiError('not_found', `No ${what} with id "${id}" in this project.`);
@@ -1626,6 +1627,12 @@ export class MockApi implements Api {
         if (cmd.description !== undefined) m.description = cmd.description || null;
         if (cmd.dateRaw !== undefined) m.date = toDateDto(cmd.dateRaw, this.settings.dayOrder);
         return { focus: null, touched: [m.id] };
+      }
+
+      case 'addNumber': {
+        if (!cmd.sourceFile.trim() || !cmd.number.trim()) throw invalid('Give both the source file and the number.');
+        const p = this.person(cmd.person);
+        return { focus: p.id, touched: [p.id] };
       }
     }
   }
