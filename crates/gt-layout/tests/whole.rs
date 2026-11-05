@@ -733,3 +733,43 @@ fn cousins_who_marry_stay_readable() {
     assert_eq!(q.lines_through_boxes, 0);
     assert!(q.line_crossings <= 2, "{q:?}");
 }
+
+#[test]
+fn children_of_a_family_without_partners_sit_together_and_are_joined() {
+    // Three sisters with no parents on record, plus an unrelated couple so the chart has company.
+    let i = input(6, &[(None, None, &[0, 1, 2]), (Some(3), Some(4), &[5])]);
+    let w = run(&i);
+    let n: Vec<_> = (0..3).map(|k| node(&w, k)).collect();
+    assert!(
+        n.iter().all(|x| (x.rect.y - n[0].rect.y).abs() < 0.01),
+        "one row"
+    );
+    let mut xs: Vec<f32> = n.iter().map(|x| x.rect.x).collect();
+    xs.sort_by(f32::total_cmp);
+    assert!(
+        xs[2] - xs[0] < 2.0 * (176.0 + 40.0) + 1.0,
+        "side by side: {xs:?}"
+    );
+    // Neighbouring sisters are joined by a bracket line, which is not a partner line.
+    let ids: Vec<u32> = n.iter().map(|x| x.id).collect();
+    let joins = w
+        .layout
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Parent && ids.contains(&e.from) && ids.contains(&e.to))
+        .count();
+    assert_eq!(joins, 2, "two links join three siblings");
+}
+
+#[test]
+fn one_child_and_a_marker_without_partners_are_joined() {
+    let i = input(2, &[(None, None, &[0, 1])]);
+    let w = run(&i);
+    let joins = w
+        .layout
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Parent)
+        .count();
+    assert_eq!(joins, 1);
+}

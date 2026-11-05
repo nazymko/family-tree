@@ -1291,6 +1291,29 @@ fn layout_component(members: &[usize], sh: &Shared, sc: &mut Scratch) -> CompOut
         };
         out.edges.push((a, b, EdgeKind::Partner, pts));
     }
+    // Brothers and sisters of a family with no partner on record: nothing above them to hang a line from,
+    // so each neighbouring pair is joined by a bracket over their tops. Parent lines never go here.
+    let mut loose: Vec<usize> = members
+        .iter()
+        .flat_map(|&k| sh.child_in[k].iter().copied())
+        .filter(|&f| sh.fams[f].partners.is_empty())
+        .collect();
+    loose.sort_unstable();
+    loose.dedup();
+    for f in loose {
+        for pair in sh.fams[f].kids.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let top = row_y[sc.row[a]].min(row_y[sc.row[b]]);
+            let bus = top - BUS_TOP.min(f64::from(m.gap_y) * 2.0);
+            let (xa, xb) = (cx(sc, a), cx(sc, b));
+            out.edges.push((
+                a,
+                b,
+                EdgeKind::Parent,
+                vec![xa, row_y[sc.row[a]], xa, bus, xb, bus, xb, row_y[sc.row[b]]],
+            ));
+        }
+    }
     // Child lines.
     for (i, l) in links.iter().enumerate() {
         let fam = &sh.fams[l.fam];

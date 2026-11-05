@@ -100,3 +100,31 @@ describe('block headings', () => {
   });
 });
 
+
+describe('drawWhole unnamed-siblings marker', () => {
+  const real = node(1, 0, 0, 'male');
+  const marker: ChartNode = { ...node(2, 200, 0, 'male'), person: { ...real.person!, id: 'm', name: '', sex: 'unknown', siblingMarker: true } };
+  const cards: ChartWindow = { nodes: [real, marker], edges: [] };
+  const run = (zoom: number) => {
+    const ctx = makeFakeContext();
+    drawWhole(ctx as unknown as CanvasRenderingContext2D, cards, [], { x: 0, y: 0, zoom }, { w: 800, h: 600, dpr: 1 }, { selected: null, home: null, lineage: null, theme });
+    return ctx.calls;
+  };
+  const dashed = (calls: ReturnType<typeof run>) => calls.some((c) => c.op === 'setLineDash' && (c.args[0] as number[]).length > 0);
+
+  it('reads_as_a_dashed_label_card_without_a_colour_bar_when_zoomed_in', () => {
+    const calls = run(1);
+    expect(calls.filter((c) => c.op === 'fillText').map((c) => String(c.args[0])).some((s) => s.startsWith('<Some more'))).toBe(true);
+    expect(dashed(calls)).toBe(true);
+    // The only 4-wide colour bar is the real person's.
+    expect(calls.filter((c) => c.op === 'rect' && c.args[2] === 4)).toHaveLength(1);
+  });
+
+  it('is_dashed_and_labelled_far_out_and_not_painted_in_a_sex_colour', () => {
+    const calls = run(0.2);
+    expect(dashed(calls)).toBe(true);
+    expect(calls.filter((c) => c.op === 'fillText').map((c) => String(c.args[0])).some((s) => s.startsWith('<Some'))).toBe(true);
+    // Only the real man's colour is used; the marker would add the unknown-sex colour.
+    expect(calls.some((c) => c.op === 'set:fillStyle' && c.args[0] === theme.other)).toBe(false);
+  });
+});

@@ -136,7 +136,7 @@ const LOG_FROM: &str = "FROM (SELECT group_id, MIN(id) AS first, MAX(id) AS last
        AND (?5 = 0 OR (f.actor_kind = 'agent' \
             AND EXISTS (SELECT 1 FROM change_person cp WHERE cp.group_id = g.group_id \
                 AND cp.reviewed_ts IS NULL AND cp.person_id = COALESCE(?4, cp.person_id)) \
-            AND NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = g.group_id)))";
+            AND g.group_id NOT IN (SELECT reverts_group FROM change_log WHERE reverts_group IS NOT NULL)))";
 
 impl Project {
     /// The changes of one group, in the order they were applied.
@@ -318,7 +318,7 @@ impl Project {
              WHERE cp.reviewed_ts IS NULL \
                AND EXISTS (SELECT 1 FROM change_log c WHERE c.group_id = cp.group_id \
                            AND c.actor_kind = 'agent') \
-               AND NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = cp.group_id)",
+               AND cp.group_id NOT IN (SELECT reverts_group FROM change_log WHERE reverts_group IS NOT NULL)",
         )?;
         let ids: Vec<String> = st.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
         ids.iter().map(|s| parse_uuid(s)).collect()
@@ -379,7 +379,7 @@ impl Project {
                 "SELECT COUNT(DISTINCT cp.person_id) FROM change_person cp \
                  WHERE cp.reviewed_ts IS NULL \
                    AND cp.group_id IN (SELECT group_id FROM change_log WHERE batch_id = ?1) \
-                   AND NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = cp.group_id)",
+                   AND cp.group_id NOT IN (SELECT reverts_group FROM change_log WHERE reverts_group IS NOT NULL)",
             )?,
         ))
     }
@@ -390,7 +390,7 @@ impl Project {
             .conn
             .prepare_cached(
                 "SELECT COUNT(DISTINCT g.group_id) FROM change_log g WHERE g.batch_id = ?1 \
-                 AND NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = g.group_id)",
+                 AND g.group_id NOT IN (SELECT reverts_group FROM change_log WHERE reverts_group IS NOT NULL)",
             )?
             .query_row([id.to_string()], |r| r.get(0))?;
         Ok(u32::try_from(n).unwrap_or(u32::MAX))
