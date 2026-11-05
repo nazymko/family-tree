@@ -142,8 +142,8 @@ const LOG_FROM: &str = "FROM (SELECT group_id, MIN(id) AS first, MAX(id) AS last
        AND (?5 = 0 OR (f.actor_kind = 'agent' \
             AND EXISTS (SELECT 1 FROM change_person cp WHERE cp.group_id = g.group_id \
                 AND cp.reviewed_ts IS NULL AND cp.person_id = COALESCE(?4, cp.person_id)) \
-            AND NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = g.group_id))) \
-       AND (?6 = 0 OR NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = g.group_id))";
+            AND g.group_id NOT IN (SELECT reverts_group FROM change_log WHERE reverts_group IS NOT NULL))) \
+       AND (?6 = 0 OR g.group_id NOT IN (SELECT reverts_group FROM change_log WHERE reverts_group IS NOT NULL))";
 
 impl Project {
     /// The changes of one group, in the order they were applied.
@@ -189,6 +189,24 @@ impl Project {
             out.push((who, ChangeOp::parse(&r.get::<_, String>(1)?)?));
         }
         Ok(out)
+    }
+
+    /// The batch the first logged change to a record was written in, when it was a creation.
+    pub fn created_in_batch(&self, target: Uuid) -> Result<Option<Uuid>, StoreError> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT op, batch_id FROM change_log WHERE target_id = ?1 ORDER BY id LIMIT 1",
+        )?;
+        let mut rows = st.query([target.to_string()])?;
+        let Some(r) = rows.next()? else {
+            return Ok(None);
+        };
+        if ChangeOp::parse(&r.get::<_, String>(0)?)? != ChangeOp::Create {
+            return Ok(None);
+        }
+        r.get::<_, Option<String>>(1)?
+            .as_deref()
+            .map(parse_uuid)
+            .transpose()
     }
 
     /// One page of the change log, newest group first, and the number of groups matching
@@ -335,7 +353,7 @@ impl Project {
              WHERE cp.reviewed_ts IS NULL \
                AND EXISTS (SELECT 1 FROM change_log c WHERE c.group_id = cp.group_id \
                            AND c.actor_kind = 'agent') \
-               AND NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = cp.group_id)",
+               AND cp.group_id NOT IN (SELECT reverts_group FROM change_log WHERE reverts_group IS NOT NULL)",
         )?;
         let ids: Vec<String> = st.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
         ids.iter().map(|s| parse_uuid(s)).collect()
@@ -396,7 +414,7 @@ impl Project {
                 "SELECT COUNT(DISTINCT cp.person_id) FROM change_person cp \
                  WHERE cp.reviewed_ts IS NULL \
                    AND cp.group_id IN (SELECT group_id FROM change_log WHERE batch_id = ?1) \
-                   AND NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = cp.group_id)",
+                   AND cp.group_id NOT IN (SELECT reverts_group FROM change_log WHERE reverts_group IS NOT NULL)",
             )?,
         ))
     }
@@ -407,7 +425,7 @@ impl Project {
             .conn
             .prepare_cached(
                 "SELECT COUNT(DISTINCT g.group_id) FROM change_log g WHERE g.batch_id = ?1 \
-                 AND NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = g.group_id)",
+                 AND g.group_id NOT IN (SELECT reverts_group FROM change_log WHERE reverts_group IS NOT NULL)",
             )?
             .query_row([id.to_string()], |r| r.get(0))?;
         Ok(u32::try_from(n).unwrap_or(u32::MAX))

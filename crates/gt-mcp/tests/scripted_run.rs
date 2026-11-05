@@ -295,15 +295,19 @@ fn work(c: &HttpClient, items: &BTreeMap<u32, String>) -> Run {
         on("person", stepan),
         format!("Inference, not stated in the recording. {}", items[&6]),
     );
-    // 7. A father with no name.
-    let father = c.call(
+    // 7. A father with no name is no person to add: the server refuses it, and a note says it.
+    let refused = c.call_err(
         "add_person",
         json!({"batch": batch, "sex": "male", "source_file": FILE, "number": "7",
                "relation": {"to": olena, "as": "father"}}),
     );
+    assert!(
+        refused.contains("never create a nameless person"),
+        "{refused}"
+    );
     note(
-        on("person", father["id"].as_str().unwrap()),
-        format!("Name not given. {}", items[&7]),
+        on("person", olena),
+        format!("Her father's name is not given. {}", items[&7]),
     );
     // 8. A death on a person the owner marked deceased is allowed.
     let yaroslav = find(c, "Yaroslav Koval", "1950");
@@ -356,7 +360,7 @@ fn work(c: &HttpClient, items: &BTreeMap<u32, String>) -> Run {
 
     c.call(
         "end_batch",
-        json!({"batch": batch, "report": "Added Halyna, Stepan, an unnamed father and one marker. \
+        json!({"batch": batch, "report": "Added Halyna, Stepan and one marker. \
                Not connected: the other Ivan Koval, born 1899. Unsettled: Stepan's mother, the date of the \
                marriage, the death of Anna Koval. Question for the family: which Ivan is meant in item 10?"}),
     );
@@ -386,15 +390,11 @@ fn the_file_is_worked_through_over_http_and_a_rerun_adds_nothing() {
     let after_first = counts(&host);
     let log_after_first = log_total(&c);
 
-    // Most people were there: only three are new, and the marker is the fourth entry.
+    // Most people were there: only two are new, and the marker is the third entry.
     let people_now = c.call("tree_summary", json!({}))["counts"]["people"]
         .as_u64()
         .unwrap();
-    assert_eq!(
-        people_now,
-        people_before + 3,
-        "Halyna, Stepan, the unnamed father"
-    );
+    assert_eq!(people_now, people_before + 2, "Halyna, Stepan");
     assert_eq!(ivans(&c), 2, "no second Ivan");
     assert_eq!(after_first[6], 1, "one marker");
 

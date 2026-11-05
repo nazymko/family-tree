@@ -139,6 +139,77 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
     }
 }
 
+fn blank(t: &Option<String>) -> bool {
+    t.as_deref().is_none_or(|t| t.trim().is_empty())
+}
+
+/// Step 2b: an agent never creates a person with no name at all, whatever tool or relation made
+/// them. Someone known only by a role goes in a note; unnamed brothers and sisters have
+/// `add_sibling_marker`.
+fn check_named(cmd: &EditCommand) -> Result<(), ApiError> {
+    let (EditCommand::CreatePerson { draft } | EditCommand::QuickAdd { draft, .. }) = cmd else {
+        return Ok(());
+    };
+    let nameless = blank(&draft.given)
+        && blank(&draft.patronymic)
+        && draft.surnames.iter().all(|s| s.trim().is_empty());
+    if nameless {
+        return Err(refused(
+            "A person needs a name: give a given name, a surname or a patronymic; never create a nameless person. If a source gives only a role, such as somebody's father, write a note on the people around them. For brothers and sisters mentioned with no names use add_sibling_marker, with sibling_of for a person they belong beside.",
+        ));
+    }
+    Ok(())
+}
+
+/// A name that holds only a nickname (kind nickname, no given name, surname or patronymic): the
+/// command to plan, with the nickname in the given slot, and the nickname.
+fn nickname_only(cmd: &EditCommand) -> Option<(EditCommand, String)> {
+    let EditCommand::SaveName { person, name } = cmd else {
+        return None;
+    };
+    let nick = name.nickname.as_deref()?.trim();
+    let bare = blank(&name.given)
+        && blank(&name.patronymic)
+        && name.surnames.iter().all(|s| s.trim().is_empty());
+    if nick.is_empty() || !bare || !matches!(name.kind, crate::NameKindDto::Nickname) {
+        return None;
+    }
+    let mut name = name.clone();
+    name.given = Some(nick.to_string());
+    Some((
+        EditCommand::SaveName {
+            person: *person,
+            name,
+        },
+        nick.to_string(),
+    ))
+}
+
+/// Takes the nickname out of the given slot again, on the name that was planned for it.
+fn unfill_nickname(cs: &mut ChangeSet, nick: &str) {
+    for ch in &mut cs.changes {
+        let before: Vec<Uuid> = match &ch.before {
+            Some(Record::Person(p)) => p
+                .names
+                .iter()
+                .filter(|n| n.given.as_deref() == Some(nick))
+                .map(|n| n.id)
+                .collect(),
+            _ => Vec::new(),
+        };
+        if let Some(Record::Person(p)) = &mut ch.after {
+            for n in &mut p.names {
+                if n.given.as_deref() == Some(nick)
+                    && n.nickname.as_deref() == Some(nick)
+                    && !before.contains(&n.id)
+                {
+                    n.given = None;
+                }
+            }
+        }
+    }
+}
+
 /// The people a command would give something to, or put in a relationship.
 fn people_named(cmd: &EditCommand) -> Vec<Uuid> {
     use EditCommand as C;
@@ -633,6 +704,47 @@ impl Session {
         self.gated(cmd, Some(id), ctx, batch)
     }
 
+    /// Takes away a family this connection made in this open batch, when nothing hangs on it: no
+    /// children, events, notes, citations or media. A refused link can leave such a family behind.
+    /// Anything else is refused. It goes through the same checks and the same log as any write.
+    pub fn remove_own_empty_family(
+        &mut self,
+        family: Uuid,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let Some(fam) = self.tree.families.get(&family) else {
+            return Err(ApiError::not_found("family", family));
+        };
+        let mine = self.introduced_by(family, ctx.id)?
+            && self.project.created_in_batch(family)? == Some(batch);
+        if !mine {
+            return Err(refused(
+                "Only a family you made yourself in this open batch can be removed. Leave this one and list it in your report.",
+            ));
+        }
+        let has_event = self.tree.events.values().any(|e| {
+            e.participants
+                .iter()
+                .any(|p| p.target == ParticipantRef::Family(family))
+        });
+        if !fam.children.is_empty()
+            || has_event
+            || !fam.common.notes.is_empty()
+            || !fam.common.citations.is_empty()
+            || !fam.common.media.is_empty()
+        {
+            return Err(refused(
+                "This family has children, events, notes or citations, so it is not empty and stays. Leave it and list it in your report.",
+            ));
+        }
+        let (_, now) = (self.clock.0)();
+        let cmd = EditCommand::DeleteFamily { id: family };
+        let (cs, focus) = plan_with(&self.tree, &cmd, now, self.day_order(), None)?;
+        self.pass_and_store(&cmd, cs, focus, ctx, batch)
+    }
+
     /// Adds the entry for brothers and sisters nobody named beside `person`: in their birth family,
     /// or in a new family with no partners when they have none, which is one write with its marker.
     pub fn add_sibling_marker_beside(
@@ -684,6 +796,7 @@ impl Session {
         batch: Uuid,
     ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
         check_allowed(&cmd)?;
+        check_named(&cmd)?;
         let cmd = self.keep_preferred(cmd);
         self.check_no_marker(&people_named(&cmd))?;
         // Before the checks below: they would answer a repeat with a conflict that is not there.
@@ -699,7 +812,19 @@ impl Session {
         }
         let (_, now) = (self.clock.0)();
         // No last citation: that is the owner's, and `check_allowed` refused asking for it.
-        let (mut cs, focus) = plan_with(&self.tree, &cmd, now, self.day_order(), None)?;
+        // The owner's editor wants a given name or a surname on every name, and the planner is the
+        // one code path for both. A name that is only a nickname is planned with the nickname in
+        // the given slot, which the planner accepts, and the slot is emptied again below: the
+        // agent's record says exactly what the agent gave, with no invented given name.
+        let nick = nickname_only(&cmd);
+        let planned = match &nick {
+            Some((with_given, _)) => with_given,
+            None => &cmd,
+        };
+        let (mut cs, focus) = plan_with(&self.tree, planned, now, self.day_order(), None)?;
+        if let Some((_, nick)) = &nick {
+            unfill_nickname(&mut cs, nick);
+        }
         if let Some(number) = number {
             let new = cs.changes.iter_mut().find(|c| Some(c.id) == focus);
             if let Some(Change {

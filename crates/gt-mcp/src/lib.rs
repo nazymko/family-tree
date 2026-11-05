@@ -30,7 +30,11 @@ pub const INSTRUCTIONS: &str = concat!(
      every time, from a numbered file or a label of your own that stays the same. A second run \
      over the same file then gets {\"id\", \"alreadyThere\": true} and adds nobody; without the \
      number it adds them twice. A date a source writes as 03/04/1901 can be read two ways and is \
-     refused: write the month as a word, or put the date in a note.\n"
+     refused: write the month as a word, or put the date in a note.\n\n\
+     This server refuses a person with no name at all (no given name, surname or patronymic). \
+     A birth year goes on the birth event, not in a name or a note. Do not assume a parent that an \
+     earlier write created for a child: read the parents the answer lists. The report you close \
+     a batch with states only what the server accepted: check get_log first.\n"
 );
 
 /// What the server needs from the app. Used as a generic bound only.
