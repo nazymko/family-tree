@@ -5,9 +5,9 @@
 //! level, and a linked row names what it links to by id, to be read with its own tool.
 
 use gt_core::model::{
-    Assertion, ChildLink, Citation, Common, Event, EventKind, Evidence, ExtIdKind, ExternalId,
-    Family, Media, MediaLink, Name, Note, NoteKind, Participant, ParticipantRef, Person, Place,
-    PlaceName, Proof, RepoRef, Repository, Role, Source, UnionKind,
+    AGENT_NUMBER_SCHEME, Assertion, ChildLink, Citation, Common, Event, EventKind, Evidence,
+    ExtIdKind, ExternalId, Family, Media, MediaLink, Name, Note, NoteKind, Participant,
+    ParticipantRef, Person, Place, PlaceName, Proof, RepoRef, Repository, Role, Source, UnionKind,
 };
 use gt_session::dates::date_dto;
 use gt_session::person_detail::{event_kind_id, event_label, is_fact, rel_id, union_id};
@@ -15,8 +15,13 @@ use gt_session::{ApiError, Session};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
-/// How the agent's numbering of a source file is stored in `Common.ext_ids`.
-pub(crate) const NUMBER_SCHEME_PREFIX: &str = "agent:";
+/// Bytes of a note's text past which a row shows only its start. Agents' clients limit what one
+/// tool's answer can hold, and a note this long is better read by itself.
+pub(crate) const NOTE_TEXT_MAX: usize = 16 * 1024;
+/// Characters of such a note's text a row does show.
+const NOTE_PREVIEW_CHARS: usize = 500;
+/// Characters to ask `get_note` for at a time.
+const NOTE_PIECE_CHARS: usize = 20_000;
 
 type Fields = Map<String, Value>;
 
@@ -37,7 +42,7 @@ fn numbers(ext_ids: &[ExternalId]) -> Vec<Value> {
             ExtIdKind::FamilySearch => json!({"scheme": "FamilySearch", "value": value}),
             ExtIdKind::AncestryApid => json!({"scheme": "AncestryApid", "value": value}),
             ExtIdKind::Other(name) => json!({"scheme": "Other", "name": name, "value": value}),
-            ExtIdKind::Exid { scheme } => match scheme.strip_prefix(NUMBER_SCHEME_PREFIX) {
+            ExtIdKind::Exid { scheme } => match scheme.strip_prefix(AGENT_NUMBER_SCHEME) {
                 Some(file) => json!({
                     "scheme": "Exid",
                     "name": scheme,
@@ -160,9 +165,23 @@ fn note_fields(note: &Note) -> Fields {
     }))
 }
 
-/// A note as a row in another record.
+/// A note as a row in another record. A very long one comes as its start and how to read the rest.
 pub(crate) fn note_row(note: &Note) -> Value {
-    extend(common_by_id(&note.common), note_fields(note))
+    let mut fields = note_fields(note);
+    if note.text.len() > NOTE_TEXT_MAX {
+        let preview: String = note.text.chars().take(NOTE_PREVIEW_CHARS).collect();
+        fields.insert("text".into(), json!(preview));
+        fields.insert("textTruncated".into(), json!(true));
+        fields.insert(
+            "textHint".into(),
+            json!(format!(
+                "Only the start of this note. Read the rest with get_note, id {}, text_offset \
+                 {NOTE_PREVIEW_CHARS}, text_limit {NOTE_PIECE_CHARS}.",
+                note.common.id
+            )),
+        );
+    }
+    extend(common_by_id(&note.common), fields)
 }
 
 /// A note read by id.
@@ -533,6 +552,13 @@ fn child_link_fields(s: &Session, link: &ChildLink) -> Fields {
     }))
 }
 
+fn is_marker(s: &Session, person: Uuid) -> bool {
+    s.tree()
+        .persons
+        .get(&person)
+        .is_some_and(|p| p.sibling_marker)
+}
+
 /// A family in a list.
 pub(crate) fn family_row(s: &Session, family: &Family) -> Value {
     let Family {
@@ -549,7 +575,9 @@ pub(crate) fn family_row(s: &Session, family: &Family) -> Value {
         ],
         "kind": union_id(kind),
         "kindText": union_kind_text(kind),
-        "childCount": children.len(),
+        // The marker is no child: it says there are more that nobody named.
+        "childCount": children.iter().filter(|c| !is_marker(s, c.person)).count(),
+        "unnamedSiblings": children.iter().any(|c| is_marker(s, c.person)),
     }));
     extend(common_by_id(common), fields)
 }
@@ -646,6 +674,7 @@ pub(crate) fn person_full(s: &Session, person: &Person) -> Result<Value, ApiErro
         sex: _,
         names,
         living_override: _,
+        sibling_marker,
     } = person;
     let id = common.id;
     let mut value = fields_of(to_value(&s.get_person(id)?)?);
@@ -675,5 +704,6 @@ pub(crate) fn person_full(s: &Session, person: &Person) -> Result<Value, ApiErro
         }
     }
     value.insert("living".into(), json!(s.person_ref(id).map(|r| r.living)));
+    value.insert("siblingMarker".into(), json!(sibling_marker));
     Ok(extend(value, common_resolved(s, common)))
 }

@@ -368,7 +368,7 @@ fn call_tool<H: Host>(
     let args = params.get("arguments").unwrap_or(&empty);
     let turn = gate.map(|g| g.wait_for_turn(TOOL_WAIT));
     let outcome = if matches!(turn, Some(None)) {
-        Err(ApiError::new(ErrorCode::Internal, BUSY))
+        Err(ApiError::new(ErrorCode::Conflict, BUSY))
     } else if args.is_object() {
         (tool.call)(host, ctx, args)
     } else {

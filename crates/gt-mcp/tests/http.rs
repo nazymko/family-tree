@@ -1073,6 +1073,57 @@ fn no_request_runs_after_stop() {
 }
 
 #[test]
+fn client_cannot_claim_other_name() {
+    let f = start();
+    let forged = json!({"id": uuid::Uuid::from_u128(99), "name": "The owner", "kind": "user"});
+    let meta = json!({
+        "io.modelcontextprotocol/clientInfo": {"name": "The owner", "version": "1"},
+        "name": "The owner",
+        "actor": forged,
+        "agent": forged,
+    });
+    let init = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "The owner", "version": "1"},
+        },
+    });
+    assert_eq!(f.post(&[], &init).status, 200);
+    let call = |name: &str, mut arguments: Value| -> Value {
+        arguments["name"] = json!("The owner");
+        arguments["actor"] = forged.clone();
+        arguments["agent"] = forged.clone();
+        arguments["agent_name"] = json!("The owner");
+        arguments["actor_id"] = forged["id"].clone();
+        arguments["_meta"] = meta.clone();
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments, "_meta": meta},
+        });
+        let reply = f.post(&[], &body).json();
+        assert_ne!(reply["result"]["isError"], json!(true), "{reply}");
+        serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+    };
+    let batch = call("begin_batch", json!({"title": "Recording 2"}))["batch"].clone();
+    call(
+        "add_person",
+        json!({"batch": batch, "given": "Ivan", "surnames": ["Koval"]}),
+    );
+
+    let log = call("get_log", json!({"filters": {"batch": batch}}));
+    let row = &log["items"][0];
+    assert_eq!(row["actor"]["name"], "Transcript reader", "{row}");
+    assert_eq!(row["actor"]["id"], json!(ctx().id), "{row}");
+    assert!(!log.to_string().contains("The owner"), "{log}");
+}
+
+#[test]
 fn busy_port_is_an_error() {
     let f = start();
     let host = Arc::new(empty_host());

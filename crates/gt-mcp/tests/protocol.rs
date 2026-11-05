@@ -239,6 +239,23 @@ fn tools_list_deterministic() {
         "list_repositories",
         "list_events",
         "list_citations",
+        "begin_batch",
+        "end_batch",
+        "add_person",
+        "link_people",
+        "add_family",
+        "add_name",
+        "add_event",
+        "add_note",
+        "add_source",
+        "add_citation",
+        "add_sibling_marker",
+        "set_number",
+        "set_sex",
+        "update_own_note",
+        "update_own_event",
+        "update_own_name",
+        "update_own_citation",
     ] {
         assert!(first.iter().any(|n| n == tool), "{tool} is missing");
     }
