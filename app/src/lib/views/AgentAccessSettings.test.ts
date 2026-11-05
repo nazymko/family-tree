@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import AgentAccessSettings from './AgentAccessSettings.svelte';
 import { renderWith } from '../testing/renderWith';
@@ -55,6 +55,8 @@ describe('AgentAccessSettings', () => {
     expect(await navigator.clipboard.readText()).toBe(key);
     expect(await within(dialog).findByText('Copied')).toBeInTheDocument();
 
+    await fireEvent.mouseDown(dialog.parentElement!);
+    expect(screen.getByTestId('agent-key').textContent).toBe(key);
     await user.click(within(dialog).getByRole('button', { name: 'Done' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.body.textContent).not.toContain(key);
@@ -83,6 +85,22 @@ describe('AgentAccessSettings', () => {
     // The focused button went away with the row: focus must stay in the screen, not fall to the body.
     await waitFor(() => expect(document.activeElement).not.toBe(document.body));
     expect(screen.getByRole('heading', { name: 'Connections' }).closest('section')?.contains(document.activeElement)).toBe(true);
+  });
+
+  it('out_of_range_port_shows_the_corrected_value', async () => {
+    const user = userEvent.setup();
+    const api = mount();
+    await screen.findByRole('checkbox', { name: TOGGLE });
+    const port = screen.getByRole('spinbutton', { name: 'Port' });
+    await user.clear(port);
+    await user.type(port, '80');
+    await user.tab();
+    await waitFor(() => expect(port).toHaveValue(1024));
+    expect((await api.agentAccessState()).port).toBe(1024);
+    await user.clear(port);
+    await user.type(port, '70000');
+    await user.tab();
+    await waitFor(() => expect(port).toHaveValue(65535));
   });
 
   it('port_error_shown', async () => {

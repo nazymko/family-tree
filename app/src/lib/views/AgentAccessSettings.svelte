@@ -185,7 +185,12 @@
   <div><Button onclick={openRules}>{t('agent.rules')}</Button></div>
 </section>
 
-<Dialog open={fresh !== null} title={fresh ? t('agent.keyTitle', { name: fresh.connection.name }) : ''} onclose={closeFresh}>
+<Dialog
+  open={fresh !== null}
+  title={fresh ? t('agent.keyTitle', { name: fresh.connection.name }) : ''}
+  onclose={closeFresh}
+  dismissOnScrim={false}
+>
   {#if fresh}
     <div class="dlg">
       <Banner kind="warning">{t('agent.keyWarning')}</Banner>

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { createRawSnippet } from 'svelte';
 import FieldHost from './testing/FieldHost.svelte';
@@ -46,6 +46,18 @@ describe('Dialog', () => {
     expect(onclose).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(opener).toHaveFocus();
+  });
+});
+
+describe('Dialog scrim', () => {
+  it('scrim_mousedown_closes_by_default', async () => {
+    const user = userEvent.setup();
+    const onclose = vi.fn();
+    render(DialogHost, { onclose });
+    await user.click(screen.getByRole('button', { name: 'Open dialog' }));
+    await fireEvent.mouseDown(screen.getByRole('dialog').parentElement!);
+    expect(onclose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
 
