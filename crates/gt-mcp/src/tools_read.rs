@@ -30,6 +30,10 @@ const NOTES_DEFAULT: u64 = 20;
 /// tool's output is not reached by accident. One note is never more than this: a longer one comes
 /// as a preview (`records::note_row`).
 const NOTES_TEXT_BUDGET: usize = records::NOTE_TEXT_MAX;
+/// Bytes of the notes, citations and event descriptions `get_person` shows in full, all together.
+/// Past it a row is left out but for its id, to be read with its own tool, so that the whole reply
+/// stays within what a client shows. One row is never more than `records::NOTE_TEXT_MAX`.
+const REPLY_BUDGET: usize = 4 * records::NOTE_TEXT_MAX;
 /// Characters in a piece of text when `text_offset` is given without `text_limit`.
 const TEXT_PIECE_DEFAULT: u64 = 20_000;
 const PICTURE_DEFAULT_PX: u64 = 1600;
@@ -110,7 +114,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "get_person",
-            description: "One person in full: all names, events, citations, media details, numbers and living status, and the first notes. A person with many notes gets some at a time: read on with notes_offset, as notesNextOffset says. A very long note comes as its start, with textTruncated and textHint: read it in pieces with get_note.",
+            description: "One person in full: all names, events, citations, media details, numbers and living status, and the first notes. A person with many notes gets some at a time: read on with notes_offset, as notesNextOffset says. A very long note comes as its start, with textTruncated and textHint: read it in pieces with get_note. The whole reply is kept to a size a client can show: once the notes, citations and event descriptions in it are large enough, the rest of them come as their id alone (omitted true) or a description's start (descriptionTruncated), and the top-level omitted object counts them and says which tool reads each: get_note, get_citation or get_event, by id.",
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -570,6 +574,7 @@ fn get_person<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
         let p = person(s, id)?;
         let mut value = records::person_full(s, p)?;
         bound_notes(&mut value, offset, limit);
+        bound_reply(&mut value);
         Ok(value)
     })?;
     answer(&result)
@@ -605,6 +610,87 @@ fn bound_notes(person: &mut Value, offset: usize, limit: usize) {
                 "{} more notes: call get_person with notes_offset {end}.",
                 total - end
             )),
+        );
+    }
+}
+
+/// The note and citation rows of `owner[key]`, if there are any.
+fn rows_mut<'a>(owner: &'a mut Value, key: &str) -> Option<&'a mut Vec<Value>> {
+    owner.get_mut(key).and_then(Value::as_array_mut)
+}
+
+/// Keeps a row's id (and the length of its text) and nothing else, once the reply has used up its
+/// budget. The row is read whole by its id.
+fn leave_out(row: &mut Value) {
+    let keep = |name: &str| row.get(name).cloned().map(|v| (name.to_string(), v));
+    let stub: serde_json::Map<String, Value> = ["id", "textLength"]
+        .into_iter()
+        .filter_map(keep)
+        .chain([("omitted".to_string(), json!(true))])
+        .collect();
+    *row = Value::Object(stub);
+}
+
+/// Spends the reply's byte budget on one list of note or citation rows; what does not fit is left
+/// out but for its id. Returns how many rows were left out.
+fn spend_on_rows(rows: Option<&mut Vec<Value>>, spent: &mut usize) -> usize {
+    let mut left_out = 0;
+    for row in rows.into_iter().flatten() {
+        if *spent >= REPLY_BUDGET {
+            leave_out(row);
+            left_out += 1;
+        } else {
+            *spent += row.to_string().len();
+        }
+    }
+    left_out
+}
+
+/// Keeps the whole reply of `get_person` within `REPLY_BUDGET` bytes of notes, citations and event
+/// descriptions, in the order names, person-level citations, events. What does not fit is left
+/// out but for its id, counted under `omitted` with the tools that read it: nothing is lost.
+fn bound_reply(person: &mut Value) {
+    let mut spent = person
+        .get("notes")
+        .map_or(0, |notes| notes.to_string().len());
+    let (mut notes, mut citations, mut descriptions) = (0, 0, 0);
+    for name in rows_mut(person, "names").into_iter().flatten() {
+        notes += spend_on_rows(rows_mut(name, "notes"), &mut spent);
+        citations += spend_on_rows(rows_mut(name, "citations"), &mut spent);
+    }
+    citations += spend_on_rows(rows_mut(person, "citations"), &mut spent);
+    for event in rows_mut(person, "events").into_iter().flatten() {
+        let text_len = event
+            .get("description")
+            .and_then(Value::as_str)
+            .map_or(0, str::len);
+        if spent >= REPLY_BUDGET && text_len > 500 {
+            let id = event
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(|id| Uuid::parse_str(id).ok());
+            if let (Some(fields), Some(id)) = (event.as_object_mut(), id) {
+                records::cut_text(fields, "description", "description", "get_event", id);
+                descriptions += 1;
+            }
+        } else {
+            spent += text_len;
+        }
+        notes += spend_on_rows(rows_mut(event, "notes"), &mut spent);
+        citations += spend_on_rows(rows_mut(event, "citations"), &mut spent);
+    }
+    if notes + citations + descriptions == 0 {
+        return;
+    }
+    if let Some(fields) = person.as_object_mut() {
+        fields.insert(
+            "omitted".into(),
+            json!({
+                "notes": notes,
+                "citations": citations,
+                "descriptions": descriptions,
+                "hint": "To keep this reply short, rows with omitted true hold only their id, and a description with descriptionTruncated only its start. Read a note with get_note, a citation with get_citation, a description with get_event, each by id.",
+            }),
         );
     }
 }

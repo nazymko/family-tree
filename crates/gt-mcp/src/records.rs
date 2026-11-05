@@ -167,12 +167,20 @@ fn note_fields(note: &Note) -> Fields {
 
 /// Leaves only the start of a very long text in `field` of a row, and how to read the rest.
 fn cut_long_text(fields: &mut Fields, field: &str, what: &str, tool: &str, id: Uuid) {
+    let long = fields
+        .get(field)
+        .and_then(Value::as_str)
+        .is_some_and(|text| text.len() > NOTE_TEXT_MAX);
+    if long {
+        cut_text(fields, field, what, tool, id);
+    }
+}
+
+/// Leaves only the start of the text in `field`, whatever its length, and how to read the rest.
+pub(crate) fn cut_text(fields: &mut Fields, field: &str, what: &str, tool: &str, id: Uuid) {
     let Some(text) = fields.get(field).and_then(Value::as_str) else {
         return;
     };
-    if text.len() <= NOTE_TEXT_MAX {
-        return;
-    }
     let preview: String = text.chars().take(NOTE_PREVIEW_CHARS).collect();
     fields.insert(field.into(), json!(preview));
     fields.insert(format!("{field}Truncated"), json!(true));
@@ -236,7 +244,7 @@ fn source_fields(s: &Session, source: &Source) -> Fields {
             },
         )
         .collect();
-    let citation_count = s.source_dto(common.id).map(|dto| dto.citation_count);
+    let citation_count = s.source_citation_count(common.id);
     fields_of(json!({
         "title": title,
         "author": author,

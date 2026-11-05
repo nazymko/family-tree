@@ -138,6 +138,17 @@ impl Session {
         })
     }
 
+    /// How many citations cite the source, without copying the source's text.
+    pub fn source_citation_count(&self, id: Uuid) -> Option<u32> {
+        self.tree.sources.contains_key(&id).then(|| {
+            self.links
+                .citations_of_source
+                .get(&id)
+                .copied()
+                .unwrap_or(0)
+        })
+    }
+
     pub fn source_dto(&self, id: Uuid) -> Option<SourceDto> {
         let s = self.tree.sources.get(&id)?;
         Some(SourceDto {
