@@ -1168,6 +1168,7 @@ export class MockApi implements Api {
     const id = this.ids.next();
     const given = draft.given?.trim() || undefined;
     const surnames = draft.surnames.map((s) => s.trim()).filter(Boolean);
+    const patronymic = draft.patronymic?.trim() || undefined;
     const events: EventDto[] = [];
     if (draft.birthDateRaw?.trim() || draft.birthPlaceText?.trim()) {
       events.push(
@@ -1185,7 +1186,7 @@ export class MockApi implements Api {
       sexText: null,
       livingOverride: null,
       private: false,
-      names: [unnamedOk(makeName(this.ids.next(), { kind: 'birth', preferred: true, private: false, given, surnames }))],
+      names: [unnamedOk(makeName(this.ids.next(), { kind: 'birth', preferred: true, private: false, given, surnames, patronymic }))],
       events,
       notes: [],
       media: [],
@@ -1380,7 +1381,7 @@ export class MockApi implements Api {
       case 'saveName': {
         const p = this.person(cmd.person);
         const input = cmd.name;
-        if (!input.given?.trim() && input.surnames.every((s) => !s.trim())) throw invalid('Enter a given name or a surname.');
+        if (!input.given?.trim() && !input.patronymic?.trim() && input.surnames.every((s) => !s.trim())) throw invalid('Enter a given name or a surname.');
         const idx = input.id ? p.names.findIndex((n) => n.id === input.id) : -1;
         if (input.id && idx < 0) throw missing('name', input.id);
         const made = makeName(input.id ?? this.ids.next(), input, this.settings.dayOrder);

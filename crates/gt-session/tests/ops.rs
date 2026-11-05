@@ -1049,3 +1049,111 @@ fn edit_command_json_matches_ts_fixtures() {
         }
     ));
 }
+
+fn koval(patronymic: Option<&str>) -> PersonDraft {
+    PersonDraft {
+        given: Some("Ivan".into()),
+        surnames: vec!["Koval".into()],
+        patronymic: patronymic.map(str::to_string),
+        sex: SexKind::Male,
+        birth_date_raw: None,
+        birth_place_text: None,
+    }
+}
+
+#[test]
+fn create_person_stores_the_patronymic_as_a_name_part() {
+    let mut t = sample();
+    let cmd = EditCommand::CreatePerson {
+        draft: koval(Some(" Petrovych ")),
+    };
+    let (cs, focus) = run(&t, &cmd);
+    apply_to_tree(&mut t, &cs);
+    let p = &t.persons[&focus.unwrap()];
+    assert_eq!(p.names[0].given.as_deref(), Some("Ivan"));
+    assert_eq!(p.names[0].patronymic.as_deref(), Some("Petrovych"));
+    assert_eq!(p.names[0].surnames, vec!["Koval".to_string()]);
+    assert_eq!(
+        display_name(p, NameOrder::GivenFirst),
+        "Ivan Petrovych Koval"
+    );
+}
+
+#[test]
+fn quick_add_stores_the_patronymic_and_a_blank_one_is_none() {
+    let mut t = sample();
+    let anchor = find(&t, "Hans");
+    for (typed, stored) in [
+        (Some("Petrovych"), Some("Petrovych")),
+        (Some("  "), None),
+        (None, None),
+    ] {
+        let cmd = EditCommand::QuickAdd {
+            anchor,
+            relation: Relation::Sibling,
+            draft: koval(typed),
+            family: None,
+            new_parent_set: None,
+            parent_rel: None,
+        };
+        let (cs, focus) = run(&t, &cmd);
+        apply_to_tree(&mut t, &cs);
+        assert_eq!(
+            t.persons[&focus.unwrap()].names[0].patronymic.as_deref(),
+            stored
+        );
+    }
+}
+
+#[test]
+fn a_draft_without_the_patronymic_key_still_deserialises() {
+    let d: PersonDraft = serde_json::from_str(r#"{"surnames":["Koval"],"sex":"male"}"#).unwrap();
+    assert_eq!(d.patronymic, None);
+}
+
+#[test]
+fn a_name_of_only_a_patronymic_can_be_saved() {
+    // The add forms allow it, and the name editor has to be able to save what they made.
+    let mut t = sample();
+    let (cs, focus) = run(
+        &t,
+        &EditCommand::CreatePerson {
+            draft: PersonDraft {
+                given: None,
+                surnames: vec![],
+                patronymic: Some("Petrovych".into()),
+                sex: SexKind::Unknown,
+                birth_date_raw: None,
+                birth_place_text: None,
+            },
+        },
+    );
+    apply_to_tree(&mut t, &cs);
+    let id = focus.unwrap();
+    let cmd = EditCommand::SaveName {
+        person: id,
+        name: NameInput {
+            id: Some(t.persons[&id].names[0].id),
+            kind: NameKindDto::Birth,
+            kind_text: None,
+            preferred: true,
+            private: false,
+            prefix: None,
+            given: None,
+            call: None,
+            surname_prefix: None,
+            surnames: vec![],
+            patronymic: Some("Petrovych".into()),
+            suffix: None,
+            nickname: None,
+            lang: None,
+            date_raw: None,
+        },
+    };
+    let (cs, _) = run(&t, &cmd);
+    apply_to_tree(&mut t, &cs);
+    assert_eq!(
+        t.persons[&id].names[0].patronymic.as_deref(),
+        Some("Petrovych")
+    );
+}

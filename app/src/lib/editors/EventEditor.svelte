@@ -8,6 +8,7 @@
   import Checkbox from '../ui/Checkbox.svelte';
   import Button from '../ui/Button.svelte';
   import DateField from './DateField.svelte';
+  import DatePartsField from './DatePartsField.svelte';
   import PlacePicker from './PlacePicker.svelte';
   import PersonPicker from './PersonPicker.svelte';
   import EditorDialog from './EditorDialog.svelte';
@@ -183,7 +184,11 @@
   {#if f.kind === 'custom'}
     <TextField label={t('editor.customName')} bind:value={f.custom} />
   {/if}
-  <DateField label={t('editor.date')} value={f.date} onChange={(raw) => (f.date = raw)} order={settings.value.dayOrder} />
+  {#if f.kind === 'birth'}
+    <DatePartsField label={t('editor.date')} value={f.date} onChange={(raw) => (f.date = raw)} order={settings.value.dayOrder} />
+  {:else}
+    <DateField label={t('editor.date')} value={f.date} onChange={(raw) => (f.date = raw)} order={settings.value.dayOrder} />
+  {/if}
   <PlacePicker
     label={t('editor.place')}
     value={startPlace}

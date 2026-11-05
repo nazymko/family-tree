@@ -162,6 +162,7 @@ fn apply_under_50ms() {
             draft: PersonDraft {
                 given: Some(format!("Added{i}")),
                 surnames: vec!["Budget".into()],
+                patronymic: None,
                 sex: SexKind::Unknown,
                 birth_date_raw: Some("abt 1850".into()),
                 birth_place_text: Some("Berlin, Germany".into()),

@@ -3,6 +3,8 @@
   import Button from '../ui/Button.svelte';
   import TextField from '../ui/TextField.svelte';
   import Select from '../ui/Select.svelte';
+  import DatePartsField from '../editors/DatePartsField.svelte';
+  import { settings } from '../state/settings.svelte';
   import { getApi } from '../api/context';
   import type { Id, SexKind } from '../api/types';
   import type { AddRelation as Relation } from '../state/ui.svelte';
@@ -35,6 +37,7 @@
   };
   let given = $state('');
   let surname = $state('');
+  let patronymic = $state('');
   let sex = $state<string>('unknown');
   let birth = $state('');
   let error = $state('');
@@ -46,6 +49,7 @@
     if (open) {
       given = '';
       surname = '';
+      patronymic = '';
       sex = relation === 'father' ? 'male' : relation === 'mother' ? 'female' : 'unknown';
       birth = '';
       error = '';
@@ -63,6 +67,7 @@
       const draft = {
         given: given.trim() || undefined,
         surnames: surname.trim() ? [surname.trim()] : [],
+        patronymic: patronymic.trim() || undefined,
         sex: sex as SexKind,
         birthDateRaw: birth.trim() || undefined,
       };
@@ -83,6 +88,7 @@
   <form id="new-person" onsubmit={save}>
     <TextField label={t('newPerson.givenNames')} bind:value={given} autocomplete="off" />
     <TextField label={t('newPerson.surname')} bind:value={surname} autocomplete="off" error={error || undefined} />
+    <TextField label={t('editor.patronymic')} bind:value={patronymic} autocomplete="off" />
     <Select
       label={t('newPerson.sex')}
       bind:value={sex}
@@ -94,7 +100,7 @@
         { value: 'other', label: t('sexOption.other') },
       ]}
     />
-    <TextField label={t('newPerson.birthDate')} bind:value={birth} hint={t('newPerson.birthHint')} />
+    <DatePartsField label={t('newPerson.birthDate')} value={birth} onChange={(r) => (birth = r)} order={settings.value.dayOrder} />
   </form>
   {#snippet footer()}
     <Button onclick={onclose}>{t('common.cancel')}</Button>

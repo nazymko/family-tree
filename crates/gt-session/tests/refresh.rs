@@ -61,6 +61,7 @@ fn draft(rng: &mut Rng, n: usize) -> PersonDraft {
     PersonDraft {
         given: Some(format!("New{n}")),
         surnames: vec![rng.pick(&["Schmidt", "Meyer", "Novak"]).to_string()],
+        patronymic: None,
         sex: *rng.pick(&[SexKind::Male, SexKind::Female, SexKind::Unknown]),
         birth_date_raw: rng.pick(&DATES).to_string().into(),
         birth_place_text: rng.pick(&PLACES).to_string().into(),
@@ -588,6 +589,7 @@ fn incremental_refresh_keeps_revision_moving_and_sorts_valid() {
         draft: PersonDraft {
             given: Some("Zara".into()),
             surnames: vec!["Schmidt".into()],
+            patronymic: None,
             sex: SexKind::Female,
             birth_date_raw: Some("abt 1850".into()),
             birth_place_text: None,

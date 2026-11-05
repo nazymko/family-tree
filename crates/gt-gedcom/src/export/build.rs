@@ -415,6 +415,7 @@ impl<'a> Bld<'a> {
         let parts = [
             ("NPFX", nm.prefix.clone()),
             ("GIVN", nm.given.clone()),
+            ("_PATR", nm.patronymic.clone()),
             ("NICK", nm.nickname.clone()),
             ("SPFX", nm.surname_prefix.clone()),
             (

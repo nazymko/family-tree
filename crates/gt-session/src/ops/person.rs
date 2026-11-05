@@ -29,7 +29,7 @@ pub(super) fn new_person(p: &Planner, draft: &PersonDraft, sex: SexKind) -> Pers
             call: None,
             surname_prefix: None,
             surnames,
-            patronymic: None,
+            patronymic: text(draft.patronymic.as_deref()),
             suffix: None,
             nickname: None,
             lang: None,
@@ -122,7 +122,8 @@ pub(super) fn save_name(
         .filter(|s| !s.is_empty())
         .collect();
     let given = text(input.given.as_deref());
-    if given.is_none() && surnames.is_empty() {
+    let patronymic = text(input.patronymic.as_deref());
+    if given.is_none() && surnames.is_empty() && patronymic.is_none() {
         return Err(invalid("Enter a given name or a surname."));
     }
     let idx = match input.id {
@@ -150,7 +151,7 @@ pub(super) fn save_name(
         call: text(input.call.as_deref()),
         surname_prefix: text(input.surname_prefix.as_deref()),
         surnames,
-        patronymic: text(input.patronymic.as_deref()),
+        patronymic,
         suffix: text(input.suffix.as_deref()),
         nickname: text(input.nickname.as_deref()),
         lang: text(input.lang.as_deref()),

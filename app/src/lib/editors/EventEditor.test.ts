@@ -25,11 +25,33 @@ function lastEvent(spy: { mock: { calls: unknown[][] } }): Record<string, unknow
 }
 
 describe('EventEditor', () => {
+  it('a_birth_takes_its_date_in_parts_and_may_have_none', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'apply');
+    const { onSaved } = show();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Kind of event' }), 'birth');
+    await user.type(screen.getByRole('textbox', { name: 'Year' }), '1850');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Month' }), '3');
+    await user.clear(screen.getByRole('textbox', { name: 'Year' }));
+    await user.type(screen.getByRole('combobox', { name: 'Place' }), 'Berlin, Brandenburg, Germany');
+    await user.click(screen.getByRole('button', { name: 'Save event' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(lastEvent(spy).dateRaw).toBeUndefined();
+  });
+
+  it('other_events_keep_the_text_field', async () => {
+    show();
+    await userEvent.setup().selectOptions(screen.getByRole('combobox', { name: 'Kind of event' }), 'death');
+    expect(screen.getByRole('textbox', { name: 'Date' })).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: 'Year' })).toBeNull();
+  });
+
   it('birth_event_saves_expected_command', async () => {
     const user = userEvent.setup();
     const spy = vi.spyOn(api, 'apply');
     const { onSaved } = show();
     await user.selectOptions(screen.getByRole('combobox', { name: 'Kind of event' }), 'birth');
+    await user.click(screen.getByRole('button', { name: /Type it another way/ }));
     await user.type(screen.getByRole('textbox', { name: 'Date' }), 'abt 1850');
     await user.type(screen.getByRole('combobox', { name: 'Place' }), 'Berlin, Brandenburg, Germany');
     await user.click(screen.getByRole('button', { name: 'Save event' }));

@@ -9,7 +9,7 @@
   import RadioGroup from '../ui/RadioGroup.svelte';
   import Button from '../ui/Button.svelte';
   import PersonPicker from './PersonPicker.svelte';
-  import DateField from './DateField.svelte';
+  import DatePartsField from './DatePartsField.svelte';
   import PlacePicker from './PlacePicker.svelte';
   import { settings } from '../state/settings.svelte';
   import EditorDialog from './EditorDialog.svelte';
@@ -53,6 +53,7 @@
 
   let given = $state('');
   let surnames = $state('');
+  let patronymic = $state('');
   let sex = $state<string>(rel === 'father' ? 'male' : rel === 'mother' ? 'female' : 'unknown');
   let birthDate = $state('');
   let birthPlace = $state('');
@@ -125,8 +126,8 @@
 
   const choices = $derived(rel === 'child' && !family && detail && detail.partnerships.length > 1 ? detail.partnerships : []);
   const needsChoice = $derived(choices.length > 0);
-  const unnamed = $derived(mode === 'new' && !given.trim() && !surnames.trim());
-  const dirty = $derived(mode === 'existing' ? !!picked : !!(given || birthDate || birthPlace) || (touchedSurname && !!surnames));
+  const unnamed = $derived(mode === 'new' && !given.trim() && !surnames.trim() && !patronymic.trim());
+  const dirty = $derived(mode === 'existing' ? !!picked : !!(given || patronymic || birthDate || birthPlace) || (touchedSurname && !!surnames));
 
   async function save() {
     saving = true;
@@ -150,6 +151,7 @@
       draft: {
         given: opt(given),
         surnames: splitList(surnames),
+        patronymic: opt(patronymic),
         sex: sex as SexKind,
         birthDateRaw: opt(birthDate),
         birthPlaceText: opt(birthPlace),
@@ -219,8 +221,9 @@
     bind:value={surnames}
     oninput={() => (touchedSurname = true)}
   />
+  <TextField label={t('editor.patronymic')} bind:value={patronymic} />
   <Select label={t('editor.sex')} options={SEXES} bind:value={sex} />
-  <DateField label={t('editor.birthDate')} value={birthDate} onChange={(r) => (birthDate = r)} order={settings.value.dayOrder} />
+  <DatePartsField label={t('editor.birthDate')} value={birthDate} onChange={(r) => (birthDate = r)} order={settings.value.dayOrder} />
   <PlacePicker label={t('editor.birthPlace')} value={null} text="" onChange={(v) => (birthPlace = v?.placeText ?? '')} onOption={(p) => (birthPlace = p.full)} />
   <Checkbox label={t('editor.openAfter')} bind:checked={openAfter} />
   {/if}

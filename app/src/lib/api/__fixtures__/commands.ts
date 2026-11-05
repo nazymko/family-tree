@@ -8,7 +8,7 @@ const ID = '018f3a6e-0000-7000-8000-00000000000';
  * (test `edit_command_json_matches_ts_fixtures`). MockApi.test.ts fails if the two drift.
  */
 export const commandFixtureMap = {
-  createPerson: { type: 'createPerson', draft: { given: 'Anna', surnames: ['Schmidt'], sex: 'female', birthDateRaw: '3 Apr 1850', birthPlaceText: 'Hamburg, Germany' } },
+  createPerson: { type: 'createPerson', draft: { given: 'Anna', surnames: ['Schmidt'], patronymic: 'Ivanivna', sex: 'female', birthDateRaw: '3 Apr 1850', birthPlaceText: 'Hamburg, Germany' } },
   updatePerson: { type: 'updatePerson', id: `${ID}1`, sex: 'other', sexText: 'non-binary', livingOverride: null, private: true },
   deletePerson: { type: 'deletePerson', id: `${ID}1` },
   saveName: {

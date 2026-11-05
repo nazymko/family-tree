@@ -174,6 +174,43 @@ describe('QuickAdd', () => {
     expect(screen.queryByRole('combobox', { name: 'How are they related?' })).toBeNull();
   });
 
+  it('sends_given_name_surname_and_fathers_name_as_separate_parts', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'apply');
+    const { onDone } = show(single, 'partner');
+    await user.type(screen.getByRole('textbox', { name: 'Given name' }), 'Ivan');
+    await user.type(screen.getByRole('textbox', { name: 'Surname(s)' }), 'Koval');
+    await user.type(screen.getByRole('textbox', { name: 'Father’s name (patronymic)' }), 'Petrovych');
+    await user.click(screen.getByRole('button', { name: 'Add partner' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(spy.mock.calls[0][0]).toMatchObject({ draft: { given: 'Ivan', surnames: ['Koval'], patronymic: 'Petrovych' } });
+    const added = await api.getPerson((onDone.mock.calls[0][0] as { focus: string }).focus);
+    expect(added.ref.name).toBe('Ivan Petrovych Koval');
+    expect(added.names[0].patronymic).toBe('Petrovych');
+  });
+
+  it('fathers_name_is_optional_and_starts_empty_for_a_child', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'apply');
+    const { onDone } = show(single, 'child');
+    expect(screen.getByRole('textbox', { name: 'Father’s name (patronymic)' })).toHaveValue('');
+    await user.type(screen.getByRole('textbox', { name: 'Given name' }), 'Ivan');
+    await user.click(screen.getByRole('button', { name: 'Add child' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    const cmd = spy.mock.calls[0][0] as unknown as { draft: Record<string, unknown> };
+    expect(cmd.draft.patronymic).toBeUndefined();
+  });
+
+  it('a_fathers_name_alone_is_a_name_and_makes_the_form_dirty', async () => {
+    const user = userEvent.setup();
+    show(single, 'mother');
+    expect(screen.getByText('No name entered: saved as Unknown')).toBeInTheDocument();
+    await user.type(screen.getByRole('textbox', { name: 'Father’s name (patronymic)' }), 'Petrivna');
+    expect(screen.queryByText('No name entered: saved as Unknown')).toBeNull();
+    await user.keyboard('{Escape}');
+    expect(screen.getByText('Discard changes?')).toBeInTheDocument();
+  });
+
   it('cancel_does_not_call_api', async () => {
     const user = userEvent.setup();
     const spy = vi.spyOn(api, 'apply');
