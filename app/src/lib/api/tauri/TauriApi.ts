@@ -1,7 +1,15 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Api } from '../api';
+import type { AgentAccessState, NewConnectionDto } from '../types';
 import type {
+  BatchDto,
+  LogAgentDto,
+  LogFilterDto,
+  LogRowDto,
+  RecordHomeDto,
+  ReviewScopeDto,
+  UndoReport,
   AttachResult,
   ChartLocation,
   ChartMeta,
@@ -220,4 +228,57 @@ export class TauriApi implements Api {
   setSettings(patch: Partial<Settings>): Promise<Settings> {
     return call('set_settings', { patch });
   }
+  changeLog(filter: LogFilterDto, offset: number, limit: number): Promise<Page<LogRowDto>> {
+    return call('change_log', { filter, offset, limit });
+  }
+  changeBatches(): Promise<BatchDto[]> {
+    return call('change_batches');
+  }
+  changeLogAgents(): Promise<LogAgentDto[]> {
+    return call('change_log_agents');
+  }
+  markReviewed(scope: ReviewScopeDto): Promise<void> {
+    return call('mark_reviewed', { scope });
+  }
+  unreviewedPeople(): Promise<Id[]> {
+    return call('unreviewed_people');
+  }
+  personAgentChanges(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
+    return call('person_agent_changes', { id, offset, limit });
+  }
+  hasUntrackedChanges(): Promise<boolean> {
+    return call('has_untracked_changes');
+  }
+  recordHome(kind: 'note' | 'citation', id: Id): Promise<RecordHomeDto | null> {
+    return call('record_home', { kind, id });
+  }
+  personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
+    return call('person_history', { id, offset, limit });
+  }
+  undoChangeGroup(group: string): Promise<UndoReport> {
+    return call('undo_change_group', { group });
+  }
+  undoChangeBatch(batch: string): Promise<UndoReport> {
+    return call('undo_change_batch', { batch });
+  }
+  // --- Agent access ---
+  agentAccessState(): Promise<AgentAccessState> {
+    return call('agent_access_state');
+  }
+  agentAccessSet(enabled: boolean, port: number): Promise<AgentAccessState> {
+    return call('agent_access_set', { enabled, port });
+  }
+  agentAccessRequireKey(required: boolean): Promise<AgentAccessState> {
+    return call('agent_access_require_key', { required });
+  }
+  agentConnectionCreate(name: string): Promise<NewConnectionDto> {
+    return call('agent_connection_create', { name });
+  }
+  agentConnectionRevoke(id: string): Promise<void> {
+    return call('agent_connection_revoke', { id });
+  }
+  agentRules(): Promise<string> {
+    return call('agent_rules');
+  }
+  // --- end of Agent access ---
 }

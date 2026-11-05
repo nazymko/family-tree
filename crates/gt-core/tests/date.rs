@@ -187,6 +187,25 @@ fn table() {
     }
 }
 
+/// The frontend translates exactly these strings (`app/src/lib/i18n/dateText.test.ts`), so a
+/// change to `display()` fails here and points at the translation.
+#[test]
+fn display_table_shared_with_the_frontend() {
+    let cases = include_str!("date_display_cases.txt");
+    assert!(cases.lines().count() > 40);
+    for line in cases.lines() {
+        let cols: Vec<&str> = line.trim_end().split('\t').collect();
+        let [input, shown, _translated] = cols[..] else {
+            panic!("bad line: {line}");
+        };
+        assert_eq!(
+            GenDate::parse(input, DayOrder::Dmy).display(),
+            shown,
+            "{input}"
+        );
+    }
+}
+
 #[test]
 fn adar_in_non_leap_year() {
     let p = GenDate::parse("1 ADR 5783", DayOrder::Dmy);

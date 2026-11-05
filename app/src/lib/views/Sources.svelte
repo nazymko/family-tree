@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import TextField from '../ui/TextField.svelte';
   import Button from '../ui/Button.svelte';
   import Dialog from '../ui/Dialog.svelte';
@@ -7,7 +8,9 @@
   import SourceForm, { type SourceValues } from './SourceForm.svelte';
   import { getApi } from '../api/context';
   import { notices } from '../ui/notices.svelte';
+  import { agentChanges } from '../state/agentChanges.svelte';
   import { project } from '../state/project.svelte';
+  import { errMessage } from '../editors/errors';
   import type { Id, SourceDto } from '../api/api';
   import { t, plural } from '../i18n';
 
@@ -20,16 +23,33 @@
   let error = $state('');
   let loaded = $state(false);
   let seq = 0;
+  /** The agent event count when `list` was read. */
+  let listAt = $state(0);
+  let formEpoch = $state(0);
 
   const current = $derived(list.find((s) => s.id === selected) ?? null);
   const count = (n: number) => plural('sources.citations', n);
 
-  async function reload(q: string) {
+  /** True when what it read is what the page now holds. */
+  async function reload(q: string): Promise<boolean> {
     const mine = ++seq;
+    const at = untrack(() => agentChanges.seq);
     const r = await api.suggestSources(q, 200);
-    if (mine !== seq) return;
+    if (mine !== seq) return false;
     list = r;
+    listAt = at;
     loaded = true;
+    return true;
+  }
+
+  /** The form holds what it was opened with; it starts over only from a read that worked. */
+  async function reloadForm() {
+    error = '';
+    try {
+      if (await reload(filter)) formEpoch++;
+    } catch (e) {
+      error = errMessage(e);
+    }
   }
 
   $effect(() => {
@@ -124,7 +144,9 @@
           <h2>{current.title ?? t('sources.untitled')}</h2>
           <p class="n">{count(current.citationCount)}</p>
           {#if error}<Banner kind="error">{error}</Banner>{/if}
-          <SourceForm source={current} submitLabel={t('sources.saveSource')} onSubmit={save} />
+          {#key formEpoch}
+            <SourceForm source={current} submitLabel={t('sources.saveSource')} onSubmit={save} loadedAt={listAt} onreload={reloadForm} />
+          {/key}
         {/key}
       {:else}
         <p class="n">{t('sources.chooseOne')}</p>

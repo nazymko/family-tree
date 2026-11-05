@@ -2,6 +2,7 @@
 //! full-text and phonetic rows current, and append to the change log. Also the `meta` API.
 
 use crate::StoreError;
+use crate::authors::{LogMeta, actor_columns, decode_record};
 use crate::codec::{corrupt, parse_uuid};
 use crate::project::Project;
 use crate::save::*;
@@ -40,7 +41,7 @@ impl RecordKind {
         }
     }
 
-    fn parse(s: &str) -> Result<RecordKind, StoreError> {
+    pub(crate) fn parse(s: &str) -> Result<RecordKind, StoreError> {
         Ok(match s {
             "person" => RecordKind::Person,
             "family" => RecordKind::Family,
@@ -159,7 +160,7 @@ impl ChangeOp {
         }
     }
 
-    fn parse(s: &str) -> Result<ChangeOp, StoreError> {
+    pub(crate) fn parse(s: &str) -> Result<ChangeOp, StoreError> {
         Ok(match s {
             "create" | "insert" => ChangeOp::Create,
             "update" => ChangeOp::Update,
@@ -169,13 +170,16 @@ impl ChangeOp {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HistoryEntry {
     pub ts: i64,
     pub group: Uuid,
     pub label: String,
     pub op: ChangeOp,
     pub kind: RecordKind,
+    /// The record as this change found it and left it (`None` = absent), as stored in the log.
+    pub before: Option<Record>,
+    pub after: Option<Record>,
 }
 
 fn json<T: Serialize>(v: &T) -> Result<String, StoreError> {
@@ -409,8 +413,15 @@ fn refresh_person_search(tx: &Transaction, id: &Uuid) -> Result<(), StoreError> 
         return Ok(());
     };
     let rowid = fts_rowid(FTS_PERSON, seq);
-    let (label, body) = person_text(tx, &id.to_string())?;
     remove_search(tx, rowid)?;
+    // The unnamed-siblings marker is never searched.
+    let marker: bool = tx
+        .prepare_cached("SELECT sibling_marker FROM person WHERE id = ?1")?
+        .query_row([id.to_string()], |r| r.get(0))?;
+    if marker {
+        return Ok(());
+    }
+    let (label, body) = person_text(tx, &id.to_string())?;
     add_search(tx, "person", rowid, id, &label, &body)
 }
 
@@ -423,17 +434,21 @@ impl Project {
     /// Then the full-text rows of every affected person are rewritten (persons changed,
     /// event participants and, for family events, both spouses; persons with events at a
     /// changed place), `living` is stored in `person.living_cached`, and one `change_log`
-    /// row per change is appended. On any error nothing is kept.
+    /// row per change is appended (with the author and batch from `meta`, and `meta.people`
+    /// listed in `change_person`). On any error nothing is kept.
     pub fn apply_changes(
         &mut self,
         cs: &ChangeSet,
         living: &[(Uuid, bool)],
+        meta: &LogMeta,
     ) -> Result<(), StoreError> {
         self.conn.set_prepared_statement_cache_capacity(64);
         let tx = self.conn.transaction()?;
         tx.pragma_update(None, "defer_foreign_keys", true)?;
         let mut affected = Affected::default();
         let group = cs.group.to_string();
+        let (actor_kind, actor_id, actor_name) = actor_columns(&meta.actor);
+        let batch = meta.batch.map(|b| b.to_string());
         for ch in &cs.changes {
             for rec in [&ch.before, &ch.after].into_iter().flatten() {
                 affected.note(rec);
@@ -455,7 +470,8 @@ impl Project {
             let after_json = ch.after.as_ref().map(json).transpose()?;
             tx.prepare_cached(
                 "INSERT INTO change_log(ts, target_type, target_id, op, before_json, group_id, \
-                 label, after_json, before_seq, reverts_group) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                 label, after_json, before_seq, reverts_group, actor_kind, actor_id, actor_name, batch_id) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
             )?
             .execute(params![
                 cs.ts,
@@ -468,7 +484,19 @@ impl Project {
                 after_json,
                 before_seq,
                 cs.reverts.map(|u| u.to_string()),
+                actor_kind,
+                actor_id,
+                actor_name,
+                batch,
             ])?;
+        }
+        // The people the change is about, for every group (the log shows them); only agent
+        // groups count as unreviewed.
+        for person in &meta.people {
+            tx.prepare_cached(
+                "INSERT OR IGNORE INTO change_person(group_id, person_id) VALUES (?1, ?2)",
+            )?
+            .execute(params![group, person.to_string()])?;
         }
 
         // Place edits reach everyone with an event there; family events reach both spouses.
@@ -514,11 +542,11 @@ impl Project {
         Ok(())
     }
 
-    /// Change-log entries of one record, newest first.
+    /// Change-log entries of one record, newest first, with the record before and after each.
     pub fn history(&self, record: Uuid, limit: usize) -> Result<Vec<HistoryEntry>, StoreError> {
         let mut st = self.conn.prepare_cached(
-            "SELECT ts, group_id, label, op, target_type FROM change_log WHERE target_id = ?1 \
-             ORDER BY ts DESC, id DESC LIMIT ?2",
+            "SELECT ts, group_id, label, op, target_type, before_json, after_json FROM change_log \
+             WHERE target_id = ?1 ORDER BY ts DESC, id DESC LIMIT ?2",
         )?;
         let mut rows = st.query(params![
             record.to_string(),
@@ -538,6 +566,8 @@ impl Project {
                 label: label.unwrap_or_default(),
                 op: ChangeOp::parse(&r.get::<_, String>(3)?)?,
                 kind: RecordKind::parse(&r.get::<_, String>(4)?)?,
+                before: decode_record(r.get(5)?)?,
+                after: decode_record(r.get(6)?)?,
             });
         }
         Ok(out)

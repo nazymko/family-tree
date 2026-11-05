@@ -18,7 +18,7 @@ const base = new MockApi(fixtureTree(300));
 let n = 0;
 function ref(name: string, sex: PersonRef['sex'] = 'unknown'): PersonRef {
   n++;
-  return { id: `t${n}`, name, lifespan: '1850-1921', sex, living: false, private: false };
+  return { id: `t${n}`, name, lifespan: '1850-1921', sex, living: false, private: false, siblingMarker: false };
 }
 const kid = (p: PersonRef): ChildDto => ({ person: p, rel: ['birth', 'birth'], birth: '' });
 function union(partner: PersonRef | null, kids: ChildDto[] = []): PartnershipDto {

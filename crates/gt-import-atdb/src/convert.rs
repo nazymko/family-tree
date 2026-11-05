@@ -500,6 +500,7 @@ fn people(
                 sex,
                 names: names_of(&by_lang),
                 living_override: None,
+                sibling_marker: false,
             },
         );
     }

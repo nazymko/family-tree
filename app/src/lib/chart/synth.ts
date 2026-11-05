@@ -65,6 +65,7 @@ export function synthChart(
         sex: i % 2 === 0 ? 'male' : 'female',
         living: false,
         private: false,
+        siblingMarker: false,
       },
       x: gens[i] * stepX,
       y: ys[i],

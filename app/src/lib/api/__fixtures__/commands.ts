@@ -55,6 +55,8 @@ export const commandFixtureMap = {
     families: [{ partner1: 'a', partner2: 'b', children: [] }],
     attachPicture: true,
   },
+  addSiblingMarker: { type: 'addSiblingMarker', family: `${ID}3` },
+  addNumber: { type: 'addNumber', person: `${ID}1`, sourceFile: 'recording2.txt', number: '12' },
 } satisfies { [K in EditCommand['type']]: Extract<EditCommand, { type: K }> };
 
 export const commandFixtures: EditCommand[] = Object.values(commandFixtureMap) as EditCommand[];

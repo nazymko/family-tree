@@ -64,7 +64,7 @@ fn gather_facts(tree: &Tree) -> HashMap<Uuid, Facts> {
     facts
 }
 
-/// `true` = living. Every person in the tree gets an entry.
+/// `true` = living. Every person in the tree gets an entry, except the unnamed-siblings markers.
 ///
 /// Linear in persons + events + family links: facts and parent/child
 /// indexes are built once, then each person is checked against them.
@@ -116,6 +116,7 @@ fn compute(tree: &Tree, rule: &LivingRule, today_jdn: i32, overrides: bool) -> H
 
     tree.persons
         .iter()
+        .filter(|(_, p)| !p.sibling_marker)
         .map(|(id, p)| {
             let living = match p.living_override.as_ref().filter(|_| overrides) {
                 Some(LivingOverride::Living) => true,

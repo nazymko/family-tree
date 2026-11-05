@@ -153,9 +153,10 @@ refused, because these are additive only in form (Design call):
 
 - a second birth event, or any other event a person has only one of, when one already exists
 - a parent link on a child who already has a parent in that role
-- a death or burial event on a person the tree treats as living, or anything else that would change them to deceased. The
-  agent leaves a note and lists the case in its report; the owner confirms. (Design call, taken as the owner's default: a
-  transcript can be wrong about who died, especially with shared names.)
+- anything that would change whether an existing person counts as alive or dead, in either direction, directly or
+  indirectly. That covers a death or burial event on someone treated as living, the living override, and a birth date or
+  link that would make the app's calculation flip. The server checks the result of the write, not just its type. The
+  agent leaves a note and lists the case in its report; only the owner changes this status. (Your decision)
 
 A refusal tells the agent to write a note instead. Mistakes by an agent in earlier runs are for the owner to undo from the
 log.
@@ -182,8 +183,9 @@ Written in English, addressing the agent:
 4. Never change what is already there. If a source disagrees, add a note giving both versions and the source.
 5. Unknown or unclarified information goes in notes. Never present an inference as a fact, and never invent a date.
 6. Brothers or sisters mentioned with no names become the one marker entry, with no names or dates.
-7. A person with a known role but no known name, such as somebody's father, is a normal person with an empty name and a note
-   saying so. (Design call: the owner specified the marker for unnamed siblings only.)
+7. A person with a known role but no known name, such as somebody's father, is not added as a person: write a note on the
+   people around them saying so. (Design call, changed after the first real run: the owner objected to empty cards. The
+   marker stays for unnamed siblings only.)
 8. If a relationship is either-or ("this parent or that one"), create no link. Write a note on the people involved.
 9. People a source says not to connect stay unconnected: put them in your report.
 10. Record which source each fact comes from, as a citation, and how reliable it is: 3 confirmed by the family directly, 2
@@ -218,7 +220,8 @@ Undo from the log works from what the log stores, since the in-memory undo steps
   restart; Ctrl+Z over an agent's later change stops.
 - Migration: a version 2 tree opens, its history reads "Before tracking", nothing is lost.
 - Marker entry: not counted, not searched, not exported, one per family.
-- Refusals and repeats: a second birth, a second father, or a death on someone treated as living is refused; two files may share a number; an identical repeat adds
+- Refusals and repeats: a second birth, a second father, or any write that flips an existing person's alive or dead status
+  (a death event, or a birth date that changes the calculation) is refused and leaves the tree unchanged; two files may share a number; an identical repeat adds
   nothing. Undo per fact: undoing one of two notes keeps the other; a later owner edit survives.
 - End to end on the real app, with a scripted MCP client in the automated tests and a synthetic transcript summary with
   namesakes, an unnamed sibling group, a contested patronymic and an either-or parent: run it twice and check there are no

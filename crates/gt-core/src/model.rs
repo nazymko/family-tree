@@ -20,6 +20,10 @@ pub struct ExternalId {
     pub value: String,
 }
 
+/// `ExtIdKind::Exid` schemes starting with this hold an agent's own numbering (`agent:<file>`).
+/// They stay in the project and are left out of every export.
+pub const AGENT_NUMBER_SCHEME: &str = "agent:";
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ExtIdKind {
     Xref,
@@ -58,6 +62,11 @@ pub struct Person {
     pub sex: Sex,
     pub names: Vec<Name>,
     pub living_override: Option<LivingOverride>,
+    /// The "some more brothers and sisters, unnamed" entry of a family: no names, no events, not
+    /// counted, searched, exported or used in kinship and living calculations. Old change-log
+    /// rows have no such field.
+    #[serde(default)]
+    pub sibling_marker: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

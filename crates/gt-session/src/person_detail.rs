@@ -29,7 +29,7 @@ fn snake(s: &str) -> String {
 }
 
 /// `Birth` -> `birth`, `MarriageBanns` -> `marriage_banns`, `Custom("x")` -> `custom:x`.
-fn enum_id<T: Serialize>(v: &T) -> String {
+pub(crate) fn enum_id<T: Serialize>(v: &T) -> String {
     match serde_json::to_value(v) {
         Ok(serde_json::Value::String(s)) => snake(&s),
         Ok(serde_json::Value::Object(map)) => match map.into_iter().next() {
@@ -110,7 +110,7 @@ pub fn union_id(k: &UnionKind) -> UnionKindId {
 }
 
 impl Session {
-    pub(crate) fn place_option(&self, id: Uuid) -> Option<PlaceOption> {
+    pub fn place_option(&self, id: Uuid) -> Option<PlaceOption> {
         let place = self.tree.places.get(&id)?;
         let name_of = |p: &m::Place| {
             p.names
@@ -138,7 +138,18 @@ impl Session {
         })
     }
 
-    pub(crate) fn source_dto(&self, id: Uuid) -> Option<SourceDto> {
+    /// How many citations cite the source, without copying the source's text.
+    pub fn source_citation_count(&self, id: Uuid) -> Option<u32> {
+        self.tree.sources.contains_key(&id).then(|| {
+            self.links
+                .citations_of_source
+                .get(&id)
+                .copied()
+                .unwrap_or(0)
+        })
+    }
+
+    pub fn source_dto(&self, id: Uuid) -> Option<SourceDto> {
         let s = self.tree.sources.get(&id)?;
         Some(SourceDto {
             id,
@@ -156,7 +167,7 @@ impl Session {
         })
     }
 
-    pub(crate) fn citation_dto(&self, id: Uuid) -> Option<CitationDto> {
+    pub fn citation_dto(&self, id: Uuid) -> Option<CitationDto> {
         let c = self.tree.citations.get(&id)?;
         Some(CitationDto {
             id,
@@ -173,11 +184,11 @@ impl Session {
         })
     }
 
-    pub(crate) fn citations_dto(&self, ids: &[Uuid]) -> Vec<CitationDto> {
+    pub fn citations_dto(&self, ids: &[Uuid]) -> Vec<CitationDto> {
         ids.iter().filter_map(|c| self.citation_dto(*c)).collect()
     }
 
-    pub(crate) fn note_dtos(&self, ids: &[Uuid]) -> Vec<NoteDto> {
+    pub fn note_dtos(&self, ids: &[Uuid]) -> Vec<NoteDto> {
         ids.iter()
             .filter_map(|id| {
                 let n = self.tree.notes.get(id)?;
@@ -199,7 +210,7 @@ impl Session {
             .collect()
     }
 
-    pub(crate) fn media_dtos(&self, links: &[MediaLink]) -> Vec<MediaLinkDto> {
+    pub fn media_dtos(&self, links: &[MediaLink]) -> Vec<MediaLinkDto> {
         links
             .iter()
             .filter_map(|l| {
@@ -313,6 +324,9 @@ pub fn person_detail(s: &Session, id: Uuid) -> Result<PersonDetail, ApiError> {
         .persons
         .get(&id)
         .ok_or_else(|| ApiError::not_found("person", id))?;
+    if p.sibling_marker {
+        return Err(ApiError::sibling_marker(id));
+    }
     let person_ref = s
         .person_ref(id)
         .ok_or_else(|| ApiError::not_found("person", id))?;

@@ -3,6 +3,7 @@
   import TextField from '../ui/TextField.svelte';
   import Combobox from '../ui/Combobox.svelte';
   import Banner from '../ui/Banner.svelte';
+  import AgentAccessSettings from './AgentAccessSettings.svelte';
   import { getApi } from '../api/context';
   import { settings } from '../state/settings.svelte';
   import { t, LANGUAGES } from '../i18n';
@@ -161,6 +162,7 @@
     />
     <TextField label={t('settings.backups')} type="number" min="1" max="50" bind:value={backups} onchange={commitBackups} />
   </div>
+  <AgentAccessSettings />
 </section>
 
 <style>

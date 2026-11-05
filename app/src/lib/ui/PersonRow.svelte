@@ -1,5 +1,6 @@
 <script lang="ts">
   import Ribbon from './Ribbon.svelte';
+  import AgentBadge from './AgentBadge.svelte';
   import type { PersonRow } from '../api/types';
   import { t, plural } from '../i18n';
 
@@ -7,16 +8,20 @@
     row,
     home = false,
     selected = false,
-  }: { row: PersonRow | null; home?: boolean; selected?: boolean } = $props();
+    agentChanged = false,
+  }: { row: PersonRow | null; home?: boolean; selected?: boolean; agentChanged?: boolean } = $props();
 </script>
 
 <div class="pr" class:selected>
-  {#if row}
+  {#if row?.siblingMarker}
+    <bdi dir="auto" class="name">{t('person.siblingMarker')}</bdi>
+  {:else if row}
     <bdi dir="auto" class="name">{row.name}</bdi>
     <span class="life tnum">{row.lifespan}</span>
     <span class="flags">
       {#if row.living}<span class="living"><span class="dot" aria-hidden="true"></span><span>{t('common.living')}</span></span>{/if}
       {#if row.private}<span class="priv">{t('common.private')}</span>{/if}
+      {#if agentChanged}<AgentBadge />{/if}
     </span>
     <span class="src tnum">
       {#if row.sourceCount > 0}{plural('common.sources', row.sourceCount)}{:else}{t('common.noSource')}{/if}

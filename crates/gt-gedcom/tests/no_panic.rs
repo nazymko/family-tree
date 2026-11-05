@@ -303,7 +303,8 @@ fn deep_level_chain_is_imported() {
 }
 
 #[test]
-fn hundred_thousand_lines_import_all_persons() {
+#[ignore = "heavy: runs before merge"]
+fn heavy_hundred_thousand_lines_import_all_persons() {
     let mut s = String::from(
         "0 HEAD
 1 GEDC

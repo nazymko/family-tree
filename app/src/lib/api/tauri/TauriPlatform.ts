@@ -1,7 +1,8 @@
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import type { Platform } from '../api';
+import { listen } from '@tauri-apps/api/event';
+import type { AgentChangeEvent, Platform } from '../api';
 import { installE2eHooks, type E2eHooks } from './e2eHooks';
 
 const filters = (extensions?: string[]) => (extensions?.length ? [{ name: 'Files', extensions }] : undefined);
@@ -64,6 +65,23 @@ export class TauriPlatform implements Platform {
     return () => {
       cancelled = true;
       unhook?.();
+      unlisten?.();
+      unlisten = null;
+    };
+  }
+
+  onTreeChangedByAgent(cb: (e: AgentChangeEvent) => void): () => void {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    void listen<AgentChangeEvent>('tree-changed-by-agent', (event) => cb(event.payload))
+      .then((fn) => {
+        // The caller may have unsubscribed before the listener was registered.
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
       unlisten?.();
       unlisten = null;
     };

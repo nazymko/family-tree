@@ -9,7 +9,7 @@ use crate::names::{
 use gt_core::model::ParticipantRef;
 use gt_core::tree::Tree;
 use gt_store::{ChangeSet, Record};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use unicode_normalization::UnicodeNormalization;
@@ -290,6 +290,8 @@ pub struct PersonSummary {
     pub sex: SexKind,
     pub living: bool,
     pub private: bool,
+    /// The unnamed-siblings marker (kept in the index so charts and the family view can draw it).
+    pub sibling_marker: bool,
     pub source_count: u32,
     pub changed: i64,
     pub letter: LetterClass,
@@ -306,6 +308,7 @@ impl PersonSummary {
             sex: self.sex,
             living: self.living,
             private: self.private,
+            sibling_marker: self.sibling_marker,
         }
     }
 
@@ -329,6 +332,8 @@ pub struct PersonIndex {
     pub summaries: Vec<PersonSummary>,
     slots: HashMap<Uuid, u32>,
     orders: RefCell<OrderCache>,
+    /// How many summaries are unnamed-siblings markers; counted on demand after each refresh.
+    markers: Cell<Option<usize>>,
 }
 
 fn rank(values: &[&str]) -> HashMap<String, i64> {
@@ -390,7 +395,11 @@ fn summarize(
             .sum::<usize>();
     PersonSummary {
         id,
-        name: crate::names::display_name(p, order),
+        name: if p.sibling_marker {
+            String::new()
+        } else {
+            crate::names::display_name(p, order)
+        },
         letter: LetterClass::of(&surname),
         surname,
         given,
@@ -408,8 +417,9 @@ fn summarize(
             .and_then(|d| d.sort_key()),
         has_birth_date: !matches!(side_of(birth), Side::Absent | Side::Undated),
         sex: crate::names::sex_kind(&p.sex).0,
-        living: living.get(&id).copied().unwrap_or(true),
+        living: !p.sibling_marker && living.get(&id).copied().unwrap_or(true),
         private: p.common.private,
+        sibling_marker: p.sibling_marker,
         source_count: u32::try_from(sources).unwrap_or(u32::MAX),
         changed: p.common.changed.unwrap_or(0),
         folded,
@@ -434,7 +444,18 @@ impl PersonIndex {
             summaries,
             slots,
             orders: RefCell::new(HashMap::new()),
+            markers: Cell::new(None),
         }
+    }
+
+    /// The number of unnamed-siblings markers (they are in the index but never listed).
+    pub fn marker_count(&self) -> usize {
+        if let Some(n) = self.markers.get() {
+            return n;
+        }
+        let n = self.summaries.iter().filter(|s| s.sibling_marker).count();
+        self.markers.set(Some(n));
+        n
     }
 
     /// Re-summarises the `dirty` persons after the tree changed. `structural`: persons were
@@ -450,6 +471,7 @@ impl PersonIndex {
         structural: bool,
     ) {
         self.orders.get_mut().clear();
+        self.markers.set(None);
         // Persons only appended at the end (a new person, a redo): no slot moves.
         if structural
             && tree.persons.len() > self.summaries.len()

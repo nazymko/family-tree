@@ -1,5 +1,6 @@
 //! Shared state behind every command.
 
+use crate::agent_access::{AgentAccess, HashStore, KeychainHashes};
 use crate::settings_file::{self, AppSettings};
 use gt_session::{ApiError, ErrorCode, ImportReportDto, Session, SessionClock};
 use std::path::PathBuf;
@@ -12,16 +13,25 @@ pub struct AppState {
     pub config_dir: PathBuf,
     /// Makes the clock a session opens with; tests pin the date.
     pub clock: Box<dyn Fn() -> SessionClock + Send + Sync>,
+    pub agent: AgentAccess,
 }
 
 impl AppState {
+    /// The real app: the system clock, and key hashes in the OS keychain.
     pub fn new(config_dir: PathBuf) -> AppState {
-        AppState::with_clock(config_dir, Box::new(SessionClock::system))
+        AppState::with_clock(
+            config_dir,
+            Box::new(SessionClock::system),
+            Box::new(KeychainHashes),
+        )
     }
 
+    /// `hashes` is explicit so that a test run, of which the e2e suite is one, has to say where key
+    /// hashes go, and can keep away from the owner's keychain with `FileHashes`.
     pub fn with_clock(
         config_dir: PathBuf,
         clock: Box<dyn Fn() -> SessionClock + Send + Sync>,
+        hashes: Box<dyn HashStore>,
     ) -> AppState {
         let settings = settings_file::load_settings(&config_dir);
         AppState {
@@ -30,6 +40,7 @@ impl AppState {
             settings: Mutex::new(settings),
             config_dir,
             clock,
+            agent: AgentAccess::new(hashes),
         }
     }
 

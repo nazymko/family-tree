@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/svelte';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import Shell from './Shell.svelte';
 import { apiContext } from '../api/context';
@@ -11,6 +11,7 @@ import { nav } from '../state/nav.svelte';
 import { project } from '../state/project.svelte';
 import { toasts } from '../state/toast.svelte';
 import { undoState } from '../state/undo.svelte';
+import { agentChanges } from '../state/agentChanges.svelte';
 
 async function mountShell() {
   const raw = new MockApi(fixtureTree(200));
@@ -41,6 +42,45 @@ describe('Shell', () => {
     expect(within(navEl).getByRole('link', { name: 'Family' })).not.toHaveAttribute('aria-current');
     expect(nav.route.name).toBe('people');
     expect(screen.getByRole('heading', { level: 1, name: 'People' })).toBeInTheDocument();
+  });
+
+  it('change_log_is_in_the_navigation', async () => {
+    const { user } = await mountShell();
+    await user.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('link', { name: 'Change log' }));
+    expect(nav.route.name).toBe('log');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Change log' })).toBeInTheDocument();
+  });
+
+  it('ctrl_z_refused_by_the_backend_shows_why', async () => {
+    const { api, raw, user } = await mountShell();
+    await api.apply({ type: 'createPerson', draft: { given: 'A', surnames: ['T'], sex: 'unknown' } }, { silent: true });
+    toasts.clear();
+    vi.spyOn(raw, 'undo').mockRejectedValue({ code: 'conflict', message: 'An agent changed this since. Undo it from the change log first.' });
+    await user.keyboard('{Control>}z{/Control}');
+    expect(await screen.findByText('An agent changed this since. Undo it from the change log first.')).toBeInTheDocument();
+  });
+
+  it('an_agent_event_refreshes_the_open_view', async () => {
+    const { raw, platform } = await mountShell();
+    const person = (await raw.listPersons({ sort: 'surname', desc: false, text: '', living: 'any', noSource: false, noBirthDate: false, privateOnly: false }, 0, 1)).items[0];
+    const rev = project.rev;
+    const badges = vi.spyOn(raw, 'unreviewedPeople');
+    platform.simulateAgentBatch(raw, { changes: [{ person: person.id, note: 'Live' }] });
+    expect(project.rev).toBe(rev + 1);
+    expect(badges).toHaveBeenCalledOnce();
+    await waitFor(() => expect(agentChanges.unreviewed.has(person.id)).toBe(true));
+  });
+
+  it('closing_the_shell_stops_listening_and_forgets_the_badges', async () => {
+    const { raw, platform } = await mountShell();
+    const person = (await raw.listPersons({ sort: 'surname', desc: false, text: '', living: 'any', noSource: false, noBirthDate: false, privateOnly: false }, 0, 1)).items[0];
+    platform.simulateAgentBatch(raw, { changes: [{ person: person.id, note: 'Live' }] });
+    await waitFor(() => expect(agentChanges.unreviewed.size).toBe(1));
+    cleanup();
+    expect(agentChanges.unreviewed.size).toBe(0);
+    const rev = project.rev;
+    platform.simulateAgentBatch(raw, { changes: [{ person: person.id, note: 'Late' }] });
+    expect(project.rev).toBe(rev);
   });
 
   it('close_tree_returns_to_welcome', async () => {

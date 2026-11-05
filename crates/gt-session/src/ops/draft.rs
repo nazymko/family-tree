@@ -80,7 +80,7 @@ pub(super) fn import_draft(
         }
         let id = match d.existing {
             Some(e) => {
-                p.get::<Person>(e)?;
+                p.real_person(e)?;
                 e
             }
             None => {
@@ -240,6 +240,7 @@ pub(super) fn import_draft(
                 unknown: Vec::new(),
             }],
             living_override: None,
+            sibling_marker: false,
         });
         for (kind, raw) in [
             (EventKind::Birth, d.birth_date_raw.as_deref()),

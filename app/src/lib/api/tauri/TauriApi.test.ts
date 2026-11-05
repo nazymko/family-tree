@@ -62,6 +62,33 @@ describe('TauriApi', () => {
     await expect(new TauriApi().savePicture('C:/x.png', new Uint8Array([1]))).rejects.toMatchObject({ code: 'io' });
   });
 
+  it('change_log_commands_args_shape', async () => {
+    const api = new TauriApi();
+    const filter = { unreviewedOnly: true, actorKind: 'agent' };
+    await api.changeLog(filter, 5, 50);
+    await api.changeBatches();
+    await api.markReviewed({ kind: 'batch', id: 'b1' });
+    await api.unreviewedPeople();
+    await api.personAgentChanges('p1', 0, 20);
+    await api.hasUntrackedChanges();
+    await api.recordHome('note', 'n1');
+    await api.personHistory('p1', 20, 20);
+    await api.undoChangeGroup('g1');
+    await api.undoChangeBatch('b1');
+    expect(calls).toEqual([
+      { cmd: 'change_log', args: { filter, offset: 5, limit: 50 } },
+      { cmd: 'change_batches', args: {} },
+      { cmd: 'mark_reviewed', args: { scope: { kind: 'batch', id: 'b1' } } },
+      { cmd: 'unreviewed_people', args: {} },
+      { cmd: 'person_agent_changes', args: { id: 'p1', offset: 0, limit: 20 } },
+      { cmd: 'has_untracked_changes', args: {} },
+      { cmd: 'record_home', args: { kind: 'note', id: 'n1' } },
+      { cmd: 'person_history', args: { id: 'p1', offset: 20, limit: 20 } },
+      { cmd: 'undo_change_group', args: { group: 'g1' } },
+      { cmd: 'undo_change_batch', args: { batch: 'b1' } },
+    ]);
+  });
+
   it('apply_passes_command_object_unchanged', async () => {
     const cmd = { type: 'deletePerson', id: 'p1' } as const;
     reply = () => ({ label: 'x', focus: null, touched: [], undo: {} });
@@ -155,6 +182,25 @@ describe('TauriApi', () => {
     }
   });
 
+  // --- Agent access: Task 6 must add Rust commands with these names and argument names ---
+  it('agent_access_commands_and_args', async () => {
+    const api = new TauriApi();
+    reply = (cmd) => (cmd === 'agent_connection_create' ? { connection: { id: 'c1', name: 'n', created: 1 }, key: 'gt_ab', snippet: 's' } : null);
+    await api.agentAccessState();
+    await api.agentAccessSet(true, 8765);
+    await api.agentAccessRequireKey(true);
+    await api.agentConnectionCreate('Laptop');
+    await api.agentConnectionRevoke('c1');
+    await api.agentRules();
+    expect(calls).toEqual([
+      { cmd: 'agent_access_state', args: {} },
+      { cmd: 'agent_access_set', args: { enabled: true, port: 8765 } },
+      { cmd: 'agent_access_require_key', args: { required: true } },
+      { cmd: 'agent_connection_create', args: { name: 'Laptop' } },
+      { cmd: 'agent_connection_revoke', args: { id: 'c1' } },
+      { cmd: 'agent_rules', args: {} },
+    ]);
+  });
   it('default_api_picks_tauri_when_internals_present', () => {
     // mockIPC (beforeEach) installed window.__TAURI_INTERNALS__.
     const b = defaultApi();
@@ -166,6 +212,20 @@ describe('TauriApi', () => {
 });
 
 describe('TauriPlatform', () => {
+  it('agent_event_maps_to_callback_until_unsubscribed', async () => {
+    const heard = vi.fn();
+    const off = new TauriPlatform().onTreeChangedByAgent(heard);
+    const payload = { touched: ['p1', 'n1'], agent: 'Transcript reader' };
+    await vi.waitFor(async () => {
+      await emit('tree-changed-by-agent', payload);
+      expect(heard).toHaveBeenCalledWith(payload);
+    });
+    off();
+    heard.mockClear();
+    await emit('tree-changed-by-agent', payload);
+    expect(heard).not.toHaveBeenCalled();
+  });
+
   it('drag_drop_events_map_to_callbacks', async () => {
     const hover = vi.fn();
     const dropped = vi.fn();

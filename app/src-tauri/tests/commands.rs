@@ -22,9 +22,12 @@ fn today() -> i32 {
 }
 
 fn state_in(root: &Path) -> AppState {
+    let config = root.join("config");
+    let hashes = gt_app_lib::agent_access::FileHashes::new(&config);
     AppState::with_clock(
-        root.join("config"),
+        config,
         Box::new(|| SessionClock::fixed(today(), NOW_MS)),
+        Box::new(hashes),
     )
 }
 
@@ -139,7 +142,9 @@ fn every_api_method_has_a_command() {
             "no command {snake}"
         );
     }
-    assert_eq!(COMMAND_NAMES.len(), 48);
+    assert_eq!(COMMAND_NAMES.len(), 65);
+    let unique: std::collections::HashSet<&&str> = COMMAND_NAMES.iter().collect();
+    assert_eq!(unique.len(), COMMAND_NAMES.len(), "a command listed twice");
 }
 
 #[test]

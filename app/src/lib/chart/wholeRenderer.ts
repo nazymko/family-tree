@@ -1,6 +1,6 @@
 import type { ChartEdge, ChartNode, ChartWindow, SexKind, WholeBlockDto } from '../api/types';
 import type { Camera } from './camera';
-import { fit, lodFor, nameLines, themeFromCss, type Theme } from './renderer';
+import { drawAgentBadges, drawMarkerBoxes, drawMarkerLabel, fit, lodFor, nameLines, themeFromCss, type Theme } from './renderer';
 import { kinshipText } from '../family/kinship';
 
 export interface WholeTheme extends Theme {
@@ -24,6 +24,8 @@ export interface WholeDrawOpts {
   /** Ancestors, descendants and the selected person; everything else is faded. Null shows everyone normally. */
   lineage: ReadonlySet<number> | null;
   theme: WholeTheme;
+  /** People an agent changed and nobody has reviewed; their boxes carry a dot. A saved picture leaves this out. */
+  badged?: ReadonlySet<string>;
 }
 
 function barColor(sex: SexKind | undefined, t: WholeTheme): string {
@@ -155,15 +157,17 @@ export function drawWhole(
   const bright = lineage === null ? win.nodes : win.nodes.filter((n) => lit(n.id));
   const sel = selected === null ? null : (win.nodes.find((n) => n.id === selected) ?? null);
 
-  const paint = (nodes: ChartNode[]) => {
+  const paint = (all: ChartNode[]) => {
+    // The unnamed-siblings entry is a dashed outline with its label, never a sex-coloured card.
+    const nodes = all.filter((n) => !n.person?.siblingMarker);
+    drawMarkerBoxes(ctx, all.filter((n) => n.person?.siblingMarker), theme, z);
     if (lod === 'dots') {
       // One batch per bar colour.
       for (const sex of ['male', 'female', 'other'] as const) {
+        const of = nodes.filter((n) => (n.person?.sex === 'male' ? 'male' : n.person?.sex === 'female' ? 'female' : 'other') === sex);
+        if (of.length === 0) continue;
         ctx.beginPath();
-        for (const n of nodes) {
-          const s = n.person?.sex;
-          if ((s === 'male' ? 'male' : s === 'female' ? 'female' : 'other') === sex) ctx.rect(n.x, n.y, n.w, n.h);
-        }
+        for (const n of of) ctx.rect(n.x, n.y, n.w, n.h);
         ctx.fillStyle = barColor(sex, theme);
         ctx.fill();
       }
@@ -227,6 +231,11 @@ export function drawWhole(
   if (lod === 'full') {
     for (const n of win.nodes) {
       if (!lit(n.id)) ctx.globalAlpha = 0.3;
+      if (n.person?.siblingMarker) {
+        drawMarkerLabel(ctx, n, theme, z, 'full');
+        ctx.globalAlpha = 1;
+        continue;
+      }
       const left = n.x + (n.id === home ? 26 : 12);
       const maxW = n.x + n.w - 10 - left;
       ctx.fillStyle = theme.ink;
@@ -261,6 +270,7 @@ export function drawWhole(
       ctx.font = `600 ${fontWorld}px ${theme.font}`;
       ctx.fillStyle = theme.paper;
       for (const n of win.nodes) {
+        if (n.person?.siblingMarker) continue;
         const name = n.person?.name ?? '';
         if (!name) continue;
         const maxW = n.w - 4 / z;
@@ -271,6 +281,15 @@ export function drawWhole(
       }
     }
   }
+  if (lod !== 'full') {
+    for (const n of win.nodes) {
+      if (!n.person?.siblingMarker) continue;
+      if (!lit(n.id)) ctx.globalAlpha = 0.3;
+      drawMarkerLabel(ctx, n, theme, z, 'far');
+      ctx.globalAlpha = 1;
+    }
+  }
   if (overlay) drawHeadings(ctx, blocks, cam, view, theme, true);
+  drawAgentBadges(ctx, win.nodes, opts.badged, theme, z);
   return { drawn: win.nodes.length };
 }

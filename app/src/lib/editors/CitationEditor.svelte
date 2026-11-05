@@ -8,6 +8,8 @@
   import SourcePicker, { type SourceChoice } from './SourcePicker.svelte';
   import DatePreviewField from './DatePreviewField.svelte';
   import UseLastCitation from './UseLastCitation.svelte';
+  import StaleNotice from './StaleNotice.svelte';
+  import { staleGuard } from '../state/staleGuard.svelte';
   import { getApi } from '../api/context';
   import { notices } from '../ui/notices.svelte';
   import { undoNotice } from '../ui/undoable';
@@ -52,6 +54,11 @@
   let saving = $state(false);
   let root = $state<HTMLElement>();
 
+  const guard = staleGuard(() => [citation?.id, target.id]);
+  const snapshot = () => JSON.stringify([source, page, dateRaw, text, quality, original, primaryInfo, direct]);
+  const opened = snapshot();
+  const dirty = $derived(snapshot() !== opened);
+
   const QUALITY = $derived([
     { value: '', label: t('citation.notAssessed') },
     { value: '3', label: t('citation.q3') },
@@ -72,6 +79,7 @@
   });
 
   async function save() {
+    if (guard.stale) return;
     error = '';
     if (!source) {
       error = t('citation.pickSource');
@@ -117,8 +125,10 @@
 
 <Dialog open title={citation ? t('edit.editCitation') : t('citation.add')} onclose={onCancel}>
   <div class="form" bind:this={root}>
+    <!-- Whoever opened this holds the fresh data by now, so closing is the way to it. -->
+    {#if guard.stale}<StaleNotice {dirty} onreload={onCancel} />{/if}
     {#if error}<Banner kind="error">{error}</Banner>{/if}
-    {#if !citation}
+    {#if !citation && !guard.stale}
       <UseLastCitation {target} {onDone} onError={(m) => (error = m)} />
     {/if}
     <SourcePicker bind:value={source} allowCreate={!citation} />
@@ -137,7 +147,7 @@
   </div>
   {#snippet footer()}
     <Button onclick={onCancel}>{t('common.cancel')}</Button>
-    <Button variant="primary" disabled={saving} onclick={save}>{citation ? t('citation.save') : t('citation.add')}</Button>
+    <Button variant="primary" disabled={saving || guard.stale} onclick={save}>{citation ? t('citation.save') : t('citation.add')}</Button>
   {/snippet}
 </Dialog>
 

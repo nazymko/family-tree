@@ -2,7 +2,10 @@
 //! the results of applying, undoing and redoing them. Field names are camelCase on the wire;
 //! commands are tagged by `type`.
 
-use crate::dto::{LivingOverrideDto, NameKindDto, NoteKindDto, ParentRelId, SexKind, UnionKindId};
+use crate::dto::{
+    LivingOverrideDto, NameKindDto, NoteKindDto, ParentRelId, PersonRef, SexKind, UnionKindId,
+};
+use crate::field_diff::FieldChangeDto;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
@@ -469,6 +472,10 @@ pub enum EditCommand {
         family: Uuid,
         order: Vec<Uuid>,
     },
+    /// Adds the one entry per family that stands for more brothers and sisters nobody named.
+    AddSiblingMarker {
+        family: Uuid,
+    },
     SaveNote {
         target: OwnerRef,
         note: NoteInput,
@@ -527,6 +534,12 @@ pub enum EditCommand {
         families: Vec<DraftFamily>,
         attach_picture: bool,
     },
+    /// An agent's own number for a person, unique within one named source file. Never exported.
+    AddNumber {
+        person: Uuid,
+        source_file: String,
+        number: String,
+    },
 }
 
 impl EditCommand {
@@ -560,6 +573,7 @@ impl EditCommand {
             EditCommand::UpdateChildLink { .. } => "Edit child link".into(),
             EditCommand::UnlinkChild { .. } => "Remove child from family".into(),
             EditCommand::ReorderChildren { .. } => "Reorder children".into(),
+            EditCommand::AddSiblingMarker { .. } => "Add unnamed brothers and sisters".into(),
             EditCommand::SaveNote { .. } => "Save note".into(),
             EditCommand::DeleteNote { .. } => "Delete note".into(),
             EditCommand::SaveSource { .. } => "Save source".into(),
@@ -572,6 +586,7 @@ impl EditCommand {
             EditCommand::SetPrimaryMedia { .. } => "Set primary media".into(),
             EditCommand::UpdateMedia { .. } => "Edit media".into(),
             EditCommand::ImportDraft { .. } => "Add traced people".into(),
+            EditCommand::AddNumber { .. } => "Record number".into(),
         }
     }
 }
@@ -595,6 +610,26 @@ pub struct EditResult {
     pub undo: UndoState,
 }
 
+/// A fact an undo from the change log left alone, because someone has changed it since.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedFact {
+    /// `person`, `family`, `event`, `note`, ...
+    pub kind: String,
+    pub person: Option<PersonRef>,
+    pub detail: String,
+    /// The same fact as data, for the UI to word in its own language.
+    pub fact: crate::log::LogFactDto,
+}
+
+/// What an undo from the change log did.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoReport {
+    pub undone: u32,
+    pub skipped: Vec<SkippedFact>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum HistoryOp {
@@ -610,6 +645,9 @@ pub struct HistoryEntry {
     pub ts: i64,
     pub label: String,
     pub op: HistoryOp,
+    /// What changed in a person's sex and names, field by field; empty for other records and
+    /// for a row with no earlier version to compare (create, delete).
+    pub fields: Vec<FieldChangeDto>,
 }
 
 /// What deleting a person takes with them, for the confirmation text.

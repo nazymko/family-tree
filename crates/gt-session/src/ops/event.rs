@@ -7,6 +7,13 @@ use crate::error::ApiError;
 use gt_core::model::*;
 use uuid::Uuid;
 
+/// Every kind of event but `custom:`, by id.
+const EVENT_KINDS: &str = "birth, christening, baptism, death, burial, cremation, adoption, \
+    marriage, marriage_banns, marriage_contract, marriage_license, marriage_settlement, \
+    engagement, divorce, divorce_filed, annulment, separation, census, residence, occupation, \
+    education, religion, nationality, title, emigration, immigration, naturalization, probate, \
+    will, graduation, retirement, military, physical_description";
+
 /// `marriage_banns` -> `MarriageBanns`.
 fn pascal(s: &str) -> String {
     s.split('_')
@@ -29,8 +36,11 @@ pub fn parse_event_kind(id: &str) -> Result<EventKind, ApiError> {
         }
         return Ok(EventKind::Custom(t.to_string()));
     }
-    serde_json::from_value(serde_json::Value::String(pascal(id)))
-        .map_err(|_| invalid(format!("\"{id}\" is not a kind of event.")))
+    serde_json::from_value(serde_json::Value::String(pascal(id))).map_err(|_| {
+        invalid(format!(
+            "\"{id}\" is not a kind of event. Use one of: {EVENT_KINDS}, or custom:<your words>."
+        ))
+    })
 }
 
 pub fn parse_role(id: &str) -> Role {
@@ -47,7 +57,14 @@ fn owner_target(owner: EventOwner) -> ParticipantRef {
 
 fn check_owner(p: &Planner, owner: EventOwner) -> Result<(), ApiError> {
     match owner.kind {
-        EventOwnerKind::Person => p.get::<Person>(owner.id).map(|_| ()),
+        EventOwnerKind::Person => {
+            if p.get::<Person>(owner.id)?.sibling_marker {
+                return Err(super::invalid(
+                    "The entry for unnamed brothers and sisters cannot have events.",
+                ));
+            }
+            Ok(())
+        }
         EventOwnerKind::Family => p.get::<Family>(owner.id).map(|_| ()),
     }
 }
@@ -100,7 +117,7 @@ pub(super) fn save_event(
     match &input.participants {
         Some(list) => {
             for x in list {
-                p.get::<Person>(x.person)?;
+                p.real_person(x.person)?;
                 participants.push(Participant {
                     target: ParticipantRef::Person(x.person),
                     role: parse_role(&x.role),

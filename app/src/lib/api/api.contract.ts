@@ -273,6 +273,47 @@ export function runApiContract(make: () => Promise<Api>): void {
       expect((await rejection(api.apply({ type: 'deletePerson', id: 'x' }))).code).toBe('not_found');
     });
 
+    it('change_log_records_the_owner_edit_as_you', async () => {
+      const api = await make();
+      expect(await api.changeBatches()).toEqual([]);
+      expect(await api.unreviewedPeople()).toEqual([]);
+      const r = await api.apply({ type: 'createPerson', draft: { given: 'Ada', surnames: ['Koval'], sex: 'female' } });
+      const page = await api.changeLog({ unreviewedOnly: false }, 0, 10);
+      expect(page.total).toBe(1);
+      expect(page.items[0]).toMatchObject({ actor: { kind: 'user' }, label: 'Add person', reverted: false, canUndo: false });
+      expect(page.items[0].people.map((p) => p.id)).toContain(r.focus);
+      expect((await api.changeLog({ unreviewedOnly: true }, 0, 10)).total).toBe(0);
+      expect((await api.personAgentChanges(r.focus!, 0, 20)).items).toEqual([]);
+      expect(await api.hasUntrackedChanges()).toBe(false);
+      expect(await api.recordHome('note', r.focus!)).toBeNull();
+      const history = await api.personHistory(r.focus!, 0, 20);
+      expect(history.total).toBe(1);
+      expect(history.items[0].group).toBe(page.items[0].group);
+      expect((await api.personHistory(r.focus!, 1, 20)).items).toEqual([]);
+      expect((await rejection(api.undoChangeGroup(page.items[0].group))).code).toBe('invalid');
+    });
+
+    it('name_change_says_which_field_went_from_what_to_what', async () => {
+      const api = await make();
+      const r = await api.apply({ type: 'createPerson', draft: { given: 'Ivan', surnames: ['Koval'], sex: 'male' } });
+      const id = r.focus!;
+      const name = (await api.getPerson(id)).names[0];
+      const input = { id: name.id, kind: 'birth' as const, preferred: true, private: false, given: 'Ivan', surnames: ['Kovalchuk'] };
+      await api.apply({ type: 'saveName', person: id, name: input });
+      const surnames = { field: 'surnames', before: 'Koval', after: 'Kovalchuk' };
+      const h = await api.history(id, 20);
+      expect(h[0].fields).toEqual([surnames]);
+      expect(h.slice(1).every((e) => e.fields.length === 0)).toBe(true);
+      const row = (await api.changeLog({ unreviewedOnly: false }, 0, 10)).items[0];
+      expect(row.changes.find((c) => c.kind === 'person')?.fields).toEqual([surnames]);
+    });
+
+    it('change_log_unknown_ids_reject', async () => {
+      const api = await make();
+      expect((await rejection(api.undoChangeGroup('x'))).code).toBe('not_found');
+      expect((await rejection(api.undoChangeBatch('x'))).code).toBe('not_found');
+    });
+
     it('settings_roundtrip', async () => {
       const api = await make();
       const s = await api.getSettings();
@@ -282,6 +323,69 @@ export function runApiContract(make: () => Promise<Api>): void {
       expect((await api.getSettings()).theme).toBe('dark');
     });
 
+    // --- Agent access (Task 7 defines this contract; Task 6 implements the Rust commands) ---
+    it('agent_access_is_off_by_default', async () => {
+      const api = await make();
+      const s = await api.agentAccessState();
+      expect(s).toEqual({
+        enabled: false,
+        port: 8765,
+        running: false,
+        error: null,
+        requireKey: false,
+        keylessCommand: 'claude mcp add --transport http gene-tree http://127.0.0.1:8765/mcp',
+        connections: [],
+      });
+    });
+
+    it('agent_access_does_not_require_a_key_until_asked', async () => {
+      const api = await make();
+      const on = await api.agentAccessRequireKey(true);
+      expect(on).toMatchObject({ requireKey: true, keylessCommand: null, enabled: false });
+      expect(await api.agentAccessState()).toEqual(on);
+      const off = await api.agentAccessRequireKey(false);
+      expect(off.requireKey).toBe(false);
+      expect(off.keylessCommand).toContain('http://127.0.0.1:8765/mcp');
+      expect(off.keylessCommand).not.toContain('Bearer');
+    });
+
+    it('a_connection_cannot_take_the_name_of_the_agent_without_a_key', async () => {
+      const api = await make();
+      for (const name of ['Agent without a key', '  AGENT  without\ta key ', 'Агент без ключа', ' агент   БЕЗ ключа ']) {
+        await expect(api.agentConnectionCreate(name)).rejects.toBeTruthy();
+      }
+      await expect(api.agentConnectionCreate('Agent without a key 2')).resolves.toBeTruthy();
+    });
+
+    it('agent_access_set_starts_and_stops', async () => {
+      const api = await make();
+      const on = await api.agentAccessSet(true, 9000);
+      expect(on).toMatchObject({ enabled: true, port: 9000, running: true, error: null });
+      expect(await api.agentAccessState()).toEqual(on);
+      const off = await api.agentAccessSet(false, 9000);
+      expect(off).toMatchObject({ enabled: false, port: 9000, running: false });
+    });
+
+    it('agent_connection_key_is_shown_once', async () => {
+      const api = await make();
+      const made = await api.agentConnectionCreate('Claude on the laptop');
+      expect(made.connection.name).toBe('Claude on the laptop');
+      expect(made.key).toMatch(/^gt_[0-9a-f]{32,}$/);
+      expect(made.snippet).toBe(
+        `claude mcp add --transport http gene-tree http://127.0.0.1:8765/mcp --header "Authorization: Bearer ${made.key}"`,
+      );
+      const s = await api.agentAccessState();
+      expect(s.connections.map((c) => c.id)).toEqual([made.connection.id]);
+      expect(JSON.stringify(s)).not.toContain(made.key);
+      await api.agentConnectionRevoke(made.connection.id);
+      expect((await api.agentAccessState()).connections).toEqual([]);
+    });
+
+    it('agent_rules_are_text', async () => {
+      const api = await make();
+      expect((await api.agentRules()).trim().length).toBeGreaterThan(20);
+    });
+    // --- end of Agent access ---
     it('privacy_preview_token_changes_with_options', async () => {
       const api = await make();
       const a = await api.previewExport({ version: '7.0', living: 'placeholder', includePrivate: false });

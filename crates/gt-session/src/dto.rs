@@ -68,6 +68,9 @@ pub struct PersonRef {
     pub sex: SexKind,
     pub living: bool,
     pub private: bool,
+    /// The "more brothers and sisters, unnamed" entry: it has no name or dates and the app draws
+    /// its label.
+    pub sibling_marker: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -368,7 +371,7 @@ impl Default for Settings {
             day_order: DayOrder::Dmy,
             name_order: NameOrder::GivenFirst,
             theme: Theme::System,
-            language: Language::System,
+            language: Language::Uk,
             backups_to_keep: 10,
             tree_direction: TreeDirection::Normal,
             living_max_age: 100,

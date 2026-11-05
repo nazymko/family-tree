@@ -177,7 +177,7 @@ impl Project {
         }
 
         let mut st = conn.prepare(
-            "SELECT id, private, changed, unknown_json, sex, living_override FROM person ORDER BY seq",
+            "SELECT id, private, changed, unknown_json, sex, living_override, sibling_marker              FROM person ORDER BY seq",
         )?;
         let mut rows = st.query([])?;
         while let Some(r) = rows.next()? {
@@ -187,6 +187,7 @@ impl Project {
                 sex: enum_parse(&r.get::<_, String>(4)?)?,
                 names: names.remove(&id.to_string()).unwrap_or_default(),
                 living_override: opt_enum_parse(r.get(5)?)?,
+                sibling_marker: r.get(6)?,
                 common,
             };
             tree.persons.insert(id, p);

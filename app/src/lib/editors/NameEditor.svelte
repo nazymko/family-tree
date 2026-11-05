@@ -83,6 +83,8 @@
 <EditorDialog
   title={name ? t('edit.editName') : t('editor.addName')}
   saveLabel={t('editor.saveName')}
+  watch={[person]}
+  aboutPerson
   {dirty}
   {saving}
   {error}
