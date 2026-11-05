@@ -70,6 +70,36 @@ describe('chart views', () => {
     await screen.findByRole('option', { name: /.+/, hidden: true, selected: true });
   });
 
+  it('pedigree_can_show_all_generations', async () => {
+    const { api, fx } = makeApi();
+    nav.focus(await richestRoot(api, fx, 'pedigree'));
+    const spy = vi.spyOn(api, 'chartOpen');
+    mount(api, Pedigree);
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.objectContaining({ kind: 'pedigree', generations: 4 })));
+    const select = (await screen.findByLabelText('Generations')) as HTMLSelectElement;
+    const all = screen.getByRole('option', { name: 'Show all', hidden: true }) as HTMLOptionElement;
+    await fireEvent.change(select, { target: { value: all.value } });
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.objectContaining({ kind: 'pedigree', generations: 255 })));
+    await waitFor(() => expect(select.value).toBe(all.value));
+  });
+
+  it('only_the_pedigree_offers_show_all', async () => {
+    const { api, fx } = makeApi();
+    nav.focus(await richestRoot(api, fx, 'descendants'));
+    mount(api, Descendants);
+    await screen.findByLabelText('Generations');
+    expect(screen.queryByRole('option', { name: 'Show all', hidden: true })).toBeNull();
+  });
+
+  it('says_so_when_a_chart_is_cut_off', async () => {
+    const { api, fx } = makeApi();
+    nav.focus(await richestRoot(api, fx, 'pedigree'));
+    const open = api.chartOpen.bind(api);
+    vi.spyOn(api, 'chartOpen').mockImplementation(async (req) => ({ ...(await open(req)), truncated: true, nodeCount: 20000 }));
+    mount(api, Pedigree);
+    expect(await screen.findByText(/stops at 20000 cards/, undefined, { timeout: 2000 })).toBeTruthy();
+  });
+
   it('generations_select_reopens_chart', async () => {
     const { api, fx } = makeApi();
     nav.focus(await richestRoot(api, fx, 'descendants'));
