@@ -3,13 +3,12 @@
  * through the test hooks, then the person page must show a player whose audio element can load, report a finite
  * length and play through the gtmedia protocol. Screenshots in English and Ukrainian.
  *
- * Written but NOT run by the agent that wrote it: the owner's copy of the app holds the single-instance lock.
  * Synthetic data only; the recording is a generated one-second tone.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect } from '@wdio/globals';
-import { $, browser, click, importSynthetic, meta, openTreeFromReport, pushDialog, ready, search, shot, slash, text, work } from './helpers';
+import { $, browser, click, importSynthetic, meta, openTreeFromReport, pushDialog, ready, search, shot, slash, work } from './helpers';
 
 /** A one-second 440 Hz mono 16-bit 8 kHz PCM wav, built here so no real recording is ever involved. */
 function makeWav(file: string): string {
@@ -93,6 +92,7 @@ describe('Voice samples on a note', () => {
     await importSynthetic('Voice tree');
     await openTreeFromReport();
     await openHome();
+    await click('Edit person');
 
     await click('Add note');
     const box = await $('textarea');
@@ -107,7 +107,7 @@ describe('Voice samples on a note', () => {
 
     await $('audio').waitForDisplayed({ timeout: 20000 });
     await proveAudioPlays();
-    expect(await text()).toContain('Voice samples');
+    await expect($('ul[aria-label="Voice samples"]')).toBeDisplayed();
     await browser.pause(500);
     await shot('voice-person-en.png');
   });
@@ -119,9 +119,10 @@ describe('Voice samples on a note', () => {
     await $('h1=Налаштування').waitForDisplayed({ timeout: 20000 });
     await $('//nav//a[normalize-space(.)="Родина"]').click();
     await openHome();
+    await click('Змінити особу');
     await $('audio').waitForDisplayed({ timeout: 20000 });
     await proveAudioPlays();
-    expect(await text()).toContain('Голосові записи');
+    await expect($('ul[aria-label="Голосові записи"]')).toBeDisplayed();
     await browser.pause(500);
     await shot('voice-person-uk.png');
   });
