@@ -410,8 +410,15 @@ fn refresh_person_search(tx: &Transaction, id: &Uuid) -> Result<(), StoreError> 
         return Ok(());
     };
     let rowid = fts_rowid(FTS_PERSON, seq);
-    let (label, body) = person_text(tx, &id.to_string())?;
     remove_search(tx, rowid)?;
+    // The unnamed-siblings marker is never searched.
+    let marker: bool = tx
+        .prepare_cached("SELECT sibling_marker FROM person WHERE id = ?1")?
+        .query_row([id.to_string()], |r| r.get(0))?;
+    if marker {
+        return Ok(());
+    }
+    let (label, body) = person_text(tx, &id.to_string())?;
     add_search(tx, "person", rowid, id, &label, &body)
 }
 

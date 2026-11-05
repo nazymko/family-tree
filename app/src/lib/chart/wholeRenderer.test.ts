@@ -12,7 +12,7 @@ function node(id: number, x: number, y: number, sex: 'male' | 'female'): ChartNo
   return {
     id, x, y, w: 176, h: 56, gen: 0, ahnen: null, dupOf: null, moreUp: false, moreDown: false, label: `n${id}`,
     nav: { parent: null, child: null, prev: null, next: null },
-    person: { id: `p${id}`, name: `Person ${id}`, lifespan: '', sex, living: false, private: false },
+    person: { id: `p${id}`, name: `Person ${id}`, lifespan: '', sex, living: false, private: false, siblingMarker: false },
   };
 }
 

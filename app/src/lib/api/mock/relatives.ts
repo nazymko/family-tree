@@ -408,7 +408,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     n.relation = relationLabel(rel, n.person!.sex);
     n.role = relationRole(rel, n.person!.sex);
     const role = n.dupOf !== null ? `${n.relation}, appears earlier` : n.relation;
-    n.label = `${n.person!.name}${n.person!.lifespan ? `, ${n.person!.lifespan}` : ''}, ${role}`;
+    n.label = `${n.person!.siblingMarker ? 'more brothers and sisters, not named' : `${n.person!.name}${n.person!.lifespan ? `, ${n.person!.lifespan}` : ''}`}, ${role}`;
   }
   return {
     nodes: nodes.map(strip),

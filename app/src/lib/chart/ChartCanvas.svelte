@@ -71,6 +71,8 @@
   let errorText = $state('');
   let selected = $state<number | null>(null);
   let selNode = $state<ChartNode | null>(null);
+  /** The person behind a node that has a page: the unnamed-siblings marker has none. */
+  const realPerson = (n: ChartNode | null) => (n?.person && !n.person.siblingMarker ? n.person : null);
   let announcement = $state('');
   let homeId = $state<Id | null>(null);
   let pictureMenu = $state<{ openAt(x: number, y: number, person?: Id | null): void }>();
@@ -667,7 +669,8 @@
   }
 
   function recentre(n: ChartNode): void {
-    if (!n.person) return;
+    // The "more brothers and sisters" entry is nobody to centre on.
+    if (!n.person || n.person.siblingMarker) return;
     animateTo(centerOn(cam, n, size));
     if (n.relation) onRecentre(n.person.id, relationText(n));
     else onRecentre(n.person.id);
@@ -732,7 +735,7 @@
     if (!cur) return;
     const w = toWorld(e);
     const handle = hitHandle(cur.win, kind, w.x, w.y, cam.zoom, reversed);
-    if (handle?.person) {
+    if (handle?.person && !handle.person.siblingMarker) {
       if (handle.relation) onRecentre(handle.person.id, relationText(handle));
       else onRecentre(handle.person.id);
       return;
@@ -801,7 +804,7 @@
     const inside = n && n.x < v.x + v.w && n.x + n.w > v.x && n.y < v.y + v.h && n.y + n.h > v.y;
     const x = inside ? r.left + (n.x + n.w / 2 - cam.x) * cam.zoom : r.left + r.width / 2;
     const y = inside ? r.top + (n.y + n.h / 2 - cam.y) * cam.zoom : r.top + r.height / 2;
-    void pictureMenu?.openAt(x, y, selNode?.person?.id ?? null);
+    void pictureMenu?.openAt(x, y, realPerson(selNode)?.id ?? null);
   }
 
   function oncontextmenu(e: MouseEvent): void {
@@ -816,7 +819,7 @@
       const n = hit && hit.dupOf !== null ? (cur.win.nodes.find((x) => x.id === hit.dupOf) ?? hit) : hit;
       if (n) {
         select(n);
-        person = n.person?.id ?? null;
+        person = realPerson(n)?.id ?? null;
       }
     }
     void pictureMenu?.openAt(e.clientX, e.clientY, person);
@@ -856,7 +859,7 @@
       e.preventDefault();
       if (selNode) (selNode.dupOf !== null ? jumpToOriginal : recentre)(selNode);
     } else if (e.key === 'e' || e.key === 'E') {
-      if (selNode?.person) onOpenPerson(selNode.person.id);
+      if (realPerson(selNode)) onOpenPerson(realPerson(selNode)!.id);
     } else if (e.key === 'Home') {
       e.preventDefault();
       const n = cur?.win.nodes.find((x) => x.id === rootNodeId);
@@ -907,7 +910,7 @@
       <Checkbox label={t('chartCanvas.showAunts')} checked={auntsUncles} onchange={onAunts} />
     {/if}
     <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
-    <AddRelativeMenu person={selNode?.person?.id ?? null} />
+    <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
     {#if onGenerations}
       <div class="gens">
         <Select label={t('chartCanvas.generations')} options={genOptions} bind:value={genValue} onchange={(v) => onGenerations(Number(v))} />

@@ -201,6 +201,17 @@ impl Kin<'_> {
         if let Some(k) = memo.out.get(&to) {
             return *k;
         }
+        // The unnamed-siblings marker is nobody's relative.
+        let marker = |k: u32| {
+            self.index
+                .summaries
+                .get(k as usize)
+                .is_some_and(|s| s.sibling_marker)
+        };
+        if marker(to) || marker(memo.from) {
+            memo.out.insert(to, None);
+            return None;
+        }
         let k = self.compute(memo, to);
         memo.out.insert(to, k);
         k

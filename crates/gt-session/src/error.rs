@@ -13,6 +13,8 @@ pub enum ErrorCode {
     NoProject,
     Stale,
     Internal,
+    /// The agent gate said no; the message says what to do instead.
+    AgentRefused,
 }
 
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -28,6 +30,14 @@ impl ApiError {
             code,
             message: message.into(),
         }
+    }
+
+    /// The id belongs to the unnamed-siblings entry, which has no details to show.
+    pub fn sibling_marker(id: impl std::fmt::Display) -> Self {
+        Self::new(
+            ErrorCode::NotFound,
+            format!("\"{id}\" is the entry for unnamed brothers and sisters. It has no details."),
+        )
     }
 
     pub fn not_found(what: &str, id: impl std::fmt::Display) -> Self {

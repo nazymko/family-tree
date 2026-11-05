@@ -1088,3 +1088,55 @@ proptest! {
         }
     }
 }
+
+fn person_search_rows(p: &Project, id: Uuid) -> i64 {
+    p.conn()
+        .query_row(
+            "SELECT count(*) FROM search_words WHERE kind = 'person' AND id = ?1",
+            [id.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+#[test]
+fn sibling_marker_edit_path_writes_no_search_row() {
+    let (_tmp, mut p, _tree) = base();
+    // A marker never has a name; this one does, so a missing skip would index it.
+    let mut marker = person("Ghost", "Marker");
+    marker.sibling_marker = true;
+    let normal = person("Control", "Person");
+    let (mid, nid) = (marker.common.id, normal.common.id);
+    p.apply_changes(
+        &cs(
+            "Add",
+            vec![
+                create(Record::Person(normal.clone())),
+                create(Record::Person(marker.clone())),
+            ],
+        ),
+        &[],
+        &user_meta(),
+    )
+    .unwrap();
+    assert_eq!(
+        person_search_rows(&p, nid),
+        1,
+        "a normal person is searched"
+    );
+    assert_eq!(person_search_rows(&p, mid), 0, "created marker");
+    // Editing the marker keeps it out as well.
+    let mut after = marker.clone();
+    after.common.changed = Some(5);
+    p.apply_changes(
+        &cs(
+            "Touch",
+            vec![update(Record::Person(marker), Record::Person(after))],
+        ),
+        &[],
+        &user_meta(),
+    )
+    .unwrap();
+    assert_eq!(person_search_rows(&p, mid), 0, "updated marker");
+    assert_eq!(p.search("Ghost", 50).unwrap().len(), 0);
+}

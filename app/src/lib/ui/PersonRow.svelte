@@ -11,7 +11,9 @@
 </script>
 
 <div class="pr" class:selected>
-  {#if row}
+  {#if row?.siblingMarker}
+    <bdi dir="auto" class="name">{t('person.siblingMarker')}</bdi>
+  {:else if row}
     <bdi dir="auto" class="name">{row.name}</bdi>
     <span class="life tnum">{row.lifespan}</span>
     <span class="flags">

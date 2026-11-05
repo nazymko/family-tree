@@ -1902,6 +1902,7 @@ dependencies = [
  "gt-import",
  "gt-import-atdb",
  "gt-layout",
+ "gt-session",
  "gt-store",
  "image",
  "indexmap 2.14.2",

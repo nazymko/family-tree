@@ -22,7 +22,7 @@ const base = new MockApi(fixtureTree(300));
 let n = 0;
 function ref(name: string, over: Partial<PersonRef> = {}): PersonRef {
   n++;
-  return { id: `p${n}`, name, lifespan: '1850-1921', sex: 'unknown', living: false, private: false, ...over };
+  return { id: `p${n}`, name, lifespan: '1850-1921', sex: 'unknown', living: false, private: false, siblingMarker: false, ...over };
 }
 function child(p: PersonRef, rel: [ParentRelId, ParentRelId] = ['birth', 'birth']): ChildDto {
   return { person: p, rel, birth: '1 Jan 1880' };

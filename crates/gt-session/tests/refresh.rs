@@ -290,7 +290,7 @@ fn extended_command(s: &Session, rng: &mut Rng, n: usize) -> Option<EditCommand>
     let t = s.tree();
     let persons: Vec<Uuid> = t.persons.keys().copied().collect();
     let (owner, cites, notes, media) = random_owner(s, rng)?;
-    Some(match rng.below(15) {
+    Some(match rng.below(16) {
         0 => {
             // A person's only name cannot be deleted, so aim at someone who has another.
             let several: Vec<_> = t.persons.values().filter(|p| p.names.len() > 1).collect();
@@ -328,6 +328,9 @@ fn extended_command(s: &Session, rng: &mut Rng, n: usize) -> Option<EditCommand>
                 order,
             }
         }
+        15 => EditCommand::AddSiblingMarker {
+            family: nth_key(&t.families, rng)?,
+        },
         3 => EditCommand::SaveNote {
             target: if rng.below(2) == 0 {
                 owner_ref(OwnerKind::Person, *rng.pick(&persons))
@@ -462,6 +465,11 @@ fn extended_command(s: &Session, rng: &mut Rng, n: usize) -> Option<EditCommand>
                 EditCommand::SaveEvent { owner, event }
             }
         }
+        14 => EditCommand::AddNumber {
+            person: *rng.pick(&persons),
+            source_file: rng.pick(&["one.txt", "two.txt"]).to_string(),
+            number: rng.below(5).to_string(),
+        },
         _ => {
             // An event with several participants.
             let mut event = event_input(rng, None);
@@ -565,6 +573,7 @@ fn incremental_refresh_equals_rebuild_over_random_edit_undo_redo_sequences() {
         "DeleteName",
         "UpdateChildLink",
         "ReorderChildren",
+        "AddSiblingMarker",
         "SaveNote",
         "DeleteNote",
         "SaveSource",
@@ -576,6 +585,7 @@ fn incremental_refresh_equals_rebuild_over_random_edit_undo_redo_sequences() {
         "DeleteMedia",
         "SetPrimaryMedia",
         "UpdateMedia",
+        "AddNumber",
         "SaveFamily",
         "SaveEvent",
         "DeleteEvent",

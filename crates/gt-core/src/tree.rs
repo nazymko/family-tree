@@ -36,6 +36,21 @@ impl Tree {
     }
 
     /// Events in which the person participates directly, with their role.
+    /// A copy without the unnamed-siblings markers and their child links (what an export sees).
+    pub fn without_sibling_markers(&self) -> Tree {
+        let mut t = self.clone();
+        t.persons.retain(|_, p| !p.sibling_marker);
+        for f in t.families.values_mut() {
+            f.children.retain(|c| {
+                !self
+                    .persons
+                    .get(&c.person)
+                    .is_some_and(|p| p.sibling_marker)
+            });
+        }
+        t
+    }
+
     pub fn events_of(&self, person: Uuid) -> impl Iterator<Item = (&Event, &Role)> {
         self.events.values().flat_map(move |e| {
             e.participants

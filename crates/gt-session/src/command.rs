@@ -471,6 +471,10 @@ pub enum EditCommand {
         family: Uuid,
         order: Vec<Uuid>,
     },
+    /// Adds the one entry per family that stands for more brothers and sisters nobody named.
+    AddSiblingMarker {
+        family: Uuid,
+    },
     SaveNote {
         target: OwnerRef,
         note: NoteInput,
@@ -529,6 +533,12 @@ pub enum EditCommand {
         families: Vec<DraftFamily>,
         attach_picture: bool,
     },
+    /// An agent's own number for a person, unique within one named source file. Never exported.
+    AddNumber {
+        person: Uuid,
+        source_file: String,
+        number: String,
+    },
 }
 
 impl EditCommand {
@@ -562,6 +572,7 @@ impl EditCommand {
             EditCommand::UpdateChildLink { .. } => "Edit child link".into(),
             EditCommand::UnlinkChild { .. } => "Remove child from family".into(),
             EditCommand::ReorderChildren { .. } => "Reorder children".into(),
+            EditCommand::AddSiblingMarker { .. } => "Add unnamed brothers and sisters".into(),
             EditCommand::SaveNote { .. } => "Save note".into(),
             EditCommand::DeleteNote { .. } => "Delete note".into(),
             EditCommand::SaveSource { .. } => "Save source".into(),
@@ -574,6 +585,7 @@ impl EditCommand {
             EditCommand::SetPrimaryMedia { .. } => "Set primary media".into(),
             EditCommand::UpdateMedia { .. } => "Edit media".into(),
             EditCommand::ImportDraft { .. } => "Add traced people".into(),
+            EditCommand::AddNumber { .. } => "Record number".into(),
         }
     }
 }

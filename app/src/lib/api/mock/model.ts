@@ -26,6 +26,8 @@ export interface PersonRec {
   media: MediaLinkDto[];
   citations: CitationDto[];
   changed: number;
+  /** The unnamed-siblings marker: no names, no events, never listed, searched, counted or exported. */
+  siblingMarker?: boolean;
 }
 
 export interface ChildLinkRec {

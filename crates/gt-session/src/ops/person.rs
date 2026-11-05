@@ -40,6 +40,7 @@ pub(super) fn new_person(p: &Planner, draft: &PersonDraft, sex: SexKind) -> Pers
             unknown: Vec::new(),
         }],
         living_override: None,
+        sibling_marker: false,
     }
 }
 
@@ -54,6 +55,15 @@ pub(super) fn create_person(
     Ok(Some(id))
 }
 
+fn not_marker(person: &Person) -> Result<(), ApiError> {
+    if person.sibling_marker {
+        return Err(invalid(
+            "The entry for unnamed brothers and sisters has no details to edit. Delete it instead.",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn update_person(
     p: &mut Planner,
     id: Uuid,
@@ -63,6 +73,7 @@ pub(super) fn update_person(
     private: Option<bool>,
 ) -> Result<Option<Uuid>, ApiError> {
     let mut person: Person = p.get(id)?;
+    not_marker(&person)?;
     match sex {
         Some(k) => person.sex = sex_of(*k, sex_text, Some(&person.sex)),
         None => {
@@ -115,6 +126,7 @@ pub(super) fn save_name(
     input: &NameInput,
 ) -> Result<Option<Uuid>, ApiError> {
     let mut person: Person = p.get(person_id)?;
+    not_marker(&person)?;
     let surnames: Vec<String> = input
         .surnames
         .iter()
@@ -178,6 +190,35 @@ pub(super) fn save_name(
     }
     person.common.changed = Some(p.now);
     p.put(person);
+    Ok(Some(person_id))
+}
+
+/// How an agent's number is stored: the source file is in the scheme, so that two files can share
+/// a number. Both parts trimmed; `None` when either is blank.
+pub(crate) fn agent_number(source_file: &str, number: &str) -> Option<ExternalId> {
+    let (file, value) = (text(Some(source_file))?, text(Some(number))?);
+    Some(ExternalId {
+        kind: ExtIdKind::Exid {
+            scheme: format!("{AGENT_NUMBER_SCHEME}{file}"),
+        },
+        value,
+    })
+}
+
+pub(super) fn add_number(
+    p: &mut Planner,
+    person_id: Uuid,
+    source_file: &str,
+    number: &str,
+) -> Result<Option<Uuid>, ApiError> {
+    let id = agent_number(source_file, number)
+        .ok_or_else(|| invalid("Give both the source file and the number."))?;
+    let mut person: Person = p.get(person_id)?;
+    if !person.common.ext_ids.contains(&id) {
+        person.common.ext_ids.push(id);
+        person.common.changed = Some(p.now);
+        p.put(person);
+    }
     Ok(Some(person_id))
 }
 

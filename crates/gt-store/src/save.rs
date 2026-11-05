@@ -385,6 +385,10 @@ pub(crate) fn index_all(tx: &Transaction, tree: &Tree) -> Result<(), StoreError>
         }
     }
     for (i, (id, p)) in tree.persons.iter().enumerate() {
+        // The unnamed-siblings marker is never searched.
+        if p.sibling_marker {
+            continue;
+        }
         let names: Vec<NameText> = p.names.iter().map(NameText::from).collect();
         let places = event_places
             .get(id)
@@ -429,10 +433,10 @@ pub(crate) fn insert_person(
     let id = &c.id;
     tx.prepare_cached(
         "INSERT INTO person(id, seq, private, changed, unknown_json, sex, living_override, \
-         living_cached) VALUES (?1,?2,?3,?4,?5,?6,?7,?8) \
+         living_cached, sibling_marker) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) \
          ON CONFLICT(id) DO UPDATE SET private=excluded.private, changed=excluded.changed, \
          unknown_json=excluded.unknown_json, sex=excluded.sex, \
-         living_override=excluded.living_override",
+         living_override=excluded.living_override, sibling_marker=excluded.sibling_marker",
     )?
     .execute(params![
         s(id),
@@ -442,7 +446,8 @@ pub(crate) fn insert_person(
         unknown_json(&c.unknown)?,
         enum_text(&p.sex),
         p.living_override.as_ref().map(enum_text),
-        living,
+        living && !p.sibling_marker,
+        p.sibling_marker,
     ])?;
     save_common(tx, "person", c)?;
     for (pos, n) in p.names.iter().enumerate() {

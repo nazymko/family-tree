@@ -52,6 +52,8 @@
   let errorText = $state('');
   let selected = $state<number | null>(null);
   let selNode = $state<ChartNode | null>(null);
+  /** The person behind a node that has a page: the unnamed-siblings marker has none. */
+  const realPerson = (n: ChartNode | null) => (n?.person && !n.person.siblingMarker ? n.person : null);
   let announcement = $state('');
   let hint = $state('');
   let lineageOn = $state(true);
@@ -658,7 +660,7 @@
     if (!cur) return;
     const w = toWorld(e);
     const n = hitTest(cur.win, w.x, w.y);
-    if (n?.person) onOpenPerson(n.person.id);
+    if (realPerson(n ?? null)) onOpenPerson(realPerson(n ?? null)!.id);
   }
 
   // ------------------------------------------------------------ pictures
@@ -728,7 +730,7 @@
     const inside = n && n.x < v.x + v.w && n.x + n.w > v.x && n.y < v.y + v.h && n.y + n.h > v.y;
     const x = inside ? r.left + (n.x + n.w / 2 - cam.x) * cam.zoom : r.left + r.width / 2;
     const y = inside ? r.top + (n.y + n.h / 2 - cam.y) * cam.zoom : r.top + r.height / 2;
-    void pictureMenu?.openAt(x, y, selNode?.person?.id ?? null);
+    void pictureMenu?.openAt(x, y, realPerson(selNode)?.id ?? null);
   }
 
   function oncontextmenu(e: MouseEvent): void {
@@ -743,7 +745,7 @@
       const n = hitTest(cur.win, w.x, w.y);
       if (n) {
         select(n);
-        person = n.person?.id ?? null;
+        person = realPerson(n)?.id ?? null;
       }
     }
     void pictureMenu?.openAt(e.clientX, e.clientY, person);
@@ -816,9 +818,9 @@
       }
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (selNode?.person) onOpenPerson(selNode.person.id);
+      if (realPerson(selNode)) onOpenPerson(realPerson(selNode)!.id);
     } else if (e.key === 'p' || e.key === 'P') {
-      if (selNode?.person) onOpenInPedigree(selNode.person.id);
+      if (realPerson(selNode)) onOpenInPedigree(realPerson(selNode)!.id);
     } else if (e.key === 'l' || e.key === 'L') {
       lineageOn = !lineageOn;
     } else if (e.key === 'Home') {
@@ -866,10 +868,10 @@
     <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={homeNode === null} onclick={goHome} />
     <FlipTreeButton />
     <Button aria-pressed={lineageOn} onclick={() => (lineageOn = !lineageOn)}>{t('whole.lineage')}</Button>
-    <Button disabled={!selNode?.person} onclick={() => selNode?.person && onOpenPerson(selNode.person.id)}>{t('whole.openPerson')}</Button>
-    <IconButton label={t('whole.showInPedigree')} icon="pedigree" disabled={!selNode?.person} onclick={() => selNode?.person && onOpenInPedigree(selNode.person.id)} />
+    <Button disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id)}>{t('whole.openPerson')}</Button>
+    <IconButton label={t('whole.showInPedigree')} icon="pedigree" disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onOpenInPedigree(realPerson(selNode)!.id)} />
     <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
-    <AddRelativeMenu person={selNode?.person?.id ?? null} />
+    <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
     <span class="zoom" aria-live="off">{zoomPct}%</span>
   </div>
   <div class="stage" bind:this={box}>

@@ -313,6 +313,9 @@ pub fn person_detail(s: &Session, id: Uuid) -> Result<PersonDetail, ApiError> {
         .persons
         .get(&id)
         .ok_or_else(|| ApiError::not_found("person", id))?;
+    if p.sibling_marker {
+        return Err(ApiError::sibling_marker(id));
+    }
     let person_ref = s
         .person_ref(id)
         .ok_or_else(|| ApiError::not_found("person", id))?;

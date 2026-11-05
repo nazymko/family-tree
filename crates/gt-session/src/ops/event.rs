@@ -47,7 +47,14 @@ fn owner_target(owner: EventOwner) -> ParticipantRef {
 
 fn check_owner(p: &Planner, owner: EventOwner) -> Result<(), ApiError> {
     match owner.kind {
-        EventOwnerKind::Person => p.get::<Person>(owner.id).map(|_| ()),
+        EventOwnerKind::Person => {
+            if p.get::<Person>(owner.id)?.sibling_marker {
+                return Err(super::invalid(
+                    "The entry for unnamed brothers and sisters cannot have events.",
+                ));
+            }
+            Ok(())
+        }
         EventOwnerKind::Family => p.get::<Family>(owner.id).map(|_| ()),
     }
 }
@@ -100,7 +107,7 @@ pub(super) fn save_event(
     match &input.participants {
         Some(list) => {
             for x in list {
-                p.get::<Person>(x.person)?;
+                p.real_person(x.person)?;
                 participants.push(Participant {
                     target: ParticipantRef::Person(x.person),
                     role: parse_role(&x.role),

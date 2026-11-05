@@ -92,7 +92,7 @@ impl Session {
         Ok(())
     }
 
-    fn result(&self, cs: &ChangeSet, label: String, focus: Option<Uuid>) -> EditResult {
+    pub(crate) fn result(&self, cs: &ChangeSet, label: String, focus: Option<Uuid>) -> EditResult {
         let mut touched: Vec<Uuid> = Vec::with_capacity(cs.changes.len());
         for ch in &cs.changes {
             if !touched.contains(&ch.id) {
@@ -154,8 +154,10 @@ impl Session {
         Ok(self.result(&cs, cs.label.clone(), focus))
     }
 
-    /// Plans and stores a command under another author, leaving the undo stacks alone. No checks
-    /// on what the author may do: those stand in front of this.
+    /// Plans and stores a command under another author, leaving the undo stacks alone. There is no
+    /// gate here, so it exists only for this crate's tests (`test-support`). Agent writes go
+    /// through `apply_as_agent`.
+    #[cfg(feature = "test-support")]
     #[doc(hidden)]
     pub fn commit_command_as(
         &mut self,

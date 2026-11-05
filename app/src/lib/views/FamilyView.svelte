@@ -95,6 +95,15 @@
       });
   });
 
+  /** The unnamed-siblings marker is deleted like any person; the view reloads with the edit. */
+  async function deleteMarker(id: string) {
+    try {
+      await api.apply({ type: 'deletePerson', id });
+    } catch (e) {
+      error = (e as Error).message;
+    }
+  }
+
   async function findFocus() {
     if (homeId) {
       nav.focus(homeId);
@@ -348,6 +357,8 @@
                 living={c.person.living}
                 isPrivate={c.person.private}
                 flipKey={c.person.id}
+                siblingMarker={c.person.siblingMarker}
+                ondelete={() => deleteMarker(c.person.id)}
                 detail={c.birth ? t('family.bornShort', { birth: c.birth }) : undefined}
                 chips={childChip(c, union) ? [chipLabel(childChip(c, union)!)] : []}
                 relationship={withChip(childChip(c, union), childRole(c.person))}
@@ -374,6 +385,8 @@
                 living={s.living}
                 isPrivate={s.private}
                 flipKey={s.id}
+                siblingMarker={s.siblingMarker}
+                ondelete={() => deleteMarker(s.id)}
                 relationship={withChip(undefined, siblingRole(s))}
                 onclick={() => refocus(s.id)}
               />

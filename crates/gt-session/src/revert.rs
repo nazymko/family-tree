@@ -93,7 +93,7 @@ pub fn revert_change(ch: &Change, current: Option<&Record>, kept: &HashSet<Uuid>
 }
 
 /// The record's JSON without `common.changed`, and the value taken out.
-fn stripped(r: &Record) -> Option<(Value, Value)> {
+pub(crate) fn stripped(r: &Record) -> Option<(Value, Value)> {
     let mut v = serde_json::to_value(r).ok()?;
     let stamp = common_json(&mut v)?.remove("changed")?;
     Some((v, stamp))
@@ -252,7 +252,7 @@ fn same_keys(a: &Map<String, Value>, b: &Map<String, Value>) -> bool {
 }
 
 /// What makes two array items the same item.
-fn identity(item: &Value) -> Value {
+pub(crate) fn identity(item: &Value) -> Value {
     match item.as_object() {
         Some(o) if o.contains_key("id") => o.get("id").cloned().unwrap_or(Value::Null),
         // `ChildLink` has no id.
@@ -582,7 +582,7 @@ pub(crate) fn undo_on_tree<'a>(
     out
 }
 
-fn same_ignoring_stamp(a: Option<&Record>, b: Option<&Record>) -> bool {
+pub(crate) fn same_ignoring_stamp(a: Option<&Record>, b: Option<&Record>) -> bool {
     match (a, b) {
         (None, None) => true,
         (Some(a), Some(b)) => match (stripped(a), stripped(b)) {

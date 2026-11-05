@@ -3,6 +3,7 @@
 //! paged person lists, the family view and person detail. No async; commands wrap these
 //! calls in `spawn_blocking`.
 
+pub mod agent;
 pub mod chart;
 pub mod command;
 pub mod dates;
@@ -24,6 +25,7 @@ pub mod settings;
 mod touched;
 pub mod undo;
 
+pub use agent::{AgentCtx, AgentWrite};
 pub use command::{
     CitationArg, CitationInput, CitationPatch, CloneOf, DeleteImpact, DraftFamily, DraftPerson,
     EditCommand, EditResult, EventInput, EventOwner, EventOwnerKind, EvidenceInput, HistoryEntry,

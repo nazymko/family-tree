@@ -9,6 +9,7 @@ const p = (id: string, name: string): PersonRef => ({
   sex: 'male',
   living: false,
   private: false,
+  siblingMarker: false,
 });
 const dad = p('a', 'Petro Koval');
 const mum = p('b', 'Maria Koval');
