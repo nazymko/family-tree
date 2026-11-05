@@ -5,6 +5,7 @@
 use crate::dto::{
     LivingOverrideDto, NameKindDto, NoteKindDto, ParentRelId, PersonRef, SexKind, UnionKindId,
 };
+use crate::field_diff::FieldChangeDto;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
@@ -644,6 +645,9 @@ pub struct HistoryEntry {
     pub ts: i64,
     pub label: String,
     pub op: HistoryOp,
+    /// What changed in a person's sex and names, field by field; empty for other records and
+    /// for a row with no earlier version to compare (create, delete).
+    pub fields: Vec<FieldChangeDto>,
 }
 
 /// What deleting a person takes with them, for the confirmation text.

@@ -287,6 +287,21 @@ export function runApiContract(make: () => Promise<Api>): void {
       expect((await rejection(api.undoChangeGroup(page.items[0].group))).code).toBe('invalid');
     });
 
+    it('name_change_says_which_field_went_from_what_to_what', async () => {
+      const api = await make();
+      const r = await api.apply({ type: 'createPerson', draft: { given: 'Ivan', surnames: ['Koval'], sex: 'male' } });
+      const id = r.focus!;
+      const name = (await api.getPerson(id)).names[0];
+      const input = { id: name.id, kind: 'birth' as const, preferred: true, private: false, given: 'Ivan', surnames: ['Kovalchuk'] };
+      await api.apply({ type: 'saveName', person: id, name: input });
+      const surnames = { field: 'surnames', before: 'Koval', after: 'Kovalchuk' };
+      const h = await api.history(id, 20);
+      expect(h[0].fields).toEqual([surnames]);
+      expect(h.slice(1).every((e) => e.fields.length === 0)).toBe(true);
+      const row = (await api.changeLog({ unreviewedOnly: false }, 0, 10)).items[0];
+      expect(row.changes.find((c) => c.kind === 'person')?.fields).toEqual([surnames]);
+    });
+
     it('change_log_unknown_ids_reject', async () => {
       const api = await make();
       expect((await rejection(api.undoChangeGroup('x'))).code).toBe('not_found');

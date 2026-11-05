@@ -105,7 +105,7 @@ fn read_actor(
     })
 }
 
-fn decode_record(json: Option<String>) -> Result<Option<Record>, StoreError> {
+pub(crate) fn decode_record(json: Option<String>) -> Result<Option<Record>, StoreError> {
     json.map(|j| serde_json::from_str(&j).map_err(|e| corrupt(e.to_string())))
         .transpose()
 }

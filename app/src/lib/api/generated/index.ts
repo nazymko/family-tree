@@ -46,6 +46,7 @@ export * from './ExportVersion';
 export * from './FamilyChildDto';
 export * from './FamilyDto';
 export * from './FamilyViewDto';
+export * from './FieldChangeDto';
 export * from './GroupMedia';
 export * from './HistoryEntry';
 export * from './HistoryOp';

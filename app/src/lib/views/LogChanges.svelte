@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { LogChangeDto } from '../api/types';
   import { t, type MessageKey } from '../i18n';
+  import FieldChanges from '../ui/FieldChanges.svelte';
   import { factText, recordKindLabel } from '../i18n/backend';
 
   let { changes }: { changes: LogChangeDto[] } = $props();
@@ -13,6 +14,7 @@
     {#if text}<bdi dir="auto">{text}</bdi>{/if}
     {#if c.sources.length > 0}<span class="src">{t('changeLog.sources', { list: c.sources.join('; ') })}</span>{/if}
   </p>
+  <FieldChanges fields={c.fields} />
 {/each}
 
 <style>

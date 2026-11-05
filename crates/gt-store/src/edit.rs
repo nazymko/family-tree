@@ -2,7 +2,7 @@
 //! full-text and phonetic rows current, and append to the change log. Also the `meta` API.
 
 use crate::StoreError;
-use crate::authors::{LogMeta, actor_columns};
+use crate::authors::{LogMeta, actor_columns, decode_record};
 use crate::codec::{corrupt, parse_uuid};
 use crate::project::Project;
 use crate::save::*;
@@ -170,13 +170,16 @@ impl ChangeOp {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HistoryEntry {
     pub ts: i64,
     pub group: Uuid,
     pub label: String,
     pub op: ChangeOp,
     pub kind: RecordKind,
+    /// The record as this change found it and left it (`None` = absent), as stored in the log.
+    pub before: Option<Record>,
+    pub after: Option<Record>,
 }
 
 fn json<T: Serialize>(v: &T) -> Result<String, StoreError> {
@@ -539,11 +542,11 @@ impl Project {
         Ok(())
     }
 
-    /// Change-log entries of one record, newest first.
+    /// Change-log entries of one record, newest first, with the record before and after each.
     pub fn history(&self, record: Uuid, limit: usize) -> Result<Vec<HistoryEntry>, StoreError> {
         let mut st = self.conn.prepare_cached(
-            "SELECT ts, group_id, label, op, target_type FROM change_log WHERE target_id = ?1 \
-             ORDER BY ts DESC, id DESC LIMIT ?2",
+            "SELECT ts, group_id, label, op, target_type, before_json, after_json FROM change_log \
+             WHERE target_id = ?1 ORDER BY ts DESC, id DESC LIMIT ?2",
         )?;
         let mut rows = st.query(params![
             record.to_string(),
@@ -563,6 +566,8 @@ impl Project {
                 label: label.unwrap_or_default(),
                 op: ChangeOp::parse(&r.get::<_, String>(3)?)?,
                 kind: RecordKind::parse(&r.get::<_, String>(4)?)?,
+                before: decode_record(r.get(5)?)?,
+                after: decode_record(r.get(6)?)?,
             });
         }
         Ok(out)

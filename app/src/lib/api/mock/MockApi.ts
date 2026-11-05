@@ -31,6 +31,7 @@ import type {
   ExportOptions,
   FamilyDto,
   FamilyViewDto,
+  FieldChangeDto,
   HistoryEntry,
   Id,
   ImportProgress,
@@ -66,6 +67,7 @@ import type {
   UndoState,
   WholeMeta,
 } from '../types';
+import { personFieldChanges } from './fieldDiff';
 import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } from './build';
 import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
@@ -94,6 +96,7 @@ interface HistoryRecord {
   label: string;
   op: HistoryEntry['op'];
   touched: Set<Id>;
+  fields: Map<Id, FieldChangeDto[]>;
 }
 
 /** One row of the change log; `fact` is what an agent's undo has to take away. */
@@ -503,7 +506,7 @@ export class MockApi implements Api {
       .filter((h) => h.touched.has(record))
       .slice(-Math.max(0, limit))
       .reverse()
-      .map((h) => ({ ts: h.ts, label: h.label, op: h.op }));
+      .map((h) => ({ ts: h.ts, label: h.label, op: h.op, fields: structuredClone(h.fields.get(record) ?? []) }));
   }
 
   // -------------------------------------------------------------- change log
@@ -623,7 +626,7 @@ export class MockApi implements Api {
         actor,
         batch,
         label: c.label ?? 'Save note',
-        changes: [{ kind: c.kind ?? 'note', op: c.op ?? 'create', detail: text, fact, sources: c.sources ?? [] }],
+        changes: [{ kind: c.kind ?? 'note', op: c.op ?? 'create', detail: text, fact, sources: c.sources ?? [], fields: [] }],
         people: [{ id: c.person, name: this.ref(p).name, reviewed: null }],
         fact: { person: c.person, note, conflict: c.conflict ?? false },
       });
@@ -641,7 +644,7 @@ export class MockApi implements Api {
       actor: { kind: 'beforeTracking' },
       batch: null,
       label,
-      changes: [{ kind: 'person', op: 'update', detail: name, fact: { kind: 'text', text: name }, sources: [] }],
+      changes: [{ kind: 'person', op: 'update', detail: name, fact: { kind: 'text', text: name }, sources: [], fields: [] }],
       people: [{ id: person, name, reviewed: null }],
     });
   }
@@ -671,7 +674,7 @@ export class MockApi implements Api {
       if (p) p.changed = this.now();
     }
     const op: HistoryEntry['op'] = cmd.type === 'createPerson' || cmd.type === 'quickAdd' ? 'create' : /^delete/.test(cmd.type) ? 'delete' : 'update';
-    this.record(label, op, new Set(touched));
+    this.record(label, op, new Set(touched), before);
     return { label, focus: outcome.focus, touched, undo: this.currentUndo() };
   }
 
@@ -1152,8 +1155,15 @@ export class MockApi implements Api {
     this.sortCache.clear();
   }
 
-  private record(label: string, op: HistoryEntry['op'], touched: Set<Id>): void {
-    this.log.push({ ts: this.now(), label, op, touched });
+  /** `before` is the database as the change found it: persons present in both versions get their field changes. */
+  private record(label: string, op: HistoryEntry['op'], touched: Set<Id>, before?: Db): void {
+    const fields = new Map<Id, FieldChangeDto[]>();
+    for (const id of touched) {
+      const was = before?.persons.get(id);
+      const now = this.db.persons.get(id);
+      if (was && now) fields.set(id, personFieldChanges(was, now));
+    }
+    this.log.push({ ts: this.now(), label, op, touched, fields });
     if (this.log.length > 2000) this.log.shift();
     const people = [...touched].flatMap((id) => {
       const p = this.db.persons.get(id);
@@ -1163,7 +1173,7 @@ export class MockApi implements Api {
       actor: { kind: 'user' },
       batch: null,
       label,
-      changes: people.map((p) => ({ kind: 'person', op, detail: p.name, fact: { kind: 'text', text: p.name }, sources: [] })),
+      changes: people.map((p) => ({ kind: 'person', op, detail: p.name, fact: { kind: 'text', text: p.name }, sources: [], fields: fields.get(p.id) ?? [] })),
       people,
     });
   }
