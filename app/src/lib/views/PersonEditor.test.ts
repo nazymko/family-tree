@@ -9,6 +9,7 @@ import { observeApi } from '../state/observe';
 import { toasts } from '../state/toast.svelte';
 import { ui } from '../state/ui.svelte';
 import { nav } from '../state/nav.svelte';
+import { setLanguage } from '../i18n';
 
 const toastTexts = () => toasts.items.map((t) => t.text);
 
@@ -125,6 +126,58 @@ describe('PersonEditor', () => {
     await api.apply({ type: 'updatePerson', id, private: true });
     await open();
     expect(await screen.findByText('Edit person')).toBeInTheDocument();
+  });
+
+  /** The newest row of the history section (its list is inside a closed <details>, still in the page). */
+  async function historyRow(): Promise<HTMLElement> {
+    return await waitFor(() => {
+      const li = document.querySelector('section[aria-labelledby="h-history"] ul.rows li');
+      if (!li) throw new Error('no history row yet');
+      return li as HTMLElement;
+    });
+  }
+
+  async function renameSurname(to: string[]) {
+    const d = await api.getPerson(id);
+    const n = d.names[0];
+    await api.apply({
+      type: 'saveName',
+      person: id,
+      name: { id: n.id, kind: n.kind, preferred: n.preferred, private: n.private, given: n.given ?? undefined, surnames: to, patronymic: n.patronymic ?? undefined },
+    });
+    return d;
+  }
+
+  it('history_says_what_a_name_change_changed_in_english', async () => {
+    await renameSurname(['Koval']);
+    await renameSurname(['Kovalchuk']);
+    await open();
+    const row = await historyRow();
+    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Surname: Koval → Kovalchuk');
+    expect(row.querySelectorAll('bdi[dir="auto"]').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('history_says_empty_for_a_missing_side_in_english', async () => {
+    const d = await api.getPerson(id);
+    const n = d.names[0];
+    await api.apply({ type: 'saveName', person: id, name: { id: n.id, kind: n.kind, preferred: n.preferred, private: n.private, given: n.given ?? 'Ivan', surnames: n.surnames, patronymic: undefined, suffix: 'Jr' } });
+    await open();
+    const row = await historyRow();
+    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Suffix: empty → Jr');
+  });
+
+  it('history_says_what_a_name_change_changed_in_ukrainian', async () => {
+    const d = await api.getPerson(id);
+    const n = d.names[0];
+    await api.apply({ type: 'saveName', person: id, name: { id: n.id, kind: n.kind, preferred: n.preferred, private: n.private, given: n.given ?? 'Ivan', surnames: n.surnames, suffix: 'Jr' } });
+    setLanguage('uk');
+    try {
+      renderWithApi(observeApi(api), PersonEditor, { id });
+      const row = await historyRow();
+      expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Суфікс: порожньо → Jr');
+    } finally {
+      setLanguage('en');
+    }
   });
 
   it('save_error_is_shown_not_swallowed', async () => {

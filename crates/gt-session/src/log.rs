@@ -3,6 +3,7 @@
 use crate::command::{HistoryOp, SkippedFact};
 use crate::dto::Page;
 use crate::error::{ApiError, ErrorCode};
+use crate::field_diff::{FieldChangeDto, record_field_changes};
 use crate::names::display_name;
 use crate::ops::record_in;
 use crate::person_detail::{event_kind_id, event_label};
@@ -67,6 +68,8 @@ pub struct LogChangeDto {
     pub fact: LogFactDto,
     /// Titles of the sources this change cited.
     pub sources: Vec<String>,
+    /// For a changed person: which sex and name fields went from what to what.
+    pub fields: Vec<FieldChangeDto>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -432,6 +435,7 @@ impl Session {
                     .unwrap_or_default(),
                 fact: self.change_fact(ch, &g.changes),
                 sources: self.sources_of_change(ch, &g.changes),
+                fields: record_field_changes(ch.before.as_ref(), ch.after.as_ref()),
             })
             .collect();
         let people = g

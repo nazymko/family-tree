@@ -21,6 +21,7 @@
   import FamilyTree from './FamilyTree.svelte';
   import AgentChangesPanel from './AgentChangesPanel.svelte';
   import AgentBadge from '../ui/AgentBadge.svelte';
+  import FieldChanges from '../ui/FieldChanges.svelte';
   import IndexCard from '../ui/IndexCard.svelte';
   import Ribbon from '../ui/Ribbon.svelte';
   import Button from '../ui/Button.svelte';
@@ -511,7 +512,10 @@
         {:else}
           <ul class="rows">
             {#each history as h, i (i)}
-              <li><span class="grow">{editLabel(h.label)}</span><span class="meta">{when(h.ts)}</span></li>
+              <li>
+                <span class="grow">{editLabel(h.label)}</span><span class="meta">{when(h.ts)}</span>
+                <div class="changed"><FieldChanges fields={h.fields} /></div>
+              </li>
             {/each}
           </ul>
         {/if}
@@ -648,6 +652,13 @@
     gap: var(--s-3);
     min-height: 2.5rem;
     border-top: 1px solid var(--rule);
+  }
+  .rows li:has(.changed) {
+    flex-wrap: wrap;
+  }
+  .changed {
+    flex-basis: 100%;
+    padding-bottom: var(--s-2);
   }
   .grow {
     flex: 1;

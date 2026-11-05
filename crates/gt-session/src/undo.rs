@@ -17,6 +17,7 @@
 use crate::command::{DeleteImpact, EditCommand, EditResult, HistoryEntry, UndoReport, UndoState};
 use crate::dto::DayOrder as WireDayOrder;
 use crate::error::{ApiError, ErrorCode};
+use crate::field_diff::record_field_changes;
 use crate::log::history_op;
 use crate::ops::{apply_to_tree_tracked, plan_with, record_in};
 use crate::revert::{dangling_writes, settle_kept, touches, undo_on_tree};
@@ -383,6 +384,7 @@ impl Session {
             .into_iter()
             .map(|h| HistoryEntry {
                 ts: h.ts,
+                fields: record_field_changes(h.before.as_ref(), h.after.as_ref()),
                 label: h.label,
                 op: history_op(h.op),
             })

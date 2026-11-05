@@ -10,6 +10,7 @@ pub mod dates;
 pub mod dto;
 pub mod error;
 pub mod family_view;
+pub mod field_diff;
 pub mod import_format;
 pub mod index;
 pub mod kinship;
@@ -34,6 +35,7 @@ pub use command::{
 };
 pub use dto::*;
 pub use error::{ApiError, ErrorCode};
+pub use field_diff::{FieldChangeDto, person_field_changes, record_field_changes};
 pub use log::{
     ActorDto, BatchDto, BatchRef, LogAgentDto, LogChangeDto, LogFactDto, LogFilterDto,
     LogPersonDto, LogRowDto, ReviewScopeDto,
