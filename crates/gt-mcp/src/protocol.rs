@@ -6,6 +6,8 @@ use crate::{AgentCtx, Host, RULES, Tool, tools};
 use base64::Engine;
 use gt_session::{ApiError, ErrorCode};
 use serde_json::{Map, Value, json};
+use std::sync::{Condvar, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 const MODERN: &str = "2026-07-28";
 const OLDER: [&str; 3] = ["2025-11-25", "2025-06-18", "2025-03-26"];
@@ -28,6 +30,55 @@ const INVALID_PARAMS: i64 = -32602;
 const HEADER_MISMATCH: i64 = -32020;
 const UNSUPPORTED_VERSION: i64 = -32022;
 
+/// Tool calls one server runs at once. A tool holds the app's session, so a flood of them would
+/// freeze the app.
+const TOOLS_AT_ONCE: usize = 2;
+/// How long a tool call waits its turn before it is told the server is busy.
+const TOOL_WAIT: Duration = Duration::from_secs(2);
+const BUSY: &str = "Gene Tree is busy with other tool calls. Try again in a moment.";
+
+/// A semaphore for tool calls.
+#[derive(Debug, Default)]
+pub(crate) struct ToolGate {
+    running: Mutex<usize>,
+    freed: Condvar,
+}
+
+/// A place in the gate, given back however the tool call ends.
+struct ToolTurn<'a>(&'a ToolGate);
+
+impl ToolGate {
+    fn wait_for_turn(&self, wait: Duration) -> Option<ToolTurn<'_>> {
+        let give_up = Instant::now() + wait;
+        let mut running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
+        while *running >= TOOLS_AT_ONCE {
+            let left = give_up.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return None;
+            }
+            running = self
+                .freed
+                .wait_timeout(running, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        *running += 1;
+        Some(ToolTurn(self))
+    }
+}
+
+impl Drop for ToolTurn<'_> {
+    fn drop(&mut self) {
+        let mut running = self
+            .0
+            .running
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        *running = running.saturating_sub(1);
+        self.0.freed.notify_one();
+    }
+}
+
 /// The mirrored headers of one HTTP request.
 #[derive(Debug, Default)]
 pub(crate) struct HttpMeta {
@@ -45,7 +96,7 @@ pub(crate) struct Reply {
 
 /// One message without a transport: `None` for a notification or a client's own response.
 pub fn handle_message<H: Host>(host: &H, ctx: &AgentCtx, body: &Value) -> Option<Value> {
-    dispatch(host, ctx, body, None).body
+    dispatch(host, ctx, body, None, None).body
 }
 
 /// A body that is not JSON. There is no id to answer to.
@@ -56,12 +107,23 @@ pub(crate) fn parse_error() -> Reply {
     }
 }
 
+/// Two `MCP-Protocol-Version` headers that disagree. Which one is meant cannot be known.
+pub(crate) fn conflicting_version() -> Reply {
+    bad_request(
+        None,
+        INVALID_REQUEST,
+        "MCP-Protocol-Version is sent twice, with different values",
+    )
+}
+
 /// One message. `http` is `None` when there is no transport, and then no headers are expected.
+/// `gate` limits how many tool calls run at once.
 pub(crate) fn dispatch<H: Host>(
     host: &H,
     ctx: &AgentCtx,
     body: &Value,
     http: Option<&HttpMeta>,
+    gate: Option<&ToolGate>,
 ) -> Reply {
     let Some(message) = body.as_object() else {
         return bad_request(
@@ -99,13 +161,18 @@ pub(crate) fn dispatch<H: Host>(
         Some(_) => return bad_request(Some(id), INVALID_PARAMS, "The params must be an object"),
     };
     if method == "initialize" {
+        if let Some(version) = http.and_then(|h| h.protocol_version.as_deref())
+            && !is_supported(version)
+        {
+            return unsupported(Some(id), version);
+        }
         return initialize(id, params);
     }
     let era = match negotiate(id, method, params, http) {
         Ok(era) => era,
         Err(reply) => return reply,
     };
-    route(host, ctx, id, method, params, era)
+    route(host, ctx, id, method, params, era, gate)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -246,6 +313,7 @@ fn route<H: Host>(
     method: &str,
     params: &Map<String, Value>,
     era: Era,
+    gate: Option<&ToolGate>,
 ) -> Reply {
     let result = match (method, era) {
         ("ping", _) => json!({}),
@@ -256,7 +324,7 @@ fn route<H: Host>(
         })),
         ("tools/list", Era::Older) => list_tools::<H>(),
         ("tools/list", Era::Modern) => cached(list_tools::<H>()),
-        ("tools/call", _) => match call_tool(host, ctx, params) {
+        ("tools/call", _) => match call_tool(host, ctx, params, gate) {
             Ok(result) => result,
             Err(message) => return error_reply(200, Some(id), INVALID_PARAMS, &message, None),
         },
@@ -288,6 +356,7 @@ fn call_tool<H: Host>(
     host: &H,
     ctx: &AgentCtx,
     params: &Map<String, Value>,
+    gate: Option<&ToolGate>,
 ) -> Result<Value, String> {
     let Some(name) = params.get("name").and_then(Value::as_str) else {
         return Err("The tool name is required".to_string());
@@ -297,7 +366,10 @@ fn call_tool<H: Host>(
     };
     let empty = json!({});
     let args = params.get("arguments").unwrap_or(&empty);
-    let outcome = if args.is_object() {
+    let turn = gate.map(|g| g.wait_for_turn(TOOL_WAIT));
+    let outcome = if matches!(turn, Some(None)) {
+        Err(ApiError::new(ErrorCode::Internal, BUSY))
+    } else if args.is_object() {
         (tool.call)(host, ctx, args)
     } else {
         Err(ApiError::new(

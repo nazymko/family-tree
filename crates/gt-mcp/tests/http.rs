@@ -6,11 +6,12 @@
 mod common;
 
 use common::*;
-use gt_mcp::{RULES, ServerHandle, ServerLimits, serve, serve_with};
+use gt_mcp::{AgentCtx, Host, RULES, ServerHandle, ServerLimits, serve, serve_with};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// A body length announced and never sent: a reply proves no byte of it was waited for.
@@ -28,8 +29,8 @@ impl Reply {
     }
 }
 
-struct Fixture {
-    host: Arc<TestHost>,
+struct Fixture<H = TestHost> {
+    host: Arc<H>,
     server: ServerHandle,
 }
 
@@ -49,7 +50,7 @@ fn start_with(max_connections: usize, timeout: Duration) -> Fixture {
     Fixture { host, server }
 }
 
-impl Fixture {
+impl<H> Fixture<H> {
     fn port(&self) -> u16 {
         self.server.port()
     }
@@ -1076,4 +1077,212 @@ fn busy_port_is_an_error() {
     let f = start();
     let host = Arc::new(empty_host());
     assert!(serve(host, f.port()).is_err());
+}
+
+// ---- a key can stop working while its request is on the way ----
+
+#[test]
+fn a_key_revoked_after_the_head_gets_no_data() {
+    let f = start();
+    let body = request(
+        "tools/call",
+        json!({"name": "tree_summary", "arguments": {}}),
+    )
+    .to_string();
+    let head = f.head_only(&[f.host_line(), f.key_line()], body.len());
+    let mut s = f.connect();
+    s.write_all(head.as_bytes()).unwrap();
+    // Long enough for the head to pass its checks.
+    std::thread::sleep(Duration::from_millis(200));
+    f.host.keys.lock().unwrap().clear();
+    s.write_all(body.as_bytes()).unwrap();
+    let r = read_reply(&mut s);
+    assert_eq!(r.status, 401);
+    assert!(
+        r.head.to_lowercase().contains("www-authenticate: bearer"),
+        "{}",
+        r.head
+    );
+}
+
+// ---- a silent socket cannot sit on a slot ----
+
+#[test]
+fn a_silent_socket_loses_its_slot_after_about_five_seconds() {
+    let f = start_with(1, Duration::from_secs(60));
+    let started = Instant::now();
+    let mut silent = f.connect();
+    let r = read_reply(&mut silent);
+    let waited = started.elapsed();
+    assert_eq!(r.status, 408);
+    assert!(waited >= Duration::from_secs(4), "{waited:?}");
+    assert!(waited < Duration::from_secs(8), "{waited:?}");
+    f.assert_recovers();
+}
+
+// ---- only a few tool calls at once ----
+
+/// Counts how many sessions are in use at once, each held for `hold`.
+struct SlowHost {
+    inner: TestHost,
+    hold: Duration,
+    running: AtomicUsize,
+    peak: AtomicUsize,
+}
+
+impl Host for SlowHost {
+    fn with_session<T>(
+        &self,
+        f: &mut dyn FnMut(&mut gt_session::Session) -> Result<T, gt_session::ApiError>,
+    ) -> Result<T, gt_session::ApiError> {
+        let now = self.running.fetch_add(1, Ordering::SeqCst) + 1;
+        self.peak.fetch_max(now, Ordering::SeqCst);
+        std::thread::sleep(self.hold);
+        let out = self.inner.with_session(f);
+        self.running.fetch_sub(1, Ordering::SeqCst);
+        out
+    }
+
+    fn authenticate(&self, key_sha256: &[u8; 32]) -> Option<AgentCtx> {
+        self.inner.authenticate(key_sha256)
+    }
+
+    fn changed(&self, touched: &[uuid::Uuid]) {
+        self.inner.changed(touched);
+    }
+}
+
+fn start_slow(hold: Duration) -> Fixture<SlowHost> {
+    let host = Arc::new(SlowHost {
+        inner: empty_host(),
+        hold,
+        running: AtomicUsize::new(0),
+        peak: AtomicUsize::new(0),
+    });
+    let server = serve(Arc::clone(&host), 0).unwrap();
+    Fixture { host, server }
+}
+
+fn call_at_once(f: &Fixture<SlowHost>, calls: usize) -> Vec<Value> {
+    let port = f.port();
+    let threads: Vec<_> = (0..calls)
+        .map(|_| {
+            std::thread::spawn(move || {
+                let body =
+                    request("tools/call", json!({"name": "tree_summary", "arguments": {}}))
+                        .to_string();
+                let head = format!(
+                    "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {KEY}\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+                let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+                s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+                s.write_all(head.as_bytes()).unwrap();
+                read_reply(&mut s).json()
+            })
+        })
+        .collect();
+    threads.into_iter().map(|t| t.join().unwrap()).collect()
+}
+
+#[test]
+fn at_most_two_tool_calls_run_at_once_and_the_rest_wait_their_turn() {
+    let f = start_slow(Duration::from_millis(200));
+    let replies = call_at_once(&f, 6);
+    for reply in &replies {
+        assert_ne!(reply["result"]["isError"], json!(true), "{reply}");
+    }
+    assert_eq!(f.host.peak.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn a_tool_call_that_waits_too_long_gets_a_clear_busy_error() {
+    let f = start_slow(Duration::from_secs(4));
+    let port_check = {
+        // Other requests do not wait for the tools.
+        let f2 = &f;
+        std::thread::scope(|scope| {
+            let calls = scope.spawn(|| call_at_once(f2, 5));
+            std::thread::sleep(Duration::from_millis(500));
+            let started = Instant::now();
+            let ping = f2.post(&[], &request("ping", json!({})));
+            assert_eq!(ping.status, 200);
+            let quick = started.elapsed();
+            (calls.join().unwrap(), quick)
+        })
+    };
+    let (replies, quick) = port_check;
+    assert!(quick < Duration::from_secs(1), "{quick:?}");
+    let busy: Vec<&Value> = replies
+        .iter()
+        .filter(|r| r["result"]["isError"] == json!(true))
+        .collect();
+    assert_eq!(busy.len(), 3, "{replies:?}");
+    for reply in busy {
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("busy"), "{text}");
+    }
+    assert_eq!(f.host.peak.load(Ordering::SeqCst), 2);
+}
+
+// ---- headers ----
+
+#[test]
+fn key_is_trimmed_of_ascii_space_only() {
+    let f = start();
+    let body = request("ping", json!({})).to_string();
+    let good = f.head_only(
+        &[f.host_line(), format!("Authorization: Bearer   {KEY}  ")],
+        body.len(),
+    );
+    assert_eq!(f.raw(&good, body.as_bytes()).status, 200);
+    // A no-break space is not ASCII: it stays in the key, so the key is wrong.
+    let bad = f.head_only(
+        &[f.host_line(), format!("Authorization: Bearer {KEY}\u{a0}")],
+        body.len(),
+    );
+    assert_eq!(f.raw(&bad, body.as_bytes()).status, 401);
+    let host = format!("Host: {}\u{a0}", f.good_host());
+    let bad = f.head_only(&[host, f.key_line()], body.len());
+    assert_eq!(f.raw(&bad, body.as_bytes()).status, 403);
+}
+
+#[test]
+fn differing_protocol_version_headers_get_400() {
+    let f = start();
+    let ping = request("ping", json!({}));
+    let r = f.post(
+        &[
+            ("MCP-Protocol-Version", "2025-06-18"),
+            ("mcp-protocol-version", "2025-11-25"),
+        ],
+        &ping,
+    );
+    assert_eq!(r.status, 400);
+    let same = f.post(
+        &[
+            ("MCP-Protocol-Version", "2025-06-18"),
+            ("MCP-Protocol-Version", "2025-06-18"),
+        ],
+        &ping,
+    );
+    assert_eq!(same.status, 200);
+}
+
+#[test]
+fn initialize_with_an_invalid_version_header_gets_400() {
+    let f = start();
+    let r = f.post(
+        &[("MCP-Protocol-Version", "not-a-version")],
+        &initialize_body(),
+    );
+    assert_eq!(r.status, 400);
+    assert_eq!(r.json()["id"], 1);
+    let fine = f.post(
+        &[("MCP-Protocol-Version", "2025-06-18")],
+        &initialize_body(),
+    );
+    assert_eq!(fine.status, 200);
+    let none = f.post(&[], &initialize_body());
+    assert_eq!(none.status, 200);
 }

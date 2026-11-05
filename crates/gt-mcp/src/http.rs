@@ -9,7 +9,7 @@
 //! allocates whatever `Content-Length` announced, so one request with no key could abort the app.
 
 use crate::Host;
-use crate::protocol::{self, HttpMeta, Reply};
+use crate::protocol::{self, HttpMeta, Reply, ToolGate};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::{self, ErrorKind, Read, Write};
@@ -23,6 +23,8 @@ use std::time::{Duration, Instant};
 const MAX_HEAD: usize = 16 * 1024;
 const MAX_HEADERS: usize = 64;
 const MAX_BODY: u64 = 8 * 1024 * 1024;
+/// A head arrives at once from any real client, so a silent socket gives up its slot soon.
+const HEAD_TIMEOUT: Duration = Duration::from_secs(5);
 /// How often the accept loop looks for a new connection or the order to stop.
 const ACCEPT_POLL: Duration = Duration::from_millis(20);
 /// After answering, how long and how much of what the client still sends is thrown away. Closing
@@ -48,8 +50,11 @@ impl Default for ServerLimits {
     }
 }
 
-/// The running server. `stop()` or dropping it ends the accept loop at once. A connection still
-/// open then runs no more requests and ends by its own deadline.
+/// The running server. `stop()` or dropping it ends the accept loop at once, and no request starts
+/// a tool after that. It does not wait for open connections. A connection thread can outlive this
+/// handle, keeping its `Arc<H>`, for at most: what remains of the read deadline, then the wait for
+/// the host's session and the tool call, then the write deadline, then 250 ms of linger. Only the
+/// wait and the tool call have no limit here, so see [`crate::Host`] for what that asks of a host.
 pub struct ServerHandle {
     stopping: Arc<AtomicBool>,
     accept: Option<JoinHandle<()>>,
@@ -94,9 +99,10 @@ pub fn serve_with<H: Host>(
     let addr = listener.local_addr()?;
     let stopping = Arc::new(AtomicBool::new(false));
     let stop = Arc::clone(&stopping);
+    let gate = Arc::new(ToolGate::default());
     let accept = thread::Builder::new()
         .name("gt-mcp-accept".into())
-        .spawn(move || accept_loop(&listener, &host, addr.port(), limits, &stop))?;
+        .spawn(move || accept_loop(&listener, &host, addr.port(), limits, &stop, &gate))?;
     Ok(ServerHandle {
         stopping,
         accept: Some(accept),
@@ -119,6 +125,7 @@ fn accept_loop<H: Host>(
     port: u16,
     limits: ServerLimits,
     stopping: &Arc<AtomicBool>,
+    gate: &Arc<ToolGate>,
 ) {
     let live = Arc::new(AtomicUsize::new(0));
     while !stopping.load(Ordering::SeqCst) {
@@ -135,12 +142,13 @@ fn accept_loop<H: Host>(
         let slot = Slot(Arc::clone(&live));
         let host = Arc::clone(host);
         let stopping = Arc::clone(stopping);
+        let gate = Arc::clone(gate);
         // If the thread cannot start, the closure is dropped: the slot returns, the socket closes.
         let _ = thread::Builder::new()
             .name("gt-mcp-connection".into())
             .spawn(move || {
                 let _slot = slot;
-                connection(&*host, stream, port, limits.timeout, &stopping);
+                connection(&*host, stream, port, limits.timeout, &stopping, &gate);
             });
     }
 }
@@ -241,6 +249,7 @@ fn connection<H: Host>(
     port: u16,
     timeout: Duration,
     stopping: &AtomicBool,
+    gate: &ToolGate,
 ) {
     // On some systems an accepted socket inherits the listener's non-blocking mode.
     if stream.set_nonblocking(false).is_err() {
@@ -248,7 +257,7 @@ fn connection<H: Host>(
     }
     let _ = stream.set_nodelay(true);
     let deadline = Instant::now() + timeout;
-    let Some(answer) = serve_one(host, &mut stream, port, deadline, timeout, stopping) else {
+    let Some(answer) = serve_one(host, &mut stream, port, deadline, timeout, stopping, gate) else {
         return;
     };
     if write_by(&mut stream, &encode(&answer), Instant::now() + timeout).is_ok() {
@@ -264,9 +273,11 @@ fn serve_one<H: Host>(
     deadline: Instant,
     timeout: Duration,
     stopping: &AtomicBool,
+    gate: &ToolGate,
 ) -> Option<Answer> {
     let mut buffer = vec![0u8; MAX_HEAD];
-    let (head, head_len, filled) = match read_head(stream, &mut buffer, deadline) {
+    let head_deadline = deadline.min(Instant::now() + HEAD_TIMEOUT);
+    let (head, head_len, filled) = match read_head(stream, &mut buffer, head_deadline) {
         Ok(read) => read,
         Err(answer) => return answer,
     };
@@ -276,8 +287,9 @@ fn serve_one<H: Host>(
     if head.path() != "/mcp" {
         return Some(Answer::status(404));
     }
-    let Some(ctx) = bearer_hash(&head).and_then(|hash| host.authenticate(&hash)) else {
-        return Some(Answer::with_header(401, "WWW-Authenticate", "Bearer"));
+    let hash = bearer_hash(&head);
+    let Some(hash) = hash.filter(|hash| host.authenticate(hash).is_some()) else {
+        return Some(refuse_key());
     };
     if head.method != "POST" {
         return Some(Answer::with_header(405, "Allow", "POST"));
@@ -286,6 +298,12 @@ fn serve_one<H: Host>(
         Ok(length) => length,
         Err(status) => return Some(Answer::status(status)),
     };
+    let mut versions = head.values("MCP-Protocol-Version");
+    if let Some(first) = versions.next()
+        && versions.any(|other| other != first)
+    {
+        return Some(Answer::from_reply(&protocol::conflicting_version()));
+    }
     let expects_continue = head
         .value("Expect")
         .is_some_and(|v| v.eq_ignore_ascii_case("100-continue"));
@@ -298,6 +316,7 @@ fn serve_one<H: Host>(
         Ok(body) => body,
         Err(answer) => return answer,
     };
+    // Stopping does not wait for this thread, so a request must not start a tool after it.
     if stopping.load(Ordering::SeqCst) {
         return Some(Answer::status(503));
     }
@@ -309,10 +328,18 @@ fn serve_one<H: Host>(
         method: head.value("Mcp-Method").map(str::to_string),
         name: head.value("Mcp-Name").map(str::to_string),
     };
+    // The body can take its time, and the key can be revoked meanwhile.
+    let Some(ctx) = host.authenticate(&hash) else {
+        return Some(refuse_key());
+    };
     let reply = catch_unwind(AssertUnwindSafe(|| {
-        protocol::dispatch(host, &ctx, &value, Some(&meta))
+        protocol::dispatch(host, &ctx, &value, Some(&meta), Some(gate))
     }));
     Some(reply.map_or(Answer::status(500), |r| Answer::from_reply(&r)))
+}
+
+fn refuse_key() -> Answer {
+    Answer::with_header(401, "WWW-Authenticate", "Bearer")
 }
 
 struct Head {
@@ -375,7 +402,7 @@ fn parse_head(bytes: &[u8]) -> Result<Option<(Head, usize)>, u16> {
                     .map(|h| {
                         // Text that is not UTF-8 can match nothing we compare against.
                         let value = std::str::from_utf8(h.value).unwrap_or("\u{FFFD}");
-                        (h.name.to_string(), value.trim().to_string())
+                        (h.name.to_string(), value.trim_ascii().to_string())
                     })
                     .collect(),
             };
@@ -518,7 +545,7 @@ fn bearer_hash(head: &Head) -> Option<[u8; 32]> {
         return None;
     };
     let (scheme, key) = value.split_once(' ')?;
-    let key = key.trim();
+    let key = key.trim_ascii();
     if !scheme.eq_ignore_ascii_case("bearer") || key.is_empty() {
         return None;
     }

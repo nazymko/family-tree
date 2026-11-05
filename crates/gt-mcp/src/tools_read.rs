@@ -1,9 +1,10 @@
 //! The read tools. Everything in the tree is readable, living people included: the agent runs on
 //! the owner's machine with a key the owner made.
 
+use crate::records::{self, NUMBER_SCHEME_PREFIX};
 use crate::{AgentCtx, Host, RULES, Tool};
 use base64::Engine;
-use gt_core::model::{Common, ExtIdKind, MediaLink, Person};
+use gt_core::model::{ExtIdKind, Person};
 use gt_session::names::{BIRTH_KINDS, DEATH_KINDS, compose, pick_event};
 use gt_session::{
     ApiError, ErrorCode, LogFilterDto, PersonQuery, Session, dates, index, render_px,
@@ -11,21 +12,33 @@ use gt_session::{
 use gt_store::HitKind;
 use serde::Serialize;
 use serde_json::{Value, json};
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::{Mutex, PoisonError};
 use uuid::Uuid;
 
 const PAGE_DEFAULT: u64 = 50;
 const PAGE_MAX: u64 = 200;
-const HISTORY_MAX: usize = 200;
+/// Each row of the log costs the session real time, and the session is the app's own.
+const LOG_PAGE_MAX: u64 = 50;
+/// The longest free text an argument may be. Searching costs far more than the length suggests.
+const TEXT_ARG_MAX: usize = 1024;
+/// Notes `get_person` returns unless asked for more.
+const NOTES_DEFAULT: u64 = 20;
+/// Bytes of note text after which `get_person` stops adding notes, so that a client's limit on a
+/// tool's output is not reached by accident. The first note always comes back whole.
+const NOTES_TEXT_BUDGET: usize = 16 * 1024;
+/// Characters in a piece of text when `text_offset` is given without `text_limit`.
+const TEXT_PIECE_DEFAULT: u64 = 20_000;
 const PICTURE_DEFAULT_PX: u64 = 1600;
 const PICTURE_MAX_PX: u64 = 4096;
 const PICTURE_MIN_PX: u64 = 16;
 /// A picture is decoded and shrunk, so its file may be bigger than what goes back.
 const PICTURE_FILE_MAX: u64 = 256 * 1024 * 1024;
 const BLOB_MAX: u64 = 8 * 1024 * 1024;
-/// How the agent's numbering of a source file is stored in `Common.ext_ids`.
-const NUMBER_SCHEME_PREFIX: &str = "agent:";
+/// Decoding takes a lot of memory for a short while, so only one picture is decoded at a time.
+static DECODING: Mutex<()> = Mutex::new(());
 
 type ToolResult = Result<Vec<Value>, ApiError>;
 
@@ -38,11 +51,23 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             "additionalProperties": false,
         })
     };
+    let piece_schema = |what: &str| {
+        json!({
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": what},
+                "text_offset": {"type": "integer", "minimum": 0},
+                "text_limit": {"type": "integer", "minimum": 1},
+            },
+            "required": ["id"],
+            "additionalProperties": false,
+        })
+    };
     let paged_query = |query: &str, required: bool| {
         json!({
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": query},
+                "query": {"type": "string", "description": query, "maxLength": TEXT_ARG_MAX},
                 "offset": {"type": "integer", "minimum": 0},
                 "limit": {"type": "integer", "minimum": 1, "maximum": PAGE_MAX, "default": PAGE_DEFAULT},
             },
@@ -84,8 +109,17 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "get_person",
-            description: "One person in full: all names, events, notes, citations with their sources, media details, numbers and living status.",
-            schema: id("The person's id."),
+            description: "One person in full: all names, events, citations, media details, numbers and living status, and the first notes. A person with many notes gets some at a time: read on with notes_offset, as notesNextOffset says. A very long note can be read in pieces with get_note.",
+            schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "The person's id."},
+                    "notes_offset": {"type": "integer", "minimum": 0},
+                    "notes_limit": {"type": "integer", "minimum": 1, "maximum": PAGE_MAX, "default": NOTES_DEFAULT},
+                },
+                "required": ["id"],
+                "additionalProperties": false,
+            }),
             call: get_person::<H>,
         },
         Tool {
@@ -96,43 +130,97 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "get_family",
-            description: "One family: partners, children, events, notes and citations.",
+            description: "One family: partners, children with how each is linked, events, notes, citations and media. It has no pages; a long note in it can be read in pieces with get_note.",
             schema: id("The family's id."),
             call: get_family::<H>,
         },
         Tool {
             name: "get_source",
-            description: "One source in full, with its text.",
-            schema: id("The source's id."),
+            description: "One source in full, with its text and repositories. A long text can pass what your client shows at once: read it in pieces with text_offset and text_limit, in characters, as nextTextOffset says.",
+            schema: piece_schema("The source's id."),
             call: get_source::<H>,
         },
         Tool {
             name: "get_note",
-            description: "One note in full.",
-            schema: id("The note's id."),
+            description: "One note in full, with its links. A long text can pass what your client shows at once: read it in pieces with text_offset and text_limit, in characters, as nextTextOffset says.",
+            schema: piece_schema("The note's id."),
             call: get_note::<H>,
         },
         Tool {
             name: "get_citation",
-            description: "One citation with its source.",
+            description: "One citation with its links and its source. The source's text is left out: get_source has it. It has no pages; a long note in it can be read in pieces with get_note.",
             schema: id("The citation's id."),
             call: get_citation::<H>,
         },
         Tool {
+            name: "get_event",
+            description: "One event in full: date, place, everyone taking part, notes, citations and media. It has no pages; a long note in it can be read in pieces with get_note.",
+            schema: id("The event's id."),
+            call: get_event::<H>,
+        },
+        Tool {
+            name: "get_place",
+            description: "One place in full: its names with their languages and dates, parent, coordinates, notes, citations and media. It has no pages; a long note in it can be read in pieces with get_note.",
+            schema: id("The place's id."),
+            call: get_place::<H>,
+        },
+        Tool {
+            name: "get_repository",
+            description: "One repository in full, with the sources held there and their call numbers. It has no pages; a long note in it can be read in pieces with get_note.",
+            schema: id("The repository's id."),
+            call: get_repository::<H>,
+        },
+        Tool {
             name: "list_sources",
-            description: "Sources one page at a time, optionally those whose title, abbreviation or author contains the query.",
+            description: "Sources one page at a time, optionally those whose title, abbreviation or author contains the query. Read on with offset, as nextOffset says. The text of each is in get_source.",
             schema: paged_query("Text to look for.", false),
             call: list_sources::<H>,
         },
         Tool {
             name: "list_places",
-            description: "Places one page at a time, optionally those whose name contains the query.",
+            description: "Places one page at a time, optionally those whose name contains the query. Read on with offset, as nextOffset says.",
             schema: paged_query("Text to look for.", false),
             call: list_places::<H>,
         },
         Tool {
+            name: "list_notes",
+            description: "Notes one page at a time, attached to anything or to nothing, optionally those whose text contains the query. Read on with offset, as nextOffset says. Each row has the start of the text; get_note has the rest.",
+            schema: paged_query("Text to look for.", false),
+            call: list_notes::<H>,
+        },
+        Tool {
+            name: "list_media",
+            description: "Media records one page at a time, attached to anything or to nothing, optionally those whose title, file name, description or type contains the query. Read on with offset, as nextOffset says.",
+            schema: paged_query("Text to look for.", false),
+            call: list_media::<H>,
+        },
+        Tool {
+            name: "list_families",
+            description: "Families one page at a time, optionally those with a partner whose name contains the query. Read on with offset, as nextOffset says.",
+            schema: paged_query("Text to look for.", false),
+            call: list_families::<H>,
+        },
+        Tool {
+            name: "list_repositories",
+            description: "Repositories one page at a time, optionally those whose name or address contains the query. Read on with offset, as nextOffset says.",
+            schema: paged_query("Text to look for.", false),
+            call: list_repositories::<H>,
+        },
+        Tool {
+            name: "list_events",
+            description: "Events one page at a time, attached to anyone or to no one, optionally those whose kind, description, cause or place contains the query. Read on with offset, as nextOffset says.",
+            schema: paged_query("Text to look for.", false),
+            call: list_events::<H>,
+        },
+        Tool {
+            name: "list_citations",
+            description: "Citations one page at a time, attached to anything or to nothing, optionally those whose page, text or source title contains the query. Read on with offset, as nextOffset says.",
+            schema: paged_query("Text to look for.", false),
+            call: list_citations::<H>,
+        },
+        Tool {
             name: "get_media",
-            description: "A media file's details and the file itself: a picture as an image, shrunk to max_size pixels on its longest side; anything else as a blob of up to 8 MiB.",
+            description: "A media file's details and the file itself: a picture as an image, shrunk to max_size pixels on its longest side, so a smaller max_size means a smaller answer; anything else, or a picture that cannot be decoded, as a blob of up to 8 MiB.",
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -146,7 +234,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "get_log",
-            description: "The log of who changed what, newest first. Filters, all optional: actorId, actorKind (user or agent), batch, person, unreviewedOnly.",
+            description: "The log of who changed what, newest first, up to 50 groups a page. Read on with offset, as nextOffset says. Filters, all optional: actorId, actorKind (user or agent), batch, person, unreviewedOnly.",
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -162,7 +250,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
                         "additionalProperties": false,
                     },
                     "offset": {"type": "integer", "minimum": 0},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": PAGE_MAX, "default": PAGE_DEFAULT},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": LOG_PAGE_MAX, "default": LOG_PAGE_MAX},
                 },
                 "additionalProperties": false,
             }),
@@ -170,8 +258,17 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "get_history",
-            description: "The changes made to one record, newest first.",
-            schema: id("The record's id."),
+            description: "The changes made to one record, newest first, up to 50 a page. Read on with offset, as nextOffset says.",
+            schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "The record's id."},
+                    "offset": {"type": "integer", "minimum": 0},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": LOG_PAGE_MAX, "default": LOG_PAGE_MAX},
+                },
+                "required": ["id"],
+                "additionalProperties": false,
+            }),
             call: get_history::<H>,
         },
         Tool {
@@ -180,8 +277,8 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             schema: json!({
                 "type": "object",
                 "properties": {
-                    "source_file": {"type": "string"},
-                    "number": {"type": "string"},
+                    "source_file": {"type": "string", "maxLength": TEXT_ARG_MAX},
+                    "number": {"type": "string", "maxLength": TEXT_ARG_MAX},
                 },
                 "required": ["source_file", "number"],
                 "additionalProperties": false,
@@ -234,10 +331,20 @@ fn uuid_arg(args: &Value, name: &str) -> Result<Uuid, ApiError> {
         .ok_or_else(|| invalid(format!("{name} must be the id of a record")))
 }
 
+/// Free text from the agent, which costs little to refuse and can cost a lot to search for.
+fn checked_text<'a>(name: &str, text: &'a str) -> Result<&'a str, ApiError> {
+    if text.len() > TEXT_ARG_MAX {
+        return Err(invalid(format!("{name} is longer than 1 KiB. Shorten it.")));
+    }
+    Ok(text)
+}
+
 fn str_arg<'a>(args: &'a Value, name: &str) -> Result<&'a str, ApiError> {
-    args.get(name)
+    let text = args
+        .get(name)
         .and_then(Value::as_str)
-        .ok_or_else(|| invalid(format!("{name} must be text")))
+        .ok_or_else(|| invalid(format!("{name} must be text")))?;
+    checked_text(name, text)
 }
 
 fn optional_str<'a>(args: &'a Value, name: &str) -> Result<Option<&'a str>, ApiError> {
@@ -263,11 +370,11 @@ struct PageArgs {
     limit: usize,
 }
 
-fn page_args(args: &Value) -> Result<PageArgs, ApiError> {
+fn page_args(args: &Value, most: u64) -> Result<PageArgs, ApiError> {
     let offset = optional_u64(args, "offset")?.unwrap_or(0);
     let limit = optional_u64(args, "limit")?
         .unwrap_or(PAGE_DEFAULT)
-        .clamp(1, PAGE_MAX);
+        .clamp(1, most);
     Ok(PageArgs {
         offset: usize::try_from(offset).unwrap_or(usize::MAX),
         limit: usize::try_from(limit).unwrap_or(1),
@@ -360,34 +467,6 @@ fn relative_row(s: &Session, id: Uuid, family: Uuid) -> Result<Value, ApiError> 
     Ok(row)
 }
 
-/// The numbers a record has in source files' own numberings.
-fn numbers(common: &Common) -> Vec<Value> {
-    common
-        .ext_ids
-        .iter()
-        .filter_map(|e| match &e.kind {
-            ExtIdKind::Exid { scheme } => scheme
-                .strip_prefix(NUMBER_SCHEME_PREFIX)
-                .map(|file| json!({"sourceFile": file, "number": e.value})),
-            _ => None,
-        })
-        .collect()
-}
-
-/// Adds what a record has beyond its DTO: notes, citations, media and numbers.
-fn with_common(s: &Session, mut value: Value, common: &Common) -> Result<Value, ApiError> {
-    if let Some(fields) = value.as_object_mut() {
-        fields.insert("notes".into(), to_value(&s.note_dtos(&common.notes))?);
-        fields.insert(
-            "citations".into(),
-            to_value(&s.citations_dto(&common.citations))?,
-        );
-        fields.insert("media".into(), to_value(&s.media_dtos(&common.media))?);
-        fields.insert("numbers".into(), json!(numbers(common)));
-    }
-    Ok(value)
-}
-
 fn tree_summary<H: Host>(host: &H, _: &AgentCtx, _: &Value) -> ToolResult {
     let summary = read(host, |s| {
         let info = s.info();
@@ -413,7 +492,7 @@ fn tree_summary<H: Host>(host: &H, _: &AgentCtx, _: &Value) -> ToolResult {
 
 fn search_people<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     let query = str_arg(args, "query")?;
-    let page = page_args(args)?;
+    let page = page_args(args, PAGE_MAX)?;
     let result = read(host, |s| {
         // The session's own search stops at 50 hits; here every hit can be paged to. The limit
         // is per kind of match, so this one reaches them all.
@@ -446,7 +525,7 @@ fn search_people<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
 }
 
 fn list_people<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
-    let page = page_args(args)?;
+    let page = page_args(args, PAGE_MAX)?;
     let result = read(host, |s| {
         let rows = s.list_persons(&PersonQuery::default(), page.offset, page.limit);
         let items = rows
@@ -461,30 +540,56 @@ fn list_people<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
 
 fn get_person<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "id")?;
+    let offset = optional_u64(args, "notes_offset")?.unwrap_or(0);
+    let limit = optional_u64(args, "notes_limit")?
+        .unwrap_or(NOTES_DEFAULT)
+        .clamp(1, PAGE_MAX);
+    let offset = usize::try_from(offset).unwrap_or(usize::MAX);
+    let limit = usize::try_from(limit).unwrap_or(1);
     let result = read(host, |s| {
         let p = person(s, id)?;
-        let mut value = to_value(&s.get_person(id)?)?;
-        // The detail view leaves out what is noted on a name.
-        if let Some(rows) = value.get_mut("names").and_then(Value::as_array_mut) {
-            for row in rows {
-                let name_id = row.get("id").and_then(Value::as_str).unwrap_or_default();
-                let notes = p
-                    .names
-                    .iter()
-                    .find(|n| n.id.to_string() == name_id)
-                    .map(|n| s.note_dtos(&n.notes))
-                    .unwrap_or_default();
-                row["notes"] = to_value(&notes)?;
-            }
-        }
+        let mut value = records::person_full(s, p)?;
+        bound_notes(&mut value, offset, limit);
         if let Some(fields) = value.as_object_mut() {
-            fields.insert("living".into(), json!(s.person_ref(id).map(|r| r.living)));
-            fields.insert("numbers".into(), json!(numbers(&p.common)));
             fields.insert("siblingMarker".into(), json!(is_sibling_marker(p)));
         }
         Ok(value)
     })?;
     answer(&result)
+}
+
+/// Leaves one page of a person's notes, ended early by size, and says how to read the rest.
+fn bound_notes(person: &mut Value, offset: usize, limit: usize) {
+    let Some(fields) = person.as_object_mut() else {
+        return;
+    };
+    let all = match fields.remove("notes") {
+        Some(Value::Array(all)) => all,
+        _ => Vec::new(),
+    };
+    let total = all.len();
+    let mut page = Vec::new();
+    let mut size = 0;
+    for note in all.into_iter().skip(offset).take(limit) {
+        if !page.is_empty() && size >= NOTES_TEXT_BUDGET {
+            break;
+        }
+        size += note.get("text").and_then(Value::as_str).map_or(0, str::len);
+        page.push(note);
+    }
+    let end = offset.saturating_add(page.len());
+    fields.insert("notes".into(), json!(page));
+    fields.insert("notesTotal".into(), json!(total));
+    if end < total {
+        fields.insert("notesNextOffset".into(), json!(end));
+        fields.insert(
+            "notesHint".into(),
+            json!(format!(
+                "{} more notes: call get_person with notes_offset {end}.",
+                total - end
+            )),
+        );
+    }
 }
 
 /// Whether this is the marker entry for unnamed brothers or sisters. The tree cannot hold one yet;
@@ -544,127 +649,318 @@ fn get_family<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
             .families
             .get(&id)
             .ok_or_else(|| ApiError::not_found("family", id))?;
-        with_common(s, to_value(&s.get_family(id)?)?, &family.common)
+        records::family_full(s, family)
     })?;
     answer(&result)
 }
 
+/// Cuts a record's `text` to the piece asked for. Asked for nothing, the whole text stays.
+fn text_piece(record: &mut Value, args: &Value) -> Result<(), ApiError> {
+    let offset = optional_u64(args, "text_offset")?;
+    let limit = optional_u64(args, "text_limit")?;
+    if offset.is_none() && limit.is_none() {
+        return Ok(());
+    }
+    let offset = usize::try_from(offset.unwrap_or(0)).unwrap_or(usize::MAX);
+    let limit = limit.unwrap_or(TEXT_PIECE_DEFAULT).max(1);
+    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+    let Some(text) = record.get("text").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    let piece: String = text.chars().skip(offset).take(limit).collect();
+    let end = offset.saturating_add(limit);
+    let more = text.chars().nth(end).is_some();
+    if let Some(fields) = record.as_object_mut() {
+        fields.insert("text".into(), json!(piece));
+        fields.insert("textOffset".into(), json!(offset));
+        if more {
+            fields.insert("nextTextOffset".into(), json!(end));
+        }
+    }
+    Ok(())
+}
+
 fn get_source<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "id")?;
-    let result = read(host, |s| {
-        let source = s
-            .tree()
+    let mut result = read(host, |s| {
+        s.tree()
             .sources
             .get(&id)
-            .ok_or_else(|| ApiError::not_found("source", id))?;
-        let dto = s
-            .source_dto(id)
-            .ok_or_else(|| ApiError::not_found("source", id))?;
-        with_common(s, to_value(&dto)?, &source.common)
+            .map(|source| records::source_full(s, source))
+            .ok_or_else(|| ApiError::not_found("source", id))
     })?;
+    text_piece(&mut result, args)?;
     answer(&result)
 }
 
 fn get_note<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "id")?;
-    let result = read(host, |s| {
-        s.note_dtos(&[id])
-            .pop()
+    let mut result = read(host, |s| {
+        s.tree()
+            .notes
+            .get(&id)
+            .map(|note| records::note_full(s, note))
             .ok_or_else(|| ApiError::not_found("note", id))
     })?;
+    text_piece(&mut result, args)?;
     answer(&result)
 }
 
 fn get_citation<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "id")?;
     let result = read(host, |s| {
-        let citation = s
-            .tree()
+        s.tree()
             .citations
             .get(&id)
-            .ok_or_else(|| ApiError::not_found("citation", id))?;
-        let dto = s
-            .citation_dto(id)
-            .ok_or_else(|| ApiError::not_found("citation", id))?;
-        let mut value = to_value(&dto)?;
-        value["notes"] = to_value(&s.note_dtos(&citation.common.notes))?;
-        Ok(value)
+            .map(|citation| records::citation_full(s, citation))
+            .ok_or_else(|| ApiError::not_found("citation", id))
     })?;
     answer(&result)
 }
 
-/// Whether any of `fields` contains the folded query. An absent query takes everything.
-fn has_query(query: Option<&str>, fields: &[Option<&str>]) -> bool {
-    query.is_none_or(|q| fields.iter().flatten().any(|f| index::fold(f).contains(q)))
+fn get_event<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
+    let id = uuid_arg(args, "id")?;
+    let result = read(host, |s| {
+        s.tree()
+            .events
+            .get(&id)
+            .map(|event| records::event_full(s, event))
+            .ok_or_else(|| ApiError::not_found("event", id))
+    })?;
+    answer(&result)
+}
+
+fn get_place<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
+    let id = uuid_arg(args, "id")?;
+    let result = read(host, |s| {
+        s.tree()
+            .places
+            .get(&id)
+            .map(|place| records::place_full(s, place))
+            .ok_or_else(|| ApiError::not_found("place", id))
+    })?;
+    answer(&result)
+}
+
+fn get_repository<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
+    let id = uuid_arg(args, "id")?;
+    let result = read(host, |s| {
+        s.tree()
+            .repositories
+            .get(&id)
+            .map(|repository| records::repository_full(s, repository))
+            .ok_or_else(|| ApiError::not_found("repository", id))
+    })?;
+    answer(&result)
+}
+
+/// Text a list searches, its first entry also ordering the list.
+type Terms<'a> = Vec<Cow<'a, str>>;
+
+fn texts<'a>(fields: impl IntoIterator<Item = Option<&'a String>>) -> Terms<'a> {
+    fields
+        .into_iter()
+        .map(|f| Cow::Borrowed(f.map_or("", String::as_str)))
+        .collect()
+}
+
+/// Characters of a list's first term that order it, so that long notes cost little to sort.
+const SORT_CHARS: usize = 64;
+
+/// One page of a kind of record, optionally those with a term containing the query. In a stable
+/// order, so that pages cover everything exactly once.
+fn list_records<H: Host>(
+    host: &H,
+    args: &Value,
+    terms: for<'a> fn(&'a Session) -> Vec<(Uuid, Terms<'a>)>,
+    row: fn(&Session, Uuid) -> Option<Value>,
+) -> ToolResult {
+    let query = optional_str(args, "query")?.map(index::fold);
+    let page = page_args(args, PAGE_MAX)?;
+    let result = read(host, |s| {
+        let mut found: Vec<(String, Uuid)> = Vec::new();
+        for (id, record_terms) in terms(s) {
+            let hit = query.as_deref().is_none_or(|q| {
+                record_terms
+                    .iter()
+                    .any(|term| index::fold(term).contains(q))
+            });
+            if hit {
+                let start: String = record_terms
+                    .first()
+                    .map(|t| t.chars().take(SORT_CHARS).collect())
+                    .unwrap_or_default();
+                found.push((index::fold(&start), id));
+            }
+        }
+        found.sort();
+        let total = found.len();
+        let items = slice(found, page)
+            .filter_map(|(_, id)| row(s, id))
+            .collect();
+        Ok(paged(total, page, items))
+    })?;
+    answer(&result)
 }
 
 fn list_sources<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
-    let query = optional_str(args, "query")?.map(index::fold);
-    let page = page_args(args)?;
-    let result = read(host, |s| {
-        let mut found: Vec<(String, Uuid)> = s
-            .tree()
-            .sources
-            .iter()
-            .filter(|(_, src)| {
-                has_query(
-                    query.as_deref(),
-                    &[
-                        src.title.as_deref(),
-                        src.abbreviation.as_deref(),
-                        src.author.as_deref(),
-                    ],
-                )
-            })
-            .map(|(id, src)| (index::fold(src.title.as_deref().unwrap_or_default()), *id))
-            .collect();
-        found.sort();
-        let total = found.len();
-        let mut items = Vec::new();
-        for (_, id) in slice(found, page) {
-            let mut row = to_value(&s.source_dto(id))?;
-            // A list stays light: get_source has the text.
-            if let Some(fields) = row.as_object_mut() {
-                fields.remove("text");
-            }
-            items.push(row);
-        }
-        Ok(paged(total, page, items))
-    })?;
-    answer(&result)
+    list_records(
+        host,
+        args,
+        |s| {
+            s.tree()
+                .sources
+                .iter()
+                .map(|(id, r)| {
+                    let terms =
+                        texts([r.title.as_ref(), r.abbreviation.as_ref(), r.author.as_ref()]);
+                    (*id, terms)
+                })
+                .collect()
+        },
+        |s, id| s.tree().sources.get(&id).map(|r| records::source_row(s, r)),
+    )
 }
 
 fn list_places<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
-    let query = optional_str(args, "query")?.map(index::fold);
-    let page = page_args(args)?;
-    let result = read(host, |s| {
-        let mut found: Vec<(String, Uuid)> = Vec::new();
-        for (id, place) in &s.tree().places {
-            let Some(option) = s.place_option(*id) else {
-                continue;
-            };
-            let mut fields = vec![Some(option.full.as_str()), place.raw.as_deref()];
-            fields.extend(place.names.iter().map(|n| Some(n.name.as_str())));
-            if has_query(query.as_deref(), &fields) {
-                found.push((index::fold(&option.full), *id));
-            }
-        }
-        found.sort();
-        let total = found.len();
-        let mut items = Vec::new();
-        for (_, id) in slice(found, page) {
-            let mut row = to_value(&s.place_option(id))?;
-            if let (Some(place), Some(fields)) = (s.tree().places.get(&id), row.as_object_mut()) {
-                let names: Vec<&str> = place.names.iter().map(|n| n.name.as_str()).collect();
-                fields.insert("names".into(), json!(names));
-                fields.insert("lat".into(), json!(place.lat));
-                fields.insert("lon".into(), json!(place.lon));
-            }
-            items.push(row);
-        }
-        Ok(paged(total, page, items))
-    })?;
-    answer(&result)
+    list_records(
+        host,
+        args,
+        |s| {
+            s.tree()
+                .places
+                .iter()
+                .map(|(id, r)| {
+                    let full = s.place_option(*id).map(|o| o.full).unwrap_or_default();
+                    let mut terms: Terms<'_> = vec![Cow::Owned(full)];
+                    terms.extend(r.raw.as_deref().map(Cow::Borrowed));
+                    terms.extend(r.names.iter().map(|n| Cow::Borrowed(n.name.as_str())));
+                    (*id, terms)
+                })
+                .collect()
+        },
+        |s, id| s.tree().places.get(&id).map(|r| records::place_row(s, r)),
+    )
+}
+
+fn list_notes<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
+    list_records(
+        host,
+        args,
+        |s| {
+            s.tree()
+                .notes
+                .iter()
+                .map(|(id, r)| (*id, vec![Cow::Borrowed(r.text.as_str())]))
+                .collect()
+        },
+        |s, id| s.tree().notes.get(&id).map(records::note_list_row),
+    )
+}
+
+fn list_media<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
+    list_records(
+        host,
+        args,
+        |s| {
+            s.tree()
+                .media
+                .iter()
+                .map(|(id, r)| {
+                    let terms = texts([
+                        r.title.as_ref(),
+                        r.original_name.as_ref(),
+                        r.description.as_ref(),
+                        r.mime.as_ref(),
+                    ]);
+                    (*id, terms)
+                })
+                .collect()
+        },
+        |s, id| s.tree().media.get(&id).map(|r| records::media_row(s, r)),
+    )
+}
+
+fn list_families<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
+    list_records(
+        host,
+        args,
+        |s| {
+            s.tree()
+                .families
+                .iter()
+                .map(|(id, r)| {
+                    let names = records::family_terms(s, r);
+                    (*id, names.into_iter().map(Cow::Owned).collect())
+                })
+                .collect()
+        },
+        |s, id| {
+            s.tree()
+                .families
+                .get(&id)
+                .map(|r| records::family_row(s, r))
+        },
+    )
+}
+
+fn list_repositories<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
+    list_records(
+        host,
+        args,
+        |s| {
+            s.tree()
+                .repositories
+                .iter()
+                .map(|(id, r)| (*id, texts([Some(&r.name), r.address.as_ref()])))
+                .collect()
+        },
+        |s, id| s.tree().repositories.get(&id).map(records::repository_row),
+    )
+}
+
+fn list_events<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
+    list_records(
+        host,
+        args,
+        |s| {
+            s.tree()
+                .events
+                .iter()
+                .map(|(id, r)| {
+                    let terms = records::event_terms(s, r);
+                    (*id, terms.into_iter().map(Cow::Owned).collect())
+                })
+                .collect()
+        },
+        |s, id| s.tree().events.get(&id).map(|r| records::event_row(s, r)),
+    )
+}
+
+fn list_citations<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
+    list_records(
+        host,
+        args,
+        |s| {
+            s.tree()
+                .citations
+                .iter()
+                .map(|(id, r)| {
+                    let title = r
+                        .source
+                        .and_then(|source| s.tree().sources.get(&source))
+                        .and_then(|source| source.title.as_ref());
+                    (*id, texts([title, r.page.as_ref(), r.text.as_ref()]))
+                })
+                .collect()
+        },
+        |s, id| {
+            s.tree()
+                .citations
+                .get(&id)
+                .map(|r| records::citation_row(s, r))
+        },
+    )
 }
 
 fn get_media<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
@@ -674,41 +970,53 @@ fn get_media<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
         .clamp(PICTURE_MIN_PX, PICTURE_MAX_PX);
     // The file is read and decoded after the session is let go, so the app stays responsive.
     let (details, mime, path) = read(host, |s| {
-        let link = MediaLink {
-            media: id,
-            region: None,
-            primary: false,
-        };
-        let dto = s
-            .media_dtos(&[link])
-            .pop()
+        let media = s
+            .tree()
+            .media
+            .get(&id)
             .ok_or_else(|| ApiError::not_found("media", id))?;
-        let mime = dto.media.mime.clone().unwrap_or_default();
-        Ok((dto.media, mime, s.media_original_path(id).ok()))
+        let mime = media.mime.clone().unwrap_or_default();
+        Ok((
+            records::media_full(s, media),
+            mime,
+            s.media_original_path(id).ok(),
+        ))
     })?;
     let block = match path {
         None => text("The file is missing from the project folder."),
-        Some(path) if mime.starts_with("image/") => picture_block(&path, max_size),
+        Some(path) if mime.starts_with("image/") => picture_block(&path, max_size, id, &mime),
         Some(path) => blob_block(&path, id, &mime),
     };
     Ok(vec![json_block(&details)?, block])
 }
 
-fn picture_block(path: &Path, max_size: u64) -> Value {
+/// Runs `f` while no other picture is being decoded.
+fn one_decode_at_a_time<T>(f: impl FnOnce() -> T) -> T {
+    let _one = DECODING.lock().unwrap_or_else(PoisonError::into_inner);
+    f()
+}
+
+fn picture_block(path: &Path, max_size: u64, id: Uuid, mime: &str) -> Value {
     let too_big = std::fs::metadata(path).is_ok_and(|m| m.len() > PICTURE_FILE_MAX);
     if too_big {
-        return text("The picture is too large to read here.");
+        return text(&format!(
+            "This picture's file is over {} MiB, too large to decode here. Its details are above.",
+            PICTURE_FILE_MAX / (1024 * 1024)
+        ));
     }
-    let shrunk = std::fs::read(path)
-        .map_err(|_| ())
-        .and_then(|bytes| render_px(&bytes, max_size as u32).map_err(|_| ()));
+    let shrunk = one_decode_at_a_time(|| {
+        std::fs::read(path)
+            .map_err(|_| ())
+            .and_then(|bytes| render_px(&bytes, max_size as u32).map_err(|_| ()))
+    });
     match shrunk {
         Ok(jpeg) => json!({
             "type": "image",
             "data": base64::engine::general_purpose::STANDARD.encode(jpeg),
             "mimeType": "image/jpeg",
         }),
-        Err(()) => text("The picture could not be read."),
+        // Not a picture after all, or one too demanding to decode: the agent gets the file as is.
+        Err(()) => blob_block(path, id, mime),
     }
 }
 
@@ -731,12 +1039,15 @@ fn blob_block(path: &Path, id: Uuid, mime: &str) -> Value {
 }
 
 fn get_log<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
-    let page = page_args(args)?;
+    let page = page_args(args, LOG_PAGE_MAX)?;
     let filter: LogFilterDto = match args.get("filters") {
         None | Some(Value::Null) => LogFilterDto::default(),
         Some(v) => serde_json::from_value(v.clone())
             .map_err(|e| invalid(format!("filters are not valid: {e}")))?,
     };
+    if let Some(kind) = &filter.actor_kind {
+        checked_text("actorKind", kind)?;
+    }
     let result = read(host, |s| {
         let rows = s.log(filter.clone(), page.offset, page.limit)?;
         let items = rows.items.iter().map(to_value).collect::<Result<_, _>>()?;
@@ -747,8 +1058,17 @@ fn get_log<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
 
 fn get_history<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "id")?;
-    let items = read(host, |s| s.history(id, HISTORY_MAX))?;
-    answer(&json!({"items": items}))
+    let page = page_args(args, LOG_PAGE_MAX)?;
+    let result = read(host, |s| {
+        // These rows hold no record bodies, so one record's whole history is cheap to read.
+        let all = s.history(id, usize::MAX)?;
+        let total = all.len();
+        let items = slice(all, page)
+            .map(|entry| to_value(&entry))
+            .collect::<Result<_, _>>()?;
+        Ok(paged(total, page, items))
+    })?;
+    answer(&result)
 }
 
 fn find_by_number<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
@@ -768,4 +1088,36 @@ fn find_by_number<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
             .map(|(id, _)| *id))
     })?;
     answer(&json!({"person": person}))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    #[test]
+    fn pictures_are_decoded_one_at_a_time() {
+        let running = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let threads: Vec<_> = (0..6)
+            .map(|_| {
+                let (running, peak) = (Arc::clone(&running), Arc::clone(&peak));
+                std::thread::spawn(move || {
+                    one_decode_at_a_time(|| {
+                        let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+                        peak.fetch_max(now, Ordering::SeqCst);
+                        std::thread::sleep(Duration::from_millis(20));
+                        running.fetch_sub(1, Ordering::SeqCst);
+                    });
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        assert_eq!(peak.load(Ordering::SeqCst), 1);
+    }
 }

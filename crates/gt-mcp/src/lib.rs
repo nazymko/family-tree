@@ -5,6 +5,7 @@
 
 mod http;
 mod protocol;
+mod records;
 mod tools_read;
 
 use gt_session::{ApiError, Session};
@@ -25,6 +26,11 @@ pub struct AgentCtx {
 }
 
 /// What the server needs from the app. Used as a generic bound only.
+///
+/// A connection can outlive the [`ServerHandle`] and hold its `Arc` until its last deadline, so an
+/// implementor must not own the `Session` itself. Keep the session behind shared state the app can
+/// empty, so that closing the tree works whatever a connection is doing. After that, `with_session`
+/// fails with `NoProject` for whoever is still there.
 pub trait Host: Send + Sync + 'static {
     /// Runs `f` with the open session, or fails with `ErrorCode::NoProject` when no tree is open.
     fn with_session<T>(
