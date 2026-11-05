@@ -240,19 +240,20 @@ describe('Agent access end to end', () => {
       timeoutMsg: 'the batch still offers Mark reviewed',
     });
     await open('Family');
+    // The person first: on a page still loading there are no badges either, which proves nothing.
+    await browser.waitUntil(async () => (await text()).includes(CHILD), { timeoutMsg: 'the daughter is not on the family page' });
     await browser.waitUntil(async () => (await badges()) === 0, { timeoutMsg: 'badges stayed after the review' });
-    expect(await text()).toContain(CHILD);
   });
 
   it('puts the tree back when the batch is undone', async () => {
     await open('Change log');
     await $(`h2*=${TITLE}`).waitForDisplayed();
     await click('Undo batch');
-    await $('*=Undo this batch?').waitForDisplayed();
-    // The dialog's own button comes last in the page.
-    const undo = await $$('//button[normalize-space(.)="Undo"]');
-    await undo[undo.length - 1].click();
-    await $('*=Undo finished').waitForDisplayed({ timeout: 30000 });
+    // `*=` matches links only: a dialog's title needs its own text selector.
+    const dialog = '//*[self::dialog or @role="dialog"]';
+    await $(`${dialog}//*[contains(normalize-space(.),"Undo this batch?")]`).waitForDisplayed();
+    await $(`${dialog}//button[normalize-space(.)="Undo"]`).click();
+    await $(`${dialog}//*[contains(normalize-space(.),"Undo finished")]`).waitForDisplayed({ timeout: 30000 });
     await click('Done');
 
     expect(await client.people()).toBe(peopleBefore);
