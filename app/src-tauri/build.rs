@@ -1,4 +1,7 @@
 fn main() {
+    // The icon is compiled into the exe, but changing it does not re-run this script by itself: the app would keep
+    // showing the old one in the taskbar.
+    println!("cargo:rerun-if-changed=icons");
     tauri_build::build();
     // The integration tests link the real WebView2 loader and need the Common Controls v6
     // manifest, or they fail to start (STATUS_ENTRYPOINT_NOT_FOUND). Tests only: the app's own
