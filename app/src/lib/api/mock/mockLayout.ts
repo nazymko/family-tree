@@ -43,7 +43,8 @@ export function mirrorLayout<T extends { nodes: ChartNode[]; edges: ChartEdge[] 
 }
 
 function label(p: PersonRef, extra: string): string {
-  return `${p.name}${p.lifespan ? `, ${p.lifespan}` : ''}${extra ? `, ${extra}` : ''}`;
+  const who = p.siblingMarker ? 'more brothers and sisters, not named' : `${p.name}${p.lifespan ? `, ${p.lifespan}` : ''}`;
+  return `${who}${extra ? `, ${extra}` : ''}`;
 }
 
 function blank(id: number, person: PersonRef, gen: number): ChartNode {

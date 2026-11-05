@@ -1060,6 +1060,7 @@ impl<'a> Ctx<'a> {
                 sex,
                 names,
                 living_override: None,
+                sibling_marker: false,
             },
         );
     }

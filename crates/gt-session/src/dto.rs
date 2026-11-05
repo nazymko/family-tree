@@ -68,6 +68,9 @@ pub struct PersonRef {
     pub sex: SexKind,
     pub living: bool,
     pub private: bool,
+    /// The "more brothers and sisters, unnamed" entry: it has no name or dates and the app draws
+    /// its label.
+    pub sibling_marker: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

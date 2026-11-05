@@ -58,6 +58,7 @@ fn person(n: u128, given: &str) -> Person {
         sex: Sex::Male,
         names: vec![name(n + 1000, given)],
         living_override: None,
+        sibling_marker: false,
     }
 }
 

@@ -18,7 +18,7 @@ pub(super) fn save_family(
         return Err(invalid("A family needs two different people."));
     }
     for partner in [partner1, partner2].into_iter().flatten() {
-        p.get::<Person>(partner)?;
+        p.real_person(partner)?;
     }
     let mut fam: Family = match id {
         Some(id) => p.get(id)?,
@@ -52,6 +52,7 @@ pub(super) fn delete_family(p: &mut Planner, id: Uuid) -> Result<Option<Uuid>, A
     p.abandon(&fam.common.citations, &fam.common.notes, true);
     for c in &fam.children {
         p.abandon(&c.citations, &[], true);
+        remove_if_marker(p, c.person);
     }
     p.remove::<Family>(id);
     super::delete::prune_events(p, &HashSet::new(), &HashSet::from([id]));
@@ -66,7 +67,7 @@ pub(super) fn link_child(
     preferred: bool,
 ) -> Result<Option<Uuid>, ApiError> {
     let mut fam: Family = p.get(family)?;
-    p.get::<Person>(child)?;
+    p.real_person(child)?;
     if fam.partner1 == Some(child) || fam.partner2 == Some(child) {
         return Err(invalid("A person cannot be their own child."));
     }
@@ -87,6 +88,55 @@ pub(super) fn link_child(
         unset_preferred_elsewhere(p, child, family);
     }
     Ok(Some(child))
+}
+
+/// Adds the unnamed-siblings marker to `family`'s children: a person with no name and no
+/// events, at most one per family.
+pub(super) fn add_sibling_marker(p: &mut Planner, family: Uuid) -> Result<Option<Uuid>, ApiError> {
+    let mut fam: Family = p.get(family)?;
+    if has_marker_child(p, &fam) {
+        return Err(conflict(
+            "This family already has an entry for unnamed brothers and sisters.",
+        ));
+    }
+    let mut common = super::new_common(p.now);
+    let id = common.id;
+    common.changed = Some(p.now);
+    p.put(Person {
+        common,
+        sex: Sex::Unknown,
+        names: Vec::new(),
+        living_override: None,
+        sibling_marker: true,
+    });
+    fam.children.push(ChildLink {
+        person: id,
+        rel1: rel_of(ParentRelId::Birth, None),
+        rel2: rel_of(ParentRelId::Birth, None),
+        preferred: true,
+        assertion: assertion(false),
+        citations: Vec::new(),
+        unknown: Vec::new(),
+    });
+    fam.common.changed = Some(p.now);
+    p.put(fam);
+    Ok(Some(id))
+}
+
+/// An unnamed-siblings marker exists only as a child of one family: it goes with the link.
+pub(super) fn remove_if_marker(p: &mut Planner, person: Uuid) {
+    if p.find::<Person>(person).is_some_and(|x| x.sibling_marker) {
+        p.remove::<Person>(person);
+    }
+}
+
+fn has_marker_child(p: &Planner, fam: &Family) -> bool {
+    fam.children.iter().any(|c| {
+        p.tree
+            .persons
+            .get(&c.person)
+            .is_some_and(|x| x.sibling_marker)
+    })
 }
 
 pub(super) fn update_child_link(
@@ -125,6 +175,7 @@ pub(super) fn unlink_child(
         .ok_or_else(|| ApiError::not_found("child link", child))?;
     let gone = fam.children.remove(i);
     p.abandon(&gone.citations, &[], true);
+    remove_if_marker(p, child);
     p.put(fam);
     Ok(Some(child))
 }

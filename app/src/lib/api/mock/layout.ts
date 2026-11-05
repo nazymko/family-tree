@@ -71,6 +71,7 @@ export function bounds(nodes: N[]): { w: number; h: number } {
 }
 
 function name(p: PersonRef | null): string {
+  if (p?.siblingMarker) return 'more brothers and sisters, not named';
   return p ? `${p.name}${p.lifespan ? `, ${p.lifespan}` : ''}` : '';
 }
 
