@@ -331,3 +331,77 @@ fn ids_a_record_lists_are_worded() {
         ]
     );
 }
+
+#[test]
+fn media_links_external_ids_and_unknown_data_are_all_shown() {
+    use gt_core::model::{ExtIdKind, ExternalId, MediaLink, Region};
+    use gt_core::raw::RawNode;
+    let mut with = note("x");
+    with.common.media = vec![MediaLink {
+        media: u(5),
+        region: Some(Region {
+            x: 0.1,
+            y: 0.2,
+            w: 0.3,
+            h: 0.4,
+        }),
+        primary: true,
+    }];
+    with.common.ext_ids = vec![ExternalId {
+        kind: ExtIdKind::Exid {
+            scheme: "agent:file".into(),
+        },
+        value: "42".into(),
+    }];
+    with.common.unknown = vec![
+        RawNode {
+            tag: "_X".into(),
+            xref: None,
+            value: None,
+            pos: 0,
+            children: vec![],
+        };
+        2
+    ];
+    let got = diff(
+        Some(Record::Note(note("x"))),
+        Some(Record::Note(with.clone())),
+    );
+    assert!(
+        got.contains(&row("extIds", None, Some("agent:file: 42"))),
+        "{got:?}"
+    );
+    assert!(
+        got.contains(&row("mediaPrimary", None, Some("yes"))),
+        "{got:?}"
+    );
+    assert!(
+        got.contains(&row(
+            "mediaRegion",
+            None,
+            Some("0.100, 0.200, 0.300, 0.400")
+        )),
+        "{got:?}"
+    );
+    assert!(
+        got.contains(&row("unknown", Some("0"), Some("2"))),
+        "{got:?}"
+    );
+    // Taking the data away says what there was and that now there is none.
+    let gone = diff(Some(Record::Note(with)), Some(Record::Note(note("x"))));
+    assert!(
+        gone.contains(&row("unknown", Some("2"), Some("0"))),
+        "{gone:?}"
+    );
+    assert!(
+        gone.contains(&row("extIds", Some("agent:file: 42"), None)),
+        "{gone:?}"
+    );
+    // A new record with no such data lists none of it.
+    let fresh = diff(None, Some(Record::Note(note("x"))));
+    assert!(
+        fresh
+            .iter()
+            .all(|r| r.0 != "unknown" && r.0 != "mediaPrimary")
+    );
+}

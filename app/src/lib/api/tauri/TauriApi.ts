@@ -7,6 +7,7 @@ import type {
   LogAgentDto,
   LogFilterDto,
   LogRowDto,
+  RecordHomeDto,
   ReviewScopeDto,
   UndoReport,
   AttachResult,
@@ -242,8 +243,14 @@ export class TauriApi implements Api {
   unreviewedPeople(): Promise<Id[]> {
     return call('unreviewed_people');
   }
-  personAgentChanges(id: Id): Promise<LogRowDto[]> {
-    return call('person_agent_changes', { id });
+  personAgentChanges(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
+    return call('person_agent_changes', { id, offset, limit });
+  }
+  hasUntrackedChanges(): Promise<boolean> {
+    return call('has_untracked_changes');
+  }
+  recordHome(kind: 'note' | 'citation', id: Id): Promise<RecordHomeDto | null> {
+    return call('record_home', { kind, id });
   }
   personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
     return call('person_history', { id, offset, limit });

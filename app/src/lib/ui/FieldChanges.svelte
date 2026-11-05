@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { FieldChangeDto } from '../api/types';
-  import { t, type MessageKey } from '../i18n';
+  import { plural, t, type MessageKey } from '../i18n';
   import { dateText, eventKindLabel } from '../i18n/backend';
 
   /** A table of a person's changed fields: the field, its value before and its value after. */
@@ -36,9 +36,14 @@
     'partner1', 'partner2', 'unionKind', 'child', 'childRel1', 'childRel2', 'childPreferred', 'childCitations', 'childUnknown',
     'source', 'page', 'quality', 'original', 'primaryInfo', 'direct', 'title', 'author', 'publication', 'abbreviation',
     'repository', 'placeNames', 'parent', 'placeKind', 'lat', 'lon', 'placeRaw', 'repoName', 'address', 'urls', 'path',
-    'originalName', 'mime', 'sha256', 'media',
+    'originalName', 'mime', 'sha256', 'media', 'extIds', 'mediaPrimary', 'mediaRegion',
   ]);
-  const YES_NO = new Set(['preferred', 'private', 'shared', 'negative', 'original', 'primaryInfo', 'direct', 'childPreferred']);
+
+  /** Joins the names of one row's `of` (the partners of a family); the page puts its own "and" between them. */
+  const LIST_SEP = '\u001f';
+  /** Stands for a record that was deleted and cannot be read any more. */
+  const REMOVED = '\u0001removed';
+  const YES_NO = new Set(['preferred', 'private', 'shared', 'negative', 'original', 'primaryInfo', 'direct', 'childPreferred', 'mediaPrimary']);
   const PEOPLE = new Set(['partner1', 'partner2', 'child']);
   const NOTE_KINDS = ['general', 'story', 'research', 'transcription', 'conclusion'];
   const UNION: Record<string, MessageKey> = {
@@ -71,7 +76,21 @@
 
   /** A stored token in words; text fields come out as stored. `null` when the side is empty. */
   function word(field: string, v: string | null): string | null {
+    const w = plain(field, v);
+    return w === null ? null : w.replaceAll(REMOVED, t('fieldChange.removed'));
+  }
+
+  /** The people of a row's `of`, an unknown one in words, joined with the language's "and". */
+  function ofText(of: string): string {
+    return of
+      .split(LIST_SEP)
+      .map((p) => (p === 'Unknown' ? t('changeLog.unknownPerson') : p))
+      .join(` ${t('fieldChange.and')} `);
+  }
+
+  function plain(field: string, v: string | null): string | null {
     if (v === null || v === '') return null;
+    if (field === 'unknown' || field === 'childUnknown') return plural('fieldChange.items', Number(v));
     if (YES_NO.has(field)) return t(v === 'yes' ? 'fieldChange.yes' : 'fieldChange.no');
     if (field === 'proof') return t(v === 'proven' ? 'fieldChange.proven' : 'fieldChange.disproven');
     if (field === 'kind' || field === 'sex') {
@@ -127,7 +146,7 @@
         {#if g.heading}<tr><th class="who" colspan="3" scope="rowgroup">{g.heading}</th></tr>{/if}
         {#each g.rows as f, j (j)}
           <tr>
-            <th scope="row">{label(f.field, f) + (f.of ? ' · ' : '')}{#if f.of}<bdi dir="auto">{f.of === 'Unknown' ? t('changeLog.unknownPerson') : f.of}</bdi>{/if}</th>
+            <th scope="row">{label(f.field, f) + (f.of ? ' · ' : '')}{#if f.of}<bdi dir="auto">{ofText(f.of).replaceAll(REMOVED, t('fieldChange.removed'))}</bdi>{/if}</th>
             <td>{@render value(word(f.field, f.before))}</td>
             <td>{@render value(word(f.field, f.after))}</td>
           </tr>

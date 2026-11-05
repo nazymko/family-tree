@@ -1063,7 +1063,8 @@ fn get_history<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "id")?;
     let page = page_args(args, LOG_PAGE_MAX)?;
     let result = read(host, |s| {
-        // These rows hold no record bodies, so one record's whole history is cheap to read.
+        // Only a person's rows carry field changes; those of every other kind carry none, so a
+        // record's whole history stays cheap to read (the page below is cut after reading).
         let all = s.history(id, usize::MAX)?;
         let total = all.len();
         let items = slice(all, page)

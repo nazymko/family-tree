@@ -322,11 +322,11 @@ describe('the page order and the history', () => {
     w.platform.simulateAgentBatch(w.raw, { changes: [{ person: w.d.ref.id, note: 'Last on the page' }] });
     await open(w);
     const p = await panel();
-    for (const h of ['h-tree', 'h-names', 'h-basics', 'h-events', 'h-rel', 'h-notes', 'h-media', 'h-sources', 'h-history']) {
-      const el = document.getElementById(h);
-      if (el) expect(after(el, p), h).toBe(true);
-    }
-    expect(document.getElementById('h-history')).not.toBeNull();
+    const order = ['h-tree', 'h-names', 'h-basics', 'h-events', 'h-rel', 'h-notes', 'h-media', 'h-sources', 'delete', 'h-history'];
+    const els = order.map((h) => (h === 'delete' ? screen.getByRole('button', { name: 'Delete person' }) : document.getElementById(h)));
+    els.forEach((el, i) => expect(el, order[i]).not.toBeNull());
+    for (let i = 1; i < els.length; i++) expect(after(els[i - 1]!, els[i]!), `${order[i - 1]} before ${order[i]}`).toBe(true);
+    expect(after(els[els.length - 1]!, p)).toBe(true);
   });
 
   it('a_person_nobody_changed_says_nothing_was_recorded', async () => {
@@ -364,6 +364,157 @@ describe('the page order and the history', () => {
     await open(w);
     const history = document.querySelector('section[aria-labelledby="h-history"]') as HTMLElement;
     await waitFor(() => expect(within(history).getByText('Undone')).toBeInTheDocument());
+  });
+});
+
+describe('edit reaches every record an agent can change on this page', () => {
+  async function familyOf(w: World) {
+    return w.d.partnerships[0].familyId;
+  }
+
+  it('a_note_on_a_family_opens_the_note_editor_on_that_family', async () => {
+    const w = await world();
+    const fam = await familyOf(w);
+    await w.raw.apply({ type: 'saveNote', target: { kind: 'family', id: fam }, note: { kind: 'general', text: 'Married in the old church' } });
+    const note = (await w.raw.recordHome('note', (w.raw as unknown as { db: { families: Map<string, { notes: { id: string }[] }> } }).db.families.get(fam)!.notes[0].id))!.note!;
+    w.platform.simulateAgentBatch(w.raw, { changes: [{ person: w.d.ref.id, kind: 'note', record: note.id, fields: [field('text', null, note.text)], fact: { kind: 'text', text: note.text } }] });
+    await open(w);
+    const spy = vi.spyOn(w.raw, 'apply');
+    await w.user.click(await within(await panel()).findByRole('button', { name: /^Edit Note: Married in the old church/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit note' });
+    const box = within(dialog).getByRole('textbox', { name: 'Note' });
+    expect(box).toHaveValue('Married in the old church');
+    await w.user.type(box, '!');
+    await w.user.click(within(dialog).getByRole('button', { name: 'Save note' }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0][0]).toMatchObject({ type: 'saveNote', target: { kind: 'family', id: fam }, note: { id: note.id, text: 'Married in the old church!' } });
+  });
+
+  it('a_note_and_a_citation_on_an_event_open_their_editors_on_that_event', async () => {
+    const w = await world();
+    const ev = w.d.events[0];
+    await w.raw.apply({ type: 'saveNote', target: { kind: 'event', id: ev.id }, note: { kind: 'research', text: 'Checked the register' } });
+    await w.raw.apply({ type: 'addCitation', target: { kind: 'event', id: ev.id }, citation: { source: { title: 'Parish book' }, page: '12' } });
+    const detail = await w.raw.getPerson(w.d.ref.id);
+    const held = detail.events.find((e) => e.id === ev.id)!;
+    const note = held.notes[held.notes.length - 1];
+    const cite = held.citations[held.citations.length - 1];
+    w.platform.simulateAgentBatch(w.raw, {
+      changes: [
+        { person: w.d.ref.id, kind: 'note', record: note.id, fields: [field('text', null, note.text)], fact: { kind: 'text', text: note.text } },
+        { person: w.d.ref.id, kind: 'citation', record: cite.id, fields: [field('page', null, '12')], fact: { kind: 'text', text: 'Parish book' } },
+      ],
+    });
+    await open(w);
+    const p = await panel();
+    await w.user.click(await within(p).findByRole('button', { name: /^Edit Note: Checked the register/ }));
+    const noteDialog = await screen.findByRole('dialog', { name: 'Edit note' });
+    expect(within(noteDialog).getByRole('textbox', { name: 'Note' })).toHaveValue('Checked the register');
+    await w.user.click(within(noteDialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await w.user.click(await within(p).findByRole('button', { name: /^Edit Citation/ }));
+    expect(await screen.findByRole('dialog', { name: /citation/i })).toBeInTheDocument();
+  });
+
+  it('an_event_of_a_family_this_person_is_a_partner_in_opens_the_event_editor_on_that_family', async () => {
+    const w = await world();
+    const fam = await familyOf(w);
+    await w.raw.apply({ type: 'saveEvent', owner: { kind: 'family', id: fam }, event: { kind: 'marriage', dateRaw: '1 Jan 1900', negative: false, private: false, preferred: true } });
+    const famDto = await w.raw.getFamily(fam);
+    const ev = famDto.events[famDto.events.length - 1];
+    expect((await w.raw.getPerson(w.d.ref.id)).events.some((e) => e.id === ev.id)).toBe(false);
+    w.platform.simulateAgentBatch(w.raw, {
+      changes: [{ person: w.d.ref.id, kind: 'event', record: ev.id, fields: [field('eventKind', null, 'marriage')], fact: { kind: 'event', event: 'marriage', label: '', date: null, place: null } }],
+    });
+    await open(w);
+    const spy = vi.spyOn(w.raw, 'apply');
+    await w.user.click(await within(await panel()).findByRole('button', { name: /^Edit Event/ }));
+    const dialog = await screen.findByRole('dialog', { name: /^Edit / });
+    await w.user.click(within(dialog).getByRole('button', { name: /^Save/ }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0][0]).toMatchObject({ type: 'saveEvent', owner: { kind: 'family', id: fam }, event: { id: ev.id } });
+  });
+
+  it('a_note_that_nothing_holds_any_more_has_no_edit_button', async () => {
+    const w = await world();
+    w.platform.simulateAgentBatch(w.raw, { changes: [{ person: w.d.ref.id, kind: 'note', record: 'gone-note', op: 'delete', fields: [field('text', 'x', null)] }] });
+    await open(w);
+    const p = await panel();
+    await waitFor(() => expect(within(p).getByRole('button', { name: /^Undo/ })).toBeInTheDocument());
+    expect(within(p).queryByRole('button', { name: /^Edit/ })).toBeNull();
+  });
+});
+
+describe('paging of the agent rows and the history past the backend page', () => {
+  const many = (w: World, n: number) => w.platform.simulateAgentBatch(w.raw, { changes: Array.from({ length: n }, (_, i) => ({ person: w.d.ref.id, note: `Agent note ${i}` })) });
+  const panelRows = () => document.querySelectorAll('section[aria-labelledby$="-h"] > ul > li').length;
+  const historyRows = () => document.querySelectorAll('section[aria-labelledby="h-history"] ul.rows li').length;
+
+  it('the_panel_shows_twenty_rows_then_show_more', async () => {
+    const w = await world();
+    many(w, 25);
+    await open(w);
+    const p = await panel();
+    await waitFor(() => expect(panelRows()).toBe(20));
+    await w.user.click(within(p).getByRole('button', { name: 'Show more' }));
+    await waitFor(() => expect(panelRows()).toBe(25));
+    expect(within(p).queryByRole('button', { name: 'Show more' })).toBeNull();
+  });
+
+  it('a_reload_keeps_every_row_shown_even_past_two_hundred', async () => {
+    const w = await world();
+    many(w, 230);
+    await open(w);
+    const p = await panel();
+    const history = document.querySelector('section[aria-labelledby="h-history"]') as HTMLElement;
+    await waitFor(() => expect(panelRows()).toBe(20));
+    for (let shown = 20; shown < 220; shown += 20) {
+      await w.user.click(within(p).getAllByRole('button', { name: 'Show more' })[0]);
+      await waitFor(() => expect(panelRows()).toBe(shown + 20));
+      await w.user.click(within(history).getByRole('button', { name: 'Show more' }));
+      await waitFor(() => expect(historyRows()).toBe(shown + 20));
+    }
+    // Another change lands: the page reloads and must keep its place, not fall back to 200.
+    await w.api.apply({ type: 'saveNote', target: { kind: 'person', id: w.d.ref.id }, note: { kind: 'general', text: 'Owner note' } });
+    await waitFor(() => expect(historyRows()).toBe(220));
+    expect(panelRows()).toBe(220);
+    expect(within(history).getByRole('button', { name: 'Show more' })).toBeInTheDocument();
+  }, 60000);
+});
+
+describe('older changes', () => {
+  it('a_line_under_the_history_only_when_the_tree_has_groups_from_before_authors', async () => {
+    const w = await world();
+    await open(w);
+    await waitFor(() => expect(screen.getByText('No changes recorded yet.')).toBeInTheDocument());
+    expect(screen.queryByText('Older changes to notes and events may not show here.')).toBeNull();
+    w.raw.recordBeforeTracking('Edit', w.d.ref.id);
+    await w.api.apply({ type: 'saveNote', target: { kind: 'person', id: w.d.ref.id }, note: { kind: 'general', text: 'touch' } });
+    expect(await screen.findByText('Older changes to notes and events may not show here.')).toBeInTheDocument();
+  });
+
+  it('in_ukrainian', async () => {
+    const w = await world();
+    w.raw.recordBeforeTracking('Edit', w.d.ref.id);
+    setLanguage('uk');
+    render(PersonEditor, { props: { id: w.d.ref.id }, context: apiContext(w.api, w.platform) });
+    expect(await screen.findByText('Давніші зміни нотаток і подій можуть тут не показуватись.')).toBeInTheDocument();
+  });
+});
+
+describe('the person an undo removed, read after Done', () => {
+  it('a_reload_that_lands_after_done_goes_back_without_an_error_screen', async () => {
+    const w = await world();
+    w.platform.simulateAgentBatch(w.raw, { changes: [{ person: w.d.ref.id, note: 'Made them' }] });
+    await open(w);
+    await w.user.click(within(await panel()).getByRole('button', { name: /^Undo/ }));
+    await w.user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Undo' }));
+    await w.user.click(within(await screen.findByRole('dialog', { name: 'Undo finished' })).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // The person goes only now, after the dialog has closed.
+    await w.api.apply({ type: 'deletePerson', id: w.d.ref.id });
+    await waitFor(() => expect(nav.route.name).toBe('people'));
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });
 

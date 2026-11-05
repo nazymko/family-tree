@@ -3,6 +3,7 @@ import type {
   LogAgentDto,
   LogFilterDto,
   LogRowDto,
+  RecordHomeDto,
   ReviewScopeDto,
   UndoReport,
   AttachResult,
@@ -130,7 +131,12 @@ export interface Api {
   markReviewed(scope: ReviewScopeDto): Promise<void>;
   /** People an agent changed that nobody has reviewed yet; these carry the badge. */
   unreviewedPeople(): Promise<Id[]>;
-  personAgentChanges(id: Id): Promise<LogRowDto[]>;
+  /** One page of what agents changed on this person and still stands, newest first; values in full. */
+  personAgentChanges(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>>;
+  /** Whether the tree holds changes from before authors were tracked (their notes and events may not reach a person). */
+  hasUntrackedChanges(): Promise<boolean>;
+  /** The record holding a note or citation, with the note or citation itself; null when it is gone. */
+  recordHome(kind: 'note' | 'citation', id: Id): Promise<RecordHomeDto | null>;
   /** Every change group that reached this person, by anyone, newest first; values in full. */
   personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>>;
   /** Undoes one agent change; a fact someone changed since stays and is named in the report. */

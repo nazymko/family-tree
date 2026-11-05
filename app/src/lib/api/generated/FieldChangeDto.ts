@@ -10,7 +10,8 @@ export type FieldChangeDto = {
  */
 field: string, 
 /**
- * The part of the record this row is about, in words (a participant's or a child's name).
+ * The part of the record this row is about, in words (a participant's or a child's name). Several
+ * names (the partners of a family) are joined with [`LIST_SEP`] so the UI words the "and".
  */
 of?: string, 
 /**

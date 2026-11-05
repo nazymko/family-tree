@@ -7,8 +7,9 @@
 //! (`proven`, `disproven`), and `citations`, `notes`, `unknown` (a count).
 
 use gt_core::model::{
-    Assertion, ChildLink, Citation, Common, Event, Evidence, Family, Media, Name, NameKind, Note,
-    Participant, ParticipantRef, Person, Place, PlaceName, Proof, RepoRef, Repository, Sex, Source,
+    Assertion, ChildLink, Citation, Common, Event, Evidence, ExtIdKind, ExternalId, Family, Media,
+    MediaLink, Name, NameKind, Note, Participant, ParticipantRef, Person, Place, PlaceName, Proof,
+    RepoRef, Repository, Sex, Source,
 };
 use gt_store::Record;
 use serde::{Deserialize, Serialize};
@@ -26,7 +27,8 @@ pub struct FieldChangeDto {
     /// `nickname`, `lang`, `date`, `raw`, `citations`, `notes`, `unknown`, or `position`
     /// (where the name stands among the names kept; the first is the main one).
     pub field: String,
-    /// The part of the record this row is about, in words (a participant's or a child's name).
+    /// The part of the record this row is about, in words (a participant's or a child's name). Several
+    /// names (the partners of a family) are joined with [`LIST_SEP`] so the UI words the "and".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub of: Option<String>,
@@ -45,6 +47,13 @@ pub struct FieldChangeDto {
     pub before: Option<String>,
     pub after: Option<String>,
 }
+
+/// Joins the names in a row's `of` (the partners of a family); the UI puts its own "and" between them.
+pub const LIST_SEP: char = '\u{1f}';
+
+/// What stands for a record that was deleted and cannot be read any more (a place, a source ...).
+/// The UI words it in its own language; it never appears in stored data.
+pub const REMOVED: &str = "\u{1}removed";
 
 fn yes(b: bool) -> String {
     if b { "yes" } else { "no" }.to_string()
@@ -293,10 +302,10 @@ fn common_rows(c: &Common, w: &dyn Words) -> Vec<Row> {
         citations,
         notes,
         media,
-        ext_ids: _,
+        ext_ids,
         unknown,
     } = c;
-    vec![
+    let mut out = vec![
         row("private", Some(yes(*private))),
         row(
             "citations",
@@ -307,11 +316,44 @@ fn common_rows(c: &Common, w: &dyn Words) -> Vec<Row> {
             "media",
             join(media.iter().map(|l| w.media(l.media)).collect()),
         ),
-        row(
-            "unknown",
-            (!unknown.is_empty()).then(|| unknown.len().to_string()),
-        ),
-    ]
+        row("extIds", join(ext_ids.iter().map(ext_id).collect())),
+        row("unknown", Some(unknown.len().to_string())),
+    ];
+    for MediaLink {
+        media,
+        region,
+        primary,
+    } in media
+    {
+        let name = w.media(*media);
+        out.push(Row {
+            field: "mediaPrimary",
+            of: Some(name.clone()),
+            key: Some(*media),
+            value: Some(yes(*primary)),
+        });
+        out.push(Row {
+            field: "mediaRegion",
+            of: Some(name),
+            key: Some(*media),
+            value: region
+                .as_ref()
+                .map(|r| format!("{:.3}, {:.3}, {:.3}, {:.3}", r.x, r.y, r.w, r.h)),
+        });
+    }
+    out
+}
+
+/// An external id as `scheme: value`.
+fn ext_id(e: &ExternalId) -> String {
+    let scheme = match &e.kind {
+        ExtIdKind::Xref => "xref".to_string(),
+        ExtIdKind::Uid => "uid".to_string(),
+        ExtIdKind::FamilySearch => "familysearch".to_string(),
+        ExtIdKind::AncestryApid => "ancestry".to_string(),
+        ExtIdKind::Exid { scheme } | ExtIdKind::Other(scheme) => scheme.clone(),
+    };
+    format!("{scheme}: {}", e.value)
 }
 
 fn assertion_rows(a: &Assertion) -> Vec<Row> {
@@ -427,10 +469,7 @@ fn family_rows(f: &Family, w: &dyn Words) -> Vec<Row> {
             "childCitations",
             join(citations.iter().map(|i| w.citation(*i)).collect()),
         ));
-        mine.push(row(
-            "childUnknown",
-            (!unknown.is_empty()).then(|| unknown.len().to_string()),
-        ));
+        mine.push(row("childUnknown", Some(unknown.len().to_string())));
         out.push(Row {
             field: "child",
             of: None,
@@ -631,7 +670,14 @@ pub fn record_field_changes(
             let one_sided = before.is_none() || after.is_none();
             let was = before.map(|r| rows(r, w)).unwrap_or_default();
             let now = after.map(|r| rows(r, w)).unwrap_or_default();
-            let off = |v: &Option<String>| one_sided && v.as_deref() == Some("no");
+            let off = |r: &Row| {
+                one_sided
+                    && match r.value.as_deref() {
+                        Some("no") => true,
+                        Some("0") => matches!(r.field, "unknown" | "childUnknown"),
+                        _ => false,
+                    }
+            };
             let same = |a: &Row, b: &Row| a.field == b.field && a.key == b.key;
             let mut out = Vec::new();
             for r in &now {
@@ -639,12 +685,12 @@ pub fn record_field_changes(
                     .iter()
                     .find(|o| same(o, r))
                     .and_then(|o| o.value.clone());
-                if old != r.value && !off(&r.value) {
+                if old != r.value && !off(r) {
                     out.push(dto(r, old, r.value.clone()));
                 }
             }
             for r in &was {
-                if !now.iter().any(|n| same(n, r)) && r.value.is_some() && !off(&r.value) {
+                if !now.iter().any(|n| same(n, r)) && r.value.is_some() && !off(r) {
                     out.push(dto(r, r.value.clone(), None));
                 }
             }

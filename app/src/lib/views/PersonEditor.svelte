@@ -9,6 +9,7 @@
     CitationDto,
     NameDto,
     NoteDto,
+    OwnerRef,
     PersonDetail,
     PersonRef,
   } from '../api/types';
@@ -21,6 +22,7 @@
   import { agentChanges, EDITOR_HOST, type EditorHost } from '../state/agentChanges.svelte';
   import FamilyTree from './FamilyTree.svelte';
   import AgentChangesPanel, { type EditTarget } from './AgentChangesPanel.svelte';
+  import { loadRows, ROW_PAGE } from './pagedRows';
   import LogChanges from './LogChanges.svelte';
   import Badge from '../ui/Badge.svelte';
   import AgentBadge from '../ui/AgentBadge.svelte';
@@ -63,7 +65,8 @@
   /** Every change group that reached this person, newest first, as far as the owner has paged. */
   let history = $state<LogRowDto[]>([]);
   let historyTotal = $state(0);
-  const HISTORY_PAGE = 20;
+  /** The tree holds changes from before authors were tracked: some notes and events may not show in the history. */
+  let olderChanges = $state(false);
   let title = $state<HTMLElement>();
   /** An undo is being asked or answered; an undo that removes this person waits for the answer to be read. */
   let undoing = false;
@@ -79,11 +82,11 @@
   let dialog = $state<
     | null
     | { kind: 'name'; name?: NameDto }
-    | { kind: 'note'; note?: NoteDto }
-    | { kind: 'event'; event?: EventDto; newKind?: string }
+    | { kind: 'note'; note?: NoteDto; owner?: OwnerRef }
+    | { kind: 'event'; event?: EventDto; newKind?: string; owner?: { kind: 'person' | 'family'; id: Id } }
     | { kind: 'surnames' }
     | { kind: 'family'; family?: Id }
-    | { kind: 'citation'; citation: CitationDto }
+    | { kind: 'citation'; citation: CitationDto; owner?: OwnerRef }
     | { kind: 'quick'; relation: 'father' | 'mother' | 'partner' | 'child' | 'sibling' }
     | { kind: 'delete' }
   >(null);
@@ -128,7 +131,7 @@
     let landed = false;
     try {
       const d = await api.getPerson(id);
-      const h = await api.personHistory(id, 0, Math.max(HISTORY_PAGE, untrack(() => history.length)));
+      const h = await loadRows((o, l) => api.personHistory(id, o, l), untrack(() => history.length));
       const fv = await api.getFamilyView(id).catch(() => null);
       if (mine !== loadSeq) return false; // a newer load is in flight
       detail = d;
@@ -141,18 +144,31 @@
       landed = true;
     } catch (e) {
       if (mine === loadSeq) {
-        // An undo can take back the person this page is about: leave it, no error screen.
-        if (detail && undoing && (e as { code?: string } | null)?.code === 'not_found') gone = true;
-        else loadError = errMessage(e);
+        // The person this page is about is gone (an undo took it back, or it was deleted): leave it, no error screen.
+        // While an undo question is open the answer is read first, and the page leaves when it is closed.
+        if (detail && (e as { code?: string } | null)?.code === 'not_found') {
+          if (undoing) gone = true;
+          else leave();
+        } else loadError = errMessage(e);
       }
     }
     if (!settings.loaded) void settings.load(api).catch(() => {});
     return landed;
   }
 
+  function leave() {
+    detail = null;
+    if (onDeleted) onDeleted();
+    else nav.go({ name: 'people' });
+  }
+
   $effect(() => {
     void id;
-    void project.rev; // reload after any change made elsewhere (citations, media, families)
+    void project.rev;
+    void api
+      .hasUntrackedChanges()
+      .then((v) => (olderChanges = v))
+      .catch(() => (olderChanges = false)); // reload after any change made elsewhere (citations, media, families)
     void load();
   });
 
@@ -265,11 +281,11 @@
       const id = d.name.id;
       const name = detail?.names.find((n) => n.id === id);
       dialog = name ? { kind: 'name', name } : null;
-    } else if (d?.kind === 'event' && d.event) {
+    } else if (d?.kind === 'event' && d.event && !d.owner) {
       const id = d.event.id;
       const event = detail?.events.find((e) => e.id === id);
       dialog = event ? { ...d, event } : null;
-    } else if (d?.kind === 'note' && d.note) {
+    } else if (d?.kind === 'note' && d.note && !d.owner) {
       const id = d.note.id;
       const note = detail?.notes.find((n) => n.id === id);
       dialog = note ? { kind: 'note', note } : null;
@@ -304,13 +320,12 @@
     undoing = s === 'open';
     if (s === 'closed' && gone) {
       gone = false;
-      if (onDeleted) onDeleted();
-      else nav.go({ name: 'people' });
+      leave();
     }
   }
   async function moreHistory() {
     try {
-      const page = await api.personHistory(id, history.length, HISTORY_PAGE);
+      const page = await api.personHistory(id, history.length, ROW_PAGE);
       history = [...history, ...page.items.filter((r) => !history.some((h) => h.group === r.group))];
       historyTotal = page.total;
     } catch (e) {
@@ -319,11 +334,11 @@
   }
   /** The owner edits what an agent changed, in the same editor as anywhere on this page. */
   function openEdit(target: EditTarget) {
-    if (target.kind === 'note') dialog = { kind: 'note', note: target.note };
-    else if (target.kind === 'event') dialog = { kind: 'event', event: target.event };
+    if (target.kind === 'note') dialog = { kind: 'note', note: target.note, owner: target.owner };
+    else if (target.kind === 'event') dialog = { kind: 'event', event: target.event, owner: target.owner };
     else if (target.kind === 'name') dialog = { kind: 'name', name: target.name };
     else if (target.kind === 'family') dialog = { kind: 'family', family: target.family };
-    else dialog = { kind: 'citation', citation: target.citation };
+    else dialog = { kind: 'citation', citation: target.citation, owner: target.owner };
   }
   const whoWrote = (r: LogRowDto) => (r.actor.kind === 'user' ? t('changeLog.you') : r.actor.kind === 'agent' ? r.actor.name : t('changeLog.beforeTracking'));
   function when(ts: number): string {
@@ -544,6 +559,10 @@
       {#if sourcesSection}{@render sourcesSection(detail)}{:else}<p class="empty">{t('person.citedCount', { n: detail.citations.length })}</p>{/if}
     </section>
 
+    <div class="danger-zone">
+      <Button variant="danger" onclick={() => (dialog = { kind: 'delete' })}>{t('people.deleteTitle')}</Button>
+    </div>
+
     <section aria-labelledby="h-history">
       <details>
         <summary><h2 id="h-history">{t('person.history')}</h2></summary>
@@ -564,14 +583,11 @@
             <div class="more"><Button onclick={moreHistory}>{t('changeLog.showMore')}</Button></div>
           {/if}
         {/if}
+        {#if olderChanges}<p class="empty">{t('person.olderChanges')}</p>{/if}
       </details>
     </section>
 
     <AgentChangesPanel {id} {detail} onedit={openEdit} onvacated={() => title?.focus()} onundo={onUndoAsked} />
-
-    <div class="danger-zone">
-      <Button variant="danger" onclick={() => (dialog = { kind: 'delete' })}>{t('people.deleteTitle')}</Button>
-    </div>
   {/if}
 </div>
 
@@ -580,7 +596,7 @@
   <NameEditor person={id} name={dialog.name} onCancel={closeDialog} onSaved={(r) => saved(r)} />
 {:else if detail && dialog?.kind === 'event'}
   <EventEditor
-    owner={{ kind: 'person', id }}
+    owner={dialog.owner ?? { kind: 'person', id }}
     event={dialog.event}
     newKind={dialog.newKind}
     onCancel={closeDialog}
@@ -599,14 +615,14 @@
   />
 {:else if detail && dialog?.kind === 'citation'}
   <CitationEditor
-    target={{ kind: 'person', id }}
+    target={dialog.owner ?? { kind: 'person', id }}
     citation={dialog.citation}
     onCancel={closeDialog}
     onDone={(r) => saved(r)}
   />
 {:else if detail && dialog?.kind === 'note'}
   <NoteEditor
-    target={{ kind: 'person', id }}
+    target={dialog.owner ?? { kind: 'person', id }}
     note={dialog.note}
     onCancel={closeDialog}
     onSaved={(r) => saved(r)}

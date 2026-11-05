@@ -59,6 +59,8 @@ pub struct LogFilter {
     pub person: Option<Uuid>,
     /// Agent groups with a person the user has not reviewed yet, and not undone.
     pub unreviewed_only: bool,
+    /// Leave out groups a later group undid.
+    pub standing_only: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,7 +126,7 @@ const CHANGE_COLS: &str = "target_type, target_id, before_json, after_json";
 
 /// Filter shared by the page query and its count. `g` is a group summary row (`group_id`,
 /// `first` = id of its first row), `f` that first row. Parameters: 1 actor id, 2 actor kind,
-/// 3 batch, 4 person, 5 unreviewed only. A group written before schema 3 has no `change_person`
+/// 3 batch, 4 person, 5 unreviewed only, 6 standing only. A group written before schema 3 has no `change_person`
 /// rows; it reaches only the person record it changed itself (its other people were not kept).
 const LOG_FROM: &str = "FROM (SELECT group_id, MIN(id) AS first, MAX(id) AS last FROM change_log \
      WHERE group_id IS NOT NULL GROUP BY group_id) g \
@@ -140,7 +142,8 @@ const LOG_FROM: &str = "FROM (SELECT group_id, MIN(id) AS first, MAX(id) AS last
        AND (?5 = 0 OR (f.actor_kind = 'agent' \
             AND EXISTS (SELECT 1 FROM change_person cp WHERE cp.group_id = g.group_id \
                 AND cp.reviewed_ts IS NULL AND cp.person_id = COALESCE(?4, cp.person_id)) \
-            AND NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = g.group_id)))";
+            AND NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = g.group_id))) \
+       AND (?6 = 0 OR NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = g.group_id))";
 
 impl Project {
     /// The changes of one group, in the order they were applied.
@@ -203,6 +206,7 @@ impl Project {
                 f.batch.map(|u| u.to_string()).into(),
                 f.person.map(|u| u.to_string()).into(),
                 i64::from(f.unreviewed_only).into(),
+                i64::from(f.standing_only).into(),
             ];
             v.extend(extra.iter().map(|n| rusqlite::types::Value::Integer(*n)));
             v
@@ -213,7 +217,7 @@ impl Project {
             |r| r.get(0),
         )?;
         let mut st = self.conn.prepare_cached(&format!(
-            "SELECT g.group_id {LOG_FROM} ORDER BY g.last DESC LIMIT ?6 OFFSET ?7"
+            "SELECT g.group_id {LOG_FROM} ORDER BY g.last DESC LIMIT ?7 OFFSET ?8"
         ))?;
         let off = i64::try_from(offset).unwrap_or(i64::MAX);
         let lim = i64::try_from(limit).unwrap_or(i64::MAX);
@@ -227,6 +231,15 @@ impl Project {
             }
         }
         Ok((out, u32::try_from(total).unwrap_or(u32::MAX)))
+    }
+
+    /// Whether the log holds groups from before authors were tracked (no author on them).
+    pub fn has_untracked_groups(&self) -> Result<bool, StoreError> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM change_log WHERE group_id IS NOT NULL AND actor_kind IS NULL)",
+            [],
+            |r| r.get(0),
+        )?)
     }
 
     /// One group with its author, people and changes; `None` when no such group exists.

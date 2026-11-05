@@ -104,7 +104,7 @@ fn a_note_the_agent_added_shows_whole_and_undo_shows_it_removed() {
     let text = "A long remembered story. ".repeat(40);
     s.commit_command_as(add_note(eva, &text), agent(), None)
         .unwrap();
-    let rows = s.person_agent_changes(eva).unwrap();
+    let rows = s.person_agent_changes(eva, 0, 20).unwrap().items;
     assert_eq!(rows.len(), 1);
     let note = change(&rows[0], "note");
     assert_eq!(field(note, "text").before, None);
@@ -123,7 +123,7 @@ fn a_note_the_agent_added_shows_whole_and_undo_shows_it_removed() {
 
     let report = s.undo_group(rows[0].group).unwrap();
     assert!(report.undone > 0 && report.skipped.is_empty());
-    assert!(s.person_agent_changes(eva).unwrap().is_empty());
+    assert!(s.person_agent_changes(eva, 0, 20).unwrap().items.is_empty());
     // The history keeps both: the agent's group, undone, and the undo, which removes the note.
     let history = s.person_history(eva, 0, 20).unwrap();
     assert_eq!(history.total, 2);
@@ -148,7 +148,7 @@ fn an_event_the_owner_added_is_in_the_history_with_its_place_in_words() {
     assert_eq!(who.of.as_deref(), Some("Eva Meyer"));
     assert_eq!(who.after.as_deref(), Some("principal"));
     assert!(
-        s.person_agent_changes(eva).unwrap().is_empty(),
+        s.person_agent_changes(eva, 0, 20).unwrap().items.is_empty(),
         "the owner's own change is not the agent's"
     );
 }
@@ -158,7 +158,7 @@ fn a_family_the_agent_added_names_its_partners() {
     let (_d, mut s, eva) = setup();
     s.commit_command_as(partner_of(eva, "Marta"), agent(), None)
         .unwrap();
-    let rows = s.person_agent_changes(eva).unwrap();
+    let rows = s.person_agent_changes(eva, 0, 20).unwrap().items;
     let family = change(&rows[0], "family");
     let partners: Vec<_> = ["partner1", "partner2"]
         .iter()
@@ -178,7 +178,7 @@ fn a_citation_names_its_source_and_a_deleted_source_is_still_named() {
     let (_d, mut s, eva) = setup();
     s.commit_command_as(cite(eva, "Parish book"), agent(), None)
         .unwrap();
-    let rows = s.person_agent_changes(eva).unwrap();
+    let rows = s.person_agent_changes(eva, 0, 20).unwrap().items;
     let citation = change(&rows[0], "citation");
     assert_eq!(
         field(citation, "source").after.as_deref(),

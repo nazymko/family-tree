@@ -69,7 +69,9 @@ describe('TauriApi', () => {
     await api.changeBatches();
     await api.markReviewed({ kind: 'batch', id: 'b1' });
     await api.unreviewedPeople();
-    await api.personAgentChanges('p1');
+    await api.personAgentChanges('p1', 0, 20);
+    await api.hasUntrackedChanges();
+    await api.recordHome('note', 'n1');
     await api.personHistory('p1', 20, 20);
     await api.undoChangeGroup('g1');
     await api.undoChangeBatch('b1');
@@ -78,7 +80,9 @@ describe('TauriApi', () => {
       { cmd: 'change_batches', args: {} },
       { cmd: 'mark_reviewed', args: { scope: { kind: 'batch', id: 'b1' } } },
       { cmd: 'unreviewed_people', args: {} },
-      { cmd: 'person_agent_changes', args: { id: 'p1' } },
+      { cmd: 'person_agent_changes', args: { id: 'p1', offset: 0, limit: 20 } },
+      { cmd: 'has_untracked_changes', args: {} },
+      { cmd: 'record_home', args: { kind: 'note', id: 'n1' } },
       { cmd: 'person_history', args: { id: 'p1', offset: 20, limit: 20 } },
       { cmd: 'undo_change_group', args: { group: 'g1' } },
       { cmd: 'undo_change_batch', args: { batch: 'b1' } },
