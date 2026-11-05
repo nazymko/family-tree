@@ -2,6 +2,7 @@
 //! full-text and phonetic rows current, and append to the change log. Also the `meta` API.
 
 use crate::StoreError;
+use crate::authors::{LogMeta, actor_columns};
 use crate::codec::{corrupt, parse_uuid};
 use crate::project::Project;
 use crate::save::*;
@@ -40,7 +41,7 @@ impl RecordKind {
         }
     }
 
-    fn parse(s: &str) -> Result<RecordKind, StoreError> {
+    pub(crate) fn parse(s: &str) -> Result<RecordKind, StoreError> {
         Ok(match s {
             "person" => RecordKind::Person,
             "family" => RecordKind::Family,
@@ -159,7 +160,7 @@ impl ChangeOp {
         }
     }
 
-    fn parse(s: &str) -> Result<ChangeOp, StoreError> {
+    pub(crate) fn parse(s: &str) -> Result<ChangeOp, StoreError> {
         Ok(match s {
             "create" | "insert" => ChangeOp::Create,
             "update" => ChangeOp::Update,
@@ -423,17 +424,21 @@ impl Project {
     /// Then the full-text rows of every affected person are rewritten (persons changed,
     /// event participants and, for family events, both spouses; persons with events at a
     /// changed place), `living` is stored in `person.living_cached`, and one `change_log`
-    /// row per change is appended. On any error nothing is kept.
+    /// row per change is appended (with the author and batch from `meta`, and `meta.people`
+    /// listed in `change_person`). On any error nothing is kept.
     pub fn apply_changes(
         &mut self,
         cs: &ChangeSet,
         living: &[(Uuid, bool)],
+        meta: &LogMeta,
     ) -> Result<(), StoreError> {
         self.conn.set_prepared_statement_cache_capacity(64);
         let tx = self.conn.transaction()?;
         tx.pragma_update(None, "defer_foreign_keys", true)?;
         let mut affected = Affected::default();
         let group = cs.group.to_string();
+        let (actor_kind, actor_id, actor_name) = actor_columns(&meta.actor);
+        let batch = meta.batch.map(|b| b.to_string());
         for ch in &cs.changes {
             for rec in [&ch.before, &ch.after].into_iter().flatten() {
                 affected.note(rec);
@@ -455,7 +460,8 @@ impl Project {
             let after_json = ch.after.as_ref().map(json).transpose()?;
             tx.prepare_cached(
                 "INSERT INTO change_log(ts, target_type, target_id, op, before_json, group_id, \
-                 label, after_json, before_seq, reverts_group) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                 label, after_json, before_seq, reverts_group, actor_kind, actor_id, actor_name, batch_id) \r
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
             )?
             .execute(params![
                 cs.ts,
@@ -468,7 +474,19 @@ impl Project {
                 after_json,
                 before_seq,
                 cs.reverts.map(|u| u.to_string()),
+                actor_kind,
+                actor_id,
+                actor_name,
+                batch,
             ])?;
+        }
+        // The people the change is about, for every group (the log shows them); only agent
+        // groups count as unreviewed.
+        for person in &meta.people {
+            tx.prepare_cached(
+                "INSERT OR IGNORE INTO change_person(group_id, person_id) VALUES (?1, ?2)",
+            )?
+            .execute(params![group, person.to_string()])?;
         }
 
         // Place edits reach everyone with an event there; family events reach both spouses.

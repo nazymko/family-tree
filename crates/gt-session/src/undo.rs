@@ -12,7 +12,7 @@ use crate::ops::{apply_to_tree_tracked, plan_with};
 use crate::session::Session;
 use gt_core::date::DayOrder;
 use gt_core::model::Citation;
-use gt_store::{ChangeOp, ChangeSet, RecordKind};
+use gt_store::{Actor, ChangeOp, ChangeSet, LogMeta, RecordKind};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -52,7 +52,15 @@ impl Session {
             .filter(|(id, v)| self.living.get(id) != Some(v))
             .map(|(id, v)| (*id, *v))
             .collect();
-        if let Err(e) = self.project.apply_changes(cs, &changed) {
+        if let Err(e) = self.project.apply_changes(
+            cs,
+            &changed,
+            &LogMeta {
+                actor: Actor::User,
+                batch: None,
+                people: vec![],
+            },
+        ) {
             apply_to_tree_tracked(&mut self.tree, &cs.inverse(), &mut self.edit.removed_at);
             return Err(e.into());
         }

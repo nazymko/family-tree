@@ -2,7 +2,7 @@ use crate::migrate::{MIGRATIONS, migrate, user_version};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA_VERSION: i32 = 2;
+pub const SCHEMA_VERSION: i32 = 3;
 const DB_FILE: &str = "tree.db";
 const LOCK_FILE: &str = ".gene-tree.lock";
 const SUBDIRS: [&str; 3] = ["media", "thumbs", "backups"];

@@ -52,6 +52,7 @@ One row per person. Names, events and links are separate rows.
 - `sex`: `male`, `female`, `intersex`, `unknown`, or `other:<text>`.
 - `living_override`: `living` or `deceased` when the user forces the status; null to compute it.
 - `living_cached`: the computed living flag (`1` living, `0` not), a cache that can be rebuilt. Null when not yet computed.
+- `sibling_marker`: reserved (schema 3, default `0`); not written yet.
 
 ### `name`
 One row per name assertion of a person (a person can have many names).
@@ -231,6 +232,24 @@ History of edits, used for undo and the per-record history. Rows get increasing 
 - `after_json`: the record as it is after the change, as JSON; null for a delete.
 - `before_seq`: for a delete, the record's `seq`; undoing the delete restores it when still free, so record order survives delete and undo.
 - `reverts_group`: for an undo, the `group_id` of the edit it reverts; otherwise null.
+- `actor_kind`: who made the edit, `user` or `agent`; null for rows written before schema 3.
+- `actor_id`: for an agent, the UUID of its connection; otherwise null.
+- `actor_name`: for an agent, its name at that time (kept so a revoked connection stays named); otherwise null.
+- `batch_id`: the `agent_batch` the edit belongs to, if any.
+
+### `agent_batch`
+A named run of agent edits, such as one imported file (schema 3).
+- `id`: UUID.
+- `title`: what the run is.
+- `source_file`: the file the run works from, if any.
+- `actor_id`, `actor_name`: the agent that started it.
+- `started_ts`, `ended_ts`: Unix ms; `ended_ts` is null while the batch is open.
+- `report`: the agent's closing summary; null until the batch is closed.
+
+### `change_person`
+The people a change group is about, one row per group and person (schema 3). The change log shows them for every edit; only agent edits count as unreviewed.
+- `group_id`, `person_id`: together the key.
+- `reviewed_ts`: when the user reviewed the change for this person (Unix ms); null until then. An edit that was later undone no longer counts as unreviewed.
 
 ## Search
 
