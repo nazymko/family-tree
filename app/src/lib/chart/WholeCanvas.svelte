@@ -89,6 +89,14 @@
     return Math.max(0.004, Math.min(ZOOM_MIN, fitZoom(meta.meta.bounds, size) * 0.9));
   }
 
+  /** Where the corner of the selected card is, as a share of the stage; null when it is out of view. */
+  const cardCorner = $derived.by(() => {
+    if (!selNode?.person) return null;
+    const left = (selNode.x + selNode.w - seen.x) / seen.w;
+    const top = (selNode.y - seen.y) / seen.h;
+    return left >= 0 && left <= 1 && top >= 0 && top <= 1 ? { left, top } : null;
+  });
+
   function invalidate(): void {
     dirty = true;
     if (!rafId) rafId = requestAnimationFrame(frame);
@@ -894,6 +902,16 @@
         <div id="{uid}-sel" role="option" aria-selected="true">{selNode.label ? nodeLabel(selNode) : selNode.person?.name}</div>
       {/if}
     </div>
+    {#if cardCorner && selNode?.person}
+      {@const person = selNode.person}
+      <div
+        class="card-action"
+        style="left: {cardCorner.left * 100}%; top: {cardCorner.top * 100}%"
+        onwheel={(e) => canvas?.dispatchEvent(new WheelEvent('wheel', e))}
+      >
+        <IconButton label={t('whole.pedigreeOf', { who: person.name })} icon="pedigree" onclick={() => onOpenInPedigree(person.id)} />
+      </div>
+    {/if}
     {#if hint}
       <p class="hint">{hint}</p>
     {/if}
@@ -958,6 +976,14 @@
   .saving {
     top: auto;
     bottom: var(--s-2);
+  }
+  .card-action {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    background: var(--paper-1);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-1);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 0.2);
   }
   .mini {
     position: absolute;
