@@ -5,7 +5,7 @@
   import FlipTreeButton from '../ui/FlipTreeButton.svelte';
   import { settings } from '../state/settings.svelte';
   import { getApi } from '../api/context';
-  import type { FamilyViewDto, PartnershipDto, PersonRef } from '../api/types';
+  import type { ChildDto, FamilyViewDto, ParentRelId, ParentSetDto, PartnershipDto, PersonRef } from '../api/types';
   import { project } from '../state/project.svelte';
   import type { AddRelation } from '../state/ui.svelte';
   import { t, type MessageKey } from '../i18n';
@@ -28,7 +28,7 @@
     view: FamilyViewDto;
     homeId?: string | null;
     onopen: (id: string) => void;
-    onadd: (relation: AddRelation, anchor: string, newParentSet?: boolean) => void;
+    onadd: (relation: AddRelation, anchor: string, newParentSet?: boolean, parentRel?: ParentRelId) => void;
   } = $props();
 
   const api = getApi();
@@ -37,7 +37,21 @@
   const SIBLING_LIMIT = 4;
   const CHILD_LIMIT = 6;
   /** Children per partner, in order; "Add child" goes at the end of the last group. */
-  const kidGroups = $derived(view.partnerships.filter((u, i) => i === 0 || u.children.length > 0));
+  /**
+   * A remarried parent's child also belongs to the couple with the step-parent: the child is listed once, with the
+   * partner who is a birth parent, not again under the step-parent.
+   */
+  const ownKids = $derived(
+    view.partnerships.map((u) => ({
+      ...u,
+      children: u.children.filter(
+        (c) =>
+          c.rel[u.focusSecond ? 0 : 1] === 'birth' ||
+          !view.partnerships.some((o) => o !== u && o.children.some((k) => k.person.id === c.person.id)),
+      ),
+    })),
+  );
+  const kidGroups = $derived(ownKids.filter((u, i) => i === 0 || u.children.length > 0));
 
   type Pair = [PersonRef | null, PersonRef | null];
 
@@ -131,7 +145,9 @@
         if (mine === parentEndToken) parentEnd = null;
       });
   });
-  const isHalf = (s: PersonRef) => !!fullIds && !fullIds.has(s.id);
+  /** Shown a step-parent's set, the person's brothers and sisters are not half siblings for not being in it. */
+  const shownByStep = $derived(!!primary && primary.rel.includes('step'));
+  const isHalf = (s: PersonRef) => !shownByStep && !!fullIds && !fullIds.has(s.id);
   /** A sibling known to be a child of the parents shown (with several parent sets, only once their family is loaded). */
   const fullSib = (s: PersonRef) => (view.parentSets.length > 1 ? !!fullIds?.has(s.id) : view.parentSets.length === 1);
   const orderedSibs = $derived([...view.siblings.filter((s) => !isHalf(s)), ...view.siblings.filter(isHalf)]);
@@ -144,6 +160,17 @@
     kidsOpen = {};
     pickedSet = null;
   });
+  // A set of parents just added (a stepfather, ...) comes into view: otherwise it looks as if nothing happened.
+  let knownSets: { focus: string; ids: string[] } | null = null;
+  $effect(() => {
+    const focusId = view.focus.id;
+    const ids = view.parentSets.map((s) => s.familyId);
+    if (knownSets?.focus === focusId) {
+      const added = ids.findIndex((id) => !knownSets!.ids.includes(id));
+      if (added >= 0) pickedSet = added;
+    }
+    knownSets = { focus: focusId, ids };
+  });
 
   const sibs = $derived(sibsOpen ? orderedSibs : orderedSibs.slice(0, SIBLING_LIMIT));
   const sibsHidden = $derived(orderedSibs.length - sibs.length);
@@ -153,7 +180,7 @@
   type Role =
     | 'father' | 'mother' | 'son' | 'daughter' | 'child' | 'brother' | 'sister' | 'sibling' | 'partner'
     | 'grandfather' | 'grandmother' | 'halfBrother' | 'halfSister' | 'halfSibling' | 'husband' | 'wife'
-    | `${(typeof LINKED)[number]}.${'father' | 'mother'}` | null;
+    | `${(typeof LINKED)[number]}.${'father' | 'mother' | 'son' | 'daughter' | 'child'}` | null;
   /** How a parent can be linked other than by birth; the box then says so (stepfather, adoptive mother, ...). */
   const LINKED = ['adopted', 'step', 'foster', 'guardian'] as const;
   const HALF = { halfBrother: 'family.treeHalfBrother', halfSister: 'family.treeHalfSister', halfSibling: 'family.treeHalfSibling' } as const;
@@ -193,7 +220,24 @@
     const key = p.sex === 'female' ? 'family.treeKidsMother' : p.sex === 'male' ? 'family.treeKidsFather' : 'family.treeKidsParent';
     return t(key, { who: p.name });
   }
-  const kidRole = (p: PersonRef): Role => (p.sex === 'male' ? 'son' : p.sex === 'female' ? 'daughter' : 'child');
+  const linkedKind = (rel: ParentRelId) => ((LINKED as readonly string[]).includes(rel) ? (rel as (typeof LINKED)[number]) : null);
+  /** The child's own link to the person shown: to a stepfather a stepson, to the mother a son. */
+  const kidRole = (c: ChildDto, u: PartnershipDto): Role => {
+    const word = c.person.sex === 'male' ? 'son' : c.person.sex === 'female' ? 'daughter' : 'child';
+    const kind = linkedKind(c.rel[u.focusSecond ? 1 : 0]);
+    return kind ? `${kind}.${word}` : word;
+  };
+  /** "Parents: Maria Koval + Stepan Melnyk (step father)": the tab says which set is which. */
+  function setLabel(ps: ParentSetDto): string {
+    const who = ps.parents.flatMap((p, slot) => {
+      if (!p) return [];
+      const kind = linkedKind(ps.rel[slot]);
+      if (!kind) return [p.name];
+      const father = p.sex === 'male' || (p.sex !== 'female' && slot === 0);
+      return [`${p.name} (${t(`kin.${kind}.${father ? 'father' : 'mother'}`).toLowerCase()})`];
+    });
+    return t('family.treeParentSet', { who: who.join(' + ') });
+  }
   const sibRole = (p: PersonRef): Role => {
     const k = p.sex === 'male' ? 'Brother' : p.sex === 'female' ? 'Sister' : 'Sibling';
     return (isHalf(p) ? `half${k}` : k.toLowerCase()) as Role;
@@ -536,11 +580,11 @@
 <div class="tree" class:reversed data-direction={reversed ? 'reversed' : 'normal'} bind:this={treeEl} role="group" aria-label={t('family.treeLabel', { who: focus.name })} onkeydown={keys}>
   <!-- Every row keeps to one line (wrapped rows would lose their lines); the tree scrolls sideways when wider. -->
   <div class="inner" style:--dx="{dx}px">
-  {#if view.parentSets.length > 1 || bothParents}
+  {#if view.parentSets.length > 1 || hasParent}
     <div class="sets" role="group" aria-label={t('family.treeParentSets')}>
       {#each view.parentSets.length > 1 ? view.parentSets : [] as ps, i (ps.familyId)}
         <button type="button" class="setbtn" aria-pressed={i === setIndex} onclick={() => (pickedSet = i)}
-          >{t('family.treeParentSet', { who: ps.parents.filter(Boolean).map((x) => x!.name).join(' + ') })}</button
+          >{setLabel(ps)}</button
         >
       {/each}
       {#if bothParents}
@@ -558,6 +602,25 @@
           <span aria-hidden="true" class="plus">+</span>
           <span class="nm">{t('family.treeOtherParents')}</span>
         </button>
+      {/if}
+      {#if hasParent}
+        {#each ['father', 'mother'] as const as side (side)}
+          {@const label = t(side === 'father' ? 'family.addStepFather' : 'family.addStepMother')}
+          <button
+            type="button"
+            class="box slot small"
+            data-nav="s:step:{side}:{focus.id}"
+            data-row="-1"
+            tabindex={activeKey === `s:step:${side}:${focus.id}` ? 0 : -1}
+            aria-label={label}
+            title={label}
+            onfocus={() => (active = `s:step:${side}:${focus.id}`)}
+            onclick={() => onadd(side, focus.id, undefined, 'step')}
+          >
+            <span aria-hidden="true" class="plus">+</span>
+            <span class="nm">{t(`kin.step.${side}`)}</span>
+          </button>
+        {/each}
       {/if}
     </div>
   {/if}
@@ -640,7 +703,7 @@
           {@const alone = aloneCaption(partnerEnd(u))}
       <div class="kids" role="group" aria-label={u.partner ? t('family.treeChildrenWith', { who: u.partner.name }) : t('family.children')}>
         {#each shown as c (c.person.id)}
-          <div class="kid">{@render box(c.person, kidRole(c.person), 3, false, () => [detachChild(u, c.person)])}</div>
+          <div class="kid">{@render box(c.person, kidRole(c, u), 3, false, () => [detachChild(u, c.person)])}</div>
         {/each}
         {#if hidden > 0}
           <div class="kid">

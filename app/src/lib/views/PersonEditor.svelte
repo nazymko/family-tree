@@ -271,7 +271,7 @@
           view={familyView}
           homeId={project.info?.homePerson ?? settings.value.homePerson ?? null}
           onopen={(pid) => nav.go({ name: 'person', id: pid })}
-          onadd={(rel, anchor, newSet) => (newSet ? ui.requestAdd(rel, anchor, true) : ui.requestAdd(rel, anchor))}
+          onadd={(...args) => ui.requestAdd(...args)}
         />
       </section>
     {/if}

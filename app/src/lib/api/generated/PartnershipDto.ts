@@ -4,4 +4,8 @@ import type { EventDto } from "./EventDto";
 import type { PersonRef } from "./PersonRef";
 import type { UnionKindId } from "./UnionKindId";
 
-export type PartnershipDto = { familyId: string, partner: PersonRef | null, kind: UnionKindId, summary: string | null, events: Array<EventDto>, children: Array<ChildDto>, };
+export type PartnershipDto = { familyId: string, partner: PersonRef | null, 
+/**
+ * The person is the family's second partner, so a child's `rel.1` is the link to them.
+ */
+focusSecond?: boolean, kind: UnionKindId, summary: string | null, events: Array<EventDto>, children: Array<ChildDto>, };

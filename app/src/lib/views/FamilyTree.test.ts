@@ -633,3 +633,68 @@ describe('FamilyTree couple end marks', () => {
     await waitFor(() => expect(apply).toHaveBeenCalledWith({ type: 'deleteEvent', owner: { kind: 'family', id: u.familyId }, event: 'ev1' }));
   });
 });
+
+describe('FamilyTree step-parents', () => {
+  it('the_step_buttons_ask_for_a_stepfather_or_stepmother', async () => {
+    const spy = vi.spyOn(ui, 'requestAdd');
+    const me = ref('Ivan Koval', 'male');
+    const { user } = setup([view(me, { parentSets: sets(ref('Petro Koval', 'male'), ref('Maria Koval', 'female')) })]);
+    await tree();
+    await user.click(screen.getByRole('button', { name: 'Add stepfather' }));
+    expect(spy).toHaveBeenLastCalledWith('father', me.id, undefined, 'step');
+    await user.click(screen.getByRole('button', { name: 'Add stepmother' }));
+    expect(spy).toHaveBeenLastCalledWith('mother', me.id, undefined, 'step');
+  });
+
+  it('no_step_buttons_without_any_parent', async () => {
+    setup([view(ref('Ivan Koval', 'male'))]);
+    await tree();
+    expect(screen.queryByRole('button', { name: 'Add stepfather' })).toBeNull();
+  });
+
+  it('the_tab_names_the_stepfather_and_his_box_reads_stepfather', async () => {
+    const mum = ref('Maria Koval', 'female');
+    const step = ref('Stepan Melnyk', 'male');
+    const me = ref('Ivan Koval', 'male');
+    const birth = sets(ref('Petro Koval', 'male'), mum)[0];
+    const second = { ...sets(mum, step)[0], rel: ['birth', 'step'] as never, preferred: false };
+    const { user } = setup([view(me, { parentSets: [birth, second] })]);
+    await tree();
+    await user.click(await screen.findByRole('button', { name: 'Parents: Maria Koval + Stepan Melnyk (step father)' }));
+    expect(await screen.findByRole('button', { name: /^Stepan Melnyk, .*Step father/ })).toBeInTheDocument();
+  });
+
+  it('a_stepson_reads_so_for_the_stepfather_and_son_for_his_mother', async () => {
+    const son = ref('Dmytro Bondar', 'male');
+    const child = { ...kid(son), rel: ['birth', 'step'] as never };
+    const mum = ref('Olha Bondar', 'female');
+    const step = ref('Stepan Melnyk', 'male');
+    setup([view(step, { partnerships: [{ ...union(mum, [child]), focusSecond: true }] })]);
+    await tree();
+    expect(await screen.findByRole('button', { name: /^Dmytro Bondar, .*Step son/ })).toBeInTheDocument();
+  });
+
+  it('the_same_child_is_a_son_to_the_mother', async () => {
+    const son = ref('Dmytro Bondar', 'male');
+    const child = { ...kid(son), rel: ['birth', 'step'] as never };
+    const mum = ref('Olha Bondar', 'female');
+    const step = ref('Stepan Melnyk', 'male');
+    setup([view(mum, { partnerships: [union(step, [child])] })]);
+    await tree();
+    expect(await screen.findByRole('button', { name: /^Dmytro Bondar, .*Son/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Step son/ })).toBeNull();
+  });
+});
+
+describe('FamilyTree a remarried parent', () => {
+  it('lists_a_child_once_under_the_birth_parent', async () => {
+    const son = ref('Ivan Koval', 'male');
+    const mum = ref('Maria Koval', 'female');
+    const birth = union(ref('Petro Koval', 'male'), [kid(son)]);
+    const second = union(ref('Stepan Melnyk', 'male'), [{ ...kid(son), rel: ['birth', 'step'] as never }]);
+    setup([view(mum, { partnerships: [birth, second] })]);
+    await tree();
+    expect(await screen.findAllByRole('button', { name: /^Ivan Koval/ })).toHaveLength(1);
+    expect(screen.getByRole('group', { name: /Petro Koval/ })).toHaveTextContent('Ivan Koval');
+  });
+});

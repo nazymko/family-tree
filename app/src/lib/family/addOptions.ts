@@ -1,4 +1,4 @@
-import type { FamilyViewDto } from '../api/types';
+import type { FamilyViewDto, ParentRelId } from '../api/types';
 import type { MessageKey } from '../i18n';
 import type { AddRelation } from '../state/ui.svelte';
 
@@ -15,6 +15,8 @@ export interface AddOption {
   relation: AddRelation;
   /** Adds a second set of parents instead of filling the first. */
   newParentSet?: boolean;
+  /** Preselects how the new relative is linked: a stepfather, ... */
+  parentRel?: ParentRelId;
   label: MessageKey;
   disabled: boolean;
   /** Why it is disabled. */
@@ -34,7 +36,7 @@ export function parentFacts(view: Pick<FamilyViewDto, 'parentSets'>): ParentFact
 /**
  * The add rules shared by every place that offers "add a relative":
  * a father or mother that is already recorded is disabled; with both recorded the only parent choice is
- * "add another set of parents"; a sibling needs a parent.
+ * "add another set of parents"; a step-parent and a sibling need a parent.
  */
 export function addOptions(f: ParentFacts): AddOption[] {
   const parents: AddOption[] =
@@ -44,8 +46,15 @@ export function addOptions(f: ParentFacts): AddOption[] {
           { relation: 'father', label: 'edit.addFather', disabled: f.fatherRecorded, hint: f.fatherRecorded ? 'family.fatherRecorded' : undefined },
           { relation: 'mother', label: 'edit.addMother', disabled: f.motherRecorded, hint: f.motherRecorded ? 'family.motherRecorded' : undefined },
         ];
+  const steps: AddOption[] = f.hasAnyParent
+    ? [
+        { relation: 'father', parentRel: 'step', label: 'family.addStepFather', disabled: false },
+        { relation: 'mother', parentRel: 'step', label: 'family.addStepMother', disabled: false },
+      ]
+    : [];
   return [
     ...parents,
+    ...steps,
     { relation: 'partner', label: 'edit.addPartner', disabled: false },
     { relation: 'child', label: 'edit.addChild', disabled: false },
     { relation: 'sibling', label: 'edit.addSibling', disabled: !f.hasAnyParent, hint: f.hasAnyParent ? undefined : 'family.addParentFirst' },

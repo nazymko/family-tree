@@ -3,7 +3,7 @@
 use super::person::new_person;
 use super::{Planner, assertion, conflict, invalid};
 use crate::command::{PersonDraft, Relation};
-use crate::dto::SexKind;
+use crate::dto::{ParentRelId, SexKind};
 use crate::error::ApiError;
 use gt_core::model::*;
 use uuid::Uuid;
@@ -47,6 +47,178 @@ fn fill_slot(f: &mut Family, person: Uuid) {
     }
 }
 
+/// The link kind when it is not by birth. Only a parent or a child can have one.
+fn linked_kind(
+    relation: Relation,
+    rel: Option<ParentRelId>,
+) -> Result<Option<ParentRel>, ApiError> {
+    let kind = rel
+        .map(|r| super::rel_of(r, None))
+        .filter(|k| *k != ParentRel::Birth);
+    if kind.is_some()
+        && !matches!(
+            relation,
+            Relation::Father | Relation::Mother | Relation::Child
+        )
+    {
+        return Err(invalid("Only a parent or a child can be linked this way."));
+    }
+    Ok(kind)
+}
+
+/// Sets how `child` is related to `parent`, one of the family's partners.
+fn set_rel(f: &mut Family, child: Uuid, parent: Uuid, rel: ParentRel) {
+    let first = f.partner1 == Some(parent);
+    if let Some(link) = f.children.iter_mut().find(|c| c.person == child) {
+        if first {
+            link.rel1 = rel;
+        } else {
+            link.rel2 = rel;
+        }
+    }
+}
+
+/// A child's link to a family, as the child of `anchor` by `kind`. A stepchild is the birth child of the other
+/// partner; an adopted or fostered child is usually taken in by both.
+fn child_link(
+    f: &Family,
+    anchor: Uuid,
+    child: Uuid,
+    preferred: bool,
+    kind: Option<ParentRel>,
+) -> ChildLink {
+    let mut link = birth_link(child, preferred);
+    if let Some(k) = kind {
+        let first = f.partner1 == Some(anchor);
+        if k != ParentRel::Step {
+            link.rel1 = k.clone();
+            link.rel2 = k;
+        } else if first {
+            link.rel1 = k;
+        } else {
+            link.rel2 = k;
+        }
+    }
+    link
+}
+
+/// Places `person` as a parent of `anchor` by `kind`.
+///
+/// A step-parent is the partner of one of the birth parents, so the birth parents stay as they are: with both known
+/// the step-parent's couple becomes a second set of parents; a parent recorded alone gets the step-parent as partner
+/// in the same family. Any other kind (adoptive, foster, guardian) joins a parent of the same kind who is recorded
+/// alone, else starts a set of its own.
+fn add_linked_parent(
+    p: &mut Planner,
+    anchor: Uuid,
+    relation: Relation,
+    person: Uuid,
+    kind: ParentRel,
+) -> Result<(), ApiError> {
+    let same_side = if relation == Relation::Father {
+        Sex::Male
+    } else {
+        Sex::Female
+    };
+    let current = parent_family(p, anchor);
+    let had_parents = current.is_some();
+    let step = kind == ParentRel::Step;
+
+    // The birth parent the step-parent is partnered with: a recorded parent on the other side.
+    let spouse = if step {
+        let partners = current
+            .iter()
+            .flat_map(|f| [f.partner1, f.partner2])
+            .flatten();
+        let mut found = None;
+        for id in partners {
+            if p.get::<Person>(id)?.sex != same_side {
+                found = Some(id);
+                break;
+            }
+        }
+        found
+    } else {
+        None
+    };
+
+    // The family with a free slot this person completes.
+    let alone = |f: &Family| f.partner1.is_some() != f.partner2.is_some();
+    let join: Option<Family> = if step {
+        current
+            .clone()
+            .filter(|f| alone(f) && (f.partner1 == spouse || f.partner2 == spouse))
+    } else {
+        super::families_of_child(p.tree, anchor)
+            .iter()
+            .find(|(f, l)| {
+                alone(f)
+                    && (if f.partner1.is_some() {
+                        &l.rel1
+                    } else {
+                        &l.rel2
+                    }) == &kind
+            })
+            .map(|(f, _)| (*f).clone())
+    };
+
+    if let Some(mut f) = join {
+        let other = f.partner1.or(f.partner2);
+        match other.and_then(|o| couple(p, o, person).map(|t| (o, t))) {
+            // The couple exists already: the child moves in, and a family left empty goes.
+            Some((o, mut target)) => {
+                if let Some(i) = f.children.iter().position(|c| c.person == anchor) {
+                    let link = f.children.remove(i);
+                    let to_other = if f.partner1 == Some(o) {
+                        link.rel1.clone()
+                    } else {
+                        link.rel2.clone()
+                    };
+                    target.children.push(link);
+                    set_rel(&mut target, anchor, o, to_other);
+                    set_rel(&mut target, anchor, person, kind);
+                }
+                p.put(target);
+                if f.children.is_empty() {
+                    super::family::delete_family(p, f.common.id)?;
+                } else {
+                    p.put(f);
+                }
+            }
+            // Nobody in this family is this person's birth child, so all its children get the same link.
+            None => {
+                fill_slot(&mut f, person);
+                let kids: Vec<Uuid> = f.children.iter().map(|c| c.person).collect();
+                for kid in kids {
+                    set_rel(&mut f, kid, person, kind.clone());
+                }
+                p.put(f);
+            }
+        }
+        return Ok(());
+    }
+
+    if let Some(s) = spouse {
+        let mut f = couple(p, s, person).unwrap_or_else(|| new_family(p, Some(s), Some(person)));
+        f.children.push(birth_link(anchor, false));
+        set_rel(&mut f, anchor, person, kind);
+        p.put(f);
+        return Ok(());
+    }
+
+    let mut f = new_family(p, Some(person), None);
+    f.children.push(birth_link(anchor, !had_parents));
+    set_rel(&mut f, anchor, person, kind.clone());
+    if !step {
+        // Whoever joins this set later is the same kind of parent.
+        if let Some(link) = f.children.first_mut() {
+            link.rel2 = kind;
+        }
+    }
+    p.put(f);
+    Ok(())
+}
+
 pub(super) fn quick_add(
     p: &mut Planner,
     anchor: Uuid,
@@ -54,8 +226,10 @@ pub(super) fn quick_add(
     draft: &PersonDraft,
     family: Option<Uuid>,
     new_parent_set: bool,
+    parent_rel: Option<ParentRelId>,
 ) -> Result<Option<Uuid>, ApiError> {
     p.get::<Person>(anchor)?;
+    let kind = linked_kind(relation, parent_rel)?;
     let sex = match relation {
         Relation::Father => SexKind::Male,
         Relation::Mother => SexKind::Female,
@@ -64,6 +238,7 @@ pub(super) fn quick_add(
 
     // Find the target and check everything before anything is written.
     let target: Option<Family> = match relation {
+        Relation::Father | Relation::Mother if kind.is_some() => None,
         Relation::Father | Relation::Mother => match parent_family(p, anchor) {
             Some(f) if !new_parent_set => {
                 if f.partner1.is_some() && f.partner2.is_some() {
@@ -111,6 +286,11 @@ pub(super) fn quick_add(
     p.put(person);
     super::event::add_birth(p, new_id, draft)?;
 
+    if let (Relation::Father | Relation::Mother, Some(k)) = (relation, kind.clone()) {
+        add_linked_parent(p, anchor, relation, new_id, k)?;
+        return Ok(Some(new_id));
+    }
+
     match relation {
         Relation::Father | Relation::Mother => match target {
             Some(mut f) => {
@@ -135,7 +315,8 @@ pub(super) fn quick_add(
         },
         Relation::Child => {
             let mut f = target.unwrap_or_else(|| new_family(p, Some(anchor), None));
-            f.children.push(birth_link(new_id, true));
+            let link = child_link(&f, anchor, new_id, true, kind);
+            f.children.push(link);
             p.put(f);
         }
         Relation::Sibling => match target {
@@ -188,9 +369,11 @@ pub(super) fn link_existing(
     person: Uuid,
     family: Option<Uuid>,
     new_parent_set: bool,
+    parent_rel: Option<ParentRelId>,
 ) -> Result<Option<Uuid>, ApiError> {
     p.get::<Person>(anchor)?;
     p.get::<Person>(person)?;
+    let kind = linked_kind(relation, parent_rel)?;
     if person == anchor {
         return Err(invalid("A person cannot be their own relative."));
     }
@@ -204,6 +387,10 @@ pub(super) fn link_existing(
                 .any(|(f, _)| f.partner1 == Some(person) || f.partner2 == Some(person))
             {
                 return Err(conflict("This person is already a parent."));
+            }
+            if let Some(k) = kind {
+                add_linked_parent(p, anchor, relation, person, k)?;
+                return Ok(Some(person));
             }
             let current = parent_family(p, anchor);
             let had_parents = current.is_some();
@@ -302,7 +489,8 @@ pub(super) fn link_existing(
                 return Err(conflict("This person is already a child in the family."));
             }
             let first = parent_family(p, person).is_none();
-            f.children.push(birth_link(person, first));
+            let link = child_link(&f, anchor, person, first, kind);
+            f.children.push(link);
             p.put(f);
         }
         Relation::Sibling => {

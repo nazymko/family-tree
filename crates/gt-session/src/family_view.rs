@@ -111,6 +111,7 @@ pub fn partnerships(s: &Session, id: Uuid) -> Vec<PartnershipDto> {
         out.push(PartnershipDto {
             family_id: *fid,
             partner: other.filter(|o| *o != id).and_then(|o| s.person_ref(o)),
+            focus_second: (f.partner1 != Some(id)).then_some(true),
             kind: union_id(&f.kind),
             summary: union_summary(s, *fid),
             events: events.into_iter().map(|e| s.event_dto(e)).collect(),

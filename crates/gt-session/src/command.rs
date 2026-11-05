@@ -414,6 +414,10 @@ pub enum EditCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         new_parent_set: Option<bool>,
+        /// Father, mother or child: how they are related when it is not by birth (stepfather, adopted son, ...).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        parent_rel: Option<ParentRelId>,
     },
     /// Like QuickAdd, with someone already in the tree as the relative.
     LinkExisting {
@@ -426,6 +430,10 @@ pub enum EditCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         new_parent_set: Option<bool>,
+        /// Father, mother or child: how they are related when it is not by birth (stepfather, adopted son, ...).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        parent_rel: Option<ParentRelId>,
     },
     SaveFamily {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -525,9 +533,20 @@ impl EditCommand {
             EditCommand::DeleteName { .. } => "Delete name".into(),
             EditCommand::SaveEvent { .. } => "Save event".into(),
             EditCommand::DeleteEvent { .. } => "Delete event".into(),
-            EditCommand::QuickAdd { relation, .. } | EditCommand::LinkExisting { relation, .. } => {
-                format!("Add {}", relation.as_str())
+            EditCommand::QuickAdd {
+                relation,
+                parent_rel,
+                ..
             }
+            | EditCommand::LinkExisting {
+                relation,
+                parent_rel,
+                ..
+            } => match (relation, parent_rel) {
+                (Relation::Father, Some(ParentRelId::Step)) => "Add stepfather".into(),
+                (Relation::Mother, Some(ParentRelId::Step)) => "Add stepmother".into(),
+                _ => format!("Add {}", relation.as_str()),
+            },
             EditCommand::SaveFamily { .. } => "Save family".into(),
             EditCommand::DeleteFamily { .. } => "Delete family".into(),
             EditCommand::LinkChild { .. } => "Add child to family".into(),
