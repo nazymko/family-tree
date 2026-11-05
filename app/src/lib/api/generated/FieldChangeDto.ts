@@ -2,12 +2,17 @@
 
 export type FieldChangeDto = { 
 /**
- * Stable id: `sex`, or a name field: `kind`, `preferred`, `proof`, `confidence`, `private`,
+ * Stable id: for a record other than a person its own field (`text`, `eventKind`, `partner1`,
+ * `child`, `participant`, `page`, ...; see `rows`). For a person: `sex`, or a name field: `kind`, `preferred`, `proof`, `confidence`, `private`,
  * `prefix`, `given`, `call`, `surnamePrefix`, `surnames`, `patronymic`, `suffix`,
  * `nickname`, `lang`, `date`, `raw`, `citations`, `notes`, `unknown`, or `position`
  * (where the name stands among the names kept; the first is the main one).
  */
 field: string, 
+/**
+ * The part of the record this row is about, in words (a participant's or a child's name).
+ */
+of?: string, 
 /**
  * Which name, counted from 1, when the person has more than one; `None` for `sex`.
  */
@@ -15,4 +20,8 @@ nameNumber?: number,
 /**
  * The kind of that name (a `kind` token), to tell names apart.
  */
-nameKind?: string, before: string | null, after: string | null, };
+nameKind?: string, 
+/**
+ * The id of that name, so the UI can open it in the name editor.
+ */
+nameId?: string, before: string | null, after: string | null, };

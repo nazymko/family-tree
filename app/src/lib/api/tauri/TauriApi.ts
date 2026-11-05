@@ -245,6 +245,9 @@ export class TauriApi implements Api {
   personAgentChanges(id: Id): Promise<LogRowDto[]> {
     return call('person_agent_changes', { id });
   }
+  personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
+    return call('person_history', { id, offset, limit });
+  }
   undoChangeGroup(group: string): Promise<UndoReport> {
     return call('undo_change_group', { group });
   }

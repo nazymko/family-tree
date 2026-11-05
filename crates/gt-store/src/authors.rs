@@ -124,7 +124,8 @@ const CHANGE_COLS: &str = "target_type, target_id, before_json, after_json";
 
 /// Filter shared by the page query and its count. `g` is a group summary row (`group_id`,
 /// `first` = id of its first row), `f` that first row. Parameters: 1 actor id, 2 actor kind,
-/// 3 batch, 4 person, 5 unreviewed only.
+/// 3 batch, 4 person, 5 unreviewed only. A group written before schema 3 has no `change_person`
+/// rows; it reaches only the person record it changed itself (its other people were not kept).
 const LOG_FROM: &str = "FROM (SELECT group_id, MIN(id) AS first, MAX(id) AS last FROM change_log \
      WHERE group_id IS NOT NULL GROUP BY group_id) g \
      JOIN change_log f ON f.id = g.first \
@@ -132,7 +133,10 @@ const LOG_FROM: &str = "FROM (SELECT group_id, MIN(id) AS first, MAX(id) AS last
        AND (?2 IS NULL OR f.actor_kind = ?2) \
        AND (?3 IS NULL OR f.batch_id = ?3) \
        AND (?4 IS NULL OR EXISTS (SELECT 1 FROM change_person cp \
-            WHERE cp.group_id = g.group_id AND cp.person_id = ?4)) \
+            WHERE cp.group_id = g.group_id AND cp.person_id = ?4) \
+            OR (NOT EXISTS (SELECT 1 FROM change_person cp WHERE cp.group_id = g.group_id) \
+                AND EXISTS (SELECT 1 FROM change_log t WHERE t.group_id = g.group_id \
+                    AND t.target_id = ?4))) \
        AND (?5 = 0 OR (f.actor_kind = 'agent' \
             AND EXISTS (SELECT 1 FROM change_person cp WHERE cp.group_id = g.group_id \
                 AND cp.reviewed_ts IS NULL AND cp.person_id = COALESCE(?4, cp.person_id)) \

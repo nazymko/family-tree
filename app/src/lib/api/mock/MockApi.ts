@@ -124,6 +124,10 @@ export interface AgentBatchSpec {
     note?: string;
     label?: string;
     kind?: string;
+    /** The record the change is about; the note it adds when omitted. */
+    record?: Id;
+    /** The table the panel shows for the change. */
+    fields?: FieldChangeDto[];
     op?: HistoryEntry['op'];
     fact?: LogFactDto;
     sources?: string[];
@@ -568,6 +572,11 @@ export class MockApi implements Api {
     return rows.reverse().map((e) => this.logRow(e));
   }
 
+  async personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
+    const rows = this.logRows.filter((e) => e.people.some((p) => p.id === id)).reverse();
+    return { total: rows.length, offset, items: rows.slice(offset, offset + Math.min(limit, MAX_PAGE)).map((e) => this.logRow(e)) };
+  }
+
   async undoChangeGroup(group: string): Promise<UndoReport> {
     const e = this.logGroup(group);
     if (e.actor.kind !== 'agent') throw invalid("Only an agent's change can be undone from the change log.");
@@ -626,7 +635,7 @@ export class MockApi implements Api {
         actor,
         batch,
         label: c.label ?? 'Save note',
-        changes: [{ kind: c.kind ?? 'note', op: c.op ?? 'create', detail: text, fact, sources: c.sources ?? [], fields: [] }],
+        changes: [{ kind: c.kind ?? 'note', id: c.record ?? note, op: c.op ?? 'create', detail: text, fact, sources: c.sources ?? [], fields: c.fields ?? [] }],
         people: [{ id: c.person, name: this.ref(p).name, reviewed: null }],
         fact: { person: c.person, note, conflict: c.conflict ?? false },
       });
@@ -644,7 +653,7 @@ export class MockApi implements Api {
       actor: { kind: 'beforeTracking' },
       batch: null,
       label,
-      changes: [{ kind: 'person', op: 'update', detail: name, fact: { kind: 'text', text: name }, sources: [], fields: [] }],
+      changes: [{ kind: 'person', id: person, op: 'update', detail: name, fact: { kind: 'text', text: name }, sources: [], fields: [] }],
       people: [{ id: person, name, reviewed: null }],
     });
   }
@@ -1173,7 +1182,7 @@ export class MockApi implements Api {
       actor: { kind: 'user' },
       batch: null,
       label,
-      changes: people.map((p) => ({ kind: 'person', op, detail: p.name, fact: { kind: 'text', text: p.name }, sources: [], fields: fields.get(p.id) ?? [] })),
+      changes: people.map((p) => ({ kind: 'person', id: p.id, op, detail: p.name, fact: { kind: 'text', text: p.name }, sources: [], fields: fields.get(p.id) ?? [] })),
       people,
     });
   }

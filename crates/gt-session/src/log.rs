@@ -3,7 +3,7 @@
 use crate::command::{HistoryOp, SkippedFact};
 use crate::dto::Page;
 use crate::error::{ApiError, ErrorCode};
-use crate::field_diff::{FieldChangeDto, record_field_changes};
+use crate::field_diff::{FieldChangeDto, Words, record_field_changes};
 use crate::names::display_name;
 use crate::ops::record_in;
 use crate::person_detail::{event_kind_id, event_label};
@@ -22,6 +22,8 @@ use uuid::Uuid;
 const MAX_LOG_PAGE: usize = 200;
 /// Characters of a note's text shown in the log.
 const NOTE_PREVIEW: usize = 80;
+/// Characters of one field value in the change log's pages.
+const FIELD_PREVIEW: usize = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -61,6 +63,8 @@ pub enum LogFactDto {
 pub struct LogChangeDto {
     /// `person`, `family`, `event`, `place`, `source`, `repository`, `citation`, `media`, `note`.
     pub kind: String,
+    /// The record's id, to open it.
+    pub id: Uuid,
     pub op: HistoryOp,
     /// The record in readable words: a note's first words, an event's kind and date.
     pub detail: String,
@@ -68,7 +72,8 @@ pub struct LogChangeDto {
     pub fact: LogFactDto,
     /// Titles of the sources this change cited.
     pub sources: Vec<String>,
-    /// For a changed person: which sex and name fields went from what to what.
+    /// Which fields went from what to what, with ids in words. In the change log's pages a long
+    /// value is cut short; the person page's list has it whole.
     pub fields: Vec<FieldChangeDto>,
 }
 
@@ -185,6 +190,78 @@ fn citations_of(r: &Record) -> Vec<Uuid> {
     out
 }
 
+/// A field value cut to `FIELD_PREVIEW` characters.
+fn clip_fields(fields: &mut [FieldChangeDto]) {
+    let clip = |v: &mut Option<String>| {
+        if let Some(s) = v
+            && s.chars().count() > FIELD_PREVIEW
+        {
+            let cut: String = s.chars().take(FIELD_PREVIEW).collect();
+            *v = Some(format!("{}…", cut.trim_end()));
+        }
+    };
+    for f in fields {
+        clip(&mut f.before);
+        clip(&mut f.after);
+    }
+}
+
+/// Reads ids for field changes: from the group, the tree or the history.
+pub(crate) struct LogWords<'a> {
+    pub session: &'a Session,
+    pub group: &'a [Change],
+}
+
+impl LogWords<'_> {
+    fn find(&self, kind: RecordKind, id: Uuid) -> Option<Record> {
+        self.session.find_logged(kind, id, self.group)
+    }
+
+    fn text_of(&self, kind: RecordKind, id: Uuid) -> String {
+        self.find(kind, id)
+            .map(|r| self.session.record_text(&r, self.group))
+            .unwrap_or_default()
+    }
+}
+
+impl Words for LogWords<'_> {
+    fn person(&self, id: Uuid) -> String {
+        self.session.logged_name(id, self.group)
+    }
+    fn family(&self, id: Uuid) -> String {
+        match self.find(RecordKind::Family, id) {
+            Some(Record::Family(f)) => f
+                .partner1
+                .iter()
+                .chain(&f.partner2)
+                .map(|p| self.person(*p))
+                .collect::<Vec<_>>()
+                .join(" and "),
+            _ => "Unknown".to_string(),
+        }
+    }
+    fn place(&self, id: Uuid) -> String {
+        self.text_of(RecordKind::Place, id)
+    }
+    fn source(&self, id: Uuid) -> String {
+        self.session
+            .source_title(id, self.group)
+            .unwrap_or_default()
+    }
+    fn repository(&self, id: Uuid) -> String {
+        self.text_of(RecordKind::Repository, id)
+    }
+    fn citation(&self, id: Uuid) -> String {
+        self.text_of(RecordKind::Citation, id)
+    }
+    fn note(&self, id: Uuid) -> String {
+        self.text_of(RecordKind::Note, id)
+    }
+    fn media(&self, id: Uuid) -> String {
+        self.text_of(RecordKind::Media, id)
+    }
+}
+
 fn preview(text: &str) -> String {
     let t = text.trim();
     if t.chars().count() <= NOTE_PREVIEW {
@@ -217,6 +294,12 @@ impl Session {
         for ch in &cs.changes {
             if ch.kind == RecordKind::Person {
                 add(ch.id);
+            }
+            // A note's own text can change without its owner's record changing.
+            if ch.kind == RecordKind::Note
+                && let Some(owner) = self.note_owner(ch.id)
+            {
+                add(owner);
             }
             for rec in [&ch.before, &ch.after].into_iter().flatten() {
                 match rec {
@@ -389,10 +472,12 @@ impl Session {
         out
     }
 
+    /// `whole`: field values in full, as the person page shows them; otherwise cut short.
     fn log_row(
         &self,
         g: LogGroup,
         batches: &mut HashMap<Uuid, Option<Batch>>,
+        whole: bool,
     ) -> Result<LogRowDto, ApiError> {
         let is_agent = matches!(g.actor, Some(Actor::Agent { .. }));
         let actor = match g.actor {
@@ -417,11 +502,16 @@ impl Session {
                 })
             }
         };
+        let words = LogWords {
+            session: self,
+            group: &g.changes,
+        };
         let changes = g
             .changes
             .iter()
             .map(|ch| LogChangeDto {
                 kind: kind_name(ch.kind).to_string(),
+                id: ch.id,
                 op: match (&ch.before, &ch.after) {
                     (None, _) => HistoryOp::Create,
                     (Some(_), Some(_)) => HistoryOp::Update,
@@ -435,7 +525,13 @@ impl Session {
                     .unwrap_or_default(),
                 fact: self.change_fact(ch, &g.changes),
                 sources: self.sources_of_change(ch, &g.changes),
-                fields: record_field_changes(ch.before.as_ref(), ch.after.as_ref()),
+                fields: {
+                    let mut f = record_field_changes(ch.before.as_ref(), ch.after.as_ref(), &words);
+                    if !whole {
+                        clip_fields(&mut f);
+                    }
+                    f
+                },
             })
             .collect();
         let people = g
@@ -485,7 +581,7 @@ impl Session {
         let mut batches = HashMap::new();
         let items = groups
             .into_iter()
-            .map(|g| self.log_row(g, &mut batches))
+            .map(|g| self.log_row(g, &mut batches, false))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Page {
             total,
@@ -559,8 +655,36 @@ impl Session {
         groups
             .into_iter()
             .filter(|g| !g.reverted)
-            .map(|g| self.log_row(g, &mut batches))
+            .map(|g| self.log_row(g, &mut batches, true))
             .collect()
+    }
+
+    /// One page of every change group that reached this person, by anyone, newest first. Values
+    /// are whole. Groups from before authors were tracked reach only the person record itself.
+    pub fn person_history(
+        &self,
+        id: Uuid,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Page<LogRowDto>, ApiError> {
+        let filter = LogFilter {
+            person: Some(id),
+            ..Default::default()
+        };
+        let (groups, total) = self
+            .project
+            .log_page(&filter, offset, limit.min(MAX_LOG_PAGE))?;
+        let mut batches = HashMap::new();
+        let items = groups
+            .into_iter()
+            .map(|g| self.log_row(g, &mut batches, true))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Page {
+            total,
+            offset: u32::try_from(offset).unwrap_or(u32::MAX),
+            items,
+            letters: None,
+        })
     }
 
     fn change_fact(&self, ch: &Change, group: &[Change]) -> LogFactDto {

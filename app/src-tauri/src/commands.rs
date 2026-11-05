@@ -66,6 +66,7 @@ command_list!(
     mark_reviewed,
     unreviewed_people,
     person_agent_changes,
+    person_history,
     undo_change_group,
     undo_change_batch,
     history,
@@ -437,6 +438,16 @@ pub fn unreviewed_people(state: State<'_, AppState>) -> ApiResult<Vec<Uuid>> {
 #[tauri::command(async)]
 pub fn person_agent_changes(state: State<'_, AppState>, id: Uuid) -> ApiResult<Vec<LogRowDto>> {
     state.with_session(|s| s.person_agent_changes(id))
+}
+
+#[tauri::command(async)]
+pub fn person_history(
+    state: State<'_, AppState>,
+    id: Uuid,
+    offset: usize,
+    limit: usize,
+) -> ApiResult<Page<LogRowDto>> {
+    state.with_session(|s| s.person_history(id, offset, limit))
 }
 
 #[tauri::command(async)]

@@ -70,6 +70,7 @@ describe('TauriApi', () => {
     await api.markReviewed({ kind: 'batch', id: 'b1' });
     await api.unreviewedPeople();
     await api.personAgentChanges('p1');
+    await api.personHistory('p1', 20, 20);
     await api.undoChangeGroup('g1');
     await api.undoChangeBatch('b1');
     expect(calls).toEqual([
@@ -78,6 +79,7 @@ describe('TauriApi', () => {
       { cmd: 'mark_reviewed', args: { scope: { kind: 'batch', id: 'b1' } } },
       { cmd: 'unreviewed_people', args: {} },
       { cmd: 'person_agent_changes', args: { id: 'p1' } },
+      { cmd: 'person_history', args: { id: 'p1', offset: 20, limit: 20 } },
       { cmd: 'undo_change_group', args: { group: 'g1' } },
       { cmd: 'undo_change_batch', args: { batch: 'b1' } },
     ]);

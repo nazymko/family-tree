@@ -131,6 +131,8 @@ export interface Api {
   /** People an agent changed that nobody has reviewed yet; these carry the badge. */
   unreviewedPeople(): Promise<Id[]>;
   personAgentChanges(id: Id): Promise<LogRowDto[]>;
+  /** Every change group that reached this person, by anyone, newest first; values in full. */
+  personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>>;
   /** Undoes one agent change; a fact someone changed since stays and is named in the report. */
   undoChangeGroup(group: string): Promise<UndoReport>;
   undoChangeBatch(batch: string): Promise<UndoReport>;
