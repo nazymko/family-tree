@@ -23,6 +23,7 @@ fn person() -> Person {
         sex: Sex::Unknown,
         names: vec![],
         living_override: None,
+        sibling_marker: false,
     }
 }
 

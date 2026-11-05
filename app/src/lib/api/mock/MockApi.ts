@@ -1,5 +1,17 @@
 import type { Api } from '../api';
+import type { AgentAccessState, NewConnectionDto } from '../types';
 import type {
+  ActorDto,
+  BatchDto,
+  LogAgentDto,
+  BatchRef,
+  LogChangeDto,
+  LogFactDto,
+  LogFilterDto,
+  LogRowDto,
+  RecordHomeDto,
+  ReviewScopeDto,
+  UndoReport,
   RelinkResult,
   AttachResult,
   ChartLocation,
@@ -20,6 +32,7 @@ import type {
   ExportOptions,
   FamilyDto,
   FamilyViewDto,
+  FieldChangeDto,
   HistoryEntry,
   Id,
   ImportProgress,
@@ -55,6 +68,7 @@ import type {
   UndoState,
   WholeMeta,
 } from '../types';
+import { personFieldChanges } from './fieldDiff';
 import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } from './build';
 import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
@@ -83,6 +97,58 @@ interface HistoryRecord {
   label: string;
   op: HistoryEntry['op'];
   touched: Set<Id>;
+  fields: Map<Id, FieldChangeDto[]>;
+}
+
+/** One row of the change log; `fact` is what an agent's undo has to take away. */
+interface AgentLogEntry {
+  group: string;
+  ts: number;
+  actor: ActorDto;
+  batch: BatchRef | null;
+  label: string;
+  changes: LogChangeDto[];
+  people: { id: Id; name: string; reviewed: number | null }[];
+  reverted: boolean;
+  fact?: { person: Id; note: Id; conflict: boolean };
+}
+
+/** See `MockApi.recordAgentBatch`. A batch exists only when `title` is given. */
+/** The built-in agent's name in either language, ignoring case and spacing: no connection may take it. */
+function isBuiltinAgentName(name: string): boolean {
+  const plain = name.split(/\s+/).filter(Boolean).join(' ').toLowerCase();
+  return plain === 'agent without a key' || plain === 'агент без ключа';
+}
+
+export interface AgentBatchSpec {
+  agent?: string;
+  /** The agent's id, for a test that needs a fixed one; otherwise one is made per name. */
+  agentId?: string;
+  title?: string;
+  sourceFile?: string;
+  report?: string;
+  open?: boolean;
+  changes: {
+    person: Id;
+    note?: string;
+    label?: string;
+    kind?: string;
+    /** The record the change is about; the note it adds when omitted. */
+    record?: Id;
+    /** The table the panel shows for the change. */
+    fields?: FieldChangeDto[];
+    op?: HistoryEntry['op'];
+    fact?: LogFactDto;
+    sources?: string[];
+    conflict?: boolean;
+  }[];
+}
+
+export interface AgentBatchResult {
+  batch: string | null;
+  groups: string[];
+  touched: string[];
+  agent: string;
 }
 
 interface ChartState {
@@ -118,6 +184,7 @@ const LABELS: Record<EditCommand['type'], string> = {
   updateChildLink: 'Edit child link',
   unlinkChild: 'Remove child from family',
   reorderChildren: 'Reorder children',
+  addSiblingMarker: 'Add unnamed brothers and sisters',
   saveNote: 'Save note',
   deleteNote: 'Delete note',
   saveSource: 'Save source',
@@ -130,10 +197,12 @@ const LABELS: Record<EditCommand['type'], string> = {
   setPrimaryMedia: 'Set primary media',
   updateMedia: 'Edit media',
   importDraft: 'Add traced people',
+  addNumber: 'Record number',
 };
 
 const missing = (what: string, id: Id) => new MockApiError('not_found', `No ${what} with id "${id}" in this project.`);
 const invalid = (message: string) => new MockApiError('invalid', message);
+const markerEntry = (id: Id) => new MockApiError('not_found', `"${id}" is the entry for unnamed brothers and sisters. It has no details.`);
 
 /** An unnamed person is valid in genealogy; show it as Unknown. */
 function unnamedOk(n: NameDto): NameDto {
@@ -149,6 +218,9 @@ export class MockApi implements Api {
   private redoStack: Snapshot[] = [];
   private lastCit: CitationDto | null = null;
   private log: HistoryRecord[] = [];
+  private logRows: AgentLogEntry[] = [];
+  private logBatches = new Map<string, Omit<BatchDto, 'groups' | 'people' | 'unreviewed' | 'standing'>>();
+  private agentIds = new Map<string, string>();
   private charts = new Map<number, ChartState>();
   private nextChart = 1;
   private version = 0;
@@ -286,6 +358,7 @@ export class MockApi implements Api {
 
   async getPerson(id: Id): Promise<PersonDetail> {
     const p = this.person(id);
+    if (p.siblingMarker) throw markerEntry(id);
     return structuredClone({
       ref: this.ref(p),
       sex: p.sex,
@@ -306,6 +379,7 @@ export class MockApi implements Api {
 
   async getFamilyView(id: Id): Promise<FamilyViewDto> {
     const p = this.person(id);
+    if (p.siblingMarker) throw markerEntry(id);
     const parentSets = this.parentSets(id);
     const seen = new Set<Id>([id]);
     const sibs: PersonRec[] = [];
@@ -357,10 +431,11 @@ export class MockApi implements Api {
     const starts: SearchHitDto[] = [];
     const contains: SearchHitDto[] = [];
     for (const r of rows) {
+      if (r.siblingMarker) continue;
       const f = folded.get(r.id)!;
       const at = f.indexOf(q);
       if (at < 0) continue;
-      const person: PersonRef = { id: r.id, name: r.name, lifespan: r.lifespan, sex: r.sex, living: r.living, private: r.private };
+      const person: PersonRef = { id: r.id, name: r.name, lifespan: r.lifespan, sex: r.sex, living: r.living, private: r.private, siblingMarker: false };
       const hit: SearchHitDto = { kind: 'person', id: r.id, label: r.name, snippet: r.lifespan || null, person };
       (at === 0 || f[at - 1] === ' ' ? starts : contains).push(hit);
       if (starts.length >= lim) break;
@@ -444,7 +519,177 @@ export class MockApi implements Api {
       .filter((h) => h.touched.has(record))
       .slice(-Math.max(0, limit))
       .reverse()
-      .map((h) => ({ ts: h.ts, label: h.label, op: h.op }));
+      .map((h) => ({ ts: h.ts, label: h.label, op: h.op, fields: structuredClone(h.fields.get(record) ?? []) }));
+  }
+
+  // -------------------------------------------------------------- change log
+
+  async changeLog(filter: LogFilterDto, offset: number, limit: number): Promise<Page<LogRowDto>> {
+    const unreviewed = (e: AgentLogEntry) => this.standing(e) && e.people.some((p) => p.reviewed === null && (!filter.person || p.id === filter.person));
+    const rows = this.logRows
+      .filter((e) => {
+        if (filter.actorKind && e.actor.kind !== filter.actorKind) return false;
+        if (filter.actorId && (e.actor.kind !== 'agent' || e.actor.id !== filter.actorId)) return false;
+        if (filter.batch && e.batch?.id !== filter.batch) return false;
+        if (filter.person && !e.people.some((p) => p.id === filter.person)) return false;
+        return !filter.unreviewedOnly || unreviewed(e);
+      })
+      .reverse();
+    const take = Math.min(limit, MAX_PAGE);
+    return { total: rows.length, offset, items: rows.slice(offset, offset + take).map((e) => this.logRow(e)) };
+  }
+
+  async changeBatches(): Promise<BatchDto[]> {
+    return [...this.logBatches.values()].reverse().map((b) => {
+      const rows = this.logRows.filter((e) => e.batch?.id === b.id);
+      const left = rows.filter((e) => this.standing(e)).flatMap((e) => e.people);
+      return {
+        ...b,
+        groups: rows.length,
+        people: new Set(rows.flatMap((e) => e.people.map((p) => p.id))).size,
+        unreviewed: new Set(left.filter((p) => p.reviewed === null).map((p) => p.id)).size,
+        standing: rows.filter((e) => this.standing(e)).length,
+      };
+    });
+  }
+
+  async changeLogAgents(): Promise<LogAgentDto[]> {
+    const seen = new Map<string, string>();
+    for (const e of this.logRows) if (e.actor.kind === 'agent') seen.set(e.actor.id, e.actor.name);
+    return [...seen].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async markReviewed(scope: ReviewScopeDto): Promise<void> {
+    const at = this.now();
+    if (scope.kind === 'group') this.logGroup(scope.id);
+    else if (scope.kind === 'batch' && !this.logBatches.has(scope.id)) throw missing('batch', scope.id);
+    for (const e of this.logRows) {
+      if (e.actor.kind !== 'agent') continue;
+      if (scope.kind === 'group' && e.group !== scope.id) continue;
+      if (scope.kind === 'batch' && e.batch?.id !== scope.id) continue;
+      for (const p of e.people) if ((scope.kind !== 'person' || p.id === scope.id) && p.reviewed === null) p.reviewed = at;
+    }
+  }
+
+  async unreviewedPeople(): Promise<Id[]> {
+    const left = this.logRows.filter((e) => this.standing(e)).flatMap((e) => e.people);
+    return [...new Set(left.filter((p) => p.reviewed === null).map((p) => p.id))];
+  }
+
+  async personAgentChanges(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
+    const rows = this.logRows.filter((e) => e.actor.kind === 'agent' && this.standing(e) && e.people.some((p) => p.id === id)).reverse();
+    return { total: rows.length, offset, items: rows.slice(offset, offset + Math.min(limit, MAX_PAGE)).map((e) => this.logRow(e)) };
+  }
+
+  async hasUntrackedChanges(): Promise<boolean> {
+    return this.logRows.some((e) => e.actor.kind === 'beforeTracking');
+  }
+
+  async recordHome(kind: 'note' | 'citation', id: Id): Promise<RecordHomeDto | null> {
+    const holds = (bag: OwnerBag) => (kind === 'note' ? bag.notes : bag.citations)?.some((x) => x.id === id);
+    const home = (owner: OwnerRef, bag: OwnerBag): RecordHomeDto => ({
+      owner,
+      ...(kind === 'note' ? { note: structuredClone(bag.notes!.find((x) => x.id === id)!) } : { citation: structuredClone(bag.citations!.find((x) => x.id === id)!) }),
+    });
+    const bags: [OwnerRef, OwnerBag][] = [];
+    for (const p of this.db.persons.values()) {
+      bags.push([{ kind: 'person', id: p.id }, { notes: p.notes, citations: p.citations }]);
+      for (const n of p.names) bags.push([{ kind: 'name', id: n.id }, { citations: n.citations }]);
+      for (const e of p.events) bags.push([{ kind: 'event', id: e.id }, { notes: e.notes, citations: e.citations }]);
+    }
+    for (const f of this.db.families.values()) {
+      bags.push([{ kind: 'family', id: f.id }, { notes: f.notes, citations: f.citations }]);
+      for (const e of f.events) bags.push([{ kind: 'event', id: e.id }, { notes: e.notes, citations: e.citations }]);
+    }
+    const found = bags.find(([, bag]) => holds(bag));
+    return found ? home(found[0], found[1]) : null;
+  }
+
+  async personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
+    const rows = this.logRows.filter((e) => e.people.some((p) => p.id === id)).reverse();
+    return { total: rows.length, offset, items: rows.slice(offset, offset + Math.min(limit, MAX_PAGE)).map((e) => this.logRow(e)) };
+  }
+
+  async undoChangeGroup(group: string): Promise<UndoReport> {
+    const e = this.logGroup(group);
+    if (e.actor.kind !== 'agent') throw invalid("Only an agent's change can be undone from the change log.");
+    return this.revertGroup(e);
+  }
+
+  async undoChangeBatch(batch: string): Promise<UndoReport> {
+    if (!this.logBatches.has(batch)) throw missing('batch', batch);
+    const report: UndoReport = { undone: 0, skipped: [] };
+    for (const e of this.logRows.filter((r) => r.batch?.id === batch).reverse()) {
+      const r = this.revertGroup(e);
+      report.undone += r.undone;
+      report.skipped.push(...r.skipped);
+    }
+    return report;
+  }
+
+  /**
+   * Test helper: what an agent's write leaves behind. Each change is one group holding a note on the person;
+   * the Ctrl+Z stack stays as it was. `conflict` makes a later undo find the fact changed, so it is skipped.
+   * Pair with `MockPlatform.simulateAgentBatch`, which also fires the event. Limit: the mock's Ctrl+Z restores a
+   * whole snapshot, so undoing an owner edit made before an agent's write also drops that write's note.
+   */
+  recordAgentBatch(spec: AgentBatchSpec): AgentBatchResult {
+    const agent = spec.agent ?? 'Claude';
+    let agentId = spec.agentId ?? this.agentIds.get(agent);
+    if (!agentId) {
+      agentId = this.ids.next();
+      this.agentIds.set(agent, agentId);
+    }
+    const actor: ActorDto = { kind: 'agent', id: agentId, name: agent };
+    let batch: BatchRef | null = null;
+    if (spec.title !== undefined) {
+      batch = { id: this.ids.next(), title: spec.title };
+      const started = this.now();
+      this.logBatches.set(batch.id, {
+        ...batch,
+        sourceFile: spec.sourceFile ?? null,
+        actorId: agentId,
+        actorName: agent,
+        started,
+        ended: spec.open ? null : started,
+        report: spec.report ?? null,
+      });
+    }
+    const groups: string[] = [];
+    const touched = new Set<Id>();
+    for (const c of spec.changes) {
+      const text = c.note ?? 'Agent note';
+      this.db = structuredClone(this.db);
+      this.execute({ type: 'saveNote', target: { kind: 'person', id: c.person }, note: { kind: 'general', text } });
+      const p = this.person(c.person);
+      const note = p.notes[p.notes.length - 1].id;
+      p.changed = this.now();
+      const fact: LogFactDto = c.fact ?? { kind: 'text', text };
+      const entry = this.addLogEntry({
+        actor,
+        batch,
+        label: c.label ?? 'Save note',
+        changes: [{ kind: c.kind ?? 'note', id: c.record ?? note, op: c.op ?? 'create', detail: text, fact, sources: c.sources ?? [], fields: c.fields ?? [] }],
+        people: [{ id: c.person, name: this.ref(p).name, reviewed: null }],
+        fact: { person: c.person, note, conflict: c.conflict ?? false },
+      });
+      groups.push(entry.group);
+      touched.add(c.person).add(note);
+    }
+    this.touch();
+    return { batch: batch?.id ?? null, groups, touched: [...touched], agent };
+  }
+
+  /** Test helper: a row written before changes had authors. */
+  recordBeforeTracking(label: string, person: Id): void {
+    const name = this.ref(this.person(person)).name;
+    this.addLogEntry({
+      actor: { kind: 'beforeTracking' },
+      batch: null,
+      label,
+      changes: [{ kind: 'person', id: person, op: 'update', detail: name, fact: { kind: 'text', text: name }, sources: [], fields: [] }],
+      people: [{ id: person, name, reviewed: null }],
+    });
   }
 
   // ------------------------------------------------------------------- edits
@@ -472,7 +717,7 @@ export class MockApi implements Api {
       if (p) p.changed = this.now();
     }
     const op: HistoryEntry['op'] = cmd.type === 'createPerson' || cmd.type === 'quickAdd' ? 'create' : /^delete/.test(cmd.type) ? 'delete' : 'update';
-    this.record(label, op, new Set(touched));
+    this.record(label, op, new Set(touched), before);
     return { label, focus: outcome.focus, touched, undo: this.currentUndo() };
   }
 
@@ -532,7 +777,7 @@ export class MockApi implements Api {
 
   async chartOpen(req: ChartRequest): Promise<ChartMeta> {
     if (req.kind === 'whole') throw invalid('The whole tree has no starting person. Open it with the whole-tree command.');
-    this.person(req.root);
+    if (this.person(req.root).siblingMarker) throw markerEntry(req.root);
     const generations = Math.max(1, Math.min(req.generations, req.kind === 'pedigree' ? 255 : 20));
     const src: RustLayoutSource = {
       ref: (id) => this.ref(this.person(id)),
@@ -575,20 +820,27 @@ export class MockApi implements Api {
     const surnames = result.nodes.map((n) => rows.get(n.person!.id)?.surname ?? '');
     for (const n of result.nodes) {
       const p = n.person!;
-      n.label = `${p.name}${p.lifespan ? `, ${p.lifespan}` : ''}, generation ${n.gen + 1}`;
+      n.label = `${p.siblingMarker ? 'more brothers and sisters, not named' : `${p.name}${p.lifespan ? `, ${p.lifespan}` : ''}`}, generation ${n.gen + 1}`;
     }
+    // The markers are drawn like people but are not counted as people.
+    const markerAt = result.nodes.filter((n) => n.person?.siblingMarker).map((n) => ({ x: n.x + n.w / 2, y: n.y + n.h / 2 }));
+    const blocks = result.blocks.map((b) => {
+      const inside = markerAt.filter((m) => m.x >= b.rect.x && m.x <= b.rect.x + b.rect.w && m.y >= b.rect.y && m.y <= b.rect.y + b.rect.h + b.bodyH).length;
+      const people = b.people - inside;
+      return inside === 0 ? b : { ...b, people, title: b.title.replace(/\(\d+/, `(${people}`) };
+    });
     const chartId = this.nextChart++;
     const meta: WholeMeta = {
       meta: {
         chartId,
         kind: 'whole',
         bounds: result.bounds,
-        nodeCount: result.nodes.length,
+        nodeCount: result.nodes.length - markerAt.length,
         rootNode: 0,
         truncated: false,
         version: this.version,
       },
-      blocks: result.blocks,
+      blocks,
     };
     const layout: Layout = { nodes: result.nodes, edges: result.edges, bounds: result.bounds, truncated: false, kids: [], labels: [] };
     this.charts.set(chartId, { kind: 'whole', layout, version: this.version, reference: null, whole: { result, surnames, meta, reversed } });
@@ -855,13 +1107,86 @@ export class MockApi implements Api {
     return { ...this.settings };
   }
 
+  // ---------------------------------------------------------------- agent access (in memory)
+
+  private agent: AgentAccessState = { enabled: false, port: 8765, running: false, error: null, requireKey: false, keylessCommand: null, connections: [] };
+  private agentSeq = 0;
+  /** Ports another program already holds, for tests. */
+  agentTakenPorts = new Set<number>();
+
+  private agentSnapshot(): AgentAccessState {
+    const keylessCommand = this.agent.requireKey ? null : `claude mcp add --transport http gene-tree http://127.0.0.1:${this.agent.port}/mcp`;
+    return { ...this.agent, keylessCommand, connections: this.agent.connections.map((c) => ({ ...c })) };
+  }
+
+  async agentAccessRequireKey(required: boolean): Promise<AgentAccessState> {
+    this.agent = { ...this.agent, requireKey: required };
+    return this.agentSnapshot();
+  }
+
+  async agentAccessState(): Promise<AgentAccessState> {
+    return this.agentSnapshot();
+  }
+
+  async agentAccessSet(enabled: boolean, port: number): Promise<AgentAccessState> {
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) throw invalid('The port must be a number from 1024 to 65535.');
+    const taken = enabled && this.agentTakenPorts.has(port);
+    // Like the backend: a server that works keeps working when the move cannot happen.
+    if (taken && this.agent.running) {
+      this.agent = { ...this.agent, error: `Port ${port} is already used by another program. Choose another port.` };
+      return this.agentSnapshot();
+    }
+    this.agent = {
+      ...this.agent,
+      enabled,
+      port,
+      running: enabled && !taken,
+      error: taken ? `Port ${port} is already used by another program. Choose another port.` : null,
+    };
+    return this.agentSnapshot();
+  }
+
+  async agentConnectionCreate(name: string): Promise<NewConnectionDto> {
+    const clean = name.trim();
+    if (!clean) throw invalid('Give the connection a name.');
+    if ([...clean].length > 100) throw invalid('Keep the connection name to 100 characters or fewer.');
+    // eslint-disable-next-line no-control-regex
+    if (/[\u0000-\u001f\u007f-\u009f]/.test(clean)) throw invalid('The connection name cannot contain line breaks or other control characters.');
+    if (isBuiltinAgentName(clean) || this.agent.connections.some((c) => c.name.toLowerCase() === clean.toLowerCase())) {
+      throw invalid(`A connection named "${clean}" already exists. Choose another name.`);
+    }
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    const key = 'gt_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    const connection = { id: `agent-conn-${++this.agentSeq}`, name: clean, created: Date.now() };
+    this.agent.connections = [...this.agent.connections, connection];
+    const snippet = `claude mcp add --transport http gene-tree http://127.0.0.1:${this.agent.port}/mcp --header "Authorization: Bearer ${key}"`;
+    return { connection: { ...connection }, key, snippet };
+  }
+
+  async agentConnectionRevoke(id: string): Promise<void> {
+    if (!this.agent.connections.some((c) => c.id === id)) throw new MockApiError('not_found', `No connection with id "${id}".`);
+    this.agent.connections = this.agent.connections.filter((c) => c.id !== id);
+  }
+
+  async agentRules(): Promise<string> {
+    return [
+      'Rules for agents working in this family tree',
+      '',
+      '1. Search before you add anyone, and never add a person who is already in the tree.',
+      '2. State only what the source says. Mark anything you infer as an inference.',
+      '3. Every fact you add names its source.',
+      '4. You cannot delete people, change whether a person is living, or overwrite what the owner entered.',
+    ].join('\n');
+  }
+
   // ================================================================ internals
 
   private async info(dir: string, name?: string): Promise<ProjectInfo> {
     return {
       dir,
       name: name ?? (dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || this.projectName),
-      personCount: this.db.persons.size,
+      personCount: [...this.db.persons.values()].filter((p) => !p.siblingMarker).length,
       homePerson: this.settings.homePerson,
       sourceVersion: '5.5.1',
       locationWarning: await this.checkLocation(dir),
@@ -879,9 +1204,83 @@ export class MockApi implements Api {
     this.sortCache.clear();
   }
 
-  private record(label: string, op: HistoryEntry['op'], touched: Set<Id>): void {
-    this.log.push({ ts: this.now(), label, op, touched });
+  /** `before` is the database as the change found it: persons present in both versions get their field changes. */
+  private record(label: string, op: HistoryEntry['op'], touched: Set<Id>, before?: Db): void {
+    const fields = new Map<Id, FieldChangeDto[]>();
+    for (const id of touched) {
+      const was = before?.persons.get(id);
+      const now = this.db.persons.get(id);
+      if (was && now) fields.set(id, personFieldChanges(was, now));
+    }
+    this.log.push({ ts: this.now(), label, op, touched, fields });
     if (this.log.length > 2000) this.log.shift();
+    const people = [...touched].flatMap((id) => {
+      const p = this.db.persons.get(id);
+      return p ? [{ id, name: this.ref(p).name, reviewed: null }] : [];
+    });
+    this.addLogEntry({
+      actor: { kind: 'user' },
+      batch: null,
+      label,
+      changes: people.map((p) => ({ kind: 'person', id: p.id, op, detail: p.name, fact: { kind: 'text', text: p.name }, sources: [], fields: fields.get(p.id) ?? [] })),
+      people,
+    });
+  }
+
+  private addLogEntry(row: Omit<AgentLogEntry, 'group' | 'ts' | 'reverted'>): AgentLogEntry {
+    const entry: AgentLogEntry = { ...row, group: this.ids.next(), ts: this.now(), reverted: false };
+    this.logRows.push(entry);
+    return entry;
+  }
+
+  private logRow(e: AgentLogEntry): LogRowDto {
+    return structuredClone({
+      group: e.group,
+      ts: e.ts,
+      actor: e.actor,
+      batch: e.batch,
+      label: e.label,
+      changes: e.changes,
+      people: e.people.map((p) => ({ ...p, exists: this.db.persons.has(p.id), siblingMarker: this.db.persons.get(p.id)?.siblingMarker ?? false })),
+      reverted: e.reverted,
+      canUndo: e.actor.kind === 'agent' && !e.reverted,
+    });
+  }
+
+  private logGroup(group: string): AgentLogEntry {
+    const e = this.logRows.find((r) => r.group === group);
+    if (!e) throw missing('change', group);
+    return e;
+  }
+
+  /** A change that counts against the review: an agent's, not undone. */
+  private standing(e: AgentLogEntry): boolean {
+    return e.actor.kind === 'agent' && !e.reverted;
+  }
+
+  /** Undoes one agent change in place. Reports what stayed; a skipped change keeps the group open. */
+  private revertGroup(e: AgentLogEntry): UndoReport {
+    const report: UndoReport = { undone: 0, skipped: [] };
+    if (!e.fact || e.reverted) return report;
+    const { person, note, conflict } = e.fact;
+    if (conflict) {
+      const p = this.db.persons.get(person);
+      const change = e.changes[0];
+      report.skipped.push({ kind: change.kind, person: p ? this.ref(p) : null, detail: change.detail, fact: change.fact });
+      return report;
+    }
+    if (this.db.persons.has(person)) this.execute({ type: 'deleteNote', target: { kind: 'person', id: person }, note });
+    e.reverted = true;
+    report.undone = 1;
+    this.touch();
+    this.addLogEntry({
+      actor: { kind: 'user' },
+      batch: null,
+      label: `Undo: ${e.label}`,
+      changes: e.changes.map((c) => ({ ...c, op: 'delete' })),
+      people: e.people.map((p) => ({ ...p, reviewed: null })),
+    });
+    return report;
   }
 
   private currentUndo(): UndoState {
@@ -978,8 +1377,9 @@ export class MockApi implements Api {
       name: this.prefName(p)?.display ?? '',
       lifespan: this.lifespan(p),
       sex: p.sex,
-      living: this.isLiving(p),
+      living: !p.siblingMarker && this.isLiving(p),
       private: p.private,
+      siblingMarker: p.siblingMarker === true,
     };
   }
 
@@ -992,8 +1392,8 @@ export class MockApi implements Api {
     p.names.forEach((nm) => take(nm.citations));
     return {
       ...this.ref(p),
-      surname: n.surnames.join(' '),
-      given: n.given ?? '',
+      surname: n?.surnames.join(' ') ?? '',
+      given: n?.given ?? '',
       birth: this.birth(p)?.date?.display ?? '',
       death: this.death(p)?.date?.display ?? '',
       sourceCount: sources.size,
@@ -1022,6 +1422,7 @@ export class MockApi implements Api {
     const { rows, folded } = this.rows();
     const text = fold(q.text.trim());
     let out = rows.filter((r) => {
+      if (r.siblingMarker) return false;
       if (text && !folded.get(r.id)!.includes(text)) return false;
       if (q.living === 'living' && !r.living) return false;
       if (q.living === 'deceased' && r.living) return false;
@@ -1447,7 +1848,18 @@ export class MockApi implements Api {
       case 'deleteFamily': {
         const f = this.family(cmd.id);
         this.db.families.delete(cmd.id);
+        for (const c of f.children) if (this.db.persons.get(c.person)?.siblingMarker) this.db.persons.delete(c.person);
         return { focus: null, touched: [f.id, ...[f.partner1, f.partner2, ...f.children.map((c) => c.person)].filter((x): x is Id => !!x)] };
+      }
+
+      case 'addSiblingMarker': {
+        const f = this.family(cmd.family);
+        if (f.children.some((c) => this.db.persons.get(c.person)?.siblingMarker))
+          throw new MockApiError('conflict', 'This family already has an entry for unnamed brothers and sisters.');
+        const id = this.ids.next();
+        this.db.persons.set(id, { id, sex: 'unknown', sexText: null, livingOverride: null, private: false, names: [], events: [], notes: [], media: [], citations: [], changed: this.now(), siblingMarker: true });
+        f.children.push({ person: id, rel: ['birth', 'birth'], preferred: true });
+        return { focus: id, touched: [f.id, id] };
       }
 
       case 'linkChild': {
@@ -1475,6 +1887,7 @@ export class MockApi implements Api {
         const n = f.children.length;
         f.children = f.children.filter((c) => c.person !== cmd.child);
         if (f.children.length === n) throw missing('child link', cmd.child);
+        if (this.db.persons.get(cmd.child)?.siblingMarker) this.db.persons.delete(cmd.child);
         return { focus: cmd.child, touched: [f.id, cmd.child] };
       }
 
@@ -1626,6 +2039,12 @@ export class MockApi implements Api {
         if (cmd.description !== undefined) m.description = cmd.description || null;
         if (cmd.dateRaw !== undefined) m.date = toDateDto(cmd.dateRaw, this.settings.dayOrder);
         return { focus: null, touched: [m.id] };
+      }
+
+      case 'addNumber': {
+        if (!cmd.sourceFile.trim() || !cmd.number.trim()) throw invalid('Give both the source file and the number.');
+        const p = this.person(cmd.person);
+        return { focus: p.id, touched: [p.id] };
       }
     }
   }

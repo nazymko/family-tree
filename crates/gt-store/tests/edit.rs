@@ -8,7 +8,8 @@ use gt_core::model::*;
 use gt_core::tree::Tree;
 use gt_store::migrate::MIGRATIONS;
 use gt_store::{
-    Change, ChangeOp, ChangeSet, HitKind, Project, Record, RecordKind, SCHEMA_VERSION, StoreError,
+    Actor, Change, ChangeOp, ChangeSet, HitKind, LogMeta, Project, Record, RecordKind,
+    SCHEMA_VERSION, StoreError,
 };
 use proptest::prelude::*;
 use rusqlite::Connection;
@@ -22,6 +23,14 @@ fn base() -> (tempfile::TempDir, Project, Tree) {
     let tree = rich_tree();
     p.save_tree(&tree, TODAY).unwrap();
     (tmp, p, tree)
+}
+
+fn user_meta() -> LogMeta {
+    LogMeta {
+        actor: Actor::User,
+        batch: None,
+        people: vec![],
+    }
 }
 
 fn cs(label: &str, changes: Vec<Change>) -> ChangeSet {
@@ -186,8 +195,8 @@ fn v1_project_upgrades_to_2() {
         c.pragma_update(None, "user_version", 1).unwrap();
     }
     let p = Project::open(&dir).unwrap();
-    assert_eq!(p.schema_version(), 2);
-    assert_eq!(SCHEMA_VERSION, 2);
+    assert_eq!(p.schema_version(), 4);
+    assert_eq!(SCHEMA_VERSION, 4);
     let cols: Vec<String> = p
         .conn()
         .prepare("SELECT name FROM pragma_table_info('change_log')")
@@ -214,7 +223,9 @@ fn v1_project_with_data_keeps_search_consistent_after_upgrade() {
         // Turn it back into a v1 database whose full-text rows have foreign row ids.
         let c = Connection::open(dir.join("tree.db")).unwrap();
         c.execute_batch(
-            "DROP INDEX change_log_target; DROP INDEX change_log_group; DROP INDEX idx_person_seq; DROP INDEX idx_family_seq; DROP INDEX idx_event_seq; DROP INDEX idx_place_seq; DROP INDEX idx_source_seq; DROP INDEX idx_repository_seq; DROP INDEX idx_citation_seq; DROP INDEX idx_media_seq; DROP INDEX idx_note_seq; \
+            "DROP INDEX change_log_reverts; DROP INDEX change_log_batch; DROP INDEX change_person_person; DROP TABLE change_person; DROP TABLE agent_batch; \
+             ALTER TABLE change_log DROP COLUMN actor_kind; ALTER TABLE change_log DROP COLUMN actor_id; ALTER TABLE change_log DROP COLUMN actor_name; ALTER TABLE change_log DROP COLUMN batch_id; ALTER TABLE person DROP COLUMN sibling_marker; \
+             DROP INDEX change_log_target; DROP INDEX change_log_group; DROP INDEX idx_person_seq; DROP INDEX idx_family_seq; DROP INDEX idx_event_seq; DROP INDEX idx_place_seq; DROP INDEX idx_source_seq; DROP INDEX idx_repository_seq; DROP INDEX idx_citation_seq; DROP INDEX idx_media_seq; DROP INDEX idx_note_seq; \
              ALTER TABLE change_log DROP COLUMN group_id; \
              ALTER TABLE change_log DROP COLUMN label; \
              ALTER TABLE change_log DROP COLUMN after_json; \n             ALTER TABLE change_log DROP COLUMN before_seq; \n             ALTER TABLE change_log DROP COLUMN reverts_group; \n             DELETE FROM meta WHERE key = 'fts_scheme'; \
@@ -225,7 +236,7 @@ fn v1_project_with_data_keeps_search_consistent_after_upgrade() {
         c.pragma_update(None, "user_version", 1).unwrap();
     }
     let mut p = Project::open(&dir).unwrap();
-    assert_eq!(p.schema_version(), 2);
+    assert_eq!(p.schema_version(), 4);
     assert!(!p.search("muller", 10).unwrap().is_empty());
     let who = person_named(&tree, "Müller");
     let before = tree.persons[&who].clone();
@@ -237,6 +248,7 @@ fn v1_project_with_data_keeps_search_consistent_after_upgrade() {
             vec![update(Record::Person(before), Record::Person(after))],
         ),
         &[],
+        &user_meta(),
     )
     .unwrap();
     assert!(p.search("muller", 10).unwrap().is_empty());
@@ -292,6 +304,7 @@ fn interrupted_fts_rebuild_is_redone_on_next_open() {
             vec![update(Record::Person(before), Record::Person(after))],
         ),
         &[],
+        &user_meta(),
     )
     .unwrap();
     assert!(p.search("muller", 10).unwrap().is_empty());
@@ -317,6 +330,7 @@ fn upsert_person_replaces_names() {
             )],
         ),
         &[],
+        &user_meta(),
     )
     .unwrap();
     assert_eq!(
@@ -359,6 +373,7 @@ fn delete_event_removes_participants_and_links() {
             vec![update(Record::Event(ev), Record::Event(with_links.clone()))],
         ),
         &[],
+        &user_meta(),
     )
     .unwrap();
     assert_eq!(
@@ -376,6 +391,7 @@ fn delete_event_removes_participants_and_links() {
     p.apply_changes(
         &cs("Delete event", vec![delete(Record::Event(with_links))]),
         &[],
+        &user_meta(),
     )
     .unwrap();
     assert_eq!(
@@ -407,6 +423,7 @@ fn search_reflects_edit() {
             vec![update(Record::Person(before), Record::Person(after))],
         ),
         &[],
+        &user_meta(),
     )
     .unwrap();
     assert!(p.search("muller", 10).unwrap().is_empty());
@@ -426,6 +443,7 @@ fn search_reflects_edit() {
             ],
         ),
         &[],
+        &user_meta(),
     )
     .unwrap();
     let hits = p.search("hamburg", 10).unwrap();
@@ -445,6 +463,7 @@ fn search_reflects_edit() {
             vec![update(Record::Place(hamburg), Record::Place(renamed))],
         ),
         &[],
+        &user_meta(),
     )
     .unwrap();
     assert!(p.search("hamburg", 10).unwrap().is_empty());
@@ -478,6 +497,7 @@ fn family_event_place_reaches_both_spouses() {
             vec![create(Record::Place(pl)), create(Record::Event(ev))],
         ),
         &[],
+        &user_meta(),
     )
     .unwrap();
     let hits = p.search("lübeck", 10).unwrap();
@@ -499,6 +519,7 @@ fn living_cached_applied() {
             vec![update(Record::Person(before), Record::Person(after))],
         ),
         &[(who, false)],
+        &user_meta(),
     )
     .unwrap();
     let get = |p: &Project| -> i64 {
@@ -535,7 +556,7 @@ fn change_log_rows_and_history() {
             create(Record::Event(ev)),
         ],
     );
-    p.apply_changes(&set, &[]).unwrap();
+    p.apply_changes(&set, &[], &user_meta()).unwrap();
     assert!(!p.change_log_is_empty().unwrap());
     let n: i64 = p
         .conn()
@@ -551,7 +572,7 @@ fn change_log_rows_and_history() {
     let mut a2 = after.clone();
     a2.sex = Sex::Male;
     later.changes = vec![update(Record::Person(after), Record::Person(a2))];
-    p.apply_changes(&later, &[]).unwrap();
+    p.apply_changes(&later, &[], &user_meta()).unwrap();
     let h = p.history(who, 10).unwrap();
     assert_eq!(h.len(), 2);
     assert_eq!(h[0].label, "Edit sex");
@@ -581,7 +602,7 @@ fn inverse_roundtrip() {
             delete(Record::Event(gone)),
         ],
     );
-    p.apply_changes(&set, &[]).unwrap();
+    p.apply_changes(&set, &[], &user_meta()).unwrap();
     assert_ne!(
         p.load_tree().unwrap().normalized_for_compare(),
         tree.normalized_for_compare()
@@ -592,7 +613,7 @@ fn inverse_roundtrip() {
     assert_eq!(inv.changes.len(), 4);
     assert_eq!(inv.changes[0].kind, RecordKind::Event);
     assert!(inv.changes[0].before.is_none());
-    p.apply_changes(&inv, &[]).unwrap();
+    p.apply_changes(&inv, &[], &user_meta()).unwrap();
     let reverted: i64 = p
         .conn()
         .query_row(
@@ -622,6 +643,7 @@ fn failed_apply_rolls_back() {
             vec![create(Record::Person(newp)), create(Record::Event(bad))],
         ),
         &[],
+        &user_meta(),
     );
     assert!(matches!(r, Err(StoreError::Sql(_))), "{r:?}");
     assert_eq!(
@@ -671,7 +693,7 @@ fn apply_is_fast_on_50k() {
         ],
     );
     let t = std::time::Instant::now();
-    p.apply_changes(&set, &[(who, true)]).unwrap();
+    p.apply_changes(&set, &[(who, true)], &user_meta()).unwrap();
     let dt = t.elapsed();
     assert!(dt.as_millis() < 50, "{dt:?}");
 }
@@ -1029,20 +1051,20 @@ proptest! {
             match rng.below(8) {
                 0 if !done.is_empty() => {
                     let (set, before, after) = done.pop().unwrap();
-                    p.apply_changes(&set.inverse(), &[]).unwrap();
+                    p.apply_changes(&set.inverse(), &[], &user_meta()).unwrap();
                     mirrored = before.clone();
                     undone.push((set, before, after));
                 }
                 1 if !undone.is_empty() => {
                     let (set, before, after) = undone.pop().unwrap();
-                    p.apply_changes(&set, &[]).unwrap();
+                    p.apply_changes(&set, &[], &user_meta()).unwrap();
                     mirrored = after.clone();
                     done.push((set, before, after));
                 }
                 _ => {
                     let Some(set) = gen_cs(&mut rng, &mirrored) else { continue };
                     let before = mirrored.clone();
-                    p.apply_changes(&set, &[]).unwrap();
+                    p.apply_changes(&set, &[], &user_meta()).unwrap();
                     mirror(&mut mirrored, &set);
                     done.push((set, before, mirrored.clone()));
                     undone.clear();
@@ -1065,4 +1087,56 @@ proptest! {
             prop_assert_eq!(a, b, "query {}", q);
         }
     }
+}
+
+fn person_search_rows(p: &Project, id: Uuid) -> i64 {
+    p.conn()
+        .query_row(
+            "SELECT count(*) FROM search_words WHERE kind = 'person' AND id = ?1",
+            [id.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+#[test]
+fn sibling_marker_edit_path_writes_no_search_row() {
+    let (_tmp, mut p, _tree) = base();
+    // A marker never has a name; this one does, so a missing skip would index it.
+    let mut marker = person("Ghost", "Marker");
+    marker.sibling_marker = true;
+    let normal = person("Control", "Person");
+    let (mid, nid) = (marker.common.id, normal.common.id);
+    p.apply_changes(
+        &cs(
+            "Add",
+            vec![
+                create(Record::Person(normal.clone())),
+                create(Record::Person(marker.clone())),
+            ],
+        ),
+        &[],
+        &user_meta(),
+    )
+    .unwrap();
+    assert_eq!(
+        person_search_rows(&p, nid),
+        1,
+        "a normal person is searched"
+    );
+    assert_eq!(person_search_rows(&p, mid), 0, "created marker");
+    // Editing the marker keeps it out as well.
+    let mut after = marker.clone();
+    after.common.changed = Some(5);
+    p.apply_changes(
+        &cs(
+            "Touch",
+            vec![update(Record::Person(marker), Record::Person(after))],
+        ),
+        &[],
+        &user_meta(),
+    )
+    .unwrap();
+    assert_eq!(person_search_rows(&p, mid), 0, "updated marker");
+    assert_eq!(p.search("Ghost", 50).unwrap().len(), 0);
 }

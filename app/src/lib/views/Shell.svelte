@@ -12,6 +12,7 @@
   import RoutePlaceholder from './RoutePlaceholder.svelte';
   import PersonEditor from './PersonEditor.svelte';
   import Sources from './Sources.svelte';
+  import ChangeLog from './ChangeLog.svelte';
   import MediaView from './MediaView.svelte';
   import Settings from './Settings.svelte';
   import Pedigree from './Pedigree.svelte';
@@ -36,6 +37,7 @@
   import { toasts } from '../state/toast.svelte';
   import { ui } from '../state/ui.svelte';
   import { undoState } from '../state/undo.svelte';
+  import { agentChanges } from '../state/agentChanges.svelte';
   import { closeTree } from '../state/openTree';
   import { currentPlatform, formatKeys, registerShortcuts, type Shortcut } from '../state/shortcuts';
   import { t, plural, type MessageKey } from '../i18n';
@@ -44,7 +46,7 @@
   const api = getApi();
   const platform = getPlatform();
 
-  type NavName = 'family' | 'people' | 'whole' | 'pedigree' | 'descendants' | 'relatives' | 'sources' | 'media' | 'settings';
+  type NavName = 'family' | 'people' | 'whole' | 'pedigree' | 'descendants' | 'relatives' | 'sources' | 'media' | 'log' | 'settings';
   const ITEMS: { name: NavName; label: MessageKey; icon: IconName }[] = [
     { name: 'family', label: 'nav.family', icon: 'family' },
     { name: 'people', label: 'nav.people', icon: 'people' },
@@ -54,6 +56,7 @@
     { name: 'relatives', label: 'nav.relatives', icon: 'relatives' },
     { name: 'sources', label: 'nav.sources', icon: 'sources' },
     { name: 'media', label: 'nav.media', icon: 'media' },
+    { name: 'log', label: 'nav.log', icon: 'log' },
   ];
 
   let searchOpen = $state(false);
@@ -186,7 +189,13 @@
   onMount(() => {
     void undoState.refresh(api);
     if (!nav.focusPerson && homeId) nav.focus(homeId);
-    return registerShortcuts(shortcuts);
+    const stopAgents = agentChanges.start(api, platform);
+    const stopKeys = registerShortcuts(shortcuts);
+    return () => {
+      stopKeys();
+      stopAgents();
+      agentChanges.reset();
+    };
   });
 
   function picked(hit: SearchHitDto) {
@@ -381,6 +390,8 @@
           {/key}
         {:else if nav.route.name === 'sources'}
           <Sources />
+        {:else if nav.route.name === 'log'}
+          <ChangeLog />
         {:else if nav.route.name === 'media'}
           {#if nav.focusPerson ?? homeId}
             <MediaView personId={(nav.focusPerson ?? homeId)!} />

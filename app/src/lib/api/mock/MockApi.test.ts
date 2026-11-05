@@ -58,6 +58,6 @@ describe('EditCommand fixtures', () => {
     expect(commandsJson).toEqual(JSON.parse(JSON.stringify(commandFixtures)));
     const types = new Set((commandFixtures as EditCommand[]).map((c) => c.type));
     expect(types.size).toBe(commandFixtures.length);
-    expect(types.size).toBe(27);
+    expect(types.size).toBe(29);
   });
 });

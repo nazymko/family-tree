@@ -56,7 +56,7 @@ fn range_text(g: &GenDate) -> Option<String> {
     }
 }
 
-/// `NN/NN/YYYY` (also `.` or `-`) with both leading parts at most 12.
+/// `NN/NN/YYYY` (also `.` or `-`) with two different leading parts, both at most 12.
 fn is_ambiguous_numeric(input: &str) -> bool {
     input.split_whitespace().any(|tok| {
         let tok = tok.trim_matches(|c: char| !c.is_ascii_digit());
@@ -68,7 +68,8 @@ fn is_ambiguous_numeric(input: &str) -> bool {
         let month_like = |s: &str| {
             digits(s) && s.len() <= 2 && s.parse::<u8>().is_ok_and(|n| (1..=12).contains(&n))
         };
-        month_like(a) && month_like(b) && y.len() == 4 && digits(y)
+        let same = a.parse::<u8>().ok() == b.parse::<u8>().ok();
+        month_like(a) && month_like(b) && !same && y.len() == 4 && digits(y)
     })
 }
 

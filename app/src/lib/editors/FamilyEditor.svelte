@@ -10,6 +10,7 @@
   import EventEditor from './EventEditor.svelte';
   import QuickAdd from './QuickAdd.svelte';
   import EditorDialog from './EditorDialog.svelte';
+  import SubEditors from './SubEditors.svelte';
   import { errMessage } from './errors';
   import { t } from '../i18n';
   import { eventKindLabel } from '../i18n/backend';
@@ -114,6 +115,8 @@
     if (!own) throw { code: 'not_found', message: t('famEd.gone') };
     const rows = await Promise.all(
       own.children.map(async (c) => {
+        // The unnamed-siblings marker has no person page to read.
+        if (c.person.siblingMarker) return { person: c.person, rel: c.rel, preferred: true } satisfies ChildRow;
         const d = await api.getPerson(c.person.id);
         const ps = d.parentSets.find((s) => s.familyId === family);
         return { person: c.person, rel: c.rel, preferred: ps?.preferred ?? false } satisfies ChildRow;
@@ -267,6 +270,7 @@
 <EditorDialog
   title={editing ? t('famEd.editFamily') : t('famEd.addFamily')}
   saveLabel={t('edit.saveFamily')}
+  watch={[family, anchor]}
   {dirty}
   {saving}
   {error}
@@ -327,7 +331,7 @@
               id={rowId(c.person.id)}
               tabindex="0"
               role="group"
-              aria-label={t('famEd.childOf', { name: c.person.name, i: i + 1, n: children.length })}
+              aria-label={t('famEd.childOf', { name: c.person.siblingMarker ? t('person.siblingMarker') : c.person.name, i: i + 1, n: children.length })}
               draggable={dragFrom !== null || undefined}
               onkeydown={(e) => onRowKey(e, i)}
               ondragover={(e) => dragFrom !== null && e.preventDefault()}
@@ -346,9 +350,22 @@
                 onmouseup={() => (dragFrom = null)}>⋮⋮</span
               >
               <div class="who">
-                <strong><bdi dir="auto">{c.person.name}</bdi></strong>
-                <span class="meta">{c.person.lifespan}</span>
+                {#if c.person.siblingMarker}
+                  <strong><bdi dir="auto">{t('person.siblingMarker')}</bdi></strong>
+                {:else}
+                  <strong><bdi dir="auto">{c.person.name}</bdi></strong>
+                  <span class="meta">{c.person.lifespan}</span>
+                {/if}
               </div>
+              {#if c.person.siblingMarker}
+                <div class="foot">
+                  <Button
+                    variant="quiet"
+                    aria-label={t('famEd.deleteSiblingMarker')}
+                    onclick={() => immediate({ type: 'deletePerson', id: c.person.id })}>{t('common.delete')}</Button
+                  >
+                </div>
+              {:else}
               <div class="rels">
                 <Select
                   label={t('famEd.relationshipTo', { parent: parentName(slot1, 1) })}
@@ -376,6 +393,7 @@
                   >{t('common.remove')}</Button
                 >
               </div>
+              {/if}
             </li>
           {/each}
         </ol>
@@ -390,38 +408,46 @@
       {/key}
       <div>
         <Button disabled={!childAnchor} onclick={() => (sub = { kind: 'child' })}>{t('famEd.addNewChild')}</Button>
+        <Button
+          disabled={children.some((c) => c.person.siblingMarker)}
+          onclick={() => immediate({ type: 'addSiblingMarker', family: family! })}>{t('famEd.addSiblingMarker')}</Button
+        >
       </div>
     </section>
   {/if}
 
-  {#snippet extra()}
-    {#if editing}<Button variant="danger" onclick={() => (sub = { kind: 'delete' })}>{t('edit.deleteFamily')}</Button>{/if}
+  {#snippet extra(stale: boolean)}
+    {#if editing}<Button variant="danger" disabled={stale} onclick={() => (sub = { kind: 'delete' })}>{t('edit.deleteFamily')}</Button>{/if}
   {/snippet}
 </EditorDialog>
 
 {#if sub?.kind === 'event' && family}
-  <EventEditor
-    owner={{ kind: 'family', id: family }}
-    event={sub.event}
-    onCancel={() => (sub = null)}
-    onSaved={(r) => {
-      sub = null;
-      onChanged?.(r);
-      void reload(false);
-    }}
-  />
+  <SubEditors>
+    <EventEditor
+      owner={{ kind: 'family', id: family }}
+      event={sub.event}
+      onCancel={() => (sub = null)}
+      onSaved={(r) => {
+        sub = null;
+        onChanged?.(r);
+        void reload(false);
+      }}
+    />
+  </SubEditors>
 {:else if sub?.kind === 'child' && childAnchor && family}
-  <QuickAdd
-    anchor={childAnchor}
-    relation="child"
-    {family}
-    onCancel={() => (sub = null)}
-    onDone={(r) => {
-      sub = null;
-      onChanged?.(r);
-      void reload(false);
-    }}
-  />
+  <SubEditors>
+    <QuickAdd
+      anchor={childAnchor}
+      relation="child"
+      {family}
+      onCancel={() => (sub = null)}
+      onDone={(r) => {
+        sub = null;
+        onChanged?.(r);
+        void reload(false);
+      }}
+    />
+  </SubEditors>
 {:else if sub?.kind === 'delete'}
   <Dialog open={true} title={t('famEd.deleteTitle')} onclose={() => (sub = null)}>
     <p>{t('famEd.childrenKept')}</p>

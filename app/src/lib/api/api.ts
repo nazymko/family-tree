@@ -1,4 +1,11 @@
 import type {
+  BatchDto,
+  LogAgentDto,
+  LogFilterDto,
+  LogRowDto,
+  RecordHomeDto,
+  ReviewScopeDto,
+  UndoReport,
   AttachResult,
   ChartLocation,
   ChartMeta,
@@ -40,6 +47,7 @@ import type {
   UndoState,
   WholeMeta,
 } from './types';
+import type { AgentAccessState, NewConnectionDto } from './types';
 
 export type * from './types';
 
@@ -115,6 +123,46 @@ export interface Api {
   savePicture(dest: string, bytes: Uint8Array): Promise<{ bytes: number }>;
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;
+  /** Who changed what, newest first. The owner's changes never count as "not yet reviewed". */
+  changeLog(filter: LogFilterDto, offset: number, limit: number): Promise<Page<LogRowDto>>;
+  changeBatches(): Promise<BatchDto[]>;
+  /** Every agent in the log, sorted by name, including ones whose connection is gone. */
+  changeLogAgents(): Promise<LogAgentDto[]>;
+  markReviewed(scope: ReviewScopeDto): Promise<void>;
+  /** People an agent changed that nobody has reviewed yet; these carry the badge. */
+  unreviewedPeople(): Promise<Id[]>;
+  /** One page of what agents changed on this person and still stands, newest first; values in full. */
+  personAgentChanges(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>>;
+  /** Whether the tree holds changes from before authors were tracked (their notes and events may not reach a person). */
+  hasUntrackedChanges(): Promise<boolean>;
+  /** The record holding a note or citation, with the note or citation itself; null when it is gone. */
+  recordHome(kind: 'note' | 'citation', id: Id): Promise<RecordHomeDto | null>;
+  /** Every change group that reached this person, by anyone, newest first; values in full. */
+  personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>>;
+  /** Undoes one agent change; a fact someone changed since stays and is named in the report. */
+  undoChangeGroup(group: string): Promise<UndoReport>;
+  undoChangeBatch(batch: string): Promise<UndoReport>;
+  // --- Agent access ---
+  agentAccessState(): Promise<AgentAccessState>;
+  /** Turns the local MCP server on or off and sets its port. A taken port comes back as `error` in the state, not as a rejection. */
+  agentAccessSet(enabled: boolean, port: number): Promise<AgentAccessState>;
+  /**
+   * Requires a key, or stops requiring one. Requiring applies at once, even when it cannot be saved (then
+   * `error` says so). Not requiring applies only when saved; if it cannot be, this rejects and a key stays required.
+   */
+  agentAccessRequireKey(required: boolean): Promise<AgentAccessState>;
+  /** The key and snippet in the answer are the only time they exist in plain text. */
+  agentConnectionCreate(name: string): Promise<NewConnectionDto>;
+  agentConnectionRevoke(id: string): Promise<void>;
+  /** The rules every connecting agent receives, as plain text. */
+  agentRules(): Promise<string>;
+  // --- end of Agent access ---
+}
+
+/** What an agent's write tells the open window. `touched` holds the ids of the people and records it changed. */
+export interface AgentChangeEvent {
+  touched: string[];
+  agent: string;
 }
 
 /** OS dialogs and drag-drop; separate from Api so the mock can fake it. */
@@ -124,5 +172,6 @@ export interface Platform {
   pickFolder(title: string): Promise<string | null>;
   pickSavePath(opts: { title: string; defaultName: string; extensions: string[]; filters?: { name: string; extensions: string[] }[] }): Promise<string | null>;
   onFilesDropped(cb: (paths: string[]) => void, onHover?: (over: boolean) => void): () => void;
+  onTreeChangedByAgent(cb: (e: AgentChangeEvent) => void): () => void;
   reveal(path: string): Promise<void>;
 }

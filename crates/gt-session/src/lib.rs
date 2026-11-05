@@ -3,35 +3,47 @@
 //! paged person lists, the family view and person detail. No async; commands wrap these
 //! calls in `spawn_blocking`.
 
+pub mod agent;
 pub mod chart;
 pub mod command;
 pub mod dates;
 pub mod dto;
 pub mod error;
 pub mod family_view;
+pub mod field_diff;
 pub mod import_format;
 pub mod index;
 pub mod kinship;
+pub mod log;
 pub mod names;
 pub mod ops;
 pub mod person_detail;
 pub mod query;
 pub mod relation;
+pub mod revert;
 pub mod session;
 pub mod settings;
+mod touched;
 pub mod undo;
 
+pub use agent::{AgentCtx, AgentWrite};
 pub use command::{
     CitationArg, CitationInput, CitationPatch, CloneOf, DeleteImpact, DraftFamily, DraftPerson,
     EditCommand, EditResult, EventInput, EventOwner, EventOwnerKind, EvidenceInput, HistoryEntry,
     HistoryOp, LivingPatch, NameInput, NewSource, NoteInput, OwnerKind, OwnerRef, ParticipantInput,
-    PersonDraft, Relation, ReuseLast, SourceInput, SourceRef, UndoState,
+    PersonDraft, Relation, ReuseLast, SkippedFact, SourceInput, SourceRef, UndoReport, UndoState,
 };
 pub use dto::*;
 pub use error::{ApiError, ErrorCode};
+pub use field_diff::{FieldChangeDto, person_field_changes, record_field_changes};
+pub use log::{
+    ActorDto, BatchDto, BatchRef, LogAgentDto, LogChangeDto, LogFactDto, LogFilterDto,
+    LogPersonDto, LogRowDto, RecordHomeDto, ReviewScopeDto,
+};
 pub use names::{display_name, lifespan};
 pub use session::{Session, SessionClock};
 pub use settings::SettingsPatch;
+pub use touched::people_reached;
 
 pub mod lookup;
 pub use lookup::parse_date_preview;

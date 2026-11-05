@@ -259,5 +259,15 @@
       }
     ],
     "attachPicture": true
+  },
+  {
+    "type": "addSiblingMarker",
+    "family": "018f3a6e-0000-7000-8000-000000000003"
+  },
+  {
+    "type": "addNumber",
+    "person": "018f3a6e-0000-7000-8000-000000000001",
+    "sourceFile": "recording2.txt",
+    "number": "12"
   }
 ]

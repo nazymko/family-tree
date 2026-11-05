@@ -9,7 +9,7 @@ const view = { w: 800, h: 600, dpr: 2 };
 function node(id: number, over: Partial<ChartNode> = {}): ChartNode {
   return {
     id,
-    person: { id: `p${id}`, name: `Person ${id}`, lifespan: '1850-1900', sex: 'male', living: false, private: false },
+    person: { id: `p${id}`, name: `Person ${id}`, lifespan: '1850-1900', sex: 'male', living: false, private: false, siblingMarker: false },
     x: id * 216,
     y: 0,
     w: 176,
@@ -140,5 +140,17 @@ describe('nameLines', () => {
     const lines = nameLines(m, 'Oleksandrivna Kovalenko-Shevchenko', 14, false);
     expect(lines).toHaveLength(2);
     for (const l of lines) expect(l.length).toBeLessThanOrEqual(14);
+  });
+});
+
+describe('renderer unnamed-siblings marker far out', () => {
+  const mk = node(1, { person: { id: 'm', name: '', lifespan: '', sex: 'unknown', living: false, private: false, siblingMarker: true } });
+  it('is_dashed_and_labelled_not_a_solid_block_at_every_zoom', () => {
+    for (const zoom of [0.2, 0.3, 1]) {
+      const ctx = makeFakeContext();
+      draw(ctx, { nodes: [node(0), mk], edges: [] }, { x: 0, y: 0, zoom }, view, { selected: null, focus: null, theme });
+      expect(ctx.calls.some((c) => c.op === 'setLineDash' && (c.args[0] as number[]).length > 0), String(zoom)).toBe(true);
+      expect(ops(ctx, 'fillText').some((c) => String(c.args[0]).startsWith('<Some more')), String(zoom)).toBe(true);
+    }
   });
 });

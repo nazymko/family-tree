@@ -45,11 +45,18 @@ fn quote(term: &str) -> String {
     format!("\"{}\"", term.replace('"', "\"\""))
 }
 
+/// Bytes of a body past which a word match shows no snippet. FTS5's `snippet` weighs each match
+/// against all the others, so a long text repeating the word costs the square of its length: 1.7 MB
+/// took two minutes. Only the snippet does; the match and its rank stay in step with the length.
+const SNIPPET_BODY_MAX: usize = 16 * 1024;
+
 impl Project {
     fn word_hits(&self, expr: &str, lim: i64) -> Result<Vec<SearchHit>, StoreError> {
-        let mut st = self.conn.prepare_cached(
-            "SELECT kind, id, label, snippet(search_words, 3, '', '', '…', 10)              FROM search_words WHERE search_words MATCH ?1 ORDER BY rank LIMIT ?2",
-        )?;
+        let mut st = self.conn.prepare_cached(&format!(
+            "SELECT kind, id, label, CASE WHEN length(CAST(body AS BLOB)) > {SNIPPET_BODY_MAX} \
+             THEN NULL ELSE snippet(search_words, 3, '', '', '…', 10) END \
+             FROM search_words WHERE search_words MATCH ?1 ORDER BY rank LIMIT ?2"
+        ))?;
         let mut rows = st.query(rusqlite::params![expr, lim])?;
         let mut out = Vec::new();
         while let Some(r) = rows.next()? {

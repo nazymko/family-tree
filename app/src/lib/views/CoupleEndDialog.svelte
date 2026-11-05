@@ -4,9 +4,11 @@
   import RadioGroup from '../ui/RadioGroup.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
   import DateField from '../editors/DateField.svelte';
+  import StaleNotice from '../editors/StaleNotice.svelte';
   import { getApi } from '../api/context';
   import type { PersonRef } from '../api/types';
   import { settings } from '../state/settings.svelte';
+  import { staleGuard } from '../state/staleGuard.svelte';
   import { toasts } from '../state/toast.svelte';
   import { errMessage } from '../editors/errors';
   import { t } from '../i18n';
@@ -31,10 +33,16 @@
   let alone = $state(!!end?.alone);
   let busy = $state(false);
 
+  const guard = staleGuard(() => [family, end?.event.id]);
+  const snapshot = () => JSON.stringify([reason, left, date, alone]);
+  const opened = snapshot();
+  const dirty = $derived(snapshot() !== opened);
+
   const leaver = $derived(partners.find((p) => p.id === left) ?? null);
   const stayer = $derived(leaver ? (partners.find((p) => p.id !== leaver.id) ?? null) : null);
 
   async function save() {
+    if (guard.stale) return;
     busy = true;
     try {
       const keep = (end?.event.participants ?? []).filter((p) => p.role !== ROLE_LEFT && p.role !== ROLE_ALONE);
@@ -69,7 +77,7 @@
   }
 
   async function remove() {
-    if (!end) return;
+    if (!end || guard.stale) return;
     busy = true;
     try {
       await api.apply({ type: 'deleteEvent', owner: { kind: 'family', id: family }, event: end.event.id });
@@ -84,6 +92,8 @@
 
 <Dialog open title={t('family.endTitle', { who: partners.map((p) => p.name).join(t('family.treeAnd')) })} onclose={() => !busy && onclose()}>
   <div class="form">
+    <!-- The family tree behind this holds the fresh data by now, so closing is the way to it. -->
+    {#if guard.stale}<StaleNotice {dirty} onreload={onclose} />{/if}
     <RadioGroup
       legend={t('family.endReason')}
       options={[
@@ -106,9 +116,9 @@
     {/if}
   </div>
   {#snippet footer()}
-    {#if end}<Button variant="danger" onclick={remove} disabled={busy}>{t('family.endRemove')}</Button>{/if}
+    {#if end}<Button variant="danger" onclick={remove} disabled={busy || guard.stale}>{t('family.endRemove')}</Button>{/if}
     <Button onclick={onclose} disabled={busy}>{t('common.cancel')}</Button>
-    <Button variant="primary" onclick={save} disabled={busy}>{t('common.save')}</Button>
+    <Button variant="primary" onclick={save} disabled={busy || guard.stale}>{t('common.save')}</Button>
   {/snippet}
 </Dialog>
 

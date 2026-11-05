@@ -92,7 +92,7 @@ impl Session {
         };
         let computed = compute_living_ignoring_overrides(&self.tree, &rule, today);
         let mut effective = computed.clone();
-        for (id, p) in &self.tree.persons {
+        for (id, p) in self.tree.persons.iter().filter(|(_, p)| !p.sibling_marker) {
             match p.living_override {
                 Some(LivingOverride::Living) => effective.insert(*id, true),
                 Some(LivingOverride::Deceased) => effective.insert(*id, false),
@@ -331,7 +331,14 @@ impl Session {
         ProjectInfo {
             dir: dir.to_string_lossy().into_owned(),
             name,
-            person_count: u32::try_from(self.tree.persons.len()).unwrap_or(u32::MAX),
+            person_count: u32::try_from(
+                self.tree
+                    .persons
+                    .values()
+                    .filter(|p| !p.sibling_marker)
+                    .count(),
+            )
+            .unwrap_or(u32::MAX),
             home_person: self
                 .settings
                 .home_person
@@ -373,7 +380,7 @@ impl Session {
 
     /// The first person a note belongs to: directly, through one of their names, an event they
     /// take part in, or a family they are a partner or child of.
-    fn note_owner(&self, note: Uuid) -> Option<Uuid> {
+    pub(crate) fn note_owner(&self, note: Uuid) -> Option<Uuid> {
         let t = &self.tree;
         let direct = t.persons.iter().find(|(_, p)| {
             p.common.notes.contains(&note) || p.names.iter().any(|n| n.notes.contains(&note))

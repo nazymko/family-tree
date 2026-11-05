@@ -151,6 +151,20 @@ fn export_all(dir: &Path) {
         GroupMedia,
         PrivacyPreview,
         RelinkResult,
+        UndoReport,
+        SkippedFact,
+        ActorDto,
+        BatchRef,
+        LogChangeDto,
+        LogPersonDto,
+        LogFactDto,
+        LogRowDto,
+        Page<LogRowDto>,
+        BatchDto,
+        LogAgentDto,
+        RecordHomeDto,
+        LogFilterDto,
+        ReviewScopeDto,
     );
     let mut names: Vec<String> = read_dir_files(dir)
         .keys()
@@ -214,6 +228,7 @@ fn camel_case_wire_format() {
         sex: SexKind::Female,
         living: true,
         private: false,
+        sibling_marker: false,
     };
     let row = PersonRow {
         person: r,

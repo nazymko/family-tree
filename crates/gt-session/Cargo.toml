@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+# `Session::commit_command_as`, which writes as an agent without the gate. For this crate's tests
+# only: nothing else may enable it.
+test-support = []
+
 [dependencies]
 gt-core = { path = "../gt-core" }
 gt-store = { path = "../gt-store" }
@@ -24,6 +29,7 @@ kamadak-exif.workspace = true
 fast_image_resize.workspace = true
 
 [dev-dependencies]
+gt-session = { path = ".", features = ["test-support"] }
 gt-import-atdb = { path = "../gt-import-atdb", features = ["fixture"] }
 gt-gedcom = { path = "../gt-gedcom", features = ["synthetic"] }
 tempfile.workspace = true

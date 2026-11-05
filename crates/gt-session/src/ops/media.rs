@@ -118,7 +118,7 @@ pub(super) fn set_primary(
     person: Uuid,
     media: Uuid,
 ) -> Result<Option<Uuid>, ApiError> {
-    let mut x: Person = p.get(person)?;
+    let mut x: Person = p.real_person(person)?;
     if !x.common.media.iter().any(|l| l.media == media) {
         return Err(ApiError::not_found("media link", media));
     }

@@ -40,6 +40,44 @@ fn save_load_roundtrip() {
 }
 
 #[test]
+fn sibling_marker_roundtrips_and_is_not_searched() {
+    let (_tmp, mut p) = new_project();
+    let mut tree = rich_tree();
+    let mut marker = tree.persons.values().next().unwrap().clone();
+    marker.common.id = gt_core::ids::new_id();
+    marker.names.clear();
+    marker.sibling_marker = true;
+    let id = marker.common.id;
+    tree.persons.insert(id, marker);
+    p.save_tree(&tree, TODAY).unwrap();
+    let back = p.load_tree().unwrap();
+    assert_eq!(back, tree);
+    assert!(back.persons[&id].sibling_marker);
+    assert_eq!(living_cached(&p, id), Some(0));
+    let rows: i64 = p
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM search_words WHERE kind = 'person' AND id = ?1",
+            [id.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(rows, 0);
+}
+
+#[test]
+fn person_json_without_sibling_marker_reads_as_false() {
+    // Change-log rows written before schema 3 carry no such field.
+    let tree = rich_tree();
+    let person = tree.persons.values().next().unwrap();
+    let mut json = serde_json::to_value(person).unwrap();
+    assert_eq!(json["sibling_marker"], false);
+    json.as_object_mut().unwrap().remove("sibling_marker");
+    let back: Person = serde_json::from_value(json).unwrap();
+    assert!(!back.sibling_marker);
+}
+
+#[test]
 fn save_load_roundtrip_reopened() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("t.genetree");

@@ -111,7 +111,7 @@
   }
 </script>
 
-<EditorDialog title={t('surnames.title')} saveLabel={t('surnames.save')} {dirty} {saving} {error} onsave={save} oncancel={onCancel}>
+<EditorDialog title={t('surnames.title')} saveLabel={t('surnames.save')} watch={[person]} aboutPerson {dirty} {saving} {error} onsave={save} oncancel={onCancel}>
   <TextField label={t('surnames.atBirth')} hint={t('surnames.atBirthHint')} bind:value={f.birthSurname} />
   <TextField label={t('surnames.afterMarriage')} hint={t('surnames.afterMarriageHint')} bind:value={f.marriedSurname} />
   {#if offerMove}

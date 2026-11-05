@@ -1,15 +1,17 @@
 //! One Tauri command per `Api` method. Commands stay thin: lock, call the session, map errors.
 //! A lock is never held across an await; the heavy ones run inside `spawn_blocking`.
 
+use crate::agent_access;
 use crate::settings_file;
 use crate::state::{AppState, no_project};
 use gt_session::{
-    ApiError, AttachResult, ChartLocation, ChartMeta, ChartRequest, ChartWindow, CitationDto,
-    DatePreview, DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion, ExportOptions,
-    FamilyDto, FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto, ImportRequest,
-    LocationKind, LocationWarningDto, OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery,
-    PersonRow, PlaceOption, PrivacyPreview, ProjectInfo, RecentProject, Rect, RelinkResult,
-    SearchHitDto, Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo,
+    ApiError, AttachResult, BatchDto, ChartLocation, ChartMeta, ChartRequest, ChartWindow,
+    CitationDto, DatePreview, DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion,
+    ExportOptions, FamilyDto, FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto,
+    ImportRequest, LocationKind, LocationWarningDto, LogAgentDto, LogFilterDto, LogRowDto,
+    OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery, PersonRow, PlaceOption, PrivacyPreview,
+    ProjectInfo, RecentProject, RecordHomeDto, Rect, RelinkResult, ReviewScopeDto, SearchHitDto,
+    Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport,
     UndoState, WholeMeta,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
@@ -58,6 +60,17 @@ command_list!(
     undo,
     redo,
     undo_state,
+    change_log,
+    change_batches,
+    change_log_agents,
+    mark_reviewed,
+    unreviewed_people,
+    person_agent_changes,
+    person_history,
+    has_untracked_changes,
+    record_home,
+    undo_change_group,
+    undo_change_batch,
     history,
     parse_date,
     suggest_places,
@@ -87,6 +100,12 @@ command_list!(
     save_picture,
     get_settings,
     set_settings,
+    agent_access_state,
+    agent_access_set,
+    agent_access_require_key,
+    agent_connection_create,
+    agent_connection_revoke,
+    agent_rules,
 );
 
 type ApiResult<T> = Result<T, ApiError>;
@@ -385,6 +404,82 @@ pub fn history(
     limit: usize,
 ) -> ApiResult<Vec<HistoryEntry>> {
     state.with_session(|s| s.history(record, limit))
+}
+
+// ------------------------------------------------------------ change log
+
+#[tauri::command(async)]
+pub fn change_log(
+    state: State<'_, AppState>,
+    filter: LogFilterDto,
+    offset: usize,
+    limit: usize,
+) -> ApiResult<Page<LogRowDto>> {
+    state.with_session(|s| s.log(filter, offset, limit))
+}
+
+#[tauri::command(async)]
+pub fn change_batches(state: State<'_, AppState>) -> ApiResult<Vec<BatchDto>> {
+    state.with_session(|s| s.batches())
+}
+
+#[tauri::command(async)]
+pub fn change_log_agents(state: State<'_, AppState>) -> ApiResult<Vec<LogAgentDto>> {
+    state.with_session(|s| s.log_agents())
+}
+
+#[tauri::command(async)]
+pub fn mark_reviewed(state: State<'_, AppState>, scope: ReviewScopeDto) -> ApiResult<()> {
+    state.with_session(|s| s.mark_reviewed(scope))
+}
+
+#[tauri::command(async)]
+pub fn unreviewed_people(state: State<'_, AppState>) -> ApiResult<Vec<Uuid>> {
+    state.with_session(|s| s.unreviewed_people())
+}
+
+#[tauri::command(async)]
+pub fn person_agent_changes(
+    state: State<'_, AppState>,
+    id: Uuid,
+    offset: usize,
+    limit: usize,
+) -> ApiResult<Page<LogRowDto>> {
+    state.with_session(|s| s.person_agent_changes(id, offset, limit))
+}
+
+#[tauri::command(async)]
+pub fn has_untracked_changes(state: State<'_, AppState>) -> ApiResult<bool> {
+    state.with_session(|s| s.has_untracked_changes())
+}
+
+#[tauri::command(async)]
+pub fn record_home(
+    state: State<'_, AppState>,
+    kind: String,
+    id: Uuid,
+) -> ApiResult<Option<RecordHomeDto>> {
+    state.with_session(|s| s.record_home(&kind, id))
+}
+
+#[tauri::command(async)]
+pub fn person_history(
+    state: State<'_, AppState>,
+    id: Uuid,
+    offset: usize,
+    limit: usize,
+) -> ApiResult<Page<LogRowDto>> {
+    state.with_session(|s| s.person_history(id, offset, limit))
+}
+
+#[tauri::command(async)]
+pub fn undo_change_group(state: State<'_, AppState>, group: Uuid) -> ApiResult<UndoReport> {
+    state.with_session(|s| s.undo_group(group))
+}
+
+#[tauri::command(async)]
+pub fn undo_change_batch(state: State<'_, AppState>, batch: Uuid) -> ApiResult<UndoReport> {
+    state.with_session(|s| s.undo_batch(batch))
 }
 
 // ------------------------------------------------------------ lookups
@@ -809,7 +904,7 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
         };
         state.with_session(|s| s.set_settings(p).map(|_| ()))?;
     }
-    let snapshot = {
+    {
         let mut a = AppState::lock(&state.settings);
         if let Some(v) = patch.day_order {
             a.day_order = v;
@@ -829,9 +924,9 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
         if let Some(v) = patch.tree_direction {
             a.tree_direction = v;
         }
-        a.clone()
-    };
-    settings_file::save_settings(&state.config_dir, &snapshot)?;
+        // Under the lock: agent access saves this file too, and neither may undo the other.
+        settings_file::save_settings(&state.config_dir, &a)?;
+    }
     Ok(get_settings_impl(state))
 }
 
@@ -843,4 +938,47 @@ pub fn get_settings(state: State<'_, AppState>) -> ApiResult<Settings> {
 #[tauri::command(async)]
 pub fn set_settings(state: State<'_, AppState>, patch: SettingsPatchWire) -> ApiResult<Settings> {
     set_settings_impl(&state, patch)
+}
+
+// ------------------------------------------------------------ agent access
+
+#[tauri::command(async)]
+pub fn agent_access_state(state: State<'_, AppState>) -> agent_access::AgentAccessState {
+    agent_access::access_state(&state)
+}
+
+/// `port` is wider than a port, so that one out of range gets the plain refusal.
+#[tauri::command(async)]
+pub fn agent_access_set<R: Runtime>(
+    app: AppHandle<R>,
+    enabled: bool,
+    port: u32,
+) -> ApiResult<agent_access::AgentAccessState> {
+    agent_access::set_access(&app, enabled, port)
+}
+
+#[tauri::command(async)]
+pub fn agent_access_require_key(
+    state: State<'_, AppState>,
+    required: bool,
+) -> ApiResult<agent_access::AgentAccessState> {
+    agent_access::set_require_key(&state, required)
+}
+
+#[tauri::command(async)]
+pub fn agent_connection_create(
+    state: State<'_, AppState>,
+    name: String,
+) -> ApiResult<agent_access::NewConnectionDto> {
+    agent_access::create_connection(&state, &name)
+}
+
+#[tauri::command(async)]
+pub fn agent_connection_revoke(state: State<'_, AppState>, id: String) -> ApiResult<()> {
+    agent_access::revoke_connection(&state, &id)
+}
+
+#[tauri::command(async)]
+pub fn agent_rules() -> &'static str {
+    gt_mcp::RULES
 }

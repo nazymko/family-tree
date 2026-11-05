@@ -52,6 +52,7 @@
 <EditorDialog
   title={note ? t('edit.editNote') : t('editor.addNote')}
   saveLabel={t('edit.saveNote')}
+  watch={[note?.id, target.id]}
   {dirty}
   {saving}
   {error}

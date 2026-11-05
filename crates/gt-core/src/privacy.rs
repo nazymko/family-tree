@@ -232,6 +232,14 @@ fn full_names(p: &Person) -> Vec<String> {
 /// filter itself orphaned are garbage-collected; records already unreferenced in the
 /// input, and references already dangling in the input, are left untouched.
 pub fn filter(tree: &Tree, policy: &PrivacyPolicy, today_jdn: i32) -> (Tree, PrivacySummary) {
+    // The unnamed-siblings markers are never exported, nor counted.
+    let stripped;
+    let tree = if tree.persons.values().any(|p| p.sibling_marker) {
+        stripped = tree.without_sibling_markers();
+        &stripped
+    } else {
+        tree
+    };
     let living = compute_living(tree, &policy.rule, today_jdn);
     let hidden: HashSet<Uuid> = if policy.living == LivingMode::IncludeAll {
         HashSet::new()

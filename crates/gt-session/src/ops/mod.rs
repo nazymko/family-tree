@@ -9,6 +9,7 @@ mod family;
 mod media;
 pub(crate) use media::plan_attach;
 mod person;
+pub(crate) use person::agent_number;
 pub mod places;
 mod quick_add;
 
@@ -73,6 +74,24 @@ rec!(Citation, Citation, citations, "citation");
 rec!(Media, Media, media, "media item");
 rec!(Note, Note, notes, "note");
 
+/// The record as it stands in the tree, by kind and id.
+pub(crate) fn record_in(tree: &Tree, kind: RecordKind, id: Uuid) -> Option<Record> {
+    fn get<T: Rec>(tree: &Tree, id: Uuid) -> Option<Record> {
+        T::map(tree).get(&id).cloned().map(Rec::wrap)
+    }
+    match kind {
+        RecordKind::Person => get::<Person>(tree, id),
+        RecordKind::Family => get::<Family>(tree, id),
+        RecordKind::Event => get::<Event>(tree, id),
+        RecordKind::Place => get::<Place>(tree, id),
+        RecordKind::Source => get::<Source>(tree, id),
+        RecordKind::Repository => get::<Repository>(tree, id),
+        RecordKind::Citation => get::<Citation>(tree, id),
+        RecordKind::Media => get::<Media>(tree, id),
+        RecordKind::Note => get::<Note>(tree, id),
+    }
+}
+
 pub(crate) fn new_common(now: i64) -> Common {
     Common {
         id: gt_core::ids::new_id(),
@@ -133,6 +152,18 @@ impl<'a> Planner<'a> {
     pub fn get<T: Rec>(&self, id: Uuid) -> Result<T, ApiError> {
         self.find(id)
             .ok_or_else(|| ApiError::not_found(T::NAME, id))
+    }
+
+    /// A person who can take part in relationships: not the unnamed-siblings marker, which
+    /// belongs to the one family it was added to.
+    pub fn real_person(&self, id: Uuid) -> Result<Person, ApiError> {
+        let person: Person = self.get(id)?;
+        if person.sibling_marker {
+            return Err(invalid(
+                "The entry for unnamed brothers and sisters holds nothing and cannot be used here. Delete it instead.",
+            ));
+        }
+        Ok(person)
     }
 
     pub fn put<T: Rec>(&mut self, rec: T) {
@@ -397,6 +428,7 @@ pub fn plan_with(
         } => family::update_child_link(&mut p, *family, *child, *rel, *preferred)?,
         C::UnlinkChild { family, child } => family::unlink_child(&mut p, *family, *child)?,
         C::ReorderChildren { family, order } => family::reorder_children(&mut p, *family, order)?,
+        C::AddSiblingMarker { family } => family::add_sibling_marker(&mut p, *family)?,
         C::SaveNote { target, note } => cite::save_note(&mut p, *target, note)?,
         C::DeleteNote { target, note } => cite::delete_note(&mut p, *target, *note)?,
         C::SaveSource { source } => cite::save_source(&mut p, source)?,
@@ -433,8 +465,27 @@ pub fn plan_with(
             description.as_deref(),
             date_raw.as_deref(),
         )?,
+        C::AddNumber {
+            person,
+            source_file,
+            number,
+        } => person::add_number(&mut p, *person, source_file, number)?,
     };
     Ok((p.finish(cmd.label()), focus))
+}
+
+/// A new family with no partners, `person` as its child and the entry for brothers and sisters
+/// nobody named. Returns the family too. Nothing here can fail: the family is new.
+pub(crate) fn plan_marker_family(
+    tree: &Tree,
+    person: Uuid,
+    now_ms: i64,
+    day_order: DayOrder,
+) -> (Uuid, ChangeSet, Option<Uuid>) {
+    let mut p = Planner::new(tree, now_ms, day_order);
+    let (id, focus) = family::add_family_of_child_with_marker(&mut p, person);
+    let label = EditCommand::AddSiblingMarker { family: id }.label();
+    (id, p.finish(label), focus)
 }
 
 /// `importDraft` with its picture (already stored by the session) attached.

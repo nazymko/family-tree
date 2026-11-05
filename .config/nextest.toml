@@ -1,0 +1,23 @@
+# cargo-nextest settings. Everyday run: `cargo nextest run --workspace`; see docs/testing.md and scripts/test-*.
+# nextest runs every test in its own process and all test binaries at the same time, which is where
+# most of its speed comes from (cargo test runs the binaries one after the other).
+
+[test-groups]
+# Real clocks: these tests assert how long a wait took, so they must not compete with each other
+# (the rest of the suite is already running in parallel around them).
+wall-clock = { max-threads = 1 }
+# The agent-access tests start real servers on ports picked by `free_port()` (pid based, bind checked
+# before use); one at a time per run removes the chance of two tests choosing the same port.
+local-ports = { max-threads = 1 }
+
+[profile.default]
+# A hung test must not hang the run for ever: a warning every 2 minutes, killed after 10.
+slow-timeout = { period = "120s", terminate-after = 5 }
+
+[[profile.default.overrides]]
+filter = 'package(gt-mcp) and binary(http) and (test(a_silent_socket_loses_its_slot_after_about_five_seconds) or test(a_tool_call_that_waits_too_long_gets_a_clear_busy_error))'
+test-group = "wall-clock"
+
+[[profile.default.overrides]]
+filter = 'package(gt-app) and binary(agent_access)'
+test-group = "local-ports"

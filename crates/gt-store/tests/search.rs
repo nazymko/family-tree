@@ -96,6 +96,41 @@ fn search_finds_places_in_person_body_and_other_kinds() {
 }
 
 #[test]
+fn a_long_text_repeating_the_word_is_found_at_once_with_no_snippet() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut p = Project::create(&tmp.path().join("t.genetree")).unwrap();
+    let mut tree = rich_tree();
+    let (_, story) = tree
+        .notes
+        .iter()
+        .find(|(_, n)| n.text.to_lowercase().contains("story"))
+        .unwrap();
+    let mut short = story.clone();
+    short.common.id = gt_core::Uuid::from_u128(1);
+    short.text = "A ploughman, as the family tells it.".into();
+    let mut long = story.clone();
+    long.common.id = gt_core::Uuid::from_u128(2);
+    long.text = "ploughman ".repeat(200_000);
+    tree.notes.insert(short.common.id, short.clone());
+    tree.notes.insert(long.common.id, long.clone());
+    p.save_tree(&tree, TODAY).unwrap();
+
+    let start = std::time::Instant::now();
+    let hits = p.search("ploughman", 10).unwrap();
+    let took = start.elapsed();
+    assert!(took < std::time::Duration::from_secs(10), "{took:?}");
+    let hit = |id| hits.iter().find(|h| h.id == id).unwrap();
+    assert_eq!(hit(long.common.id).snippet, None);
+    assert!(
+        hit(short.common.id)
+            .snippet
+            .as_deref()
+            .unwrap()
+            .contains("ploughman")
+    );
+}
+
+#[test]
 fn search_odd_input_does_not_error() {
     let (_t, p, _ids) = project_with(&[("A", "B")]);
     for q in ["", "   ", "\"", "a\"b", "*", "AND OR", "(", "%", "_"] {

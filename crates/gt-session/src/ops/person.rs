@@ -40,6 +40,7 @@ pub(super) fn new_person(p: &Planner, draft: &PersonDraft, sex: SexKind) -> Pers
             unknown: Vec::new(),
         }],
         living_override: None,
+        sibling_marker: false,
     }
 }
 
@@ -54,6 +55,15 @@ pub(super) fn create_person(
     Ok(Some(id))
 }
 
+fn not_marker(person: &Person) -> Result<(), ApiError> {
+    if person.sibling_marker {
+        return Err(invalid(
+            "The entry for unnamed brothers and sisters has no details to edit. Delete it instead.",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn update_person(
     p: &mut Planner,
     id: Uuid,
@@ -63,6 +73,7 @@ pub(super) fn update_person(
     private: Option<bool>,
 ) -> Result<Option<Uuid>, ApiError> {
     let mut person: Person = p.get(id)?;
+    not_marker(&person)?;
     match sex {
         Some(k) => person.sex = sex_of(*k, sex_text, Some(&person.sex)),
         None => {
@@ -115,6 +126,7 @@ pub(super) fn save_name(
     input: &NameInput,
 ) -> Result<Option<Uuid>, ApiError> {
     let mut person: Person = p.get(person_id)?;
+    not_marker(&person)?;
     let surnames: Vec<String> = input
         .surnames
         .iter()
@@ -137,6 +149,22 @@ pub(super) fn save_name(
         None => None,
     };
     let old = idx.and_then(|i| person.names.get(i));
+    let prefix = text(input.prefix.as_deref());
+    let surname_prefix = text(input.surname_prefix.as_deref());
+    let suffix = text(input.suffix.as_deref());
+    // The name as the source wrote it stays while the parts it was written from are as they were.
+    // Once one changes it would sit beside parts it no longer matches, so it goes (the history
+    // row still shows it). Nickname, language, date, kind and flags are not part of that text.
+    let raw = old
+        .filter(|n| {
+            n.prefix == prefix
+                && n.given == given
+                && n.surname_prefix == surname_prefix
+                && n.surnames == surnames
+                && n.patronymic == patronymic
+                && n.suffix == suffix
+        })
+        .and_then(|n| n.raw.clone());
     let made = Name {
         id: input.id.unwrap_or_else(new_id),
         kind: name_kind(input, old.map(|n| &n.kind)),
@@ -146,17 +174,17 @@ pub(super) fn save_name(
             confidence: old.and_then(|n| n.assertion.confidence),
         },
         private: input.private,
-        prefix: text(input.prefix.as_deref()),
+        prefix,
         given,
         call: text(input.call.as_deref()),
-        surname_prefix: text(input.surname_prefix.as_deref()),
+        surname_prefix,
         surnames,
         patronymic,
-        suffix: text(input.suffix.as_deref()),
+        suffix,
         nickname: text(input.nickname.as_deref()),
         lang: text(input.lang.as_deref()),
         date: parse_date(input.date_raw.as_deref(), p.order),
-        raw: None,
+        raw,
         citations: old.map(|n| n.citations.clone()).unwrap_or_default(),
         notes: old.map(|n| n.notes.clone()).unwrap_or_default(),
         unknown: old.map(|n| n.unknown.clone()).unwrap_or_default(),
@@ -178,6 +206,35 @@ pub(super) fn save_name(
     }
     person.common.changed = Some(p.now);
     p.put(person);
+    Ok(Some(person_id))
+}
+
+/// How an agent's number is stored: the source file is in the scheme, so that two files can share
+/// a number. Both parts trimmed; `None` when either is blank.
+pub(crate) fn agent_number(source_file: &str, number: &str) -> Option<ExternalId> {
+    let (file, value) = (text(Some(source_file))?, text(Some(number))?);
+    Some(ExternalId {
+        kind: ExtIdKind::Exid {
+            scheme: format!("{AGENT_NUMBER_SCHEME}{file}"),
+        },
+        value,
+    })
+}
+
+pub(super) fn add_number(
+    p: &mut Planner,
+    person_id: Uuid,
+    source_file: &str,
+    number: &str,
+) -> Result<Option<Uuid>, ApiError> {
+    let id = agent_number(source_file, number)
+        .ok_or_else(|| invalid("Give both the source file and the number."))?;
+    let mut person: Person = p.get(person_id)?;
+    if !person.common.ext_ids.contains(&id) {
+        person.common.ext_ids.push(id);
+        person.common.changed = Some(p.now);
+        p.put(person);
+    }
     Ok(Some(person_id))
 }
 

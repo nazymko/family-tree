@@ -17,6 +17,8 @@
   import { toasts } from '../state/toast.svelte';
   import { errMessage } from '../editors/errors';
   import CoupleEndDialog from './CoupleEndDialog.svelte';
+  import AgentBadge from '../ui/AgentBadge.svelte';
+  import { agentChanges } from '../state/agentChanges.svelte';
   import { coupleEnd, type CoupleEnd } from './coupleEnd';
 
   let {
@@ -369,6 +371,21 @@
       : api.apply({ type: 'unlinkChild', family, child });
   }
 
+  /** The only action of the unnamed-siblings marker. */
+  function deleteMarker(who: PersonRef): MenuItem {
+    return {
+      label: t('common.delete'),
+      danger: true,
+      onselect: () =>
+        (ask = {
+          title: t('famEd.deleteSiblingMarker'),
+          body: t('family.markerDeleteBody'),
+          ok: t('common.delete'),
+          run: () => api.apply({ type: 'deletePerson', id: who.id }),
+        }),
+    };
+  }
+
   /** "Not a child of these parents": the shown parents' family loses `who` as a child. */
   function detachFromParents(who: PersonRef): MenuItem | null {
     const set = primary;
@@ -529,7 +546,27 @@
   }
 </script>
 
+{#snippet marker(p: PersonRef, row: number)}
+  <!-- The entry for unnamed brothers and sisters: a label, no page to open; the menu offers only Delete. -->
+  <button
+    type="button"
+    class="box marker"
+    data-nav="p:{p.id}"
+    data-row={row}
+    tabindex={activeKey === `p:${p.id}` ? 0 : -1}
+    aria-label={t('person.siblingMarker')}
+    onfocus={() => (active = `p:${p.id}`)}
+    oncontextmenu={(e) => openMenu(e, p, () => [deleteMarker(p)])}
+    aria-haspopup="menu"
+  >
+    <bdi dir="auto" class="nm">{t('person.siblingMarker')}</bdi>
+  </button>
+{/snippet}
+
 {#snippet box(p: PersonRef, role: Role, row: number, current = false, acts: (() => (MenuItem | null)[]) | null = null, note: string | null = null)}
+  {#if p.siblingMarker}
+    {@render marker(p, row)}
+  {:else}
   <button
     type="button"
     class="box"
@@ -540,7 +577,7 @@
     data-row={row}
     tabindex={activeKey === `p:${p.id}` ? 0 : -1}
     aria-current={current ? 'true' : undefined}
-    aria-label={[p.name, p.lifespan, role ? t(roleKey(role)) : '', note ?? ''].filter(Boolean).join(', ')}
+    aria-label={[p.name, p.lifespan, role ? t(roleKey(role)) : '', note ?? '', agentChanges.unreviewed.has(p.id) ? t('changeLog.badgeLabel') : ''].filter(Boolean).join(', ')}
     onfocus={() => (active = `p:${p.id}`)}
     onclick={() => {
       if (!current) onopen(p.id);
@@ -554,9 +591,11 @@
       {#if p.living}<span class="living">{t('common.living')}</span>{/if}
       {#if p.lifespan}<span>{p.lifespan}</span>{/if}
       {#if p.private}<Lock />{/if}
+      {#if agentChanges.unreviewed.has(p.id)}<AgentBadge />{/if}
     </span>
     {#if p.id === homeId}<span class="rib"><Ribbon size="0.9rem" /></span>{/if}
   </button>
+  {/if}
 {/snippet}
 
 {#snippet slot(relation: AddRelation, anchor: PersonRef, row: number)}
@@ -1113,6 +1152,19 @@
   }
   .box.female {
     border-inline-start-color: var(--ribbon);
+  }
+  .box.marker {
+    border-style: dashed;
+    background: transparent;
+    color: var(--ink-1);
+    cursor: default;
+  }
+  .box.marker .nm {
+    font-weight: 400;
+    font-style: italic;
+    /* The label has to be read whole: nothing else on this box says what it is. */
+    white-space: normal;
+    overflow: visible;
   }
   .box:hover {
     border-color: var(--ink-2);

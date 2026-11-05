@@ -728,7 +728,8 @@ fn thumb_still_served_when_cache_dir_cannot_be_created() {
 }
 
 #[test]
-fn big_file_with_bogus_tiff_header_is_cheap() {
+#[ignore = "heavy: runs before merge"]
+fn heavy_big_file_with_bogus_tiff_header_is_cheap() {
     let (_d, mut s, eva, src) = setup();
     let p = src.join("bogus.tif");
     {
