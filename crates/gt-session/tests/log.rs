@@ -622,6 +622,350 @@ fn log_filters_reviews_and_batches() {
     assert!(rows(&s).iter().any(|r| r.group == g && r.reverted));
 }
 
+fn import_two(s: &mut Session) -> (Uuid, Uuid, Uuid) {
+    let person = |key: &str| DraftPerson {
+        key: key.into(),
+        existing: None,
+        given: Some(key.into()),
+        surname: Some("Koval".into()),
+        patronymic: None,
+        sex: SexKind::Unknown,
+        birth_date_raw: None,
+        death_date_raw: None,
+        notes: None,
+    };
+    s.commit_command_as(
+        EditCommand::ImportDraft {
+            persons: vec![person("Aaa"), person("Bbb")],
+            families: vec![],
+            attach_picture: false,
+        },
+        agent(),
+        None,
+    )
+    .unwrap();
+    let g = newest_group(s);
+    (g, find(s.tree(), "Aaa"), find(s.tree(), "Bbb"))
+}
+
+fn row_of(s: &Session, group: Uuid) -> LogRowDto {
+    rows(s).into_iter().find(|r| r.group == group).unwrap()
+}
+
+fn assert_consistent(s: &Session) {
+    assert_eq!(s.tree(), &s.project().load_tree().unwrap());
+    s.verify_derived_state().unwrap();
+}
+
+fn remove_citation(owner: Uuid, citation: Uuid) -> EditCommand {
+    EditCommand::RemoveCitation {
+        target: person_owner(owner),
+        citation,
+    }
+}
+
+#[test]
+fn partly_undone_group_keeps_its_badge_and_a_retry_finishes_it() {
+    let (_d, mut s, _) = setup();
+    let original = unstamped(s.tree());
+    let (g, aaa, bbb) = import_two(&mut s);
+    s.apply(add_note(aaa, "The owner's own note")).unwrap();
+
+    let rep = s.undo_group(g).unwrap();
+    assert!(rep.undone > 0, "what could be undone is undone");
+    assert!(!rep.skipped.is_empty());
+    assert!(s.tree().persons.contains_key(&aaa), "the owner built on it");
+    assert!(!s.tree().persons.contains_key(&bbb));
+    let row = row_of(&s, g);
+    assert!(!row.reverted, "something of it still stands");
+    assert!(row.can_undo);
+    assert!(s.unreviewed_people().unwrap().contains(&aaa));
+    assert_eq!(s.person_agent_changes(aaa).unwrap().len(), 1);
+    assert_eq!(
+        s.project()
+            .log_group(rows(&s)[0].group)
+            .unwrap()
+            .unwrap()
+            .reverts,
+        None,
+        "the partial undo does not claim the group"
+    );
+    assert_consistent(&s);
+
+    // Nothing has moved: a retry finds the same blocker and writes nothing.
+    let n = rows(&s).len();
+    let tree = s.tree().clone();
+    let same = s.undo_group(g).unwrap();
+    assert_eq!(same.undone, 0);
+    assert!(!same.skipped.is_empty());
+    assert_eq!(s.tree(), &tree);
+    assert_eq!(rows(&s).len(), n);
+    assert!(!row_of(&s, g).reverted);
+
+    // The owner takes the note back: now it can finish, and only now is it reverted.
+    s.undo().unwrap().unwrap();
+    let done = s.undo_group(g).unwrap();
+    assert!(done.undone > 0);
+    assert!(done.skipped.is_empty(), "{:?}", done.skipped);
+    assert!(!s.tree().persons.contains_key(&aaa));
+    let row = row_of(&s, g);
+    assert!(row.reverted);
+    assert!(!row.can_undo);
+    assert!(s.unreviewed_people().unwrap().is_empty());
+    assert!(s.person_agent_changes(aaa).unwrap().is_empty());
+    assert_eq!(unstamped(s.tree()), original);
+    assert_consistent(&s);
+}
+
+#[test]
+fn a_group_nothing_could_be_undone_of_keeps_its_badge() {
+    let (_d, mut s, anna) = setup();
+    let original = unstamped(s.tree());
+    let greta = s
+        .commit_command_as(child_of(anna, "Greta"), agent(), None)
+        .unwrap()
+        .focus
+        .unwrap();
+    let g = newest_group(&s);
+    s.apply(add_note(greta, "The owner's own note")).unwrap();
+
+    let rep = s.undo_group(g).unwrap();
+    assert!(!rep.skipped.is_empty());
+    assert!(!row_of(&s, g).reverted);
+    assert!(s.unreviewed_people().unwrap().contains(&greta));
+    assert_eq!(s.person_agent_changes(greta).unwrap().len(), 1);
+
+    s.undo().unwrap().unwrap();
+    let done = s.undo_group(g).unwrap();
+    assert!(done.skipped.is_empty(), "{:?}", done.skipped);
+    assert!(row_of(&s, g).reverted);
+    assert_eq!(unstamped(s.tree()), original);
+    assert_consistent(&s);
+}
+
+#[test]
+fn undo_batch_retries_groups_it_could_only_partly_undo() {
+    let (d, s, anna) = setup();
+    let batch = Uuid::from_u128(44);
+    let mut s = with_batch(&d, s, batch, "Recording 2 summary");
+    let original = unstamped(s.tree());
+    s.commit_command_as(child_of(anna, "Greta"), agent(), Some(batch))
+        .unwrap();
+    let greta_group = newest_group(&s);
+    let greta = find(s.tree(), "Greta");
+    s.commit_command_as(child_of(anna, "Otto"), agent(), Some(batch))
+        .unwrap();
+    let otto_group = newest_group(&s);
+    s.apply(add_note(greta, "The owner's own note")).unwrap();
+
+    let rep = s.undo_batch(batch).unwrap();
+    assert!(!rep.skipped.is_empty());
+    assert!(row_of(&s, otto_group).reverted, "it went in full");
+    assert!(!row_of(&s, greta_group).reverted);
+    assert!(s.unreviewed_people().unwrap().contains(&greta));
+
+    s.undo().unwrap().unwrap();
+    let done = s.undo_batch(batch).unwrap();
+    assert!(done.undone > 0);
+    assert!(done.skipped.is_empty(), "{:?}", done.skipped);
+    assert!(row_of(&s, greta_group).reverted);
+    assert!(s.unreviewed_people().unwrap().is_empty());
+    assert_eq!(unstamped(s.tree()), original);
+    assert_consistent(&s);
+
+    // Finished: nothing left to do.
+    let n = rows(&s).len();
+    let again = s.undo_batch(batch).unwrap();
+    assert_eq!(again.undone, 0);
+    assert_eq!(rows(&s).len(), n);
+}
+
+fn assert_says_dropped(e: &ApiError) {
+    assert_eq!(e.code, ErrorCode::Conflict, "{e:?}");
+    assert!(e.message.contains("removed from the change log"), "{e:?}");
+    assert!(e.message.contains("dropped"), "{e:?}");
+    assert!(!e.message.contains("An agent changed"), "{e:?}");
+}
+
+#[test]
+fn redo_of_a_child_on_a_person_the_log_undid_is_dropped() {
+    let (_d, mut s, anna) = setup();
+    let ivan = s
+        .commit_command_as(child_of(anna, "Ivan"), agent(), None)
+        .unwrap()
+        .focus
+        .unwrap();
+    let g = newest_group(&s);
+    // Two redo steps, the blocked one on top.
+    s.apply(child_of(ivan, "Olena")).unwrap();
+    s.apply(add_note(anna, "Mine")).unwrap();
+    s.undo().unwrap().unwrap();
+    s.undo().unwrap().unwrap();
+    assert!(s.undo_group(g).unwrap().skipped.is_empty());
+    assert!(!s.tree().persons.contains_key(&ivan));
+
+    let tree = s.tree().clone();
+    let e = s.redo().unwrap_err();
+    assert_says_dropped(&e);
+    assert_eq!(s.tree(), &tree, "nothing was written");
+    assert_consistent(&s);
+
+    // The older step is reachable, and the blocked one is gone.
+    assert_eq!(s.undo_state().redo_label.as_deref(), Some("Save note"));
+    s.redo().unwrap().unwrap();
+    assert_eq!(s.tree().persons[&anna].common.notes.len(), 1);
+    assert!(!s.undo_state().can_redo);
+    assert_consistent(&s);
+}
+
+#[test]
+fn redo_of_a_link_to_a_person_the_log_undid_is_dropped() {
+    let (_d, mut s, _) = setup();
+    let p = s
+        .commit_command_as(
+            EditCommand::CreatePerson {
+                draft: draft("Greta", SexKind::Female),
+            },
+            agent(),
+            None,
+        )
+        .unwrap()
+        .focus
+        .unwrap();
+    let g = newest_group(&s);
+    let family = *s.tree().families.keys().next().unwrap();
+    s.apply(link_child(family, p)).unwrap();
+    s.undo().unwrap().unwrap();
+    assert!(s.undo_group(g).unwrap().undone > 0);
+
+    assert_says_dropped(&s.redo().unwrap_err());
+    assert!(!s.undo_state().can_redo);
+    assert!(s.redo().unwrap().is_none());
+    assert_consistent(&s);
+}
+
+#[test]
+fn redo_of_a_citation_of_a_source_the_log_undid_is_dropped() {
+    let (_d, mut s, anna) = setup();
+    let eva = find(s.tree(), "Eva");
+    s.commit_command_as(cite(anna, "Recording 2"), agent(), None)
+        .unwrap();
+    let g = newest_group(&s);
+    let source = *s.tree().sources.keys().next().unwrap();
+    s.apply(cite_source(eva, SourceRef::Id(source))).unwrap();
+    s.undo().unwrap().unwrap();
+    assert!(s.undo_group(g).unwrap().undone > 0);
+    assert!(!s.tree().sources.contains_key(&source));
+
+    assert_says_dropped(&s.redo().unwrap_err());
+    assert!(!s.undo_state().can_redo);
+    assert_consistent(&s);
+}
+
+#[test]
+fn ctrl_z_restoring_a_citation_of_a_source_the_log_undid_is_dropped() {
+    let (_d, mut s, anna) = setup();
+    let eva = find(s.tree(), "Eva");
+    s.commit_command_as(cite(anna, "Recording 2"), agent(), None)
+        .unwrap();
+    let g = newest_group(&s);
+    let source = *s.tree().sources.keys().next().unwrap();
+    s.apply(add_note(eva, "Mine")).unwrap();
+    s.apply(cite_source(eva, SourceRef::Id(source))).unwrap();
+    let citation = s.tree().persons[&eva].common.citations[0];
+    s.apply(remove_citation(eva, citation)).unwrap();
+    assert!(s.undo_group(g).unwrap().skipped.is_empty());
+    assert!(!s.tree().sources.contains_key(&source));
+
+    let tree = s.tree().clone();
+    assert_says_dropped(&s.undo().unwrap_err());
+    assert_eq!(s.tree(), &tree);
+    assert_consistent(&s);
+    // The steps under it are still there.
+    s.undo().unwrap().unwrap();
+    s.undo().unwrap().unwrap();
+    assert!(s.tree().persons[&eva].common.notes.is_empty());
+    assert!(!s.undo_state().can_undo);
+    assert_consistent(&s);
+}
+
+#[test]
+fn redo_blocked_by_an_agent_stays_on_its_stack() {
+    let (_d, mut s, anna) = setup();
+    s.apply(add_note(anna, "Mine")).unwrap();
+    let note = s.tree().persons[&anna].common.notes[0];
+    s.apply(edit_note(anna, note, "Mine, again")).unwrap();
+    s.undo().unwrap().unwrap();
+    s.commit_command_as(edit_note(anna, note, "Corrected"), agent(), None)
+        .unwrap();
+    let g = newest_group(&s);
+    let state = s.undo_state();
+    let e = s.redo().unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+    assert!(e.message.contains("An agent changed"), "{e:?}");
+    assert_eq!(
+        s.undo_state(),
+        state,
+        "it can go ahead once the way is clear"
+    );
+    s.undo_group(g).unwrap();
+    s.redo().unwrap().unwrap();
+    assert_eq!(s.tree().notes[&note].text, "Mine, again");
+    assert_consistent(&s);
+}
+
+#[test]
+fn log_undo_skips_what_would_point_at_a_removed_record() {
+    let (_d, mut s, anna) = setup();
+    s.apply(cite(anna, "Family bible")).unwrap();
+    let citation = s.tree().persons[&anna].common.citations[0];
+    let source = *s.tree().sources.keys().next().unwrap();
+    s.commit_command_as(remove_citation(anna, citation), agent(), None)
+        .unwrap();
+    let g = newest_group(&s);
+    // The owner takes their citation back; with it goes the source the citation stood on.
+    s.undo().unwrap().unwrap();
+    assert!(!s.tree().sources.contains_key(&source));
+
+    let tree = s.tree().clone();
+    let n = rows(&s).len();
+    let rep = s.undo_group(g).unwrap();
+    assert_eq!(rep.undone, 0, "{rep:?}");
+    assert_eq!(
+        rep.skipped.len(),
+        s.project().log_group(g).unwrap().unwrap().changes.len(),
+        "{rep:?}"
+    );
+    assert_eq!(s.tree(), &tree, "neither the citation nor the link to it");
+    assert_eq!(rows(&s).len(), n);
+    assert!(!row_of(&s, g).reverted);
+    assert_consistent(&s);
+
+    // The owner's redo brings the citation back itself; nothing is left for the log undo to do.
+    s.redo().unwrap().unwrap();
+    assert!(s.tree().citations.contains_key(&citation));
+    let again = s.undo_group(g).unwrap();
+    assert_eq!(again.undone, 0);
+    assert!(again.skipped.is_empty(), "{:?}", again.skipped);
+    assert_consistent(&s);
+}
+
+#[test]
+fn a_retry_with_nothing_left_to_do_writes_nothing() {
+    let (_d, mut s, _) = setup();
+    let (g, aaa, _) = import_two(&mut s);
+    s.apply(add_note(aaa, "The owner's own note")).unwrap();
+    assert!(!s.undo_group(g).unwrap().skipped.is_empty());
+    // The owner removes the kept person by hand, so the rest of the undo has already happened.
+    s.apply(EditCommand::DeletePerson { id: aaa }).unwrap();
+    let n = rows(&s).len();
+    let rep = s.undo_group(g).unwrap();
+    assert_eq!(rep.undone, 0);
+    assert!(rep.skipped.is_empty(), "{:?}", rep.skipped);
+    assert_eq!(rows(&s).len(), n);
+    assert_consistent(&s);
+}
+
 #[test]
 fn owner_and_agent_interleaved_stay_consistent() {
     for seed in 0..8u64 {
@@ -633,11 +977,27 @@ fn owner_and_agent_interleaved_stay_consistent() {
                 .wrapping_add(1_442_695_040_888_963_407);
             usize::try_from(x >> 33).unwrap() % n
         };
+        // Half the owner's work builds on what an agent just added, so that undoing that from the
+        // log pulls the ground from under the owner's undo and redo steps.
+        let mut agent_person: Option<Uuid> = None;
         for step in 0..120 {
             let ids: Vec<Uuid> = s.tree().persons.keys().copied().collect();
-            let who = ids[next(ids.len())];
+            let drawn = ids[next(ids.len())];
+            let who = agent_person
+                .filter(|p| ids.contains(p) && next(2) == 0)
+                .unwrap_or(drawn);
             let notes: Vec<Uuid> = s.tree().persons[&who].common.notes.clone();
-            let outcome = match next(10) {
+            let families: Vec<Uuid> = s.tree().families.keys().copied().collect();
+            let sources: Vec<Uuid> = s.tree().sources.keys().copied().collect();
+            let source = if sources.is_empty() {
+                SourceRef::New(NewSource {
+                    title: "Recording".into(),
+                })
+            } else {
+                SourceRef::Id(sources[next(sources.len())])
+            };
+            let cited: Vec<Uuid> = s.tree().persons[&who].common.citations.clone();
+            let outcome = match next(20) {
                 0 => s.apply(add_note(who, "Mine")).map(|_| ()),
                 1 => s.apply(child_of(who, "Olena")).map(|_| ()),
                 2 if ids.len() > 2 => s.apply(EditCommand::DeletePerson { id: who }).map(|_| ()),
@@ -646,12 +1006,30 @@ fn owner_and_agent_interleaved_stay_consistent() {
                     .map(|_| ()),
                 4 => s
                     .commit_command_as(child_of(who, "Ivan"), agent(), None)
-                    .map(|_| ()),
+                    .map(|r| agent_person = r.focus.or(agent_person)),
                 5 if !notes.is_empty() => s
                     .commit_command_as(edit_note(who, notes[0], "Corrected"), agent(), None)
                     .map(|_| ()),
                 6 | 7 => s.undo().map(|_| ()),
-                8 => s.redo().map(|_| ()),
+                8..=10 => s.redo().map(|_| ()),
+                11 if !families.is_empty() => s
+                    .apply(link_child(families[next(families.len())], who))
+                    .map(|_| ()),
+                12 if !families.is_empty() => s
+                    .commit_command_as(
+                        link_child(families[next(families.len())], who),
+                        agent(),
+                        None,
+                    )
+                    .map(|_| ()),
+                13 => s.apply(cite_source(who, source)).map(|_| ()),
+                14 => s
+                    .commit_command_as(cite_source(who, source), agent(), None)
+                    .map(|_| ()),
+                15 if !cited.is_empty() => s.apply(remove_citation(who, cited[0])).map(|_| ()),
+                16 if !cited.is_empty() => s
+                    .commit_command_as(remove_citation(who, cited[0]), agent(), None)
+                    .map(|_| ()),
                 _ => {
                     let agents: Vec<Uuid> = rows(&s)
                         .iter()
@@ -661,7 +1039,13 @@ fn owner_and_agent_interleaved_stay_consistent() {
                     if agents.is_empty() {
                         Ok(())
                     } else {
-                        s.undo_group(agents[next(agents.len())]).map(|_| ())
+                        let newest = next(2) == 0;
+                        let g = if newest {
+                            agents[0]
+                        } else {
+                            agents[next(agents.len())]
+                        };
+                        s.undo_group(g).map(|_| ())
                     }
                 }
             };

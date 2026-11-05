@@ -3,18 +3,21 @@
 //! Every applied command is one `ChangeSet` (one change-log group). Undo reverts it fact by fact
 //! (see `revert.rs`) as a new group labelled "Undo: <label>"; redo reverts that again as a group
 //! labelled "Redo: <label>". With nothing in between both are byte for byte the old state; when an
-//! agent has changed the same fact since, they stop. The stacks hold the owner's edits only, live
-//! in the session, hold at most 200 groups, and are lost when the session closes.
+//! agent has changed the same fact since, they stop and the step waits. When a log undo has removed
+//! a record the step would point at, it can never go ahead: it leaves its stack and says so, so that
+//! older steps stay reachable. The stacks hold the owner's edits only, live in the session, hold at
+//! most 200 groups, and are lost when the session closes.
 //!
 //! An agent's changes never enter the stacks. They are undone from the log (`undo_group`,
-//! `undo_batch`), which works from what the log stores and so also after a restart.
+//! `undo_batch`), which works from what the log stores and so also after a restart. A group counts
+//! as undone only when all of it went: one partly undone stays open, and a retry does what remains.
 
 use crate::command::{DeleteImpact, EditCommand, EditResult, HistoryEntry, UndoReport, UndoState};
 use crate::dto::DayOrder as WireDayOrder;
 use crate::error::{ApiError, ErrorCode};
 use crate::log::history_op;
 use crate::ops::{apply_to_tree_tracked, plan_with};
-use crate::revert::{settle_kept, undo_on_tree};
+use crate::revert::{dangling_writes, settle_kept, undo_on_tree};
 use crate::session::Session;
 use gt_core::date::DayOrder;
 use gt_core::model::Citation;
@@ -26,6 +29,10 @@ use uuid::Uuid;
 pub const MAX_UNDO: usize = 200;
 
 const AGENT_CHANGED: &str = "An agent changed this since. Undo it from the change log first.";
+const UNDO_DROPPED: &str = "Something this depends on was removed from the change log, so it cannot \
+                            be undone. The step has been dropped from the undo list.";
+const REDO_DROPPED: &str = "Something this depends on was removed from the change log, so it cannot \
+                            be redone. The step has been dropped from the redo list.";
 
 #[derive(Default)]
 pub struct EditState {
@@ -165,14 +172,18 @@ impl Session {
 
     /// The writes that take `changes` (in the order to undo them) back on the tree as it stands,
     /// or the error that stops Ctrl+Z when an agent has changed the same fact or now depends on it.
-    fn ctrl_z_writes(&self, changes: &[&Change]) -> Result<Vec<Change>, ApiError> {
+    /// `None`: the writes would point at a record that is gone, so the step can never go ahead.
+    fn ctrl_z_writes(&self, changes: &[&Change]) -> Result<Option<Vec<Change>>, ApiError> {
         let (_, now) = (self.clock.0)();
         let kept = settle_kept(&self.tree, changes);
         let done = undo_on_tree(&self.tree, changes, &kept, now, false);
         if !kept.is_empty() || !done.skipped.is_empty() {
             return Err(ApiError::new(ErrorCode::Conflict, AGENT_CHANGED));
         }
-        Ok(done.writes)
+        if !dangling_writes(&self.tree, &done.writes).is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(done.writes))
     }
 
     /// Reverts the newest applied group. `None` when there is nothing to undo.
@@ -182,12 +193,16 @@ impl Session {
         };
         let (_, now) = (self.clock.0)();
         let newest_first: Vec<&Change> = done.changes.iter().rev().collect();
+        let Some(changes) = self.ctrl_z_writes(&newest_first)? else {
+            self.edit.undo.pop();
+            return Err(ApiError::new(ErrorCode::Conflict, UNDO_DROPPED));
+        };
         let inv = ChangeSet {
             group: gt_core::ids::new_id(),
             reverts: Some(done.group),
             label: format!("Undo: {}", done.label),
             ts: now,
-            changes: self.ctrl_z_writes(&newest_first)?,
+            changes,
         };
         if !inv.changes.is_empty() {
             self.commit(&inv, Actor::User, None)?;
@@ -205,12 +220,16 @@ impl Session {
         let (_, now) = (self.clock.0)();
         let inverse = undone.inverse();
         let in_order: Vec<&Change> = inverse.changes.iter().rev().collect();
+        let Some(changes) = self.ctrl_z_writes(&in_order)? else {
+            self.edit.redo.pop();
+            return Err(ApiError::new(ErrorCode::Conflict, REDO_DROPPED));
+        };
         let logged = ChangeSet {
             group: gt_core::ids::new_id(),
             reverts: None,
             label: format!("Redo: {}", undone.label),
             ts: now,
-            changes: self.ctrl_z_writes(&in_order)?,
+            changes,
         };
         if !logged.changes.is_empty() {
             self.commit(&logged, Actor::User, None)?;
@@ -230,8 +249,9 @@ impl Session {
     }
 
     /// Undoes one agent's change from the log, as a new group by the owner. A fact someone has
-    /// changed since stays and is reported. A group already undone is left alone. The Ctrl+Z
-    /// stacks are not touched.
+    /// changed since, or that would point at a record gone since, stays and is reported; the
+    /// group then stays open, and undoing it again does what has become possible. A group undone
+    /// in full is left alone. The Ctrl+Z stacks are not touched.
     pub fn undo_group(&mut self, group: Uuid) -> Result<UndoReport, ApiError> {
         let g = self
             .project
@@ -246,8 +266,9 @@ impl Session {
         self.undo_logged(&g, &kept)
     }
 
-    /// Undoes every change of a batch that still stands, newest first. What has to stay is worked
-    /// out over all of them, so a person kept by one group keeps the links another group made.
+    /// Undoes every change of a batch not yet undone in full, newest first. What has to stay is
+    /// worked out over all of them, so a person kept by one group keeps the links another group
+    /// made.
     pub fn undo_batch(&mut self, batch: Uuid) -> Result<UndoReport, ApiError> {
         if self.project.batch_get(batch)?.is_none() {
             return Err(ApiError::not_found("batch", batch));
@@ -278,10 +299,11 @@ impl Session {
     fn undo_logged(&mut self, g: &LogGroup, kept: &HashSet<Uuid>) -> Result<UndoReport, ApiError> {
         let (_, now) = (self.clock.0)();
         let newest_first: Vec<&Change> = g.changes.iter().rev().collect();
-        let done = undo_on_tree(&self.tree, &newest_first, kept, now, true);
+        let mut done = undo_on_tree(&self.tree, &newest_first, kept, now, true);
+        done.skip_dangling(&self.tree, &newest_first);
         let cs = ChangeSet {
             group: gt_core::ids::new_id(),
-            reverts: Some(g.group),
+            reverts: done.skipped.is_empty().then_some(g.group),
             label: format!("Undo: {}", g.label),
             ts: now,
             changes: done.writes,

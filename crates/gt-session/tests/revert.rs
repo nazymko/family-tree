@@ -336,6 +336,161 @@ fn a_date_goes_back_whole_or_not_at_all() {
     );
 }
 
+#[test]
+fn surnames_are_one_fact() {
+    let mut before = person(1, "Ivan");
+    before.names[0].surnames = vec!["Koval".into()];
+    let mut after = before.clone();
+    after.names[0].surnames = vec!["Kovalenko".into()];
+    let mut current = after.clone();
+    current.names[0].surnames = vec!["Kovalchuk".into()];
+    let ch = change(
+        Some(Record::Person(before.clone())),
+        Some(Record::Person(after)),
+    );
+    assert_eq!(
+        revert_change(&ch, Some(&Record::Person(current.clone())), &none()),
+        Reverted::Conflict(Some(Record::Person(current)))
+    );
+
+    // An added surname with a later one next to it is no longer a list to pick apart either.
+    let mut after = before.clone();
+    after.names[0].surnames = vec!["Koval".into(), "Bondar".into()];
+    let mut current = after.clone();
+    current.names[0].surnames = vec!["Koval".into(), "Bondar".into(), "Melnyk".into()];
+    let ch = change(
+        Some(Record::Person(before.clone())),
+        Some(Record::Person(after.clone())),
+    );
+    assert_eq!(
+        revert_change(&ch, Some(&Record::Person(current.clone())), &none()),
+        Reverted::Conflict(Some(Record::Person(current)))
+    );
+
+    // Still as the change wrote it: back it goes.
+    let ch = change(
+        Some(Record::Person(before.clone())),
+        Some(Record::Person(after.clone())),
+    );
+    assert_eq!(
+        revert_change(&ch, Some(&Record::Person(after)), &none()),
+        Reverted::Write(Some(Record::Person(before)))
+    );
+}
+
+fn event(n: u128, participants: Vec<Participant>) -> Event {
+    Event {
+        common: common(n),
+        kind: EventKind::Birth,
+        date: None,
+        place: None,
+        description: None,
+        age: None,
+        cause: None,
+        negative: false,
+        assertion: Assertion {
+            preferred: true,
+            proof: None,
+            confidence: None,
+        },
+        participants,
+    }
+}
+
+fn takes_part(n: u128, role: Role) -> Participant {
+    Participant {
+        target: ParticipantRef::Person(id(n)),
+        role,
+    }
+}
+
+#[test]
+fn a_replaced_participant_changed_since_stays_untouched() {
+    let before = event(1, vec![takes_part(5, Role::Witness)]);
+    let after = event(1, vec![takes_part(5, Role::Godparent)]);
+    let current = event(1, vec![takes_part(5, Role::Clergy)]);
+    let ch = change(Some(Record::Event(before)), Some(Record::Event(after)));
+    assert_eq!(
+        revert_change(&ch, Some(&Record::Event(current.clone())), &none()),
+        Reverted::Conflict(Some(Record::Event(current)))
+    );
+}
+
+#[test]
+fn a_replaced_participant_goes_back_around_a_later_one() {
+    let before = event(1, vec![takes_part(5, Role::Witness)]);
+    let after = event(1, vec![takes_part(5, Role::Godparent)]);
+    let current = event(
+        1,
+        vec![takes_part(5, Role::Godparent), takes_part(6, Role::Clergy)],
+    );
+    let ch = change(Some(Record::Event(before)), Some(Record::Event(after)));
+    let Reverted::Write(Some(Record::Event(e))) =
+        revert_change(&ch, Some(&Record::Event(current)), &none())
+    else {
+        panic!("expected a write");
+    };
+    assert_eq!(
+        e.participants,
+        vec![takes_part(5, Role::Witness), takes_part(6, Role::Clergy)]
+    );
+}
+
+#[test]
+fn undoing_a_replacement_again_changes_nothing() {
+    // The first undo put the old item back and someone has added another since.
+    let before = event(
+        1,
+        vec![takes_part(5, Role::Witness), takes_part(7, Role::Parent)],
+    );
+    let after = event(
+        1,
+        vec![takes_part(5, Role::Godparent), takes_part(7, Role::Parent)],
+    );
+    let mut current = before.clone();
+    current.participants.push(takes_part(6, Role::Clergy));
+    let ch = change(Some(Record::Event(before)), Some(Record::Event(after)));
+    assert_eq!(
+        revert_change(&ch, Some(&Record::Event(current)), &none()),
+        Reverted::Unchanged
+    );
+}
+
+#[test]
+fn a_replaced_media_link_changed_since_stays_untouched() {
+    let picture = |primary: bool, w: Option<f32>| MediaLink {
+        media: id(9),
+        region: w.map(|w| Region {
+            x: 0.0,
+            y: 0.0,
+            w,
+            h: 1.0,
+        }),
+        primary,
+    };
+    let with = |links: Vec<MediaLink>| {
+        let mut p = person(1, "Ivan");
+        p.common.media = links;
+        p
+    };
+    let before = with(vec![picture(true, None)]);
+    let after = with(vec![picture(false, None)]);
+    let current = with(vec![picture(false, Some(0.5))]);
+    let ch = change(
+        Some(Record::Person(before.clone())),
+        Some(Record::Person(after.clone())),
+    );
+    assert_eq!(
+        revert_change(&ch, Some(&Record::Person(current.clone())), &none()),
+        Reverted::Conflict(Some(Record::Person(current)))
+    );
+    // Nobody touched it: the old link comes back.
+    assert_eq!(
+        revert_change(&ch, Some(&Record::Person(after)), &none()),
+        Reverted::Write(Some(Record::Person(before)))
+    );
+}
+
 fn arb_person() -> impl Strategy<Value = Person> {
     (
         any::<bool>(),

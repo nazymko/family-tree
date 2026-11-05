@@ -10,12 +10,15 @@
 //! 3. An updated record is merged field by field. `changed` is never merged: the caller stamps it.
 //! 4. Arrays match their items by `id`, a `ChildLink` by `person`, anything else by whole value.
 //!    An item the change added goes, unless it names a kept record; an item it removed comes back
-//!    at its old index; other items stay in their current order.
+//!    at its old index; other items stay in their current order. An item matched by whole value
+//!    cannot be edited, only replaced: if a replacement has gone since and the old item is not
+//!    back, the list has moved on from what the change wrote, and it stays as it is.
 //! 5. A scalar naming a kept record stays (`partner1` on a family).
 //! 6. A deleted record comes back, unless something has put it back already.
 //!
 //! `settle_kept` finds what must stay before anything is written: a record someone changed, what
-//! a remaining record still points at, and what holds a kept record in place.
+//! a remaining record still points at, and what holds a kept record in place. `dangling_writes`
+//! finds the opposite case: a write that would point at a record that has gone since.
 
 use gt_core::model::*;
 use gt_core::tree::Tree;
@@ -138,7 +141,7 @@ impl Merge<'_> {
             return b.clone();
         }
         match (b, a, c) {
-            // A date is one fact: its parts mean nothing apart.
+            // A date is one fact: its parts mean nothing apart. So is a list of surnames, below.
             (Value::Object(bo), Value::Object(ao), Value::Object(co))
                 if key != "date" && same_keys(bo, co) && same_keys(ao, co) =>
             {
@@ -149,7 +152,9 @@ impl Merge<'_> {
                 });
                 Value::Object(walked.collect())
             }
-            (Value::Array(ba), Value::Array(aa), Value::Array(ca)) => self.array(ba, aa, ca),
+            (Value::Array(ba), Value::Array(aa), Value::Array(ca)) if key != "surnames" => {
+                self.array(ba, aa, ca)
+            }
             // A value naming a kept record, or changed since: either way it stays.
             _ => {
                 self.conflict = true;
@@ -160,6 +165,14 @@ impl Merge<'_> {
 
     fn array(&mut self, b: &[Value], a: &[Value], c: &[Value]) -> Value {
         let find = |list: &[Value], id: &Value| list.iter().position(|x| identity(x) == *id);
+        // Lists hold one shape of item, so a replaced item means the whole list is by whole value.
+        let replaced = |x: &Value, other: &[Value]| identity(x) == *x && find(other, x).is_none();
+        let replacement_gone = a.iter().any(|x| replaced(x, b) && find(c, x).is_none());
+        let old_item_gone = b.iter().any(|x| replaced(x, a) && find(c, x).is_none());
+        if replacement_gone && old_item_gone {
+            self.conflict = true;
+            return Value::Array(c.to_vec());
+        }
         let mut out: Vec<Value> = Vec::with_capacity(c.len());
         for item in c {
             let id = identity(item);
@@ -390,6 +403,58 @@ fn scan_refs(tree: &Tree, skip: &HashMap<Uuid, Option<Record>>, f: &mut dyn FnMu
     }
 }
 
+fn in_tree(tree: &Tree, id: &Uuid) -> bool {
+    tree.persons.contains_key(id)
+        || tree.families.contains_key(id)
+        || tree.events.contains_key(id)
+        || tree.places.contains_key(id)
+        || tree.sources.contains_key(id)
+        || tree.repositories.contains_key(id)
+        || tree.citations.contains_key(id)
+        || tree.media.contains_key(id)
+        || tree.notes.contains_key(id)
+}
+
+/// The records whose writes cannot go ahead: each would point at a record that does not exist
+/// once the writes are done (a log undo has removed it since). The rest stay valid without them:
+/// a record not written stays as it is, so whatever it points at cannot be removed either.
+pub(crate) fn dangling_writes(tree: &Tree, writes: &[Change]) -> HashSet<Uuid> {
+    let mut dropped: HashSet<Uuid> = HashSet::new();
+    loop {
+        let going_ahead: HashMap<Uuid, &Change> = writes
+            .iter()
+            .filter(|w| !dropped.contains(&w.id))
+            .map(|w| (w.id, w))
+            .collect();
+        let exists = |id: Uuid| match going_ahead.get(&id) {
+            Some(w) => w.after.is_some(),
+            None => in_tree(tree, &id),
+        };
+        let mut more: Vec<Uuid> = Vec::new();
+        for w in writes {
+            if dropped.contains(&w.id) {
+                if let Some(stays) = &w.before {
+                    all_refs(stays, &mut |id| {
+                        if going_ahead.contains_key(&id) && !exists(id) {
+                            more.push(id);
+                        }
+                    });
+                }
+            } else if let Some(written) = &w.after {
+                let mut missing = false;
+                all_refs(written, &mut |id| missing |= !exists(id));
+                if missing {
+                    more.push(w.id);
+                }
+            }
+        }
+        if more.is_empty() {
+            return dropped;
+        }
+        dropped.extend(more);
+    }
+}
+
 // ---- undoing a list of changes --------------------------------------------------------------
 
 /// What must stay when `changes` (newest first) are undone together, on the tree as it stands:
@@ -443,6 +508,24 @@ pub(crate) struct Undone<'a> {
     pub skipped: Vec<&'a Change>,
     /// Facts really undone; a change that only moved a `changed` stamp is no fact.
     pub undone: u32,
+}
+
+impl<'a> Undone<'a> {
+    /// Takes back the writes that would leave a dangling reference: those facts stay as they are
+    /// and count as skipped.
+    pub fn skip_dangling(&mut self, tree: &Tree, changes: &[&'a Change]) {
+        let dropped = dangling_writes(tree, &self.writes);
+        self.writes.retain(|w| !dropped.contains(&w.id));
+        for ch in changes.iter().filter(|ch| dropped.contains(&ch.id)) {
+            let already = self.skipped.iter().any(|s| std::ptr::eq(*s, *ch));
+            if !already {
+                self.skipped.push(ch);
+                if !only_stamp_differs(ch) {
+                    self.undone = self.undone.saturating_sub(1);
+                }
+            }
+        }
+    }
 }
 
 pub(crate) fn undo_on_tree<'a>(
