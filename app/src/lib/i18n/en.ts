@@ -600,6 +600,9 @@ export const en = {
     save: 'Save surnames',
   },
   fieldChange: {
+    field: 'Field',
+    before: 'Before',
+    after: 'After',
     surname: 'Surname',
     empty: 'empty',
     yes: 'yes',

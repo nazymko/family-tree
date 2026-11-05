@@ -8,13 +8,22 @@ afterEach(() => setLanguage('en'));
 
 const surname: FieldChangeDto = { field: 'surnames', before: 'Koval', after: 'Kovalchuk' };
 
+/** Each body row as text with single spaces, headings included. */
+const rows = () =>
+  screen
+    .getAllByRole('row')
+    .slice(1)
+    .map((r) => [...r.children].map((c) => c.textContent?.replace(/\s+/g, ' ').trim()));
+
 describe('FieldChanges', () => {
-  it('shows one line per field with the label, the old and the new value', () => {
+  it('is a table of the field, its value before and its value after', () => {
     render(FieldChanges, { fields: [surname, { field: 'given', before: 'Ivan', after: 'Olena' }] });
-    const items = screen.getAllByRole('listitem');
-    expect(items).toHaveLength(2);
-    expect(items[0].textContent?.replace(/\s+/g, ' ').trim()).toBe('Surname: Koval → Kovalchuk');
-    expect(items[1].textContent?.replace(/\s+/g, ' ').trim()).toBe('Given name: Ivan → Olena');
+    const head = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(head).toEqual(['Field', 'Before', 'After']);
+    expect(rows()).toEqual([
+      ['Surname', 'Koval', 'Kovalchuk'],
+      ['Given name', 'Ivan', 'Olena'],
+    ]);
   });
 
   it('wraps every value in bdi with automatic direction and keeps it as stored', () => {
@@ -25,49 +34,65 @@ describe('FieldChanges', () => {
   });
 
   it('says empty for an empty side, in English', () => {
-    render(FieldChanges, { fields: [{ field: 'patronymic', before: null, after: 'Petrovych' }, { field: 'suffix', before: 'Jr', after: null }] });
-    const items = screen.getAllByRole('listitem');
-    expect(items[0].textContent?.replace(/\s+/g, ' ').trim()).toBe('Father’s name (patronymic): empty → Petrovych');
-    expect(items[1].textContent?.replace(/\s+/g, ' ').trim()).toBe('Suffix: Jr → empty');
-  });
-
-  it('says порожньо for an empty side, in Ukrainian', () => {
-    setLanguage('uk');
-    render(FieldChanges, { fields: [{ field: 'suffix', before: null, after: 'Jr' }] });
-    expect(screen.getByRole('listitem').textContent?.replace(/\s+/g, ' ').trim()).toBe('Суфікс: порожньо → Jr');
-  });
-
-  it('words flags, kinds and sex, and names the name when there are several', () => {
     render(FieldChanges, {
       fields: [
-        { field: 'preferred', nameNumber: 2, nameKind: 'married', before: 'no', after: 'yes' },
-        { field: 'kind', nameNumber: 1, nameKind: 'birth', before: 'birth', after: 'other:Pen name' },
-        { field: 'sex', before: 'male', after: 'female' },
-        { field: 'position', nameNumber: 2, nameKind: 'married', before: '2', after: '1' },
+        { field: 'patronymic', before: null, after: 'Petrovych' },
+        { field: 'suffix', before: 'Jr', after: null },
       ],
     });
-    const text = screen.getAllByRole('listitem').map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
-    expect(text[0]).toBe('Name 2 (Married name) Preferred name: no → yes');
-    expect(text[1]).toBe('Name 1 (Birth name) Kind of name: Birth name → Pen name');
-    expect(text[2]).toBe('Sex: Male → Female');
-    expect(text[3]).toBe('Name 2 (Married name) Order among names (1 is the main name): 2 → 1');
+    expect(rows()).toEqual([
+      ['Father’s name (patronymic)', 'empty', 'Petrovych'],
+      ['Suffix', 'Jr', 'empty'],
+    ]);
   });
 
-  it('words the same in Ukrainian without the word дерево', () => {
+  it('heads the columns and says порожньо in Ukrainian, without the word дерево', () => {
     setLanguage('uk');
-    render(FieldChanges, { fields: [{ ...surname, nameNumber: 2, nameKind: 'married' }] });
-    const text = screen.getByRole('listitem').textContent?.replace(/\s+/g, ' ').trim() ?? '';
-    expect(text).toBe('Ім’я 2 (Ім’я в шлюбі) Прізвище: Koval → Kovalchuk');
-    expect(text).not.toMatch(/дерев/i);
+    const { container } = render(FieldChanges, { fields: [{ field: 'suffix', before: null, after: 'Jr' }] });
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Поле', 'Було', 'Стало']);
+    expect(rows()).toEqual([['Суфікс', 'порожньо', 'Jr']]);
+    expect(container.textContent).not.toMatch(/дерев/i);
+  });
+
+  it('words flags, kinds and sex', () => {
+    render(FieldChanges, {
+      fields: [
+        { field: 'preferred', before: 'no', after: 'yes' },
+        { field: 'kind', before: 'birth', after: 'other:Pen name' },
+        { field: 'sex', before: 'male', after: 'female' },
+      ],
+    });
+    expect(rows()).toEqual([
+      ['Preferred name', 'no', 'yes'],
+      ['Kind of name', 'Birth name', 'Pen name'],
+      ['Sex', 'Male', 'Female'],
+    ]);
+  });
+
+  it('names a name once above its rows when a person has several', () => {
+    render(FieldChanges, {
+      fields: [
+        { field: 'call', nameNumber: 1, nameKind: 'married', before: null, after: 'Ivanko' },
+        { field: 'raw', nameNumber: 1, nameKind: 'married', before: 'Ivan /Koval/', after: null },
+        { field: 'position', nameNumber: 2, nameKind: 'birth', before: '2', after: '1' },
+      ],
+    });
+    const r = rows();
+    expect(r[0]).toEqual(['Name 1 (Married name)']);
+    expect(r[1].slice(1)).toEqual(['empty', 'Ivanko']);
+    expect(r[2].slice(1)).toEqual(['Ivan /Koval/', 'empty']);
+    expect(r[3]).toEqual(['Name 2 (Birth name)']);
+    expect(r[4]).toEqual(['Order among names (1 is the main name)', '2', '1']);
+    expect(r).toHaveLength(5);
   });
 
   it('uses the plural label only when a side holds several surnames', () => {
     render(FieldChanges, { fields: [{ field: 'surnames', before: 'Koval', after: 'Koval, Petrenko' }] });
-    expect(screen.getByRole('listitem').textContent?.replace(/\s+/g, ' ').trim()).toBe('Surnames: Koval → Koval, Petrenko');
+    expect(rows()).toEqual([['Surnames', 'Koval', 'Koval, Petrenko']]);
   });
 
   it('renders nothing for no fields', () => {
     const { container } = render(FieldChanges, { fields: [] });
-    expect(container.querySelector('ul')).toBeNull();
+    expect(container.querySelector('table')).toBeNull();
   });
 });

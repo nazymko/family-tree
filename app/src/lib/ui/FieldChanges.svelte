@@ -2,7 +2,7 @@
   import type { FieldChangeDto } from '../api/types';
   import { t, type MessageKey } from '../i18n';
 
-  /** One line per changed field of a person: `Surname: Koval → Kovalchuk`. */
+  /** A table of a person's changed fields: the field, its value before and its value after. */
   let { fields }: { fields: FieldChangeDto[] } = $props();
 
   const LABELS: Record<string, MessageKey> = {
@@ -57,53 +57,77 @@
     const kind = word('kind', f.nameKind ?? null) ?? '';
     return t('fieldChange.nameTag', { n: f.nameNumber, kind });
   }
+
+  /** Neighbouring rows about the same name share one heading instead of repeating it. */
+  const groups = $derived.by(() => {
+    const out: { heading: string; rows: FieldChangeDto[] }[] = [];
+    for (const f of fields) {
+      const heading = who(f);
+      const last = out[out.length - 1];
+      if (last && last.heading === heading) last.rows.push(f);
+      else out.push({ heading, rows: [f] });
+    }
+    return out;
+  });
 </script>
 
+{#snippet value(v: string | null)}
+  {#if v === null}<em class="none">{t('fieldChange.empty')}</em>{:else}<bdi dir="auto">{v}</bdi>{/if}
+{/snippet}
+
 {#if fields.length > 0}
-  <ul class="fields">
-    {#each fields as f, i (i)}
-      {@const b = word(f.field, f.before)}
-      {@const a = word(f.field, f.after)}
-      <li>
-        {#if f.nameNumber !== undefined}<span class="who">{who(f)}</span>{/if}
-        <span class="label">{label(f.field, f)}:</span>
-        <span class="val before">{#if b === null}<em class="none">{t('fieldChange.empty')}</em>{:else}<bdi dir="auto">{b}</bdi>{/if}</span>
-        <span class="arrow" aria-hidden="true">→</span>
-        <span class="val after">{#if a === null}<em class="none">{t('fieldChange.empty')}</em>{:else}<bdi dir="auto">{a}</bdi>{/if}</span>
-      </li>
+  <table class="fields">
+    <thead>
+      <tr>
+        <th scope="col">{t('fieldChange.field')}</th>
+        <th scope="col">{t('fieldChange.before')}</th>
+        <th scope="col">{t('fieldChange.after')}</th>
+      </tr>
+    </thead>
+    {#each groups as g, i (i)}
+      <tbody>
+        {#if g.heading}<tr><th class="who" colspan="3" scope="rowgroup">{g.heading}</th></tr>{/if}
+        {#each g.rows as f, j (j)}
+          <tr>
+            <th scope="row">{label(f.field, f)}</th>
+            <td>{@render value(word(f.field, f.before))}</td>
+            <td>{@render value(word(f.field, f.after))}</td>
+          </tr>
+        {/each}
+      </tbody>
     {/each}
-  </ul>
+  </table>
 {/if}
 
 <style>
   .fields {
-    list-style: none;
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
     margin: var(--s-1) 0 0;
-    padding: 0;
-    display: grid;
-    gap: var(--s-1);
     font-size: var(--t-sm);
     color: var(--ink-1);
   }
-  li {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0 var(--s-2);
+  th,
+  td {
+    padding: var(--s-1) var(--s-2);
+    border-bottom: 1px solid var(--rule);
+    text-align: start;
+    vertical-align: top;
     overflow-wrap: anywhere;
-    min-width: 0;
+    font-weight: 400;
+  }
+  thead th,
+  tbody th {
+    color: var(--ink-2);
+  }
+  thead th {
+    font-weight: 500;
   }
   .who {
-    color: var(--ink-2);
-    flex-basis: 100%;
-  }
-  .label {
-    color: var(--ink-2);
+    font-weight: 500;
   }
   .none {
-    color: var(--ink-2);
-  }
-  .arrow {
     color: var(--ink-2);
   }
 </style>

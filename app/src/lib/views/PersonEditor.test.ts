@@ -153,7 +153,7 @@ describe('PersonEditor', () => {
     await renameSurname(['Kovalchuk']);
     await open();
     const row = await historyRow();
-    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Surname: Koval → Kovalchuk');
+    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Surname Koval Kovalchuk');
     expect(row.querySelectorAll('bdi[dir="auto"]').length).toBeGreaterThanOrEqual(1);
   });
 
@@ -163,7 +163,7 @@ describe('PersonEditor', () => {
     await api.apply({ type: 'saveName', person: id, name: { id: n.id, kind: n.kind, preferred: n.preferred, private: n.private, given: n.given ?? 'Ivan', surnames: n.surnames, patronymic: undefined, suffix: 'Jr' } });
     await open();
     const row = await historyRow();
-    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Suffix: empty → Jr');
+    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Suffix empty Jr');
   });
 
   it('history_says_what_a_name_change_changed_in_ukrainian', async () => {
@@ -174,7 +174,7 @@ describe('PersonEditor', () => {
     try {
       renderWithApi(observeApi(api), PersonEditor, { id });
       const row = await historyRow();
-      expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Суфікс: порожньо → Jr');
+      expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Суфікс порожньо Jr');
     } finally {
       setLanguage('en');
     }
