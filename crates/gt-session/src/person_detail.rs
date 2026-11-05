@@ -110,7 +110,7 @@ pub fn union_id(k: &UnionKind) -> UnionKindId {
 }
 
 impl Session {
-    pub(crate) fn place_option(&self, id: Uuid) -> Option<PlaceOption> {
+    pub fn place_option(&self, id: Uuid) -> Option<PlaceOption> {
         let place = self.tree.places.get(&id)?;
         let name_of = |p: &m::Place| {
             p.names
@@ -138,7 +138,7 @@ impl Session {
         })
     }
 
-    pub(crate) fn source_dto(&self, id: Uuid) -> Option<SourceDto> {
+    pub fn source_dto(&self, id: Uuid) -> Option<SourceDto> {
         let s = self.tree.sources.get(&id)?;
         Some(SourceDto {
             id,
@@ -156,7 +156,7 @@ impl Session {
         })
     }
 
-    pub(crate) fn citation_dto(&self, id: Uuid) -> Option<CitationDto> {
+    pub fn citation_dto(&self, id: Uuid) -> Option<CitationDto> {
         let c = self.tree.citations.get(&id)?;
         Some(CitationDto {
             id,
@@ -173,11 +173,11 @@ impl Session {
         })
     }
 
-    pub(crate) fn citations_dto(&self, ids: &[Uuid]) -> Vec<CitationDto> {
+    pub fn citations_dto(&self, ids: &[Uuid]) -> Vec<CitationDto> {
         ids.iter().filter_map(|c| self.citation_dto(*c)).collect()
     }
 
-    pub(crate) fn note_dtos(&self, ids: &[Uuid]) -> Vec<NoteDto> {
+    pub fn note_dtos(&self, ids: &[Uuid]) -> Vec<NoteDto> {
         ids.iter()
             .filter_map(|id| {
                 let n = self.tree.notes.get(id)?;
@@ -199,7 +199,7 @@ impl Session {
             .collect()
     }
 
-    pub(crate) fn media_dtos(&self, links: &[MediaLink]) -> Vec<MediaLinkDto> {
+    pub fn media_dtos(&self, links: &[MediaLink]) -> Vec<MediaLinkDto> {
         links
             .iter()
             .filter_map(|l| {
