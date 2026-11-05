@@ -84,6 +84,58 @@ export { MockApiError } from './model';
 
 /** Fixed so living/deceased results do not drift with the calendar. */
 const REFERENCE_YEAR = 2026;
+
+/** One second of 8 kHz silence as a WAV data URL: what the mock serves for a recording. */
+const SILENT_WAV = (() => {
+  const data = 8000 * 2;
+  const bytes = new Uint8Array(44 + data);
+  const view = new DataView(bytes.buffer);
+  const text = (at: number, s: string) => [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  text(0, 'RIFF');
+  view.setUint32(4, 36 + data, true);
+  text(8, 'WAVEfmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 8000, true);
+  view.setUint32(28, 16000, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  text(36, 'data');
+  view.setUint32(40, data, true);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return `data:audio/wav;base64,${btoa(bin)}`;
+})();
+
+function mockMime(name: string): string {
+  const ext = /\.([A-Za-z0-9]+)$/.exec(name)?.[1]?.toLowerCase();
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'png':
+      return 'image/png';
+    case 'pdf':
+      return 'application/pdf';
+    case 'mp3':
+      return 'audio/mpeg';
+    case 'wav':
+      return 'audio/wav';
+    case 'ogg':
+    case 'oga':
+    case 'opus':
+      return 'audio/ogg';
+    case 'm4a':
+      return 'audio/mp4';
+    case 'aac':
+      return 'audio/aac';
+    case 'flac':
+      return 'audio/flac';
+    default:
+      return 'application/octet-stream';
+  }
+}
 const MAX_PAGE = 200;
 const MAX_SEARCH = 50;
 
@@ -725,12 +777,17 @@ export class MockApi implements Api {
     const failed: AttachResult['failed'] = [];
     const accepted: { path: string; name: string }[] = [];
     const known = new Set<string>();
-    for (const p of this.db.persons.values()) for (const l of p.media) known.add((l.media.originalName ?? '').toLowerCase());
+    for (const p of this.db.persons.values()) {
+      for (const l of p.media) known.add((l.media.originalName ?? '').toLowerCase());
+      for (const n of p.notes) for (const l of n.media) known.add((l.media.originalName ?? '').toLowerCase());
+    }
+    const audioName = /\.(mp3|wav|ogg|oga|opus|m4a|aac|flac)$/i;
     for (const path of paths) {
       const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
       if (!name) failed.push({ path, reason: 'The file has no name.' });
       else if (/[\\/]$/.test(path) || !/\.[A-Za-z0-9]{1,8}$/.test(name)) failed.push({ path, reason: 'Folders cannot be attached. Choose files.' });
       else if (/\.(exe|bat|cmd|msi|dll|com|scr)$/i.test(name)) failed.push({ path, reason: 'This file type cannot be attached.' });
+      else if (target.kind === 'note' && !audioName.test(name)) failed.push({ path, reason: 'only sound recordings can be attached to a note' });
       else if (known.has(name.toLowerCase()) || accepted.some((a) => a.name.toLowerCase() === name.toLowerCase()))
         failed.push({ path, reason: 'Already attached' });
       else accepted.push({ path, name });
@@ -747,13 +804,13 @@ export class MockApi implements Api {
         const m: MediaDto = {
           id: this.ids.next(),
           title: a.name.replace(/\.[^.]+$/, ''),
-          mime: /\.(jpe?g)$/i.test(a.name) ? 'image/jpeg' : /\.png$/i.test(a.name) ? 'image/png' : /\.pdf$/i.test(a.name) ? 'application/pdf' : 'application/octet-stream',
+          mime: mockMime(a.name),
           originalName: a.name,
           date: null,
           description: null,
           resolved: true,
-          width: 1024,
-          height: 768,
+          width: audioName.test(a.name) ? null : 1024,
+          height: audioName.test(a.name) ? null : 768,
           sha256: null,
         };
         this.db.media.set(m.id, m);
@@ -1008,6 +1065,8 @@ export class MockApi implements Api {
   }
 
   mediaUrl(id: Id, size: 'thumb' | 'preview' | 'original'): string {
+    // A recording plays a second of silence, so the dev page has something to load.
+    if (size === 'original' && this.db.media.get(id)?.mime?.startsWith('audio/')) return SILENT_WAV;
     const dim = size === 'thumb' ? 160 : size === 'preview' ? 640 : 1200;
     const hue = hashString(id) % 360;
     const svg =
@@ -1646,6 +1705,19 @@ export class MockApi implements Api {
     return null;
   }
 
+  private findNote(id: Id): NoteDto | null {
+    const scan = (ns: NoteDto[]) => ns.find((n) => n.id === id) ?? null;
+    for (const p of this.db.persons.values()) {
+      const hit = scan(p.notes) ?? p.events.map((e) => scan(e.notes)).find(Boolean) ?? null;
+      if (hit) return hit;
+    }
+    for (const f of this.db.families.values()) {
+      const hit = scan(f.notes) ?? f.events.map((e) => scan(e.notes)).find(Boolean) ?? null;
+      if (hit) return hit;
+    }
+    return null;
+  }
+
   /** The arrays a note, citation or media link can be attached to. */
   private owner(t: OwnerRef): OwnerBag {
     switch (t.kind) {
@@ -1668,6 +1740,11 @@ export class MockApi implements Api {
           if (n) return { citations: n.citations };
         }
         throw missing('name', t.id);
+      }
+      case 'note': {
+        const n = this.findNote(t.id);
+        if (!n) throw missing('note', t.id);
+        return { media: n.media };
       }
       default:
         throw invalid(`The mock does not attach records to a ${t.kind}.`);
@@ -1908,7 +1985,8 @@ export class MockApi implements Api {
         if (cmd.note.id && i < 0) throw missing('note', cmd.note.id);
         if (i >= 0) bag.notes[i] = { ...bag.notes[i], kind: cmd.note.kind, text: cmd.note.text };
         else bag.notes.push(makeNote(this.ids.next(), cmd.note.kind, cmd.note.text));
-        return { focus: cmd.target.kind === 'person' ? cmd.target.id : null, touched: [cmd.target.id] };
+        const saved = bag.notes[i >= 0 ? i : bag.notes.length - 1];
+        return { focus: cmd.target.kind === 'person' ? cmd.target.id : null, touched: [cmd.target.id, saved.id] };
       }
 
       case 'deleteNote': {
@@ -2017,6 +2095,7 @@ export class MockApi implements Api {
         for (const p of this.db.persons.values()) {
           sweep(p.media, p.id);
           for (const e of p.events) sweep(e.media, e.id);
+          for (const n of p.notes) sweep(n.media, n.id);
         }
         this.db.media.delete(cmd.id);
         return { focus: null, touched };

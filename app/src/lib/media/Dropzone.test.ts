@@ -64,7 +64,7 @@ describe('Dropzone', () => {
     renderWith(Dropzone, { target, targetName: 'Zofia', onAttached }, { api, platform });
     await user.click(screen.getByRole('button', { name: 'Add files…' }));
     await waitFor(() => expect(onAttached).toHaveBeenCalled());
-    expect(platform.calls[0].args[0]).toMatchObject({ extensions: ['jpg', 'jpeg', 'png', 'webp', 'tif', 'tiff', 'gif', 'pdf'] });
+    expect(platform.calls[0].args[0]).toMatchObject({ extensions: ['jpg', 'jpeg', 'png', 'webp', 'tif', 'tiff', 'gif', 'pdf', 'mp3', 'wav', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'flac'] });
   });
 
   it('exif_banner_offers_not_applies', async () => {

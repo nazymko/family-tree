@@ -5,7 +5,7 @@
 //! (Windows/Android: `http://gtmedia.localhost/...`); only the id is read from the URL. Replies
 //! carry `Content-Type` and `Cache-Control: private, max-age=31536000, immutable`.
 
-use crate::command::OwnerRef;
+use crate::command::{OwnerKind, OwnerRef};
 use crate::dto::MediaDto;
 use crate::error::{ApiError, ErrorCode};
 use crate::session::Session;
@@ -50,6 +50,9 @@ pub struct AttachResult {
     pub attached: Vec<MediaDto>,
     pub failed: Vec<AttachFailure>,
 }
+
+/// Why a picture or document is refused on a note.
+pub(crate) const NOTE_SOUND_ONLY: &str = "only sound recordings can be attached to a note";
 
 /// The most one ranged reply carries. A player asks again for the next piece, so a long
 /// recording never has to sit in memory whole.
@@ -274,6 +277,12 @@ impl Session {
                 fail(&mut failed, path, "unsupported type");
                 continue;
             };
+            // A note holds voice samples only. A picture there would be attached and then never
+            // shown anywhere, so it is refused here, before anything is copied.
+            if target.kind == OwnerKind::Note && !kind.is_audio() {
+                fail(&mut failed, path, NOTE_SOUND_ONLY);
+                continue;
+            }
             let Ok((rel, sha)) = self.project.add_media_file(path) else {
                 fail(&mut failed, path, "cannot read file");
                 continue;

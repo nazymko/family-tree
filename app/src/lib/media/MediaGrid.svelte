@@ -1,6 +1,7 @@
 <script lang="ts" module>
   import type { MediaDto } from '../api/api';
   import { notices } from '../ui/notices.svelte';
+  export const isAudio = (m: MediaDto) => !!m.mime?.startsWith('audio/');
   export const isPdf = (m: MediaDto) => m.mime === 'application/pdf' || /\.pdf$/i.test(m.originalName ?? '');
   /** Opens the original in the OS viewer; the backend refuses types that are not safe, and the reason is shown. */
   export async function openOriginal(api: { openMediaExternally(id: string): Promise<void> }, id: string): Promise<void> {

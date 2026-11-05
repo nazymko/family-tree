@@ -200,6 +200,37 @@ fn a_right_extension_is_not_enough() {
 }
 
 #[test]
+fn a_note_takes_sound_only_and_a_person_still_takes_pictures_and_sound() {
+    let (_d, mut s, ivan, note, src) = setup();
+    let pdf = write(
+        &src,
+        "letter.pdf",
+        b"%PDF-1.4
+%body
+",
+    );
+    let r = s
+        .attach_files(owner(OwnerKind::Note, note), std::slice::from_ref(&pdf))
+        .unwrap();
+    assert!(r.attached.is_empty());
+    assert_eq!(
+        r.failed[0].reason,
+        "only sound recordings can be attached to a note"
+    );
+    assert!(note_media(&s, ivan).is_empty());
+    // Nothing was copied into the project for the refused file.
+    let media_dir = _d.path().join("project").join("media");
+    assert!(!media_dir.exists() || walk(&media_dir).is_empty());
+
+    // On a person, a recording is allowed too (the media page lists it with a player).
+    let wavfile = write(&src, "a.wav", &wav());
+    let r = s
+        .attach_files(owner(OwnerKind::Person, ivan), &[wavfile, pdf])
+        .unwrap();
+    assert_eq!(r.attached.len(), 2);
+}
+
+#[test]
 fn an_empty_file_and_a_folder_are_refused_as_for_pictures() {
     let (_d, mut s, _ivan, note, src) = setup();
     let empty = write(&src, "silent.wav", b"");

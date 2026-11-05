@@ -1,5 +1,6 @@
 <script lang="ts" module>
-  export const MEDIA_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'tif', 'tiff', 'gif', 'pdf'];
+  export const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'flac'];
+  export const MEDIA_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'tif', 'tiff', 'gif', 'pdf', ...AUDIO_EXTENSIONS];
   export const fileName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
   /** One line per failed file, e.g. "scan.exe: unsupported type; we attach ...". */
   export function failureLine(f: { path: string; reason: string }): string {
