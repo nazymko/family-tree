@@ -25,7 +25,7 @@ import {
   search,
   slash,
   text,
-  work,
+  work, clearFocus
 } from './helpers';
 
 const TREE = 'Synthetic tree';
@@ -107,13 +107,13 @@ describe('Gene Tree end to end', () => {
     await fillChild(CHILD2, '1851');
     await saveChild();
     expect(await findPerson(CHILD2)).toBe(1);
-    await $('body').click();
+    await clearFocus();
     await chord('z');
     await browser.waitUntil(async () => (await findPerson(CHILD2)) === 0, { timeoutMsg: 'undo did not remove the child' });
-    await $('body').click();
+    await clearFocus();
     await chord('z', true);
     await browser.waitUntil(async () => (await findPerson(CHILD2)) === 1, { timeoutMsg: 'redo did not bring the child back' });
-    await $('body').click();
+    await clearFocus();
     await chord('z');
     await browser.waitUntil(async () => (await findPerson(CHILD2)) === 0);
 
@@ -129,7 +129,7 @@ describe('Gene Tree end to end', () => {
     await $('[role="region"][aria-label="Privacy preview"]').waitForDisplayed();
     const dd = await $('//dt[normalize-space(.)="Shown as \'Living\'"]/following-sibling::dd');
     await dd.waitForDisplayed({ timeout: 30000 });
-    const placeholders = Number((await dd.getText()).trim());
+    const placeholders = Number((await dd.getText()).replace(/\D/g, '')); // shown with a thousands separator
     expect(placeholders).toBeGreaterThan(0);
 
     const out = slash(path.join(work(), 'export.ged'));
@@ -203,7 +203,7 @@ describe('Gene Tree end to end', () => {
       said = await announced();
     }
     // "ancestor 8" is Ahnentafel number 8: generation 3 holds the numbers 8 to 15.
-    const m = /ancestor (\d+), (\d+) of (\d+) in this generation/.exec(said);
+    const m = /ancestor (\d+),(?: [^,]+,)? (\d+) of (\d+) in this generation/.exec(said);
     if (!m || Number(m[1]) < 8 || Number(m[1]) > 15) throw new Error(`live region said: "${said}"`);
     const chartCount = Number(m[3]);
     expect(chartCount).toBeGreaterThan(0);
