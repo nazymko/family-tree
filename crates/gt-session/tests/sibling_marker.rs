@@ -498,7 +498,7 @@ fn marker_refuses_import_draft_over_it() {
 }
 
 #[test]
-fn marker_refuses_edits_names_and_events() {
+fn marker_refuses_edits_and_events() {
     let (_d, mut s) = open_tree(&tree_of(WITH_SISTER));
     let (_, m) = marker_of_hans(&mut s);
     refused(
@@ -509,29 +509,6 @@ fn marker_refuses_edits_names_and_events() {
             sex_text: None,
             living_override: LivingPatch::Keep,
             private: None,
-        },
-    );
-    refused(
-        &mut s,
-        EditCommand::SaveName {
-            person: m,
-            name: NameInput {
-                id: None,
-                kind: NameKindDto::Birth,
-                kind_text: None,
-                preferred: true,
-                private: false,
-                prefix: None,
-                given: Some("Zed".into()),
-                call: None,
-                surname_prefix: None,
-                surnames: vec![],
-                patronymic: None,
-                suffix: None,
-                nickname: None,
-                lang: None,
-                date_raw: None,
-            },
         },
     );
     refused(
@@ -575,4 +552,74 @@ fn family_left_with_only_a_marker_goes_with_its_last_member() {
     assert_eq!(s.tree().families[&fam].children.len(), 2);
     assert_eq!(markers(&s), vec![m]);
     s.verify_derived_state().unwrap();
+}
+
+#[test]
+fn marker_refuses_names() {
+    let (_d, mut s) = open_tree(&tree_of(WITH_SISTER));
+    let (_, m) = marker_of_hans(&mut s);
+    refused(
+        &mut s,
+        EditCommand::SaveName {
+            person: m,
+            name: NameInput {
+                id: None,
+                kind: NameKindDto::Birth,
+                kind_text: None,
+                preferred: true,
+                private: false,
+                prefix: None,
+                given: Some("Zed".into()),
+                call: None,
+                surname_prefix: None,
+                surnames: vec![],
+                patronymic: None,
+                suffix: None,
+                nickname: None,
+                lang: None,
+                date_raw: None,
+            },
+        },
+    );
+}
+
+/// The default-query list never shows a marker, and its total is the real people.
+fn check_list(s: &Session) {
+    let page = s.list_persons(&PersonQuery::default(), 0, 200);
+    let marks = markers(s);
+    assert!(page.items.iter().all(|r| !marks.contains(&r.person.id)));
+    let real = s
+        .tree()
+        .persons
+        .values()
+        .filter(|p| !p.sibling_marker)
+        .count();
+    assert_eq!(page.total as usize, real);
+    assert_eq!(page.items.len(), real);
+}
+
+#[test]
+fn list_stays_clean_through_add_undo_redo_and_deletes() {
+    let (_d, mut s) = open_tree(&tree_of(WITH_SISTER));
+    let hans = find(s.tree(), "Hans");
+    let fam = family_of(&s, hans);
+    // Each step primes the cached marker count with a list call first, then changes the tree.
+    check_list(&s);
+    let m = add_marker(&mut s, fam);
+    check_list(&s);
+    s.undo().unwrap().unwrap();
+    check_list(&s);
+    s.redo().unwrap().unwrap();
+    check_list(&s);
+    s.apply(EditCommand::DeletePerson { id: m }).unwrap();
+    check_list(&s);
+    s.undo().unwrap().unwrap();
+    check_list(&s);
+    assert_eq!(markers(&s), vec![m]);
+    s.apply(EditCommand::DeleteFamily { id: fam }).unwrap();
+    check_list(&s);
+    assert!(markers(&s).is_empty());
+    s.undo().unwrap().unwrap();
+    check_list(&s);
+    assert_eq!(markers(&s), vec![m]);
 }
