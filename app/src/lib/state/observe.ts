@@ -1,4 +1,4 @@
-import type { Api, EditResult, UndoReport } from '../api/api';
+import type { Api, EditResult, ErrorCode, UndoReport } from '../api/api';
 import { project } from './project.svelte';
 import { toasts } from './toast.svelte';
 import { undoIfMine } from './ownUndo';
@@ -12,6 +12,9 @@ export function toastText(label: string): string {
   return editDoneText(label);
 }
 
+/** Errors the backend sends when it turned a change down before writing anything. */
+const LOST_NOTHING: ReadonlySet<string> = new Set<ErrorCode>(['not_found', 'invalid', 'conflict', 'no_project', 'stale']);
+
 /**
  * Wraps an Api so every change anywhere in the app updates the "Saved" indicator, bumps `project.rev`
  * (views reload) and keeps the undo buttons current. It is the single default toaster: `apply(cmd, { silent: true })`
@@ -22,6 +25,7 @@ export function observeApi(inner: Api): Api {
   let seq = 0;
 
   async function tracked<T>(work: () => Promise<T>): Promise<T> {
+    const before = project.save === 'saving' ? 'saved' : project.save;
     project.save = 'saving';
     try {
       const r = await work();
@@ -29,7 +33,8 @@ export function observeApi(inner: Api): Api {
       project.rev++;
       return r;
     } catch (e) {
-      project.save = 'failed';
+      // A refusal left the tree as it was, so it says nothing about what is saved.
+      project.save = LOST_NOTHING.has((e as { code?: string } | null)?.code ?? '') ? before : 'failed';
       throw e;
     }
   }
@@ -58,8 +63,6 @@ export function observeApi(inner: Api): Api {
    * Resolves rather than rejects because the callers are key presses and toast buttons, with nobody to catch it.
    */
   async function refused(e: unknown): Promise<null> {
-    // A conflict left the tree as it was, so nothing failed to save.
-    if ((e as { code?: string } | null)?.code === 'conflict') project.save = 'saved';
     supersede();
     toasts.push({ text: errMessage(e), kind: 'error' });
     await undoState.refresh(inner).catch(() => {});
@@ -68,10 +71,14 @@ export function observeApi(inner: Api): Api {
 
   /** Undo from the change log is off the Ctrl+Z stacks, but it can leave a step there unavailable. */
   async function logUndo(work: () => Promise<UndoReport>): Promise<UndoReport> {
-    const r = await tracked(work);
-    supersede();
-    await undoState.refresh(inner);
-    return r;
+    try {
+      const r = await tracked(work);
+      supersede();
+      return r;
+    } finally {
+      // Either way the backend may have dropped a step. A failed read must not replace the answer the caller is waiting for.
+      await undoState.refresh(inner).catch(() => {});
+    }
   }
 
   const wrapped: Partial<Api> = {

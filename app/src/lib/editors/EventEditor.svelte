@@ -245,8 +245,8 @@
 
   {#if citations}{@render citations(event)}{/if}
 
-  {#snippet extra()}
-    {#if event}<Button variant="danger" onclick={remove}>{t('editor.deleteEvent')}</Button>{/if}
+  {#snippet extra(stale: boolean)}
+    {#if event}<Button variant="danger" disabled={stale} onclick={remove}>{t('editor.deleteEvent')}</Button>{/if}
   {/snippet}
 </EditorDialog>
 

@@ -1,0 +1,53 @@
+3 APR 1901	3 Apr 1901	3 квіт 1901
+APR 1901	Apr 1901	квіт 1901
+1901	1901	1901
+1 MAR 1701/02	1 Mar 1701/02	1 бер 1701/02
+ABT 3 APR 1901	about 3 Apr 1901	близько 3 квіт 1901
+CAL 1901	calculated 1901	обчислено 1901
+EST 1901	estimated 1901	орієнтовно 1901
+BEF 1901	before 1901	до 1901
+AFT 1901	after 1901	після 1901
+BET 1 APR 1901 AND 2 MAY 1902	between 1 Apr 1901 and 2 May 1902	між 1 квіт 1901 і 2 трав 1902
+FROM 1901	from 1901	від 1901
+TO 1901	to 1901	до 1901
+FROM 1901 TO 1902	from 1901 to 1902	від 1901 до 1902
+@#DJULIAN@ 3 APR 1901	3 Apr 1901 (Julian)	3 квіт 1901 (за юліанським календарем)
+ABT @#DJULIAN@ 3 APR 1901	about 3 Apr 1901 (Julian)	близько 3 квіт 1901 (за юліанським календарем)
+BET @#DJULIAN@ 1 JAN 1700 AND @#DJULIAN@ 2 FEB 1701	between 1 Jan 1700 (Julian) and 2 Feb 1701 (Julian)	між 1 січ 1700 (за юліанським календарем) і 2 лют 1701 (за юліанським календарем)
+FROM @#DJULIAN@ 1700 TO @#DJULIAN@ 1701	from 1700 (Julian) to 1701 (Julian)	від 1700 (за юліанським календарем) до 1701 (за юліанським календарем)
+BET @#DJULIAN@ 1700 AND 1701	between 1700 (Julian) and 1701	між 1700 (за юліанським календарем) і 1701
+44 B.C.	44 BCE	44 до н. е.
+ABT 15 MAR 44 B.C.	about 15 Mar 44 BCE	близько 15 бер 44 до н. е.
+@#DHEBREW@ 1 TSH 5661	1 Tishrei 5661 (Hebrew)	1 тішрей 5661 (за єврейським календарем)
+@#DHEBREW@ CSH 5661	Cheshvan 5661 (Hebrew)	хешван 5661 (за єврейським календарем)
+@#DHEBREW@ KSL 5661	Kislev 5661 (Hebrew)	кіслев 5661 (за єврейським календарем)
+@#DHEBREW@ TVT 5661	Tevet 5661 (Hebrew)	тевет 5661 (за єврейським календарем)
+@#DHEBREW@ SHV 5661	Shevat 5661 (Hebrew)	шват 5661 (за єврейським календарем)
+@#DHEBREW@ ADR 5661	Adar 5661 (Hebrew)	адар 5661 (за єврейським календарем)
+@#DHEBREW@ ADR 5660	Adar I 5660 (Hebrew)	адар І 5660 (за єврейським календарем)
+@#DHEBREW@ ADS 5660	Adar II 5660 (Hebrew)	адар ІІ 5660 (за єврейським календарем)
+@#DHEBREW@ NSN 5661	Nisan 5661 (Hebrew)	нісан 5661 (за єврейським календарем)
+@#DHEBREW@ IYR 5661	Iyar 5661 (Hebrew)	іяр 5661 (за єврейським календарем)
+@#DHEBREW@ SVN 5661	Sivan 5661 (Hebrew)	сіван 5661 (за єврейським календарем)
+@#DHEBREW@ TMZ 5661	Tamuz 5661 (Hebrew)	таммуз 5661 (за єврейським календарем)
+@#DHEBREW@ AAV 5661	Av 5661 (Hebrew)	ав 5661 (за єврейським календарем)
+@#DHEBREW@ ELL 5661	Elul 5661 (Hebrew)	елул 5661 (за єврейським календарем)
+@#DFRENCH R@ 1 VEND 9	1 Vendemiaire 9 (French Republican)	1 вандем'єр 9 (за французьким республіканським календарем)
+@#DFRENCH R@ BRUM 9	Brumaire 9 (French Republican)	брюмер 9 (за французьким республіканським календарем)
+@#DFRENCH R@ FRIM 9	Frimaire 9 (French Republican)	фрімер 9 (за французьким республіканським календарем)
+@#DFRENCH R@ NIVO 9	Nivose 9 (French Republican)	нівоз 9 (за французьким республіканським календарем)
+@#DFRENCH R@ PLUV 9	Pluviose 9 (French Republican)	плювіоз 9 (за французьким республіканським календарем)
+@#DFRENCH R@ VENT 9	Ventose 9 (French Republican)	вантоз 9 (за французьким республіканським календарем)
+@#DFRENCH R@ GERM 9	Germinal 9 (French Republican)	жерміналь 9 (за французьким республіканським календарем)
+@#DFRENCH R@ FLOR 9	Floreal 9 (French Republican)	флореаль 9 (за французьким республіканським календарем)
+@#DFRENCH R@ PRAI 9	Prairial 9 (French Republican)	преріаль 9 (за французьким республіканським календарем)
+@#DFRENCH R@ MESS 9	Messidor 9 (French Republican)	месидор 9 (за французьким республіканським календарем)
+@#DFRENCH R@ THER 9	Thermidor 9 (French Republican)	термідор 9 (за французьким республіканським календарем)
+@#DFRENCH R@ FRUC 9	Fructidor 9 (French Republican)	фрюктидор 9 (за французьким республіканським календарем)
+@#DFRENCH R@ COMP 9	Sansculottides 9 (French Republican)	санкюлотиди 9 (за французьким республіканським календарем)
+BET @#DHEBREW@ 1 TSH 5661 AND @#DHEBREW@ 2 NSN 5661	between 1 Tishrei 5661 (Hebrew) and 2 Nisan 5661 (Hebrew)	між 1 тішрей 5661 (за єврейським календарем) і 2 нісан 5661 (за єврейським календарем)
+INT 1900 (about then)	1900 (about then)	1900 (about then)
+INT 3 APR 1901 (from the family Bible)	3 Apr 1901 (from the family Bible)	3 квіт 1901 (from the family Bible)
+INT @#DJULIAN@ 1900 (from a (torn) page)	1900 (Julian) (from a (torn) page)	1900 (за юліанським календарем) (from a (torn) page)
+(the year of the great flood)	the year of the great flood	the year of the great flood
+some time in spring	some time in spring	some time in spring

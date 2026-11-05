@@ -1,5 +1,6 @@
 import type {
   BatchDto,
+  LogAgentDto,
   LogFilterDto,
   LogRowDto,
   ReviewScopeDto,
@@ -124,6 +125,8 @@ export interface Api {
   /** Who changed what, newest first. The owner's changes never count as "not yet reviewed". */
   changeLog(filter: LogFilterDto, offset: number, limit: number): Promise<Page<LogRowDto>>;
   changeBatches(): Promise<BatchDto[]>;
+  /** Every agent in the log, sorted by name, including ones whose connection is gone. */
+  changeLogAgents(): Promise<LogAgentDto[]>;
   markReviewed(scope: ReviewScopeDto): Promise<void>;
   /** People an agent changed that nobody has reviewed yet; these carry the badge. */
   unreviewedPeople(): Promise<Id[]>;

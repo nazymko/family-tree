@@ -4,6 +4,7 @@ import type { Api } from '../api';
 import type { AgentAccessState, NewConnectionDto } from '../types';
 import type {
   BatchDto,
+  LogAgentDto,
   LogFilterDto,
   LogRowDto,
   ReviewScopeDto,
@@ -231,6 +232,9 @@ export class TauriApi implements Api {
   }
   changeBatches(): Promise<BatchDto[]> {
     return call('change_batches');
+  }
+  changeLogAgents(): Promise<LogAgentDto[]> {
+    return call('change_log_agents');
   }
   markReviewed(scope: ReviewScopeDto): Promise<void> {
     return call('mark_reviewed', { scope });

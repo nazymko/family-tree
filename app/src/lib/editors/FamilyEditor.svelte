@@ -395,8 +395,8 @@
     </section>
   {/if}
 
-  {#snippet extra()}
-    {#if editing}<Button variant="danger" onclick={() => (sub = { kind: 'delete' })}>{t('edit.deleteFamily')}</Button>{/if}
+  {#snippet extra(stale: boolean)}
+    {#if editing}<Button variant="danger" disabled={stale} onclick={() => (sub = { kind: 'delete' })}>{t('edit.deleteFamily')}</Button>{/if}
   {/snippet}
 </EditorDialog>
 

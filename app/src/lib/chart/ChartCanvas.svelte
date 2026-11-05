@@ -572,7 +572,7 @@
   }
 
   function announce(): void {
-    announcement = selNode ? `${nodeLabel(selNode)}${counts()}` : '';
+    announcement = selNode ? `${agentChanges.spoken(nodeLabel(selNode), selNode.person?.id)}${counts()}` : '';
   }
 
   function select(n: ChartNode): void {
@@ -939,7 +939,7 @@
     ></canvas>
     <div class="sr-only" role="listbox" aria-label={t('chartCanvas.selectedPerson')}>
       {#if selNode}
-        <div id="{uid}-sel" role="option" aria-selected="true">{nodeLabel(selNode)}</div>
+        <div id="{uid}-sel" role="option" aria-selected="true">{agentChanges.spoken(nodeLabel(selNode), selNode.person?.id)}</div>
       {/if}
     </div>
     {#if hint}

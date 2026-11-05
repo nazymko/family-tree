@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import type { MockApi } from '../api/mock/MockApi';
 import type { ChartWindow } from '../api/types';
+import { agentChanges } from '../state/agentChanges.svelte';
 import WholeCanvas from './WholeCanvas.svelte';
 import Host from './testing/Host.svelte';
 import { attachContext, fakeRaf, lastCamera, makeApi } from './testing/helpers';
@@ -53,6 +54,24 @@ describe('WholeCanvas', () => {
     expect(s.openSpy).toHaveBeenCalledTimes(1);
     const texts = s.ctx.calls.filter((c) => c.op === 'fillText').map((c) => String(c.args[0]));
     expect(texts.some((t) => /family \(\d+ people\)|Unconnected people \(\d+\)/.test(t))).toBe(true);
+  });
+
+  it('selection_says_when_an_agent_changed_the_person', async () => {
+    const s = await setup();
+    const target = s.fx.persons[7];
+    const ref = (await s.api.getPerson(target.id)).ref;
+    agentChanges.unreviewed = new Set([target.id]);
+    try {
+      const box = screen.getByRole('combobox', { name: 'Find a person…' });
+      await fireEvent.input(box, { target: { value: ref.name } });
+      const option = await screen.findByRole('option', { name: new RegExp(ref.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }, { timeout: 2000 });
+      await fireEvent.click(option);
+      await settle(s);
+      await waitFor(() => expect(screen.getByRole('listbox', { name: 'Selected person' })).toHaveTextContent('Changed by an agent'));
+      await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Changed by an agent'));
+    } finally {
+      agentChanges.reset();
+    }
   });
 
   it('search_moves_the_camera_to_the_person_and_selects_it', async () => {

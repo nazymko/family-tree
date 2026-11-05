@@ -498,7 +498,7 @@
 
   function announceOnce(): void {
     pendingAnnounce = false;
-    announcement = selNode && selNode.label ? nodeLabel(selNode) : '';
+    announcement = selNode && selNode.label ? agentChanges.spoken(nodeLabel(selNode), selNode.person?.id) : '';
   }
 
   /** Far out the window carries only the surname; ask for the real name and dates of the one selected card. */
@@ -897,7 +897,7 @@
     ></canvas>
     <div class="sr-only" role="listbox" aria-label={t('chartCanvas.selectedPerson')}>
       {#if selNode}
-        <div id="{uid}-sel" role="option" aria-selected="true">{selNode.label ? nodeLabel(selNode) : selNode.person?.name}</div>
+        <div id="{uid}-sel" role="option" aria-selected="true">{agentChanges.spoken(selNode.label ? nodeLabel(selNode) : (selNode.person?.name ?? ''), selNode.person?.id)}</div>
       {/if}
     </div>
     {#if hint}

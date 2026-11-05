@@ -82,13 +82,12 @@ describe('ChangeLog', () => {
   });
 
   it('before_tracking_label', async () => {
-    const { raw, people, user } = await logScreen();
+    const { raw, people } = await logScreen();
     raw.recordBeforeTracking('Edit person', people[0].id);
     project.rev++;
     expect(await screen.findByText('Before tracking')).toBeInTheDocument();
     expect(rowsOnScreen()).toHaveLength(1);
     expect(within(rowsOnScreen()[0]).queryByRole('button', { name: 'Undo' })).toBeNull();
-    void user;
   });
 
   it('filters_apply', async () => {
@@ -289,6 +288,116 @@ describe('ChangeLog', () => {
     expect(row).toHaveTextContent(`${name} (no longer in the tree)`);
   });
 
+  const manyNotes = (n: number, person: Id) => Array.from({ length: n }, (_, i) => ({ person, note: `Note ${i}` }));
+
+  it('author_filter_names_an_agent_whose_rows_are_not_loaded', async () => {
+    const { raw, api, platform, people } = await world();
+    platform.simulateAgentBatch(raw, { agent: 'Old reader', changes: [{ person: people[0].id, note: 'Long ago' }] });
+    platform.simulateAgentBatch(raw, { agent: 'New reader', changes: manyNotes(60, people[1].id) });
+    render(ChangeLog, { context: apiContext(api, platform) });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(50));
+    expect(rowsOnScreen().some((r) => r.textContent?.includes('Old reader'))).toBe(false);
+    const box = screen.getByRole('combobox', { name: 'Author' });
+    await waitFor(() => expect(within(box).getByRole('option', { name: 'Old reader' })).toBeInTheDocument());
+    expect(within(box).getByRole('option', { name: 'New reader' })).toBeInTheDocument();
+  });
+
+  it('a_live_refresh_during_show_more_keeps_the_longer_list', async () => {
+    const { raw, platform, people, user } = await logScreen();
+    platform.simulateAgentBatch(raw, { changes: manyNotes(120, people[0].id) });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(50));
+    // The agent writes again while "Show more" is still fetching its first page.
+    const real = raw.changeLog.bind(raw);
+    let release: () => void = () => {};
+    const held = new Promise<void>((res) => (release = res));
+    vi.spyOn(raw, 'changeLog').mockImplementationOnce(async (f, offset, limit) => {
+      await held;
+      return real(f, offset, limit);
+    });
+    await user.click(screen.getByRole('button', { name: 'Show more' }));
+    project.rev++;
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(100));
+    release();
+  });
+
+  it('a_refresh_after_show_more_keeps_the_longer_list', async () => {
+    const { raw, platform, people, user } = await logScreen();
+    platform.simulateAgentBatch(raw, { changes: manyNotes(120, people[0].id) });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(50));
+    await user.click(screen.getByRole('button', { name: 'Show more' }));
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(100));
+    project.rev++;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(rowsOnScreen()).toHaveLength(100);
+  });
+
+  it('a_new_filter_starts_from_one_page_again', async () => {
+    const { raw, platform, people, user } = await logScreen();
+    platform.simulateAgentBatch(raw, { changes: manyNotes(120, people[0].id) });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(50));
+    await user.click(screen.getByRole('button', { name: 'Show more' }));
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(100));
+    await user.click(screen.getByRole('checkbox', { name: 'Not yet reviewed' }));
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(50));
+  });
+
+  it('a_write_between_pages_does_not_show_a_row_twice', async () => {
+    const { raw, platform, people, user } = await logScreen();
+    platform.simulateAgentBatch(raw, { changes: manyNotes(120, people[0].id) });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(50));
+    // A write landed after the first page: everything slid down by one, so page two repeats a row.
+    const real = raw.changeLog.bind(raw);
+    vi.spyOn(raw, 'changeLog').mockImplementation((f, offset, limit) => real(f, offset === 50 ? 49 : offset, limit));
+    await user.click(screen.getByRole('button', { name: 'Show more' }));
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(100));
+    const texts = rowsOnScreen().map((r) => /Note \d+/.exec(r.textContent ?? '')?.[0]);
+    expect(new Set(texts).size).toBe(100);
+  });
+
+  it('closing_the_dialog_while_the_undo_runs_keeps_the_report', async () => {
+    const { raw, platform, people, user } = await logScreen();
+    platform.simulateAgentBatch(raw, { changes: [{ person: people[0].id, note: 'Goes away' }] });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(1));
+    let finish: (r: { undone: number; skipped: never[] }) => void = () => {};
+    vi.spyOn(raw, 'undoChangeGroup').mockImplementation(() => new Promise((res) => (finish = res)));
+    await user.click(within(rowsOnScreen()[0]).getByRole('button', { name: 'Undo' }));
+    const ask = await screen.findByRole('dialog');
+    await user.click(within(ask).getByRole('button', { name: 'Undo' }));
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog', { name: 'Undo this change?' })).toBeInTheDocument();
+    expect(within(ask).getByRole('button', { name: 'Keep' })).toBeDisabled();
+    finish({ undone: 1, skipped: [] });
+    const done = await screen.findByRole('dialog', { name: 'Undo finished' });
+    expect(within(done).getByText('1 change undone')).toBeInTheDocument();
+  });
+
+  it('undo_batch_goes_disabled_once_all_of_it_is_undone', async () => {
+    const { raw, platform, people, user } = await logScreen();
+    platform.simulateAgentBatch(raw, {
+      title: 'Recording 2',
+      changes: [
+        { person: people[0].id, note: 'One' },
+        { person: people[1].id, note: 'Two' },
+      ],
+    });
+    const heading = await screen.findByRole('region', { name: 'Recording 2' });
+    const button = () => within(screen.getByRole('region', { name: 'Recording 2' })).getByRole('button', { name: 'Undo batch' });
+    expect(within(heading).getByRole('button', { name: 'Undo batch' })).toBeEnabled();
+
+    // One change back: the rest of the batch can still go.
+    const row = within(heading).getAllByRole('listitem')[0];
+    await user.click(within(row).getByRole('button', { name: 'Undo' }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'Undo this change?' })).getByRole('button', { name: 'Undo' }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'Undo finished' })).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(button()).toBeEnabled();
+
+    await user.click(button());
+    await user.click(within(await screen.findByRole('dialog', { name: 'Undo this batch?' })).getByRole('button', { name: 'Undo' }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'Undo finished' })).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(button()).toBeDisabled());
+  });
+
   it('agent_changes_stay_off_the_ctrl_z_stack', async () => {
     const { raw, platform, people } = await world();
     platform.simulateAgentBatch(raw, { changes: [{ person: people[0].id, note: 'Not mine' }] });
@@ -413,6 +522,9 @@ describe('an editor open on a changed person', () => {
     expect(spy).not.toHaveBeenCalled();
 
     await user.click(reload);
+    // What was typed stays until the owner agrees to lose it.
+    expect(within(screen.getByRole('dialog')).getByRole('textbox', { name: 'Given name' })).toHaveValue('Typed');
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Discard changes' }));
     await waitFor(() => expect(screen.queryByText('An agent changed this person. Reload to continue.')).toBeNull());
     expect(save()).toBeEnabled();
     // The dialog came back with what the tree says now, and focus inside it.
@@ -436,7 +548,7 @@ describe('an editor open on a changed person', () => {
 });
 
 describe('an editor no page can reopen', () => {
-  it('reload_closes_it', async () => {
+  it('reload_closes_it_when_nothing_was_typed', async () => {
     const { raw, platform, people, user } = await world();
     stop?.();
     const onCancel = vi.fn();
@@ -444,6 +556,34 @@ describe('an editor no page can reopen', () => {
     stop = agentChanges.start(raw, platform);
     platform.simulateAgentBatch(raw, { changes: [{ person: people[0].id, note: 'Underneath you' }] });
     await user.click(await screen.findByRole('button', { name: 'Reload' }));
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it('reload_asks_before_it_drops_typed_text', async () => {
+    const { raw, platform, people, user } = await world();
+    stop?.();
+    const onCancel = vi.fn();
+    renderWithApi(raw, NameEditor, { person: people[0].id, onCancel, onSaved: () => {} });
+    stop = agentChanges.start(raw, platform);
+    const given = await screen.findByRole('textbox', { name: 'Given name' });
+    await user.type(given, 'Typed');
+    platform.simulateAgentBatch(raw, { changes: [{ person: people[0].id, note: 'Underneath you' }] });
+    await user.click(await screen.findByRole('button', { name: 'Reload' }));
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByText('Discard changes?')).toBeInTheDocument();
+    expect(given).toHaveValue('Typed');
+
+    // No: everything stays, including the way back to Reload.
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(given).toHaveValue('Typed');
+    const again = screen.getByRole('button', { name: 'Reload' });
+    await waitFor(() => expect(document.activeElement).toBe(again));
+
+    // Yes.
+    await user.click(again);
+    expect(onCancel).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
     expect(onCancel).toHaveBeenCalledOnce();
   });
 });

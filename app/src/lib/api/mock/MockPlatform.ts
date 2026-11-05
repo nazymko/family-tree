@@ -45,8 +45,13 @@ export class MockPlatform implements Platform {
   /** An agent's write as the open window sees it: the change lands in `api`, then the event fires. */
   simulateAgentBatch(api: MockApi, spec: AgentBatchSpec): AgentBatchResult {
     const r = api.recordAgentBatch(spec);
-    for (const cb of this.agentCallbacks) cb({ touched: r.touched, agent: r.agent });
+    this.simulateAgentEvent(r.touched, r.agent);
     return r;
+  }
+
+  /** Only the event, for a test that made the change itself. */
+  simulateAgentEvent(touched: string[], agent = 'Claude'): void {
+    for (const cb of this.agentCallbacks) cb({ touched, agent });
   }
 
   async reveal(path: string): Promise<void> {

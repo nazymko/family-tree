@@ -3,6 +3,7 @@ import type { AgentAccessState, NewConnectionDto } from '../types';
 import type {
   ActorDto,
   BatchDto,
+  LogAgentDto,
   BatchRef,
   LogChangeDto,
   LogFactDto,
@@ -199,7 +200,7 @@ export class MockApi implements Api {
   private lastCit: CitationDto | null = null;
   private log: HistoryRecord[] = [];
   private logRows: AgentLogEntry[] = [];
-  private logBatches = new Map<string, Omit<BatchDto, 'groups' | 'people' | 'unreviewed'>>();
+  private logBatches = new Map<string, Omit<BatchDto, 'groups' | 'people' | 'unreviewed' | 'standing'>>();
   private agentIds = new Map<string, string>();
   private charts = new Map<number, ChartState>();
   private nextChart = 1;
@@ -525,8 +526,15 @@ export class MockApi implements Api {
         groups: rows.length,
         people: new Set(rows.flatMap((e) => e.people.map((p) => p.id))).size,
         unreviewed: new Set(left.filter((p) => p.reviewed === null).map((p) => p.id)).size,
+        standing: rows.filter((e) => this.standing(e)).length,
       };
     });
+  }
+
+  async changeLogAgents(): Promise<LogAgentDto[]> {
+    const seen = new Map<string, string>();
+    for (const e of this.logRows) if (e.actor.kind === 'agent') seen.set(e.actor.id, e.actor.name);
+    return [...seen].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async markReviewed(scope: ReviewScopeDto): Promise<void> {

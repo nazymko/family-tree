@@ -100,6 +100,58 @@ describe('observeApi', () => {
     expect(project.save).toBe('failed');
   });
 
+  it.each(['invalid', 'conflict', 'not_found', 'stale', 'no_project'])('a_%s_rejection_lost_nothing_so_it_is_not_not_saved', async (code) => {
+    const { api, raw } = make();
+    project.save = 'saved';
+    vi.spyOn(raw, 'apply').mockRejectedValue({ code, message: 'No.' });
+    await expect(api.apply(draft('A'))).rejects.toMatchObject({ code });
+    expect(project.save).toBe('saved');
+  });
+
+  it.each(['io', 'internal'])('an_%s_failure_is_not_saved', async (code) => {
+    const { api, raw } = make();
+    vi.spyOn(raw, 'apply').mockRejectedValue({ code, message: 'No.' });
+    await expect(api.apply(draft('A'))).rejects.toMatchObject({ code });
+    expect(project.save).toBe('failed');
+  });
+
+  it('a_refusal_does_not_hide_an_earlier_real_failure', async () => {
+    const { api, raw } = make();
+    project.save = 'failed';
+    vi.spyOn(raw, 'apply').mockRejectedValue({ code: 'invalid', message: 'No.' });
+    await expect(api.apply(draft('A'))).rejects.toMatchObject({ code: 'invalid' });
+    expect(project.save).toBe('failed');
+  });
+
+  it('a_failed_undo_from_the_log_still_refreshes_the_buttons', async () => {
+    const { api, raw } = make();
+    await api.apply(draft('A'), { silent: true });
+    expect(undoState.canUndo).toBe(true);
+    vi.spyOn(raw, 'undoChangeGroup').mockRejectedValue({ code: 'conflict', message: 'No.' });
+    vi.spyOn(raw, 'undoChangeBatch').mockRejectedValue({ code: 'conflict', message: 'No.' });
+    vi.spyOn(raw, 'undoState').mockResolvedValue({ canUndo: false, canRedo: false, undoLabel: null, redoLabel: null });
+    await expect(api.undoChangeGroup('g')).rejects.toMatchObject({ code: 'conflict' });
+    expect(undoState.canUndo).toBe(false);
+    undoState.canUndo = true;
+    await expect(api.undoChangeBatch('b')).rejects.toMatchObject({ code: 'conflict' });
+    expect(undoState.canUndo).toBe(false);
+    expect(project.save).toBe('saved');
+  });
+
+  it('a_failed_refresh_does_not_lose_the_report_of_a_finished_undo', async () => {
+    const { api, raw } = make();
+    vi.spyOn(raw, 'undoChangeGroup').mockResolvedValue({ undone: 1, skipped: [] });
+    vi.spyOn(raw, 'undoState').mockRejectedValue({ code: 'internal', message: 'x' });
+    await expect(api.undoChangeGroup('g')).resolves.toEqual({ undone: 1, skipped: [] });
+  });
+
+  it('a_failed_refresh_does_not_replace_the_error_of_a_failed_undo', async () => {
+    const { api, raw } = make();
+    vi.spyOn(raw, 'undoChangeGroup').mockRejectedValue({ code: 'conflict', message: 'The real reason.' });
+    vi.spyOn(raw, 'undoState').mockRejectedValue({ code: 'internal', message: 'x' });
+    await expect(api.undoChangeGroup('g')).rejects.toMatchObject({ message: 'The real reason.' });
+  });
+
   it('refused_undo_survives_a_failing_refresh', async () => {
     const { api, raw } = make();
     vi.spyOn(raw, 'undo').mockRejectedValue(REFUSED);

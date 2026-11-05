@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import type { ChartKind, ChartNode } from '../api/types';
 import { MockApi } from '../api/mock/MockApi';
+import { agentChanges } from '../state/agentChanges.svelte';
 import ChartCanvas from './ChartCanvas.svelte';
 import Host from './testing/Host.svelte';
 import { BIG, allNodes, attachContext, fakeRaf, lastCamera, makeApi, richestRoot } from './testing/helpers';
@@ -159,6 +160,23 @@ describe('ChartCanvas', () => {
     await fireEvent.keyDown(s.canvas, { key: 'ArrowRight' });
     const text = screen.getByRole('status').textContent ?? '';
     expect(text).toBe(`${selectedLabel()}, 1 of 2 in this generation`);
+  });
+
+  it('selection_says_when_an_agent_changed_the_person', async () => {
+    const s = await setup();
+    const plain = selectedLabel();
+    expect(plain).not.toContain('Changed by an agent');
+    const nodes = await nodesOf(s);
+    agentChanges.unreviewed = new Set(nodes.flatMap((n) => (n.person ? [n.person.id] : [])));
+    try {
+      await waitFor(() => expect(selectedLabel()).toBe(`${plain}, Changed by an agent`));
+      await fireEvent.keyDown(s.canvas, { key: 'ArrowRight' });
+      const text = screen.getByRole('status').textContent ?? '';
+      expect(text).toContain('Changed by an agent');
+      expect(text).toMatch(/1 of 2 in this generation$/);
+    } finally {
+      agentChanges.reset();
+    }
   });
 
   it('activedescendant_label_matches', async () => {

@@ -7,10 +7,11 @@ use gt_session::{
     ApiError, AttachResult, BatchDto, ChartLocation, ChartMeta, ChartRequest, ChartWindow,
     CitationDto, DatePreview, DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion,
     ExportOptions, FamilyDto, FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto,
-    ImportRequest, LocationKind, LocationWarningDto, LogFilterDto, LogRowDto, OutlineItem,
-    OwnerRef, Page, PersonDetail, PersonQuery, PersonRow, PlaceOption, PrivacyPreview, ProjectInfo,
-    RecentProject, Rect, RelinkResult, ReviewScopeDto, SearchHitDto, Session, Settings,
-    SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport, UndoState, WholeMeta,
+    ImportRequest, LocationKind, LocationWarningDto, LogAgentDto, LogFilterDto, LogRowDto,
+    OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery, PersonRow, PlaceOption, PrivacyPreview,
+    ProjectInfo, RecentProject, Rect, RelinkResult, ReviewScopeDto, SearchHitDto, Session,
+    Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport, UndoState,
+    WholeMeta,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -60,6 +61,7 @@ command_list!(
     undo_state,
     change_log,
     change_batches,
+    change_log_agents,
     mark_reviewed,
     unreviewed_people,
     person_agent_changes,
@@ -409,6 +411,11 @@ pub fn change_log(
 #[tauri::command(async)]
 pub fn change_batches(state: State<'_, AppState>) -> ApiResult<Vec<BatchDto>> {
     state.with_session(|s| s.batches())
+}
+
+#[tauri::command(async)]
+pub fn change_log_agents(state: State<'_, AppState>) -> ApiResult<Vec<LogAgentDto>> {
+    state.with_session(|s| s.log_agents())
 }
 
 #[tauri::command(async)]

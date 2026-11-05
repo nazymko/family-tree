@@ -113,6 +113,16 @@ pub struct BatchDto {
     pub groups: u32,
     pub people: u32,
     pub unreviewed: u32,
+    /// Changes of this batch that have not been undone.
+    pub standing: u32,
+}
+
+/// An agent that has written to the log.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LogAgentDto {
+    pub id: Uuid,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -493,9 +503,20 @@ impl Session {
                     groups,
                     people,
                     unreviewed,
+                    standing: self.project.batch_standing(b.id)?,
                 })
             })
             .collect()
+    }
+
+    /// Every agent in the log, sorted by name.
+    pub fn log_agents(&self) -> Result<Vec<LogAgentDto>, ApiError> {
+        Ok(self
+            .project
+            .log_agents()?
+            .into_iter()
+            .map(|(id, name)| LogAgentDto { id, name })
+            .collect())
     }
 
     pub fn mark_reviewed(&mut self, scope: ReviewScopeDto) -> Result<(), ApiError> {

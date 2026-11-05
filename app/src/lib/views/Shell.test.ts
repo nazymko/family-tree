@@ -64,9 +64,10 @@ describe('Shell', () => {
     const { raw, platform } = await mountShell();
     const person = (await raw.listPersons({ sort: 'surname', desc: false, text: '', living: 'any', noSource: false, noBirthDate: false, privateOnly: false }, 0, 1)).items[0];
     const rev = project.rev;
-    await vi.waitFor(() => expect(raw.unreviewedPeople).toBeDefined());
+    const badges = vi.spyOn(raw, 'unreviewedPeople');
     platform.simulateAgentBatch(raw, { changes: [{ person: person.id, note: 'Live' }] });
     expect(project.rev).toBe(rev + 1);
+    expect(badges).toHaveBeenCalledOnce();
     await waitFor(() => expect(agentChanges.unreviewed.has(person.id)).toBe(true));
   });
 

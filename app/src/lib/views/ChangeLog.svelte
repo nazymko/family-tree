@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import type { BatchDto, Id, LogFilterDto, LogPersonDto, LogRowDto, UndoReport } from '../api/types';
+  import type { BatchDto, Id, LogAgentDto, LogFilterDto, LogPersonDto, LogRowDto, UndoReport } from '../api/types';
   import { getApi } from '../api/context';
   import { errMessage } from '../editors/errors';
   import { agentChanges } from '../state/agentChanges.svelte';
@@ -30,8 +30,8 @@
   let author = $state('');
   let batchId = $state('');
   let onlyUnreviewed = $state(false);
-  /** Every agent seen so far, so the filter keeps its options while it narrows the rows. */
-  let agents = $state<Record<string, string>>({});
+  /** From the log itself, so the filter keeps its options while it narrows the rows, and names agents long gone. */
+  let agents = $state<LogAgentDto[]>([]);
 
   const filter = $derived<LogFilterDto>({
     unreviewedOnly: onlyUnreviewed,
@@ -45,32 +45,40 @@
     { value: '', label: t('changeLog.anyAuthor') },
     { value: 'user', label: t('changeLog.you') },
     { value: 'agent', label: t('changeLog.anyAgent'), group: t('changeLog.agents') },
-    ...Object.entries(agents).map(([id, name]) => ({ value: `agent:${id}`, label: name, group: t('changeLog.agents') })),
+    ...agents.map((a) => ({ value: `agent:${a.id}`, label: a.name, group: t('changeLog.agents') })),
   ]);
   const batchOptions = $derived([{ value: '', label: t('changeLog.anyBatch') }, ...batches.map((b) => ({ value: b.id, label: b.title }))]);
 
   let loadSeq = 0;
-  async function load(f: LogFilterDto, want: number) {
+  /** How many rows the owner has asked to see; a live refresh during "Show more" must keep asking for that many. */
+  let want = PAGE;
+  async function load(f: LogFilterDto) {
     const mine = ++loadSeq;
     try {
       const items: LogRowDto[] = [];
+      const have: Record<string, true> = {};
+      let offset = 0;
       let count = 0;
       do {
-        const page = await api.changeLog(f, items.length, Math.min(want - items.length, PAGE));
+        const page = await api.changeLog(f, offset, Math.min(want - items.length, PAGE));
         if (mine !== loadSeq) return;
         count = page.total;
-        items.push(...page.items);
+        offset += page.items.length;
+        // A write between two pages slides the rows down, so the next page can repeat one.
+        for (const r of page.items) {
+          if (!have[r.group]) items.push(r);
+          have[r.group] = true;
+        }
         if (page.items.length === 0) break;
-      } while (items.length < want && items.length < count);
-      const b = await api.changeBatches();
+      } while (items.length < want && offset < count);
+      const [b, a] = await Promise.all([api.changeBatches(), api.changeLogAgents()]);
       if (mine !== loadSeq) return;
       rows = items;
       total = count;
       batches = b;
+      agents = a;
       loaded = true;
       loadError = '';
-      const seen = items.flatMap((r) => (r.actor.kind === 'agent' && agents[r.actor.id] !== r.actor.name ? [r.actor] : []));
-      if (seen.length > 0) agents = { ...agents, ...Object.fromEntries(seen.map((a) => [a.id, a.name])) };
     } catch (e) {
       if (mine === loadSeq) loadError = errMessage(e);
     }
@@ -82,9 +90,9 @@
     const f = filter;
     untrack(() => {
       const key = JSON.stringify(f);
-      const want = key === lastFilter ? Math.max(rows.length, PAGE) : PAGE;
+      if (key !== lastFilter) want = PAGE;
       lastFilter = key;
-      void load(f, want);
+      void load(f);
     });
   });
 
@@ -116,7 +124,8 @@
   }
 
   async function showMore() {
-    await load(filter, rows.length + PAGE);
+    want = rows.length + PAGE;
+    await load(filter);
     await keepFocus();
   }
 
@@ -124,7 +133,7 @@
     try {
       await api.markReviewed(scope);
       await agentChanges.reload();
-      await load(filter, Math.max(rows.length, PAGE));
+      await load(filter);
       await keepFocus();
     } catch (e) {
       toasts.push({ text: errMessage(e), kind: 'error' });
@@ -134,7 +143,7 @@
   type Pending = { kind: 'group'; id: string } | { kind: 'batch'; id: string; title: string };
   let pending = $state<Pending | null>(null);
   let report = $state<UndoReport | null>(null);
-  let busy = false;
+  let busy = $state(false);
   let undoError = $state('');
   let summary = $state<HTMLElement>();
 
@@ -162,6 +171,8 @@
   }
 
   async function closeDialog() {
+    // What the undo did comes back to this dialog; closing now would lose it.
+    if (busy) return;
     pending = null;
     report = null;
     undoError = '';
@@ -262,7 +273,7 @@
                 {#if s.info.unreviewed > 0}
                   <Button onclick={() => review({ kind: 'batch', id: s.info!.id })}>{t('changeLog.markReviewed')}</Button>
                 {/if}
-                <Button onclick={() => ask({ kind: 'batch', id: s.info!.id, title: s.info!.title })}>{t('changeLog.undoBatch')}</Button>
+                <Button disabled={s.info.standing === 0} onclick={() => ask({ kind: 'batch', id: s.info!.id, title: s.info!.title })}>{t('changeLog.undoBatch')}</Button>
               </div>
             {/if}
           </header>
@@ -302,7 +313,7 @@
     {#if report}
       <Button variant="primary" onclick={closeDialog}>{t('changeLog.done')}</Button>
     {:else}
-      <Button onclick={closeDialog}>{t('changeLog.keep')}</Button>
+      <Button disabled={busy} onclick={closeDialog}>{t('changeLog.keep')}</Button>
       <Button variant="danger" onclick={confirmUndo}>{t('changeLog.undo')}</Button>
     {/if}
   {/snippet}

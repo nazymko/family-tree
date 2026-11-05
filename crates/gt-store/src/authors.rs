@@ -384,6 +384,38 @@ impl Project {
         ))
     }
 
+    /// How many of a batch's change groups have not been undone.
+    pub fn batch_standing(&self, id: Uuid) -> Result<u32, StoreError> {
+        let n: i64 = self
+            .conn
+            .prepare_cached(
+                "SELECT COUNT(DISTINCT g.group_id) FROM change_log g WHERE g.batch_id = ?1 \
+                 AND NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = g.group_id)",
+            )?
+            .query_row([id.to_string()], |r| r.get(0))?;
+        Ok(u32::try_from(n).unwrap_or(u32::MAX))
+    }
+
+    /// Every agent in the log, with the name it last wrote under, sorted by name. Log rows
+    /// outlive connections, so this is not the list of connections.
+    pub fn log_agents(&self) -> Result<Vec<(Uuid, String)>, StoreError> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT actor_id, actor_name, MAX(id) FROM change_log \
+             WHERE actor_kind = 'agent' AND actor_id IS NOT NULL \
+             GROUP BY actor_id ORDER BY actor_name COLLATE NOCASE, actor_id",
+        )?;
+        let mut rows = st.query([])?;
+        let mut out = Vec::new();
+        while let Some(r) = rows.next()? {
+            let name: Option<String> = r.get(1)?;
+            out.push((
+                parse_uuid(&r.get::<_, String>(0)?)?,
+                name.unwrap_or_default(),
+            ));
+        }
+        Ok(out)
+    }
+
     /// All batches, newest first.
     pub fn batch_list(&self) -> Result<Vec<Batch>, StoreError> {
         let mut st = self.conn.prepare_cached(&format!(

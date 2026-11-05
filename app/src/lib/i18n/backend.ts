@@ -102,8 +102,8 @@ export function eventKindLabel(kind: string, fallback?: string): string {
 /** Whole messages the undo and change-log commands send; the set is closed, like the edit labels. */
 const ERROR_KEYS: Record<string, MessageKey> = {
   'An agent changed this since. Undo it from the change log first.': 'changeLog.errors.agentChanged',
-  'Something this depends on was removed from the change log, so it cannot be undone. The step has been dropped from the undo list.': 'changeLog.errors.undoDropped',
-  'Something this depends on was removed from the change log, so it cannot be redone. The step has been dropped from the redo list.': 'changeLog.errors.redoDropped',
+  'This step was dropped: a record it needs no longer exists.': 'changeLog.errors.stepDropped',
+  'This step was dropped: a record it needs has changed since, and the change log cannot undo that.': 'changeLog.errors.stepOutdated',
   "Only an agent's change can be undone from the change log.": 'changeLog.errors.onlyAgent',
 };
 
@@ -124,38 +124,57 @@ const DATE_WORDS: Record<string, MessageKey> = {
   to: 'changeLog.date.to',
 };
 
+/** What `display_date` in gt-core's format.rs writes. The longer of two names that start alike comes first. */
+const MONTH_NAMES = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  'Tishrei', 'Cheshvan', 'Kislev', 'Tevet', 'Shevat', 'Adar II', 'Adar I', 'Adar', 'Nisan', 'Iyar', 'Sivan', 'Tamuz', 'Av', 'Elul',
+  'Vendemiaire', 'Brumaire', 'Frimaire', 'Nivose', 'Pluviose', 'Ventose', 'Germinal', 'Floreal', 'Prairial', 'Messidor', 'Thermidor', 'Fructidor', 'Sansculottides',
+];
+const CALENDARS: Record<string, MessageKey> = {
+  Julian: 'changeLog.calendar.julian',
+  Hebrew: 'changeLog.calendar.hebrew',
+  'French Republican': 'changeLog.calendar.french',
+};
+const ONE_DATE = new RegExp(`^(?:(\\d{1,2}) )?(?:(${MONTH_NAMES.join('|')}) )?(\\d{1,4}(?:/\\d{2})?)( BCE)?(?: \\((${Object.keys(CALENDARS).join('|')})\\))?$`);
+
 function simpleDate(s: string): string | null {
-  const m = /^(?:(\d{1,2}) )?(?:(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) )?(\d{1,4}(?:\/\d{2})?)$/.exec(s);
+  const m = ONE_DATE.exec(s);
   if (!m) return null;
-  const month = m[2] ? t(`changeLog.month.${m[2]}` as MessageKey) : '';
-  return [m[1], month, m[3]].filter(Boolean).join(' ');
+  const month = m[2] ? t(`changeLog.month.${m[2].replace(' ', '')}` as MessageKey) : '';
+  return [m[1], month, m[3], m[4] && t('changeLog.bce'), m[5] && t(CALENDARS[m[5]])].filter(Boolean).join(' ');
 }
 
 /**
  * The backend's date text ("about 3 Apr 1901") in the active language. A date it cannot read as that
- * grammar, such as a phrase the owner typed, stays exactly as written.
+ * grammar, such as a phrase the owner typed, stays exactly as written; so does the owner's phrase after a date.
  */
 export function dateText(display: string): string {
-  const phrase = /^(.*\S) (\(.*\))$/.exec(display);
-  if (phrase) {
-    const head = dateText(phrase[1]);
-    return head === phrase[1] && !simpleDate(phrase[1]) ? display : `${head} ${phrase[2]}`;
+  const whole = dateGrammar(display);
+  if (whole !== null) return whole;
+  if (display.endsWith(')')) {
+    for (let i = display.lastIndexOf(' ('); i > 0; i = display.lastIndexOf(' (', i - 1)) {
+      const head = dateGrammar(display.slice(0, i));
+      if (head !== null) return head + display.slice(i);
+    }
   }
+  return display;
+}
+
+function dateGrammar(display: string): string | null {
   const between = /^between (.+) and (.+)$/.exec(display);
   const fromTo = /^from (.+) to (.+)$/.exec(display);
   const pair = between ?? fromTo;
   if (pair) {
     const a = simpleDate(pair[1]);
     const b = simpleDate(pair[2]);
-    if (a && b) return t(between ? 'changeLog.date.between' : 'changeLog.date.fromTo', { a, b });
-    return display;
+    return a && b ? t(between ? 'changeLog.date.between' : 'changeLog.date.fromTo', { a, b }) : null;
   }
   const word = /^(about|calculated|estimated|before|after|from|to) (.+)$/.exec(display);
   if (word) {
     const date = simpleDate(word[2]);
-    return date ? t(DATE_WORDS[word[1]], { date }) : display;
+    return date ? t(DATE_WORDS[word[1]], { date }) : null;
   }
-  return simpleDate(display) ?? display;
+  return simpleDate(display);
 }
 
 /** One fact of the change log. Fixed words are translated; what the owner or an agent wrote stays as written. */

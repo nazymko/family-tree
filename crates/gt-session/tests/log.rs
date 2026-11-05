@@ -605,6 +605,55 @@ fn skipped_fact_is_structured_for_translation() {
 }
 
 #[test]
+fn log_agents_are_every_author_once_with_the_latest_name() {
+    let (_d, mut s, anna) = setup();
+    assert!(s.log_agents().unwrap().is_empty());
+    s.apply(add_note(anna, "Mine")).unwrap();
+    let other = Actor::Agent {
+        id: Uuid::from_u128(8),
+        name: "Archive helper".into(),
+    };
+    s.commit_command_as(add_note(anna, "One"), agent(), None)
+        .unwrap();
+    s.commit_command_as(add_note(anna, "Two"), other, None)
+        .unwrap();
+    let renamed = Actor::Agent {
+        id: Uuid::from_u128(7),
+        name: "Zoe the reader".into(),
+    };
+    s.commit_command_as(add_note(anna, "Three"), renamed, None)
+        .unwrap();
+    let agents = s.log_agents().unwrap();
+    let got: Vec<(Uuid, &str)> = agents.iter().map(|a| (a.id, a.name.as_str())).collect();
+    assert_eq!(
+        got,
+        vec![
+            (Uuid::from_u128(8), "Archive helper"),
+            (Uuid::from_u128(7), "Zoe the reader")
+        ]
+    );
+}
+
+#[test]
+fn a_batch_counts_the_changes_that_still_stand() {
+    let (d, s, anna) = setup();
+    let batch = Uuid::from_u128(44);
+    let mut s = with_batch(&d, s, batch, "Recording 2 summary");
+    let eva = find(s.tree(), "Eva");
+    s.commit_command_as(add_note(anna, "One"), agent(), Some(batch))
+        .unwrap();
+    let first = newest_group(&s);
+    s.commit_command_as(add_note(eva, "Two"), agent(), Some(batch))
+        .unwrap();
+    assert_eq!(s.batches().unwrap()[0].standing, 2);
+    s.undo_group(first).unwrap();
+    let b = s.batches().unwrap();
+    assert_eq!((b[0].groups, b[0].standing), (2, 1));
+    s.undo_batch(batch).unwrap();
+    assert_eq!(s.batches().unwrap()[0].standing, 0);
+}
+
+#[test]
 fn log_filters_reviews_and_batches() {
     let (d, s, anna) = setup();
     let batch = Uuid::from_u128(44);

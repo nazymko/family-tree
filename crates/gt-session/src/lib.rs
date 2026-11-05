@@ -32,8 +32,8 @@ pub use command::{
 pub use dto::*;
 pub use error::{ApiError, ErrorCode};
 pub use log::{
-    ActorDto, BatchDto, BatchRef, LogChangeDto, LogFactDto, LogFilterDto, LogPersonDto, LogRowDto,
-    ReviewScopeDto,
+    ActorDto, BatchDto, BatchRef, LogAgentDto, LogChangeDto, LogFactDto, LogFilterDto,
+    LogPersonDto, LogRowDto, ReviewScopeDto,
 };
 pub use names::{display_name, lifespan};
 pub use session::{Session, SessionClock};

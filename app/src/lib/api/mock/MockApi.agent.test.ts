@@ -106,6 +106,32 @@ describe('MockApi agent writes', () => {
     expect((await api.changeLog({ unreviewedOnly: false }, 0, 10)).total).toBe(2);
   });
 
+  it('change_log_agents_are_every_author_once_with_the_latest_name', async () => {
+    const { api, platform, people } = await make();
+    expect(await api.changeLogAgents()).toEqual([]);
+    await api.apply({ type: 'createPerson', draft: { given: 'Olena', surnames: ['Koval'], sex: 'female' } });
+    platform.simulateAgentBatch(api, { agent: 'Zoe', changes: [{ person: people[0].id, note: 'One' }] });
+    platform.simulateAgentBatch(api, { agent: 'Archive helper', changes: [{ person: people[0].id, note: 'Two' }] });
+    platform.simulateAgentBatch(api, { agent: 'Zoe', changes: [{ person: people[0].id, note: 'Three' }] });
+    expect((await api.changeLogAgents()).map((a) => a.name)).toEqual(['Archive helper', 'Zoe']);
+  });
+
+  it('a_batch_counts_the_changes_that_still_stand', async () => {
+    const { api, platform, people } = await make();
+    const { batch, groups } = platform.simulateAgentBatch(api, {
+      title: 'B',
+      changes: [
+        { person: people[0].id, note: 'One' },
+        { person: people[1].id, note: 'Two' },
+      ],
+    });
+    expect((await api.changeBatches())[0].standing).toBe(2);
+    await api.undoChangeGroup(groups[0]);
+    expect((await api.changeBatches())[0].standing).toBe(1);
+    await api.undoChangeBatch(batch!);
+    expect((await api.changeBatches())[0].standing).toBe(0);
+  });
+
   it('person_agent_changes_lists_what_stands_reviewed_or_not', async () => {
     const { api, platform, people } = await make();
     const { groups } = platform.simulateAgentBatch(api, {

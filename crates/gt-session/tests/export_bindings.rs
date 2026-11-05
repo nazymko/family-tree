@@ -161,6 +161,7 @@ fn export_all(dir: &Path) {
         LogRowDto,
         Page<LogRowDto>,
         BatchDto,
+        LogAgentDto,
         LogFilterDto,
         ReviewScopeDto,
     );
