@@ -68,7 +68,7 @@ describe('Gene Tree end to end', () => {
   it('import_report_then_family_view', async () => {
     const dir = await importSynthetic(TREE);
     const body = await text();
-    expect(body).toContain('Imported 5000 people');
+    expect(body).toContain('Imported 5,000 people');
     expect(body).toMatch(/Families\s*\d+/);
     expect(body).toMatch(/Sources\s*\d+/);
     // The media references in the file point at pictures that are not there.
@@ -80,7 +80,7 @@ describe('Gene Tree end to end', () => {
     const heading = await $('h1');
     await heading.waitForDisplayed();
     await expect(heading).toHaveText(expect.stringContaining(meta().home.surname));
-    expect(await text()).toContain('5000 people');
+    expect(await text()).toContain('5,000 people');
   });
 
   it('add_child_edit_undo_redo_persists_across_restart', async () => {

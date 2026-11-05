@@ -7,12 +7,14 @@
 mod descendants;
 mod grid;
 mod pedigree;
+mod quality;
 mod relatives;
 mod types;
 mod whole;
 
 pub use descendants::descendants;
 pub use pedigree::pedigree;
+pub use quality::{Quality, quality};
 pub use relatives::{RelativesOptions, relatives};
 pub use types::{
     Axis, ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Nav, Node, PartnerOf, Rect, Rel,
