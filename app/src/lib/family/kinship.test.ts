@@ -89,7 +89,7 @@ describe('kinshipText in Ukrainian', () => {
     expect(kinshipText(blood(1, 0, m))).toBe('батько');
     expect(kinshipText(blood(1, 0, f))).toBe('мати');
     expect(kinshipText(blood(2, 0, m))).toBe('дідусь');
-    expect(kinshipText(blood(3, 0, f))).toBe('прабаба');
+    expect(kinshipText(blood(3, 0, f))).toBe('прабабуся');
     expect(kinshipText(blood(4, 0, m))).toBe('прапрадід');
     expect(kinshipText(blood(0, 1, f))).toBe('донька');
     expect(kinshipText(blood(0, 2, m))).toBe('онук');
