@@ -144,7 +144,7 @@ describe('PersonEditor', () => {
     await open();
     await user.click(screen.getByRole('button', { name: 'Add event' }));
     const dlg = screen.getByRole('dialog', { name: 'Add event' });
-    await user.type(within(dlg).getByRole('textbox', { name: 'Date' }), '1901');
+    await user.type(within(dlg).getByRole('textbox', { name: 'Year' }), '1901');
     await user.click(within(dlg).getByRole('button', { name: 'Save event' }));
     await waitFor(() => expect(spy).toHaveBeenCalled());
     await waitFor(() => expect(toastTexts()).toEqual(['Event saved']));

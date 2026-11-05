@@ -41,6 +41,7 @@ async function fillChild(given: string, birth: string) {
   await $('//button[@role="menuitem"][normalize-space(.)="Add child"]').click();
   await $('aria/Given name').waitForDisplayed();
   await $('aria/Given name').setValue(given);
+  await $('button=Type it another way (for example, about 1850)').click();
   await $('aria/Birth date').setValue(birth);
   await $('//*[@role="status"][contains(.,"Understood as")]').waitForExist({ timeout: 10000 });
   return text();

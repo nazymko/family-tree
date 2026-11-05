@@ -9,7 +9,7 @@
   import RadioGroup from '../ui/RadioGroup.svelte';
   import Button from '../ui/Button.svelte';
   import PersonPicker from './PersonPicker.svelte';
-  import DateField from './DateField.svelte';
+  import DatePartsField from './DatePartsField.svelte';
   import PlacePicker from './PlacePicker.svelte';
   import { settings } from '../state/settings.svelte';
   import EditorDialog from './EditorDialog.svelte';
@@ -223,7 +223,7 @@
   />
   <TextField label={t('editor.patronymic')} bind:value={patronymic} />
   <Select label={t('editor.sex')} options={SEXES} bind:value={sex} />
-  <DateField label={t('editor.birthDate')} value={birthDate} onChange={(r) => (birthDate = r)} order={settings.value.dayOrder} />
+  <DatePartsField label={t('editor.birthDate')} value={birthDate} onChange={(r) => (birthDate = r)} order={settings.value.dayOrder} />
   <PlacePicker label={t('editor.birthPlace')} value={null} text="" onChange={(v) => (birthPlace = v?.placeText ?? '')} onOption={(p) => (birthPlace = p.full)} />
   <Checkbox label={t('editor.openAfter')} bind:checked={openAfter} />
   {/if}

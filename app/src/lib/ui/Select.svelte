@@ -16,6 +16,7 @@
     options,
     value = $bindable(''),
     onchange,
+    disabled = false,
   }: {
     label: string;
     hint?: string;
@@ -23,6 +24,7 @@
     options: Option[];
     value?: string;
     onchange?: (value: string) => void;
+    disabled?: boolean;
   } = $props();
 
   const groups = $derived.by(() => {
@@ -44,6 +46,7 @@
       id={f.id}
       aria-describedby={f.describedBy}
       aria-invalid={f.invalid}
+      {disabled}
       bind:value
       onchange={() => onchange?.(value)}
     >
