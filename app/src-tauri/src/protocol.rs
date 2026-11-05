@@ -51,8 +51,83 @@ fn status_for(e: &ApiError) -> StatusCode {
     }
 }
 
+/// What a `Range: bytes=...` header asks for, first range only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ByteRange {
+    /// `bytes=a-` or `bytes=a-b`.
+    From(u64, Option<u64>),
+    /// `bytes=-n`: the last n bytes.
+    Last(u64),
+}
+
+/// `None` when the header is not a single well-formed byte range; the caller answers 416.
+pub fn parse_range(header: &str) -> Option<ByteRange> {
+    let spec = header.trim().strip_prefix("bytes=")?;
+    let first = spec.split(',').next()?.trim();
+    let (a, b) = first.split_once('-')?;
+    match (a.trim(), b.trim()) {
+        ("", n) => Some(ByteRange::Last(n.parse().ok()?)),
+        (a, "") => Some(ByteRange::From(a.parse().ok()?, None)),
+        (a, b) => {
+            let (a, b) = (a.parse().ok()?, b.parse().ok()?);
+            (a <= b).then_some(ByteRange::From(a, Some(b)))
+        }
+    }
+}
+
+fn partial(state: &AppState, id: Uuid, range: ByteRange) -> Response<Vec<u8>> {
+    let slice = state.with_session(|s| {
+        let (start, end) = match range {
+            ByteRange::From(a, b) => (a, b),
+            ByteRange::Last(n) => {
+                // Learn the size from one byte, then ask for the tail.
+                let total = s.media_range(id, 0, Some(0))?.map_or(0, |one| one.total);
+                (total.saturating_sub(n), None)
+            }
+        };
+        s.media_range(id, start, end).map(|r| (r, start))
+    });
+    match slice {
+        Ok((Some(piece), _)) => {
+            // `media_range` never returns an empty piece, so `len >= 1`.
+            let last = piece.start + (piece.bytes.len() as u64).max(1) - 1;
+            Response::builder()
+                .status(StatusCode::PARTIAL_CONTENT)
+                .header(header::CONTENT_TYPE, piece.mime)
+                .header(header::ACCEPT_RANGES, "bytes")
+                .header(
+                    header::CONTENT_RANGE,
+                    format!("bytes {}-{last}/{}", piece.start, piece.total),
+                )
+                .header(header::CACHE_CONTROL, CACHE_CONTROL)
+                .body(piece.bytes)
+                .unwrap_or_default()
+        }
+        Ok((None, _)) => not_satisfiable(state, id),
+        Err(e) => text(status_for(&e), &e.message),
+    }
+}
+
+/// `416`, saying how big the file is (`Content-Range: bytes */N`) so the player can ask again.
+fn not_satisfiable(state: &AppState, id: Uuid) -> Response<Vec<u8>> {
+    let mut b = Response::builder()
+        .status(StatusCode::RANGE_NOT_SATISFIABLE)
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8");
+    if let Ok(total) = state.with_session(|s| s.media_size(id)) {
+        b = b.header(header::CONTENT_RANGE, format!("bytes */{total}"));
+    }
+    b.body(b"Range not satisfiable.".to_vec())
+        .unwrap_or_default()
+}
+
 /// Builds the response for a request path. Pure apart from reading the session.
 pub fn respond(state: &AppState, path: &str) -> Response<Vec<u8>> {
+    respond_range(state, path, None)
+}
+
+/// As `respond`, honouring a `Range` header on an original file, so a player can seek in a long
+/// recording without the whole file being read for each request.
+pub fn respond_range(state: &AppState, path: &str, range: Option<&str>) -> Response<Vec<u8>> {
     if path == TRACE_PATH {
         // The picture being traced; never cached, because a new one replaces it.
         return match state.with_session(|s| s.trace_image_bytes()) {
@@ -68,10 +143,21 @@ pub fn respond(state: &AppState, path: &str) -> Response<Vec<u8>> {
     let Some((id, size)) = parse_path(path) else {
         return text(StatusCode::BAD_REQUEST, "Malformed media address.");
     };
+    if size == MediaSize::Original
+        && let Some(header_value) = range
+    {
+        // A range the parser cannot read (wrong unit, reversed, a number too big) is answered
+        // 416 and never by reading the whole file: a recording can be hundreds of megabytes.
+        return match parse_range(header_value) {
+            Some(range) => partial(state, id, range),
+            None => not_satisfiable(state, id),
+        };
+    }
     match state.with_session(|s| s.media_bytes(id, size)) {
         Ok((bytes, mime)) => Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, mime)
+            .header(header::ACCEPT_RANGES, "bytes")
             .header(header::CACHE_CONTROL, CACHE_CONTROL)
             .body(bytes)
             .unwrap_or_default(),
@@ -85,9 +171,14 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder.register_asynchronous_uri_scheme_protocol(SCHEME, |ctx, request, responder| {
         let app = ctx.app_handle().clone();
         let path = request.uri().path().to_string();
+        let range = request
+            .headers()
+            .get(header::RANGE)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
         tauri::async_runtime::spawn_blocking(move || {
             let resp = match app.try_state::<AppState>() {
-                Some(state) => respond(&state, &path),
+                Some(state) => respond_range(&state, &path, range.as_deref()),
                 None => text(StatusCode::NOT_FOUND, "Not ready."),
             };
             responder.respond(resp);

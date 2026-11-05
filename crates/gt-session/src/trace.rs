@@ -51,6 +51,8 @@ fn ext(kind: Kind) -> &'static str {
         Kind::Gif => "gif",
         Kind::Tiff => "tiff",
         Kind::Pdf => "pdf",
+        // Only pictures are staged; sound never reaches here.
+        _ => "bin",
     }
 }
 

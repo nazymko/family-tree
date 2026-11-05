@@ -30,6 +30,16 @@ describe('observeApi', () => {
     expect(toasts.items[0].action?.label).toBe('Undo');
   });
 
+  it('a_silent_attach_still_takes_the_undo_off_the_older_toast', async () => {
+    const { api, raw } = make();
+    await api.apply(draft('A'));
+    expect(toasts.items[0].action?.label).toBe('Undo');
+    vi.spyOn(raw, 'attachFiles').mockResolvedValue({ attached: [{ id: 'm1' }], failed: [] } as never);
+    await api.attachFiles({ kind: 'note', id: 'n1' } as never, ['a.wav'], { silent: true });
+    // The attach is now the latest step: the earlier toast's Undo would undo the wrong thing.
+    expect(toasts.items.filter((t) => t.action)).toHaveLength(0);
+  });
+
   it('older_toast_loses_undo_when_newer_change_arrives', async () => {
     const { api } = make();
     await api.apply(draft('A'));

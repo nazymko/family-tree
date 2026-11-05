@@ -1,11 +1,23 @@
 <script lang="ts" module>
+  import type { MessageKey } from '../i18n';
+  import { AUDIO_EXTENSIONS } from './sound';
+  /** Pictures and documents: accepted on everything but a note. */
   export const MEDIA_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'tif', 'tiff', 'gif', 'pdf'];
   export const fileName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
-  /** One line per failed file, e.g. "scan.exe: unsupported type; we attach ...". */
-  export function failureLine(f: { path: string; reason: string }): string {
+  /** The backend's refusals that the app words itself, in the language in use. */
+  const KNOWN_REASONS: Record<string, MessageKey> = {
+    'only sound recordings can be attached to a note': 'voice.onlySoundOnNote',
+    'sound recordings can only be attached to a note': 'voice.soundOnlyOnNote',
+  };
+  /** One line per failed file, e.g. "scan.exe: unsupported type; we attach ...". `owner` is what the files were for. */
+  export function failureLine(f: { path: string; reason: string }, owner: 'note' | 'other' = 'other'): string {
     const name = fileName(f.path);
+    const known = KNOWN_REASONS[f.reason];
+    if (known) return `${name}: ${t(known)}`;
     const ext = /\.([A-Za-z0-9]{1,8})$/.exec(name)?.[1]?.toLowerCase();
-    if (ext && !MEDIA_EXTENSIONS.includes(ext)) return `${name}: ${t('media.unsupported')}`;
+    if (ext && !MEDIA_EXTENSIONS.includes(ext) && !AUDIO_EXTENSIONS.includes(ext)) {
+      return `${name}: ${t(owner === 'note' ? 'voice.unsupported' : 'media.unsupported')}`;
+    }
     return `${name}: ${f.reason}`;
   }
 </script>
@@ -79,7 +91,7 @@
     const attachedNames = new Set(r.attached.map((m) => (m.originalName ?? '').toLowerCase()));
     const isWarning = (f: { path: string; reason: string }) =>
       /too large to preview/i.test(f.reason) && attachedNames.has(fileName(f.path).toLowerCase());
-    failures = r.failed.filter((f) => !isWarning(f)).map(failureLine);
+    failures = r.failed.filter((f) => !isWarning(f)).map((f) => failureLine(f));
     warnings = r.failed.filter(isWarning).map((f) => `${fileName(f.path)}: ${t('media.noPreview')}`);
     const n = r.attached.length;
     if (n > 0) {

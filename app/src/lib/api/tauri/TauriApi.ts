@@ -7,6 +7,7 @@ import type {
   LogAgentDto,
   LogFilterDto,
   LogRowDto,
+  MediaDto,
   RecordHomeDto,
   ReviewScopeDto,
   UndoReport,
@@ -176,6 +177,9 @@ export class TauriApi implements Api {
   }
   exifSuggestion(media: Id): Promise<ExifSuggestion | null> {
     return call('exif_suggestion', { media });
+  }
+  unlinkedMedia(): Promise<MediaDto[]> {
+    return call('unlinked_media');
   }
   attachFiles(target: OwnerRef, paths: string[]): Promise<AttachResult> {
     return call('attach_files', { target, paths });

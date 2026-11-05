@@ -1105,6 +1105,7 @@ impl Session {
                 .flat_map(|p| &p.names)
                 .find(|n| n.id == target.id)
                 .map(|n| (&n.notes[..], &n.citations[..])),
+            OwnerKind::Note => None,
             OwnerKind::ChildLink => None,
         }
     }

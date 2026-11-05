@@ -230,6 +230,8 @@ pub struct NoteDto {
     pub text: String,
     pub shared: bool,
     pub lang: Option<String>,
+    /// Voice samples (and any other media) attached to the note.
+    pub media: Vec<MediaLinkDto>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
