@@ -80,6 +80,9 @@ export const config: WebdriverIO.Config = {
     process.env.GT_E2E_WORK = work;
     process.env.GT_E2E_GED = ged;
     process.env.GT_E2E_CONFIG_DIR = path.join(work, 'config');
+    // The app starts in Ukrainian; the specs read English unless one switches the language itself.
+    fs.mkdirSync(process.env.GT_E2E_CONFIG_DIR, { recursive: true });
+    fs.writeFileSync(path.join(process.env.GT_E2E_CONFIG_DIR, 'settings.json'), JSON.stringify({ language: 'en' }));
     if (!process.env.GT_E2E_SHOTS) process.env.GT_E2E_SHOTS = path.join(work, 'shots');
 
     const native = nativeDriver();
