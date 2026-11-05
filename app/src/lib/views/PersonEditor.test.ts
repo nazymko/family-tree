@@ -148,12 +148,15 @@ describe('PersonEditor', () => {
     return d;
   }
 
+  /** Each changed field of a history row as `field before after`. */
+  const changedRows = (row: Element) => [...row.querySelectorAll('tbody tr')].map((r) => [...r.children].map((c) => c.textContent?.trim()).join(' '));
+
   it('history_says_what_a_name_change_changed_in_english', async () => {
     await renameSurname(['Koval']);
     await renameSurname(['Kovalchuk']);
     await open();
     const row = await historyRow();
-    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Surname Koval Kovalchuk');
+    expect(changedRows(row)).toContain('Surname Koval Kovalchuk');
     expect(row.querySelectorAll('bdi[dir="auto"]').length).toBeGreaterThanOrEqual(1);
   });
 
@@ -163,7 +166,7 @@ describe('PersonEditor', () => {
     await api.apply({ type: 'saveName', person: id, name: { id: n.id, kind: n.kind, preferred: n.preferred, private: n.private, given: n.given ?? 'Ivan', surnames: n.surnames, patronymic: undefined, suffix: 'Jr' } });
     await open();
     const row = await historyRow();
-    expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Suffix empty Jr');
+    expect(changedRows(row)).toContain('Suffix empty Jr');
   });
 
   it('history_says_what_a_name_change_changed_in_ukrainian', async () => {
@@ -174,7 +177,7 @@ describe('PersonEditor', () => {
     try {
       renderWithApi(observeApi(api), PersonEditor, { id });
       const row = await historyRow();
-      expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Суфікс порожньо Jr');
+      expect(changedRows(row)).toContain('Суфікс порожньо Jr');
     } finally {
       setLanguage('en');
     }
