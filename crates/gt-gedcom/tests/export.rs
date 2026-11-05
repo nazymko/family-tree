@@ -216,3 +216,64 @@ fn places_names_and_ids_survive() {
     }
     let _ = (Sex::Male, Role::Principal);
 }
+
+fn first_name(t: &gt_core::tree::Tree) -> &Name {
+    &t.persons.values().next().unwrap().names[0]
+}
+
+fn with_name(given: Option<&str>, patronymic: &str) -> gt_core::tree::Tree {
+    let mut a = import(b"0 HEAD\n0 @I1@ INDI\n1 NAME X /Koval/\n0 TRLR\n", &opts());
+    let n = &mut a.tree.persons.values_mut().next().unwrap().names[0];
+    n.given = given.map(str::to_string);
+    n.patronymic = Some(patronymic.to_string());
+    n.raw = None;
+    a.tree
+}
+
+#[test]
+fn patronymic_round_trips_and_reads_in_order_on_the_name_line() {
+    for v in [GedcomVersion::V551, GedcomVersion::V70] {
+        let t = with_name(Some("Ivan"), "Petrovych");
+        let text = ex(&t, v);
+        assert!(text.contains("1 NAME Ivan Petrovych /Koval/"), "{text}");
+        assert!(text.contains("2 GIVN Ivan"), "{text}");
+        assert!(text.contains("2 _PATR Petrovych"), "{text}");
+        let b = import(text.as_bytes(), &opts());
+        let n = first_name(&b.tree);
+        assert_eq!(n.given.as_deref(), Some("Ivan"));
+        assert_eq!(n.patronymic.as_deref(), Some("Petrovych"));
+        assert_eq!(n.surnames, vec!["Koval".to_string()]);
+    }
+    let text = ex(&with_name(Some("Ivan"), "Petrovych"), GedcomVersion::V70);
+    assert!(text.contains("2 TAG _PATR https://gene-tree.app/gedcom/ext/PATR"));
+}
+
+#[test]
+fn patronymic_without_a_given_name_does_not_become_the_given_name() {
+    let t = with_name(None, "Petrovych");
+    let text = ex(&t, GedcomVersion::V551);
+    let b = import(text.as_bytes(), &opts());
+    let n = first_name(&b.tree);
+    assert_eq!(n.given, None);
+    assert_eq!(n.patronymic.as_deref(), Some("Petrovych"));
+}
+
+#[test]
+fn patr_without_givn_is_taken_out_of_the_name_line() {
+    let src = "0 HEAD\n0 @I1@ INDI\n1 NAME Ivan Petrovych /Koval/\n2 _PATR Petrovych\n0 TRLR\n";
+    let b = import(src.as_bytes(), &opts());
+    let n = first_name(&b.tree);
+    assert_eq!(n.given.as_deref(), Some("Ivan"));
+    assert_eq!(n.patronymic.as_deref(), Some("Petrovych"));
+}
+
+#[test]
+fn a_file_without_patr_keeps_the_whole_given_text() {
+    // No guessing: only `_PATR` says which word is a patronymic.
+    let src = "0 HEAD\n0 @I1@ INDI\n1 NAME Ivan Petrovych /Koval/\n0 TRLR\n";
+    let b = import(src.as_bytes(), &opts());
+    let n = first_name(&b.tree);
+    assert_eq!(n.given.as_deref(), Some("Ivan Petrovych"));
+    assert_eq!(n.patronymic, None);
+    assert!(!ex(&b.tree, GedcomVersion::V551).contains("_PATR"));
+}

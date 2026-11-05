@@ -176,6 +176,7 @@ fn display_name(n: &NameText) -> String {
     let mut parts: Vec<&str> = Vec::new();
     parts.extend(n.prefix.as_deref());
     parts.extend(n.given.as_deref());
+    parts.extend(n.patronymic.as_deref());
     parts.extend(n.surname_prefix.as_deref());
     parts.extend(n.surnames.iter().map(String::as_str));
     parts.extend(n.suffix.as_deref());

@@ -571,7 +571,7 @@ export const en = {
     surnamePrefixHint: 'For example van, de or von',
     surnames: 'Surnames',
     surnamesHint: 'Separate several surnames with a comma',
-    patronymic: 'Patronymic',
+    patronymic: 'Father’s name (patronymic)',
     suffix: 'Suffix',
     suffixHint: 'For example Jr or III',
     nickname: 'Nickname',

@@ -35,6 +35,7 @@
   };
   let given = $state('');
   let surname = $state('');
+  let patronymic = $state('');
   let sex = $state<string>('unknown');
   let birth = $state('');
   let error = $state('');
@@ -46,6 +47,7 @@
     if (open) {
       given = '';
       surname = '';
+      patronymic = '';
       sex = relation === 'father' ? 'male' : relation === 'mother' ? 'female' : 'unknown';
       birth = '';
       error = '';
@@ -63,6 +65,7 @@
       const draft = {
         given: given.trim() || undefined,
         surnames: surname.trim() ? [surname.trim()] : [],
+        patronymic: patronymic.trim() || undefined,
         sex: sex as SexKind,
         birthDateRaw: birth.trim() || undefined,
       };
@@ -83,6 +86,7 @@
   <form id="new-person" onsubmit={save}>
     <TextField label={t('newPerson.givenNames')} bind:value={given} autocomplete="off" />
     <TextField label={t('newPerson.surname')} bind:value={surname} autocomplete="off" error={error || undefined} />
+    <TextField label={t('editor.patronymic')} bind:value={patronymic} autocomplete="off" />
     <Select
       label={t('newPerson.sex')}
       bind:value={sex}

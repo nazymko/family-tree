@@ -109,13 +109,14 @@ export function makeEvent(
 export function nameDisplay(n: {
   prefix?: string | null;
   given?: string | null;
+  patronymic?: string | null;
   surnamePrefix?: string | null;
   surnames: string[];
   suffix?: string | null;
   cjk?: boolean;
 }): string {
   if (n.cjk) return `${n.surnames.join('')}${n.given ?? ''}`;
-  return [n.prefix, n.given, n.surnamePrefix, n.surnames.join(' '), n.suffix]
+  return [n.prefix, n.given, n.patronymic, n.surnamePrefix, n.surnames.join(' '), n.suffix]
     .filter((s): s is string => !!s && s.trim() !== '')
     .join(' ');
 }

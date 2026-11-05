@@ -50,6 +50,7 @@ pub fn draft(given: &str, sex: SexKind) -> PersonDraft {
     PersonDraft {
         given: Some(given.into()),
         surnames: vec!["Schmidt".into()],
+        patronymic: None,
         sex,
         birth_date_raw: None,
         birth_place_text: None,
