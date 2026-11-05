@@ -6,7 +6,8 @@
   import Button from '../ui/Button.svelte';
   import Banner from '../ui/Banner.svelte';
   import VoiceSamples, { voiceSamples } from '../media/VoiceSamples.svelte';
-  import { AUDIO_EXTENSIONS, fileName, failureLine } from '../media/Dropzone.svelte';
+  import { fileName, failureLine } from '../media/Dropzone.svelte';
+  import { AUDIO_EXTENSIONS } from '../media/sound';
   import EditorDialog from './EditorDialog.svelte';
   import { errMessage } from './errors';
   import { t } from '../i18n';
@@ -27,9 +28,12 @@
     })),
   );
 
+  // What the form was last saved as; a partly failed first save moves it, so closing is not asked to discard saved text.
   // svelte-ignore state_referenced_locally
-  const init = { kind: note?.kind ?? 'general', text: note?.text ?? '' };
+  let init = $state<{ kind: string; text: string }>({ kind: note?.kind ?? 'general', text: note?.text ?? '' });
+  // svelte-ignore state_referenced_locally
   let kind = $state<string>(init.kind);
+  // svelte-ignore state_referenced_locally
   let text = $state(init.text);
   let saving = $state(false);
   let error = $state('');
@@ -66,7 +70,7 @@
       const r = await api.attachFiles(onNote, paths);
       const have = new Set(media.map((l) => l.media.id));
       media = [...media, ...r.attached.filter((m) => !have.has(m.id)).map((m) => ({ media: m, primary: false }))];
-      failures = r.failed.map(failureLine);
+      failures = r.failed.map((f) => failureLine(f, 'note'));
     } catch (e) {
       failures = [errMessage(e)];
     } finally {
@@ -137,7 +141,8 @@
         media = [...media, ...res.attached.map((m) => ({ media: m, primary: false }))];
         if (res.failed.length > 0) {
           // The note exists now; stay open on it so the files that failed can be seen and tried again.
-          failures = res.failed.map(failureLine);
+          failures = res.failed.map((f) => failureLine(f, 'note'));
+          init = { kind, text };
           error = t('voice.attachFailed');
           return;
         }

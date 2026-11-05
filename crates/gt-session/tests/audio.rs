@@ -200,7 +200,7 @@ fn a_right_extension_is_not_enough() {
 }
 
 #[test]
-fn a_note_takes_sound_only_and_a_person_still_takes_pictures_and_sound() {
+fn a_note_takes_sound_only_and_a_person_still_takes_pictures() {
     let (_d, mut s, ivan, note, src) = setup();
     let pdf = write(
         &src,
@@ -222,12 +222,11 @@ fn a_note_takes_sound_only_and_a_person_still_takes_pictures_and_sound() {
     let media_dir = _d.path().join("project").join("media");
     assert!(!media_dir.exists() || walk(&media_dir).is_empty());
 
-    // On a person, a recording is allowed too (the media page lists it with a player).
-    let wavfile = write(&src, "a.wav", &wav());
+    // A person still takes a picture or a document.
     let r = s
-        .attach_files(owner(OwnerKind::Person, ivan), &[wavfile, pdf])
+        .attach_files(owner(OwnerKind::Person, ivan), &[pdf])
         .unwrap();
-    assert_eq!(r.attached.len(), 2);
+    assert_eq!(r.attached.len(), 1);
 }
 
 #[test]
@@ -524,4 +523,223 @@ fn backup_copy_holds_the_recording_and_the_copy_opens_with_it() {
         .media_bytes(n.media[0].media.id, MediaSize::Original)
         .unwrap();
     assert_eq!((bytes, mime.as_str()), (wav(), "audio/wav"));
+}
+
+// ---- who may hold a recording ----
+
+const PNG: &[u8] = &[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+    0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xFF, 0xFF, 0x3F,
+    0x00, 0x05, 0xFE, 0x02, 0xFE, 0xA7, 0x35, 0x81, 0x84, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
+    0x44, 0xAE, 0x42, 0x60, 0x82,
+];
+
+#[test]
+fn only_a_note_takes_sound_a_person_and_other_owners_refuse_it() {
+    let (d, mut s, ivan, _note, src) = setup();
+    let mp3 = write(&src, "a.mp3", &mp3_frames());
+    let before = s.get_person(ivan).unwrap().media.len();
+    let undo_before = s.undo_state().undo_label.clone();
+    let r = s
+        .attach_files(owner(OwnerKind::Person, ivan), std::slice::from_ref(&mp3))
+        .unwrap();
+    assert!(r.attached.is_empty(), "{:?}", r.attached);
+    assert_eq!(r.failed.len(), 1);
+    assert_eq!(
+        r.failed[0].reason,
+        "sound recordings can only be attached to a note"
+    );
+    let p = s.get_person(ivan).unwrap();
+    assert_eq!(p.media.len(), before);
+    assert!(p.media.iter().all(|l| !l.primary));
+    assert_eq!(s.undo_state().undo_label, undo_before);
+    // Nothing was copied for the refused file.
+    let media_dir = d.path().join("project").join("media");
+    assert!(!media_dir.exists() || walk(&media_dir).is_empty());
+    // A picture in the same batch still goes through; only the sound is refused.
+    let png = write(&src, "p.png", PNG);
+    let r = s
+        .attach_files(owner(OwnerKind::Person, ivan), &[png, mp3])
+        .unwrap();
+    assert_eq!(r.attached.len(), 1);
+    assert_eq!(r.failed.len(), 1);
+}
+
+// ---- prepare outside the lock, commit inside ----
+
+#[test]
+fn the_session_is_usable_between_preparing_and_committing() {
+    let (_d, mut s, ivan, note, src) = setup();
+    let dir = s.project_dir();
+    let f = write(&src, "a.wav", &wav());
+    // Preparing needs no session at all: it copies and hashes from the folder alone.
+    let prepared = prepare_attach(&dir, OwnerKind::Note, std::slice::from_ref(&f));
+    // While the copy is "in flight" the session still answers and edits.
+    s.apply(EditCommand::SaveNote {
+        target: owner(OwnerKind::Person, ivan),
+        note: NoteInput {
+            id: Some(note),
+            kind: NoteKindDto::Story,
+            text: "Edited meanwhile.".into(),
+        },
+    })
+    .unwrap();
+    s.undo().unwrap();
+    let r = s
+        .commit_attach(owner(OwnerKind::Note, note), prepared)
+        .unwrap();
+    assert_eq!(r.attached.len(), 1, "{:?}", r.failed);
+    assert_eq!(note_media(&s, ivan).len(), 1);
+    // The same content prepared again is reused, not stored twice.
+    let again = prepare_attach(&dir, OwnerKind::Note, &[f]);
+    let r = s
+        .commit_attach(owner(OwnerKind::Note, note), again)
+        .unwrap();
+    assert!(r.attached.is_empty());
+    assert_eq!(r.failed[0].reason, "already attached");
+    assert_eq!(walk(&dir.join("media")).len(), 1);
+}
+
+#[test]
+fn a_project_that_changed_between_the_steps_records_nothing() {
+    let (_d, s, _ivan, _note, src) = setup();
+    let f = write(&src, "a.wav", &wav());
+    let prepared = prepare_attach(&s.project_dir(), OwnerKind::Note, &[f]);
+    // Another project is open when the commit arrives.
+    let other = tree_of("0 @I1@ INDI\n1 NAME Olena /Koval/\n1 SEX F\n");
+    let olena = find(&other, "Olena");
+    let (_od, mut o) = open_tree(&other);
+    let e = o
+        .commit_attach(owner(OwnerKind::Person, olena), prepared)
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+    assert_eq!(o.undo_state().undo_label, None);
+    assert!(o.get_person(olena).unwrap().media.is_empty());
+    // No half-copied file is left behind in either folder.
+    for dir in [s.project_dir(), o.project_dir()] {
+        let media = dir.join("media");
+        assert!(
+            !media.exists()
+                || walk(&media).iter().all(|p| !p
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with(".part"))
+        );
+    }
+    assert!(
+        !o.project_dir().join("media").exists() || walk(&o.project_dir().join("media")).is_empty()
+    );
+}
+
+#[test]
+fn a_prepared_batch_for_a_person_refuses_sound_before_copying() {
+    let (_d, s, ivan, _note, src) = setup();
+    let f = write(&src, "a.wav", &wav());
+    let prepared = prepare_attach(&s.project_dir(), OwnerKind::Person, &[f]);
+    assert!(
+        prepared
+            .failed()
+            .iter()
+            .any(|x| x.reason.contains("only be attached to a note"))
+    );
+    let _ = ivan;
+    assert!(
+        !s.project_dir().join("media").exists() || walk(&s.project_dir().join("media")).is_empty()
+    );
+}
+
+// ---- recordings nobody holds ----
+
+#[test]
+fn a_deleted_notes_recording_is_listed_as_unlinked_undo_brings_it_back_and_it_can_be_removed() {
+    let (_d, mut s, ivan, note, src) = setup();
+    s.attach_files(
+        owner(OwnerKind::Note, note),
+        &[write(&src, "a.wav", &wav())],
+    )
+    .unwrap();
+    let rec = note_media(&s, ivan)[0].media.id;
+    assert!(s.unlinked_media().is_empty());
+
+    s.apply(EditCommand::DeleteNote {
+        target: owner(OwnerKind::Person, ivan),
+        note,
+    })
+    .unwrap();
+    let loose = s.unlinked_media();
+    assert_eq!(loose.len(), 1);
+    assert_eq!(loose[0].id, rec);
+    assert_eq!(loose[0].mime.as_deref(), Some("audio/wav"));
+    assert!(loose[0].resolved);
+
+    // Undo puts the note back with its recording, and nothing is loose any more.
+    s.undo().unwrap();
+    assert!(s.unlinked_media().is_empty());
+    assert_eq!(note_media(&s, ivan).len(), 1);
+
+    // Delete again, then remove the recording from the list. That is logged and undoable too.
+    s.apply(EditCommand::DeleteNote {
+        target: owner(OwnerKind::Person, ivan),
+        note,
+    })
+    .unwrap();
+    s.apply(EditCommand::DeleteMedia { id: rec }).unwrap();
+    assert!(s.unlinked_media().is_empty());
+    s.undo().unwrap();
+    assert_eq!(s.unlinked_media().len(), 1);
+}
+
+// ---- an imported record with a free-text type ----
+
+#[test]
+fn reusing_content_stored_with_a_wrong_type_corrects_the_type_and_logs_it() {
+    let tree = tree_of(
+        "0 @I1@ INDI\n1 NAME Ivan /Koval/\n1 SEX M\n1 OBJE @M1@\n\
+         0 @M1@ OBJE\n1 FILE clip.wav\n2 FORM mp3\n",
+    );
+    let ivan = find(&tree, "Ivan");
+    let (d, mut s) = open_tree(&tree);
+    let folder = d.path().join("old files");
+    write(&folder, "clip.wav", &wav());
+    let r = s.relink_media(&folder).unwrap();
+    assert_eq!(r.relinked, 1);
+    let imported = s.get_person(ivan).unwrap().media[0].media.clone();
+    assert_eq!(imported.mime.as_deref(), Some("mp3"));
+
+    s.apply(EditCommand::SaveNote {
+        target: owner(OwnerKind::Person, ivan),
+        note: NoteInput {
+            id: None,
+            kind: NoteKindDto::Story,
+            text: "Said it again.".into(),
+        },
+    })
+    .unwrap();
+    let note = s.get_person(ivan).unwrap().notes[0].id;
+    let src = d.path().join("src");
+    let r = s
+        .attach_files(
+            owner(OwnerKind::Note, note),
+            &[write(&src, "same.wav", &wav())],
+        )
+        .unwrap();
+    assert_eq!(r.attached.len(), 1, "{:?}", r.failed);
+    assert_eq!(r.attached[0].id, imported.id);
+    // The note now shows it as the sound it is.
+    assert_eq!(r.attached[0].mime.as_deref(), Some("audio/wav"));
+    assert_eq!(
+        s.get_person(ivan).unwrap().notes[0].media[0]
+            .media
+            .mime
+            .as_deref(),
+        Some("audio/wav")
+    );
+    // One undo step does both: the link and the corrected type.
+    s.undo().unwrap();
+    assert_eq!(
+        s.get_person(ivan).unwrap().media[0].media.mime.as_deref(),
+        Some("mp3")
+    );
 }

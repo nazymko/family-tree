@@ -1,7 +1,8 @@
 <script lang="ts" module>
   import type { MediaLinkDto } from '../api/api';
+  import { isSound } from './sound';
   /** The recordings among a record's media, in their order. */
-  export const voiceSamples = (links: readonly MediaLinkDto[]): MediaLinkDto[] => links.filter((l) => l.media.mime?.startsWith('audio/'));
+  export const voiceSamples = (links: readonly MediaLinkDto[]): MediaLinkDto[] => links.filter((l) => isSound(l.media));
 </script>
 
 <script lang="ts">

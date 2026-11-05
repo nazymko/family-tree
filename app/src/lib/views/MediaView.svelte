@@ -4,9 +4,11 @@
   import MediaGrid from '../media/MediaGrid.svelte';
   import MediaViewer from '../media/MediaViewer.svelte';
   import VoiceSamples, { voiceSamples } from '../media/VoiceSamples.svelte';
+  import { isSound } from '../media/sound';
   import { getApi } from '../api/context';
   import { project } from '../state/project.svelte';
-  import type { Id, MediaLinkDto, OwnerRef } from '../api/api';
+  import Button from '../ui/Button.svelte';
+  import type { Id, MediaDto, MediaLinkDto, OwnerRef } from '../api/api';
   import { t } from '../i18n';
 
   let {
@@ -22,7 +24,7 @@
   let name = $state('');
   let all = $state<MediaLinkDto[]>([]);
   /** Pictures and documents, for the grid and the viewer. */
-  const items = $derived(all.filter((l) => !l.media.mime?.startsWith('audio/')));
+  const items = $derived(all.filter((l) => !isSound(l.media)));
   /** Recordings attached to the person: a row and a player each, never a thumbnail. */
   const sounds = $derived(voiceSamples(all));
   let loaded = $state(false);
@@ -36,6 +38,16 @@
     loaded = true;
   }
 
+  /** Files a deleted note or person left behind; deleting the owner can be undone, so the file is kept until removed here. */
+  let orphans = $state<MediaDto[]>([]);
+  async function loadOrphans() {
+    orphans = await api.unlinkedMedia();
+  }
+  async function deleteOrphan(m: MediaDto) {
+    await api.apply({ type: 'deleteMedia', id: m.id });
+    await loadOrphans();
+  }
+
   async function unlink(media: Id) {
     await api.apply({ type: 'detachMedia', target, media });
     await load();
@@ -45,6 +57,7 @@
     void personId;
     void project.rev; // undo/redo and edits elsewhere
     void load();
+    void loadOrphans();
   });
 </script>
 
@@ -69,9 +82,46 @@
       <MediaViewer {items} index={open} {target} onClose={() => (open = null)} onChanged={() => load()} />
     {/if}
   {/if}
+  {#if orphans.length > 0}
+    <div class="orphans" data-testid="unlinked-media">
+      <h2>{t('mediaView.unlinkedTitle')}</h2>
+      <p class="hint">{t('mediaView.unlinkedHint')}</p>
+      <ul>
+        {#each orphans as m (m.id)}
+          {@const label = m.title || m.originalName || t('media.untitledFile')}
+          <li>
+            <span><bdi dir="auto">{label}</bdi></span>
+            <Button variant="danger" aria-label={t('mediaView.unlinkedDelete', { label })} onclick={() => deleteOrphan(m)}>{t('mediaView.unlinkedDeleteButton')}</Button>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
 </section>
 
 <style>
+  .orphans h2 {
+    margin: 0 0 var(--s-2);
+    font-size: var(--t-md);
+  }
+  .hint {
+    margin: 0 0 var(--s-3);
+    color: var(--ink-1);
+    font-size: var(--t-sm);
+  }
+  .orphans ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--s-2);
+  }
+  .orphans li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+  }
   .sounds h2 {
     margin: 0 0 var(--s-3);
     font-size: var(--t-md);

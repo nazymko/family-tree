@@ -64,7 +64,7 @@ describe('Dropzone', () => {
     renderWith(Dropzone, { target, targetName: 'Zofia', onAttached }, { api, platform });
     await user.click(screen.getByRole('button', { name: 'Add files…' }));
     await waitFor(() => expect(onAttached).toHaveBeenCalled());
-    expect(platform.calls[0].args[0]).toMatchObject({ extensions: ['jpg', 'jpeg', 'png', 'webp', 'tif', 'tiff', 'gif', 'pdf', 'mp3', 'wav', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'flac'] });
+    expect(platform.calls[0].args[0]).toMatchObject({ extensions: ['jpg', 'jpeg', 'png', 'webp', 'tif', 'tiff', 'gif', 'pdf'] });
   });
 
   it('exif_banner_offers_not_applies', async () => {
@@ -139,5 +139,27 @@ describe('MediaView attach flow', () => {
     expect(screen.queryByText('These files were not attached:')).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(notices.current?.message).toBe('Attached 1 file');
+  });
+});
+
+describe('failureLine', () => {
+  it('words_the_known_refusals_in_the_language_in_use', async () => {
+    const { failureLine } = await import('./Dropzone.svelte');
+    const { setLanguage } = await import('../i18n');
+    const onPerson = { path: 'C:/p/greeting.mp3', reason: 'sound recordings can only be attached to a note' };
+    expect(failureLine(onPerson)).toBe('greeting.mp3: Sound recordings can only be attached to a note. Add this one from the note editor.');
+    setLanguage('uk');
+    try {
+      expect(failureLine(onPerson)).toContain('Звукові записи можна прикріпити лише до нотатки');
+      expect(failureLine({ path: 'C:/p/a.jpg', reason: 'only sound recordings can be attached to a note' }, 'note')).toContain('лише звукові записи');
+    } finally {
+      setLanguage('en');
+    }
+  });
+
+  it('an_unknown_extension_names_what_the_target_takes', async () => {
+    const { failureLine } = await import('./Dropzone.svelte');
+    expect(failureLine({ path: 'x/y.docx', reason: 'whatever' })).toContain('JPEG, PNG');
+    expect(failureLine({ path: 'x/y.docx', reason: 'whatever' }, 'note')).toContain('MP3, WAV');
   });
 });

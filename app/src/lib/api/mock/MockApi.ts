@@ -788,6 +788,7 @@ export class MockApi implements Api {
       else if (/[\\/]$/.test(path) || !/\.[A-Za-z0-9]{1,8}$/.test(name)) failed.push({ path, reason: 'Folders cannot be attached. Choose files.' });
       else if (/\.(exe|bat|cmd|msi|dll|com|scr)$/i.test(name)) failed.push({ path, reason: 'This file type cannot be attached.' });
       else if (target.kind === 'note' && !audioName.test(name)) failed.push({ path, reason: 'only sound recordings can be attached to a note' });
+      else if (target.kind !== 'note' && audioName.test(name)) failed.push({ path, reason: 'sound recordings can only be attached to a note' });
       else if (known.has(name.toLowerCase()) || accepted.some((a) => a.name.toLowerCase() === name.toLowerCase()))
         failed.push({ path, reason: 'Already attached' });
       else accepted.push({ path, name });
@@ -1086,6 +1087,18 @@ export class MockApi implements Api {
       throw new Error('Gene Tree will only open photos and PDF documents. This file is some other kind of file, so it was not opened.');
     }
     this.openedMedia.push(id);
+  }
+
+  /** Media no record links to: left by a deleted note or person, kept so that Undo can bring the record back. */
+  async unlinkedMedia(): Promise<MediaDto[]> {
+    const linked = new Set<Id>();
+    const take = (links: MediaLinkDto[] | undefined) => links?.forEach((l) => linked.add(l.media.id));
+    for (const p of this.db.persons.values()) {
+      take(p.media);
+      for (const e of p.events) take(e.media);
+      for (const n of p.notes) take(n.media);
+    }
+    return [...this.db.media.values()].filter((m) => !linked.has(m.id)).map((m) => structuredClone(m));
   }
 
   async exifSuggestion(media: Id): Promise<ExifSuggestion | null> {

@@ -142,7 +142,7 @@ fn every_api_method_has_a_command() {
             "no command {snake}"
         );
     }
-    assert_eq!(COMMAND_NAMES.len(), 65);
+    assert_eq!(COMMAND_NAMES.len(), 66);
     let unique: std::collections::HashSet<&&str> = COMMAND_NAMES.iter().collect();
     assert_eq!(unique.len(), COMMAND_NAMES.len(), "a command listed twice");
 }
@@ -409,6 +409,70 @@ fn state_with_media(root: &Path) -> (AppState, uuid::Uuid) {
 }
 
 #[test]
+fn attaching_copies_with_the_session_lock_free_and_a_closed_project_records_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let proj = project_from(dir.path(), "tree", &ged(1, "1900"));
+    let state = state_in(dir.path());
+    commands::open_project_impl(&state, proj.to_str().unwrap()).unwrap();
+    let pic = dir.path().join("pic.png");
+    std::fs::write(&pic, png()).unwrap();
+    let owner = OwnerRef {
+        kind: OwnerKind::Person,
+        id: first_id(&state),
+    };
+
+    // Between the copy and the record, other commands get the session (this would deadlock if the
+    // lock were held across the copy).
+    let mut answered = false;
+    let r = commands::attach_in_two_steps(&state, owner, std::slice::from_ref(&pic), || {
+        answered = state
+            .with_session(|s| Ok(s.list_persons(&PersonQuery::default(), 0, 1).total > 0))
+            .unwrap();
+    })
+    .unwrap();
+    assert!(answered);
+    assert_eq!(r.attached.len(), 1);
+
+    // The project closes after the copy: an error, and a later project has nothing recorded.
+    let pic2 = dir.path().join("pic2.png");
+    let mut bytes = png();
+    bytes.extend(b"different tail"); // another hash
+    std::fs::write(&pic2, bytes).unwrap();
+    let e = commands::attach_in_two_steps(&state, owner, &[pic2], || {
+        commands::close_project_impl(&state);
+    })
+    .unwrap_err();
+    assert_eq!(e.code, ErrorCode::NoProject);
+    let again = project_from(dir.path(), "tree2", &ged(1, "1900"));
+    commands::open_project_impl(&state, again.to_str().unwrap()).unwrap();
+    let id = first_id(&state);
+    let none = state
+        .with_session(|s| Ok(s.get_person(id).unwrap().media.len()))
+        .unwrap();
+    assert_eq!(none, 0);
+    // No half-written copy is left in either folder.
+    for folder in [&proj, &again] {
+        let media = folder.join("media");
+        if media.exists() {
+            let mut stack = vec![media];
+            while let Some(d) = stack.pop() {
+                for e in std::fs::read_dir(d).unwrap().flatten() {
+                    let p = e.path();
+                    if p.is_dir() {
+                        stack.push(p);
+                    } else {
+                        assert!(
+                            !e.file_name().to_string_lossy().starts_with(".part"),
+                            "{p:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn gtmedia_protocol_serves_thumb_and_404() {
     let dir = tempfile::tempdir().unwrap();
     let (state, id) = state_with_media(dir.path());
@@ -459,13 +523,33 @@ fn wav_file() -> Vec<u8> {
 
 /// A project whose first person has a note with a voice sample; returns the sample's media id.
 fn state_with_voice_sample(root: &Path) -> (AppState, uuid::Uuid) {
+    state_with_voice_bytes(root, wav_file())
+}
+
+/// A WAV header followed by `n` zero bytes of "sound".
+fn big_wav(n: usize) -> Vec<u8> {
+    let mut out = b"RIFF".to_vec();
+    out.extend((36 + n as u32).to_le_bytes());
+    out.extend(b"WAVEfmt ");
+    out.extend(16u32.to_le_bytes());
+    out.extend([1, 0, 1, 0]);
+    out.extend(8000u32.to_le_bytes());
+    out.extend(16000u32.to_le_bytes());
+    out.extend([2, 0, 16, 0]);
+    out.extend(b"data");
+    out.extend((n as u32).to_le_bytes());
+    out.resize(44 + n, 0);
+    out
+}
+
+fn state_with_voice_bytes(root: &Path, bytes: Vec<u8>) -> (AppState, uuid::Uuid) {
     use gt_session::{EditCommand, NoteInput, NoteKindDto};
     let proj = project_from(root, "tree", &ged(1, "1900"));
     let state = state_in(root);
     commands::open_project_impl(&state, proj.to_str().unwrap()).unwrap();
     let person = first_id(&state);
     let clip = root.join("clip.bin");
-    std::fs::write(&clip, wav_file()).unwrap();
+    std::fs::write(&clip, bytes).unwrap();
     let id = state
         .with_session(|s| {
             s.apply(EditCommand::SaveNote {
@@ -520,17 +604,41 @@ fn gtmedia_serves_a_voice_sample_whole_and_in_ranges() {
 
     let past = protocol::respond_range(&state, &path, Some("bytes=3000-"));
     assert_eq!(past.status(), 416);
+    assert_eq!(past.headers()["content-range"], "bytes */3000");
 
-    // Not a range we understand: the whole file, as if no header came.
-    let odd = protocol::respond_range(&state, &path, Some("items=1-2"));
-    assert_eq!(odd.status(), 200);
-    assert_eq!(odd.body().len(), 3000);
+    // A header we cannot read is not a licence to read the whole file: 416, with the size.
+    for bad in ["items=1-2", "bytes=0-99999999999999999999", "bytes=9-5"] {
+        let odd = protocol::respond_range(&state, &path, Some(bad));
+        assert_eq!(odd.status(), 416, "{bad}");
+        assert_eq!(odd.headers()["content-range"], "bytes */3000", "{bad}");
+        assert!(odd.body().len() < 100, "{bad}");
+    }
 
     // Sound has no thumbnail or preview; the page asks for neither, and a stray ask is a 404.
     for size in ["thumb", "preview"] {
         let r = protocol::respond(&state, &format!("/{id}/{size}"));
         assert_eq!(r.status(), 404, "{size}");
     }
+}
+
+#[test]
+fn a_big_recording_is_answered_a_window_at_a_time_never_whole_for_an_odd_header() {
+    let dir = tempfile::tempdir().unwrap();
+    let five_mib = 5 << 20;
+    let (state, id) = state_with_voice_bytes(dir.path(), big_wav(five_mib));
+    let path = format!("/{id}/original");
+    let total = 44 + five_mib;
+    let first = protocol::respond_range(&state, &path, Some("bytes=0-"));
+    assert_eq!(first.status(), 206);
+    assert_eq!(first.body().len(), 4 << 20);
+    assert_eq!(
+        first.headers()["content-range"],
+        format!("bytes 0-{}/{total}", (4 << 20) - 1)
+    );
+    let odd = protocol::respond_range(&state, &path, Some("bytes=0-99999999999999999999"));
+    assert_eq!(odd.status(), 416);
+    assert_eq!(odd.headers()["content-range"], format!("bytes */{total}"));
+    assert!(odd.body().len() < 100);
 }
 
 #[test]

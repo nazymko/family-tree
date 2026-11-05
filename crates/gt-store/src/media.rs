@@ -46,11 +46,24 @@ fn copy_and_hash(src: &Path, tmp: &Path) -> Result<String, StoreError> {
     Ok(hex(&hasher.finalize()))
 }
 
+/// The same as [`Project::add_media_file`], from the project folder alone. It touches only
+/// files, never the database, so a caller can run it without holding the project open for
+/// anyone else (a long copy and hash must not stall the rest of the app).
+pub fn add_media_file_in(dir: &Path, src: &Path) -> Result<(String, String), StoreError> {
+    add_media_file_to(dir, src)
+}
+
 impl Project {
     /// Copies `src` into `media/<sha256[0..2]>/<sha256>.<ext>`; returns the path relative to the
     /// project folder (forward slashes) and the hash. Identical content is stored once.
     pub fn add_media_file(&self, src: &Path) -> Result<(String, String), StoreError> {
-        let media = self.dir.join("media");
+        add_media_file_to(&self.dir, src)
+    }
+}
+
+fn add_media_file_to(dir: &Path, src: &Path) -> Result<(String, String), StoreError> {
+    {
+        let media = dir.join("media");
         std::fs::create_dir_all(&media)?;
         let tmp = media.join(format!(
             ".part-{}-{}",

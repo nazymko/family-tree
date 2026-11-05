@@ -121,7 +121,7 @@ describe('Voice samples on a note', () => {
     await openHome();
     await $('audio').waitForDisplayed({ timeout: 20000 });
     await proveAudioPlays();
-    expect(await text()).toContain('Голосові зразки');
+    expect(await text()).toContain('Голосові записи');
     await browser.pause(500);
     await shot('voice-person-uk.png');
   });

@@ -35,6 +35,11 @@
   // The browser reports the length once it has read the start of the file; until then it is NaN.
   let duration = $state(Number.NaN);
   let failed = $state(false);
+  /** Starting one player pauses the others: two recordings at once are noise. */
+  function onPlay(e: Event) {
+    const me = e.currentTarget as HTMLAudioElement;
+    for (const a of document.querySelectorAll('audio')) if (a !== me && !a.paused) a.pause();
+  }
   const label = $derived(media.title || media.originalName || t('voice.untitled'));
   const known = $derived(Number.isFinite(duration) && duration > 0);
 </script>
@@ -64,12 +69,14 @@
       src={api.mediaUrl(media.id, 'original')}
       aria-label={t('voice.playNamed', { label })}
       bind:duration
+      onplay={onPlay}
       onerror={() => (failed = true)}
     ></audio>
   {/if}
   {#if onTitle}
     <TextField
       label={t('voice.titleLabel')}
+      aria-label={t('voice.titleNamed', { label })}
       value={media.title ?? ''}
       disabled={busy}
       onchange={(e) => onTitle(media, e.currentTarget.value)}

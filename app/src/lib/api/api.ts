@@ -3,6 +3,7 @@ import type {
   LogAgentDto,
   LogFilterDto,
   LogRowDto,
+  MediaDto,
   RecordHomeDto,
   ReviewScopeDto,
   UndoReport,
@@ -95,6 +96,8 @@ export interface Api {
   openMediaExternally(id: Id): Promise<void>;
   mediaUrl(id: Id, size: 'thumb' | 'preview' | 'original'): string;
   exifSuggestion(media: Id): Promise<ExifSuggestion | null>;
+  /** Media that no record links to (left by a deleted note or person), so it can still be removed. */
+  unlinkedMedia(): Promise<MediaDto[]>;
   /** add_media_file + Media record + link, one undo step. */
   /** `silent` asks the shell's default toaster to stay quiet because the caller shows its own notice. */
   attachFiles(target: OwnerRef, paths: string[], opts?: { silent?: boolean }): Promise<AttachResult>;

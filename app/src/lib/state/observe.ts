@@ -116,10 +116,11 @@ export function observeApi(inner: Api): Api {
     async attachFiles(target, paths, opts) {
       const r = await tracked(() => inner.attachFiles(target, paths, opts));
       await undoState.refresh(inner);
-      if (r.attached.length > 0 && !opts?.silent) {
+      if (r.attached.length > 0) {
+        // Silent or not, the attach is now the latest step; an older toast's Undo must not undo it.
         const mine = supersede();
         const n = r.attached.length;
-        toasts.push({ text: plural('edit.filesAttached', n), action: undoAction(mine) });
+        if (!opts?.silent) toasts.push({ text: plural('edit.filesAttached', n), action: undoAction(mine) });
       }
       return r;
     },

@@ -63,7 +63,7 @@ describe('NoteEditor voice samples', () => {
     renderWith(NoteEditor, { target, note, onSaved: vi.fn(), onCancel: vi.fn() }, { api, platform });
     await act(() => platform.simulateDrop(['C:/Mock/a.wav']));
     await waitFor(() => expect(screen.getAllByTestId('voice-sample')).toHaveLength(1));
-    const box = screen.getByRole('textbox', { name: 'Title' });
+    const box = screen.getByRole('textbox', { name: /^Title of / });
     await fireEvent.input(box, { target: { value: 'Grandmother singing' } });
     await fireEvent.change(box);
     await waitFor(async () => expect((await noteOf(api, target)).media[0].media.title).toBe('Grandmother singing'));
@@ -92,6 +92,61 @@ describe('NoteEditor voice samples', () => {
     await act(() => platform.simulateDrop(['C:/Mock/photo.jpg']));
     expect(await screen.findByText(/photo\.jpg/)).toBeInTheDocument();
     expect(screen.queryAllByTestId('voice-sample')).toHaveLength(0);
+  });
+
+  it('refusal_is_worded_by_the_app_in_the_language_in_use', async () => {
+    const { api, target } = await setup();
+    await api.apply({ type: 'saveNote', target, note: { kind: 'general', text: 'x' } });
+    const note = await noteOf(api, target);
+    renderWith(NoteEditor, { target, note, onSaved: vi.fn(), onCancel: vi.fn() }, { api, platform });
+    await act(() => platform.simulateDrop(['C:/Mock/photo.jpg']));
+    expect(await screen.findByText(/photo\.jpg: Only sound recordings can be attached to a note\./)).toBeInTheDocument();
+    vi.spyOn(api, 'attachFiles').mockResolvedValueOnce({ attached: [], failed: [{ path: 'C:/Mock/notes.docx', reason: 'unsupported file type' }] });
+    await act(() => platform.simulateDrop(['C:/Mock/notes.docx']));
+    expect(await screen.findByText(/notes\.docx: unsupported type; we attach MP3/)).toBeInTheDocument();
+  });
+
+  it('each_title_field_has_its_own_name', async () => {
+    const { api, target } = await setup();
+    await api.apply({ type: 'saveNote', target, note: { kind: 'general', text: 'Two.' } });
+    const note = await noteOf(api, target);
+    renderWith(NoteEditor, { target, note, onSaved: vi.fn(), onCancel: vi.fn() }, { api, platform });
+    await act(() => platform.simulateDrop(['C:/Mock/one.wav', 'C:/Mock/two.wav']));
+    await waitFor(() => expect(screen.getAllByTestId('voice-sample')).toHaveLength(2));
+    expect(screen.getByRole('textbox', { name: 'Title of one' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Title of two' })).toBeInTheDocument();
+  });
+
+  it('starting_one_player_pauses_the_other', async () => {
+    const { api, target } = await setup();
+    await api.apply({ type: 'saveNote', target, note: { kind: 'general', text: 'Two.' } });
+    const note = await noteOf(api, target);
+    renderWith(NoteEditor, { target, note, onSaved: vi.fn(), onCancel: vi.fn() }, { api, platform });
+    await act(() => platform.simulateDrop(['C:/Mock/one.wav', 'C:/Mock/two.wav']));
+    await waitFor(() => expect(document.querySelectorAll('audio')).toHaveLength(2));
+    const [a, b] = Array.from(document.querySelectorAll('audio'));
+    const pause = vi.fn();
+    Object.defineProperty(a, 'paused', { value: false, configurable: true });
+    a.pause = pause;
+    await fireEvent(b, new Event('play'));
+    expect(pause).toHaveBeenCalledTimes(1);
+  });
+
+  it('a_partly_failed_first_save_is_not_left_dirty', async () => {
+    const { api, target } = await setup();
+    const onSaved = vi.fn();
+    renderWith(NoteEditor, { target, onSaved, onCancel: vi.fn() }, { api, platform });
+    await act(() => platform.simulateDrop(['C:/Mock/ok.wav']));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('textbox', { name: 'Note' }));
+    await user.paste('Partly saved.');
+    vi.spyOn(api, 'attachFiles').mockResolvedValueOnce({ attached: [], failed: [{ path: 'C:/Mock/ok.wav', reason: 'boom' }] });
+    await user.click(screen.getByRole('button', { name: 'Save note' }));
+    expect(await screen.findByText(/ok\.wav: boom/)).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+    // The text is saved, so closing must not ask about discarding it.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByText(/discard/i)).toBeNull();
   });
 });
 

@@ -1088,17 +1088,30 @@ fn get_media<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
             .media
             .get(&id)
             .ok_or_else(|| ApiError::not_found("media", id))?;
-        let mime = media.mime.clone().unwrap_or_default();
+        // The file's own bytes decide what it is; an imported record's stored type may be empty
+        // or free text. A recording is never sent, whatever the record says.
+        let sound = s.media_is_sound(id);
+        let mime = s
+            .media_content_mime(id)
+            .map(str::to_string)
+            .or_else(|| media.mime.clone())
+            .unwrap_or_default();
         Ok((
             records::media_full(s, media),
-            mime,
+            (mime, sound),
             s.media_original_path(id).ok(),
         ))
     })?;
+    let (mime, sound) = mime;
     let block = match path {
         None => text("The file is missing from the project folder."),
-        Some(path) if mime.starts_with("audio/") => text(&format!(
-            "This is a sound recording ({mime}, {} bytes). Its bytes are not sent to agents; the              details above are all there is to read.",
+        Some(path) if sound => text(&format!(
+            "This is a sound recording ({}, {} bytes). Its bytes are not sent to agents; the details above are all there is to read.",
+            if mime.is_empty() {
+                "type unknown"
+            } else {
+                &mime
+            },
             std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
         )),
         Some(path) if mime.starts_with("image/") => picture_block(&path, max_size, id, &mime),

@@ -60,8 +60,7 @@ pub enum ByteRange {
     Last(u64),
 }
 
-/// `None` when the header is absent or not a single well-formed byte range, so the whole file is
-/// sent (a player that asked oddly still gets sound).
+/// `None` when the header is not a single well-formed byte range; the caller answers 416.
 pub fn parse_range(header: &str) -> Option<ByteRange> {
     let spec = header.trim().strip_prefix("bytes=")?;
     let first = spec.split(',').next()?.trim();
@@ -90,7 +89,8 @@ fn partial(state: &AppState, id: Uuid, range: ByteRange) -> Response<Vec<u8>> {
     });
     match slice {
         Ok((Some(piece), _)) => {
-            let last = piece.start + piece.bytes.len() as u64 - 1;
+            // `media_range` never returns an empty piece, so `len >= 1`.
+            let last = piece.start + (piece.bytes.len() as u64).max(1) - 1;
             Response::builder()
                 .status(StatusCode::PARTIAL_CONTENT)
                 .header(header::CONTENT_TYPE, piece.mime)
@@ -103,13 +103,21 @@ fn partial(state: &AppState, id: Uuid, range: ByteRange) -> Response<Vec<u8>> {
                 .body(piece.bytes)
                 .unwrap_or_default()
         }
-        Ok((None, _)) => Response::builder()
-            .status(StatusCode::RANGE_NOT_SATISFIABLE)
-            .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
-            .body(b"Range not satisfiable.".to_vec())
-            .unwrap_or_default(),
+        Ok((None, _)) => not_satisfiable(state, id),
         Err(e) => text(status_for(&e), &e.message),
     }
+}
+
+/// `416`, saying how big the file is (`Content-Range: bytes */N`) so the player can ask again.
+fn not_satisfiable(state: &AppState, id: Uuid) -> Response<Vec<u8>> {
+    let mut b = Response::builder()
+        .status(StatusCode::RANGE_NOT_SATISFIABLE)
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8");
+    if let Ok(total) = state.with_session(|s| s.media_size(id)) {
+        b = b.header(header::CONTENT_RANGE, format!("bytes */{total}"));
+    }
+    b.body(b"Range not satisfiable.".to_vec())
+        .unwrap_or_default()
 }
 
 /// Builds the response for a request path. Pure apart from reading the session.
@@ -136,9 +144,14 @@ pub fn respond_range(state: &AppState, path: &str, range: Option<&str>) -> Respo
         return text(StatusCode::BAD_REQUEST, "Malformed media address.");
     };
     if size == MediaSize::Original
-        && let Some(range) = range.and_then(parse_range)
+        && let Some(header_value) = range
     {
-        return partial(state, id, range);
+        // A range the parser cannot read (wrong unit, reversed, a number too big) is answered
+        // 416 and never by reading the whole file: a recording can be hundreds of megabytes.
+        return match parse_range(header_value) {
+            Some(range) => partial(state, id, range),
+            None => not_satisfiable(state, id),
+        };
     }
     match state.with_session(|s| s.media_bytes(id, size)) {
         Ok((bytes, mime)) => Response::builder()

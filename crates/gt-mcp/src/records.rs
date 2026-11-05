@@ -152,7 +152,7 @@ fn voice_samples(s: &Session, common: &Common) -> Vec<Value> {
         .media
         .iter()
         .filter_map(|link| s.tree().media.get(&link.media))
-        .filter(|m| m.mime.as_deref().is_some_and(|t| t.starts_with("audio/")))
+        .filter(|m| s.media_is_sound(m.common.id))
         .map(|m| {
             let file = s.media_original_path(m.common.id).ok();
             json!({
