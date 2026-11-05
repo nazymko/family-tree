@@ -111,6 +111,7 @@ fn random_command(s: &Session, rng: &mut Rng, n: usize) -> EditCommand {
             draft: draft(rng, n),
             family: None,
             new_parent_set: None,
+            parent_rel: None,
         },
         3 => EditCommand::UpdatePerson {
             id: person(rng),
@@ -593,6 +594,7 @@ fn incremental_refresh_keeps_revision_moving_and_sorts_valid() {
         },
         family: None,
         new_parent_set: None,
+        parent_rel: None,
     })
     .unwrap();
     assert!(s.revision() > before);

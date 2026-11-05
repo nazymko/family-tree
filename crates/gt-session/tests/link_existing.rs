@@ -61,6 +61,7 @@ fn link(anchor: Uuid, relation: Relation, person: Uuid) -> EditCommand {
         person,
         family: None,
         new_parent_set: None,
+        parent_rel: None,
     }
 }
 
@@ -141,6 +142,7 @@ fn an_existing_person_as_child_partner_and_sibling() {
             person: olena,
             family: Some(fam),
             new_parent_set: None,
+            parent_rel: None,
         },
     );
     assert_eq!(parents(&t, olena), vec![(Some(ivan), None)]);
