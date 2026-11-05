@@ -24,7 +24,57 @@ async function createConnection(user: ReturnType<typeof userEvent.setup>, name: 
   return screen.findByRole('dialog');
 }
 
+const REQUIRE = 'Require a key';
+const NO_KEY_WARNING = 'Without a key, any program on this computer can read and change the family tree. Web pages have no access.';
+const KEYLESS = 'claude mcp add --transport http gene-tree http://127.0.0.1:8765/mcp';
+
 describe('AgentAccessSettings', () => {
+  it('no_key_is_required_by_default_with_a_plain_warning_and_the_keyless_command', async () => {
+    mount();
+    const switchEl = await screen.findByRole('checkbox', { name: REQUIRE });
+    expect(switchEl).not.toBeChecked();
+    expect(await screen.findByText(NO_KEY_WARNING)).toBeInTheDocument();
+    expect((await screen.findByTestId('agent-keyless-command')).textContent).toBe(KEYLESS);
+    // Access itself is still off.
+    expect(screen.getByRole('checkbox', { name: TOGGLE })).not.toBeChecked();
+    expect(screen.getByText('Not running.')).toBeInTheDocument();
+  });
+
+  it('requiring_a_key_hides_the_warning_and_the_keyless_command_and_turning_it_off_brings_them_back', async () => {
+    const user = userEvent.setup();
+    const api = mount();
+    await user.click(await screen.findByRole('checkbox', { name: REQUIRE }));
+    await waitFor(() => expect(screen.queryByText(NO_KEY_WARNING)).toBeNull());
+    expect(screen.queryByTestId('agent-keyless-command')).toBeNull();
+    expect((await api.agentAccessState()).requireKey).toBe(true);
+
+    await user.click(screen.getByRole('checkbox', { name: REQUIRE }));
+    expect(await screen.findByText(NO_KEY_WARNING)).toBeInTheDocument();
+    expect(screen.getByTestId('agent-keyless-command').textContent).toBe(KEYLESS);
+    expect((await api.agentAccessState()).requireKey).toBe(false);
+  });
+
+  it('the_connections_stay_usable_without_a_key_and_a_new_one_still_has_its_key', async () => {
+    const user = userEvent.setup();
+    mount();
+    await screen.findByRole('checkbox', { name: REQUIRE });
+    expect(screen.getByText(/gives an agent its own name in the log of changes/)).toBeInTheDocument();
+    const dialog = await createConnection(user, 'Claude on the laptop');
+    const key = within(dialog).getByTestId('agent-key').textContent ?? '';
+    expect(within(dialog).getByTestId('agent-snippet').textContent).toContain(`Bearer ${key}`);
+  });
+
+  it('the_switch_warning_and_command_read_in_ukrainian', async () => {
+    setLanguage('uk');
+    mount();
+    expect(await screen.findByRole('checkbox', { name: 'Вимагати ключ' })).not.toBeChecked();
+    expect(
+      await screen.findByText('Без ключа будь-яка програма на цьому комп’ютері може читати й змінювати родовід. Вебсторінки доступу не мають.'),
+    ).toBeInTheDocument();
+    expect((await screen.findByTestId('agent-keyless-command')).textContent).toBe(KEYLESS);
+    expect(document.body.textContent).not.toContain('дерево');
+  });
+
   it('off_by_default_warning_visible', async () => {
     mount();
     const toggle = await screen.findByRole('checkbox', { name: TOGGLE });

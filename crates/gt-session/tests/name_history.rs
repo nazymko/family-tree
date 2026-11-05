@@ -343,7 +343,18 @@ fn save_name_shows_from_to_in_history_and_log_also_after_undo_and_redo() {
     // make the stored name equal to what SaveName writes, so only the surname differs
     s.apply(save_name(ivan, nid, "Ivan", "Koval")).unwrap();
     s.apply(save_name(ivan, nid, "Ivan", "Kovalchuk")).unwrap();
-    let want = vec![surname_change("", "Koval", "Kovalchuk")];
+    // The import text "Ivan /Koval/" goes with the changed surname, so the row shows that too.
+    let raw = |from: Option<&str>, to: Option<&str>| {
+        (
+            "raw".to_string(),
+            from.map(String::from),
+            to.map(String::from),
+        )
+    };
+    let want = vec![
+        surname_change("", "Koval", "Kovalchuk"),
+        raw(Some("Ivan /Koval/"), None),
+    ];
 
     let latest = |s: &Session| s.history(ivan, 20).unwrap()[0].clone();
     let last_log = |s: &Session| {
@@ -358,7 +369,10 @@ fn save_name_shows_from_to_in_history_and_log_also_after_undo_and_redo() {
 
     // undo: back to Koval, so the undo row says Kovalchuk -> Koval
     s.undo().unwrap().unwrap();
-    let back = vec![surname_change("", "Kovalchuk", "Koval")];
+    let back = vec![
+        surname_change("", "Kovalchuk", "Koval"),
+        raw(None, Some("Ivan /Koval/")),
+    ];
     assert_eq!(fields(&latest(&s).fields), back);
     assert_eq!(last_log(&s).1, back);
     // the original row still says Koval -> Kovalchuk

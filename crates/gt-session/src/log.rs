@@ -114,6 +114,8 @@ pub struct BatchDto {
     pub id: Uuid,
     pub title: String,
     pub source_file: Option<String>,
+    /// Who ran the batch, by the id that never changes. Labels go by this, not by the name.
+    pub actor_id: Uuid,
     pub actor_name: String,
     #[ts(type = "number")]
     pub started: i64,
@@ -602,6 +604,7 @@ impl Session {
                     id: b.id,
                     title: b.title,
                     source_file: b.source_file,
+                    actor_id: b.actor_id,
                     actor_name: b.actor_name,
                     started: b.started,
                     ended: b.ended,

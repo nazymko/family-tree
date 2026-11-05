@@ -20,7 +20,7 @@
   import { toasts } from '../state/toast.svelte';
   import Button from '../ui/Button.svelte';
   import { currentLocale, t } from '../i18n';
-  import { editLabel, factText, recordKindLabel } from '../i18n/backend';
+  import { agentLabel, editLabel, factText, recordKindLabel } from '../i18n/backend';
   import LogChanges, { type ChangeAction } from './LogChanges.svelte';
   import UndoDialog, { type Pending } from './UndoDialog.svelte';
 
@@ -99,7 +99,7 @@
     await settle();
   }
 
-  const who = (r: LogRowDto) => (r.actor.kind === 'agent' ? r.actor.name : '');
+  const who = (r: LogRowDto) => (r.actor.kind === 'agent' ? agentLabel(r.actor.id, r.actor.name) : '');
   const when = (r: LogRowDto) => new Date(r.ts).toLocaleString(currentLocale());
   const rowName = (r: LogRowDto) => [when(r), who(r), editLabel(r.label)].filter(Boolean).join(', ');
 

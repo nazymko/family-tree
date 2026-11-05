@@ -152,6 +152,7 @@ Original approach: put the library behind our own `GedcomReader`/`GedcomWriter` 
 - **Settings**: date format (DMY/MDY), name display order, living threshold, home person, theme (light/dark).
 
 ### 5.2 Should (v0.2–v0.3)
+- **Agent access** (built): a local MCP server lets an AI agent on the same computer read the open tree and add to it, with every change attributed, reviewable and undoable. Off by default. See `docs/agent-access.md`.
 - **Face/region tagging** on photos: draw a box, then link it to a person. The person's gallery shows the cropped face, and a crop can be chosen as their portrait.
 - **Stories**: a rich-text editor with headings, lists, links to people and places, embedded images and a word count. Stories can be exported to the HTML site.
 - **Media inbox**: a watched "inbox" folder where relatives' photos and files land, to be triaged one by one into people and events.

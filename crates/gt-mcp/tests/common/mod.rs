@@ -19,6 +19,8 @@ pub struct TestHost {
     pub keys: Mutex<HashMap<[u8; 32], AgentCtx>>,
     /// What each `changed` call was told.
     pub changes: Mutex<Vec<(Vec<Uuid>, AgentCtx)>>,
+    /// Who a request with no key is, while keys are not required. `None`: a key is required.
+    pub keyless: Mutex<Option<AgentCtx>>,
     pub _dir: Option<TempDir>,
     /// Whether any `changed` call found the session locked.
     pub changed_under_lock: Mutex<bool>,
@@ -51,6 +53,10 @@ impl Host for TestHost {
         self.keys.lock().unwrap().get(key_sha256).cloned()
     }
 
+    fn authenticate_keyless(&self) -> Option<AgentCtx> {
+        self.keyless.lock().unwrap().clone()
+    }
+
     fn changed(&self, touched: &[Uuid], agent: &AgentCtx) {
         if matches!(self.session.try_lock(), Err(TryLockError::WouldBlock)) {
             *self.changed_under_lock.lock().unwrap() = true;
@@ -68,6 +74,7 @@ pub fn no_tree_host() -> TestHost {
         session: Mutex::new(None),
         keys: Mutex::new(HashMap::from([(hash(KEY), ctx())])),
         changes: Mutex::new(Vec::new()),
+        keyless: Mutex::default(),
         _dir: None,
         changed_under_lock: Mutex::default(),
     }
@@ -83,6 +90,7 @@ pub fn empty_host() -> TestHost {
         session: Mutex::new(Some(session)),
         keys: Mutex::new(HashMap::from([(hash(KEY), ctx())])),
         changes: Mutex::new(Vec::new()),
+        keyless: Mutex::default(),
         _dir: Some(dir),
         changed_under_lock: Mutex::default(),
     }

@@ -8,6 +8,10 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     ("0001_init", include_str!("migrations/0001_init.sql")),
     ("0002_edit", include_str!("migrations/0002_edit.sql")),
     ("0003_authors", include_str!("migrations/0003_authors.sql")),
+    (
+        "0004_log_index",
+        include_str!("migrations/0004_log_index.sql"),
+    ),
 ];
 
 pub(crate) fn user_version(conn: &Connection) -> Result<i32, StoreError> {

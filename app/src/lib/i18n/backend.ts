@@ -69,6 +69,18 @@ const AGENT_ERRORS = (Object.keys(en.agent) as (keyof typeof en.agent)[])
     return { key: `agent.${name}` as MessageKey, pattern: new RegExp(`^${pattern}$`) };
   });
 
+/** The built-in agent that works when no key is required. Mirrors `KEYLESS_AGENT_ID` and `KEYLESS_AGENT_NAME` in gt-mcp. */
+export const KEYLESS_AGENT_ID = '01927a00-0000-7000-8000-6e6f6b657900';
+export const KEYLESS_AGENT_NAME = 'Agent without a key';
+
+/**
+ * An agent's name for the screen. The built-in agent is known by its fixed id and gets a translated label.
+ * Never by its name: a connection that already had that name before it was reserved shows as itself.
+ */
+export function agentLabel(id: string, name: string): string {
+  return id === KEYLESS_AGENT_ID ? t('agent.keylessAgent') : name;
+}
+
 /** An error of agent access in the active language; other text is shown as the backend wrote it. */
 export function agentErrorText(text: string): string {
   for (const { key, pattern } of AGENT_ERRORS) {

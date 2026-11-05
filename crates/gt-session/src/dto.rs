@@ -371,7 +371,7 @@ impl Default for Settings {
             day_order: DayOrder::Dmy,
             name_order: NameOrder::GivenFirst,
             theme: Theme::System,
-            language: Language::System,
+            language: Language::Uk,
             backups_to_keep: 10,
             tree_direction: TreeDirection::Normal,
             living_max_age: 100,

@@ -13,7 +13,7 @@ fn settings_atomic_write_and_defaults() {
     assert_eq!(d.day_order, DayOrder::Dmy);
     assert_eq!(d.name_order, NameOrder::GivenFirst);
     assert_eq!(d.theme, Theme::System);
-    assert_eq!(d.language, Language::System);
+    assert_eq!(d.language, Language::Uk);
     assert_eq!(d.backups_to_keep, 10);
     assert_eq!(d.tree_direction, TreeDirection::Normal);
 

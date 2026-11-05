@@ -28,7 +28,7 @@ export function resolveSystemLanguage(tag: string | undefined = typeof navigator
 }
 
 class LocaleStore {
-  pref = $state<LanguagePref>('system');
+  pref = $state<LanguagePref>('uk');
   /** The active language; follows `pref`, and the system language when `pref` is `system`. */
   get locale(): LanguageCode {
     return this.pref === 'system' ? resolveSystemLanguage() : this.pref;

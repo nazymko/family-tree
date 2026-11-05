@@ -216,6 +216,7 @@ fn reason(status: u16) -> &'static str {
         408 => "Request Timeout",
         411 => "Length Required",
         413 => "Content Too Large",
+        415 => "Unsupported Media Type",
         431 => "Request Header Fields Too Large",
         501 => "Not Implemented",
         503 => "Service Unavailable",
@@ -280,16 +281,16 @@ fn serve_one<H: Host>(
         Ok(read) => read,
         Err(answer) => return answer,
     };
-    if !allowed_host(&head, port) || !allowed_origin(&head, port) {
+    if !allowed_host(&head, port) || !allowed_origin(&head, port) || !allowed_fetch_site(&head) {
         return Some(Answer::status(403));
     }
     if head.path() != "/mcp" {
         return Some(Answer::status(404));
     }
-    let hash = bearer_hash(&head);
-    let Some(hash) = hash.filter(|hash| host.authenticate(hash).is_some()) else {
+    let credential = credential(&head);
+    if who(host, &credential).is_none() {
         return Some(refuse_key());
-    };
+    }
     if head.method != "POST" {
         return Some(Answer::with_header(405, "Allow", "POST"));
     }
@@ -297,6 +298,11 @@ fn serve_one<H: Host>(
         Ok(length) => length,
         Err(status) => return Some(Answer::status(status)),
     };
+    // A web page can send a body as text/plain, a form, or with no Origin, without a preflight.
+    // Demanding JSON makes a browser ask first, and the Origin check then answers it.
+    if !is_json(&head) {
+        return Some(Answer::status(415));
+    }
     let mut versions = head.values("MCP-Protocol-Version");
     if let Some(first) = versions.next()
         && versions.any(|other| other != first)
@@ -327,8 +333,8 @@ fn serve_one<H: Host>(
         method: head.value("Mcp-Method").map(str::to_string),
         name: head.value("Mcp-Name").map(str::to_string),
     };
-    // The body can take its time, and the key can be revoked meanwhile.
-    let Some(ctx) = host.authenticate(&hash) else {
+    // The body can take its time, and the key can be revoked, or one made required, meanwhile.
+    let Some(ctx) = who(host, &credential) else {
         return Some(refuse_key());
     };
     let reply = catch_unwind(AssertUnwindSafe(|| {
@@ -529,6 +535,24 @@ fn allowed_host(head: &Head, port: u16) -> bool {
         || value.eq_ignore_ascii_case(&format!("localhost:{port}"))
 }
 
+/// Exactly one `Content-Type`, `application/json`, with or without parameters such as a charset.
+fn is_json(head: &Head) -> bool {
+    let mut values = head.values("Content-Type");
+    let (Some(value), None) = (values.next(), values.next()) else {
+        return false;
+    };
+    let media = value.split(';').next().unwrap_or_default().trim_ascii();
+    media.eq_ignore_ascii_case("application/json")
+}
+
+/// A browser says where a request comes from. Anything but "none" (typed in, not a page) or
+/// "same-origin" is a page of another site, refused whatever Origin says. Clients that are not
+/// browsers send none.
+fn allowed_fetch_site(head: &Head) -> bool {
+    head.values("Sec-Fetch-Site")
+        .all(|v| v.eq_ignore_ascii_case("none") || v.eq_ignore_ascii_case("same-origin"))
+}
+
 /// No Origin (not a browser), or this server's own.
 fn allowed_origin(head: &Head, port: u16) -> bool {
     head.values("Origin").all(|value| {
@@ -537,16 +561,44 @@ fn allowed_origin(head: &Head, port: u16) -> bool {
     })
 }
 
-/// The SHA-256 of the one bearer key in the request.
-fn bearer_hash(head: &Head) -> Option<[u8; 32]> {
+/// What the request offers as proof of who it is.
+enum Credential {
+    /// No `Authorization` header at all.
+    Absent,
+    /// A header that is not exactly one well-formed bearer key. Never falls back to anything.
+    Malformed,
+    /// The SHA-256 of the one bearer key.
+    Key([u8; 32]),
+}
+
+fn credential(head: &Head) -> Credential {
     let mut values = head.values("Authorization");
-    let (Some(value), None) = (values.next(), values.next()) else {
-        return None;
+    let Some(value) = values.next() else {
+        return Credential::Absent;
     };
-    let (scheme, key) = value.split_once(' ')?;
-    let key = key.trim_ascii();
-    if !scheme.eq_ignore_ascii_case("bearer") || key.is_empty() {
-        return None;
+    if values.next().is_some() {
+        return Credential::Malformed;
     }
-    Some(crate::key_hash(key))
+    match value.split_once(' ') {
+        Some((scheme, key)) if scheme.eq_ignore_ascii_case("bearer") => {
+            let key = key.trim_ascii();
+            if key.is_empty() {
+                Credential::Malformed
+            } else {
+                Credential::Key(crate::key_hash(key))
+            }
+        }
+        _ => Credential::Malformed,
+    }
+}
+
+/// The agent behind the request, or `None` for a 401. A key is always checked, so a client that
+/// believes it has one hears that it is bad; only a request with no key at all can be the keyless
+/// agent, and only while the host allows it.
+fn who<H: Host>(host: &H, credential: &Credential) -> Option<crate::AgentCtx> {
+    match credential {
+        Credential::Key(hash) => host.authenticate(hash),
+        Credential::Absent => host.authenticate_keyless(),
+        Credential::Malformed => None,
+    }
 }

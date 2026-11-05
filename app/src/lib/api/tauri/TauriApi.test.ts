@@ -184,12 +184,14 @@ describe('TauriApi', () => {
     reply = (cmd) => (cmd === 'agent_connection_create' ? { connection: { id: 'c1', name: 'n', created: 1 }, key: 'gt_ab', snippet: 's' } : null);
     await api.agentAccessState();
     await api.agentAccessSet(true, 8765);
+    await api.agentAccessRequireKey(true);
     await api.agentConnectionCreate('Laptop');
     await api.agentConnectionRevoke('c1');
     await api.agentRules();
     expect(calls).toEqual([
       { cmd: 'agent_access_state', args: {} },
       { cmd: 'agent_access_set', args: { enabled: true, port: 8765 } },
+      { cmd: 'agent_access_require_key', args: { required: true } },
       { cmd: 'agent_connection_create', args: { name: 'Laptop' } },
       { cmd: 'agent_connection_revoke', args: { id: 'c1' } },
       { cmd: 'agent_rules', args: {} },

@@ -109,7 +109,7 @@ impl<H> Fixture<H> {
             head.push_str("\r\n");
         }
         head.push_str(&format!(
-            "Content-Length: {length}\r\nConnection: close\r\n\r\n"
+            "Content-Type: application/json\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n"
         ));
         head
     }
@@ -541,7 +541,7 @@ fn body_at_the_limit_is_read() {
     let mut body = initialize_body().to_string().into_bytes();
     body.resize(8 * 1024 * 1024, b' ');
     let head = format!(
-        "POST /mcp HTTP/1.1\r\n{}\r\nAuthorization: Bearer {KEY}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+        "POST /mcp HTTP/1.1\r\n{}\r\nAuthorization: Bearer {KEY}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
         f.host_line(),
         body.len()
     );
@@ -554,7 +554,7 @@ fn body_at_the_limit_is_read() {
 fn bad_json_400() {
     let f = start();
     let head = format!(
-        "POST /mcp HTTP/1.1\r\n{}\r\nAuthorization: Bearer {KEY}\r\nConnection: close\r\nContent-Length: 5\r\n\r\n",
+        "POST /mcp HTTP/1.1\r\n{}\r\nAuthorization: Bearer {KEY}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: 5\r\n\r\n",
         f.host_line()
     );
     let r = f.raw(&head, b"{nope");
@@ -809,7 +809,7 @@ fn one_request_per_connection() {
     let f = start();
     let body = request("ping", json!({})).to_string();
     let head = format!(
-        "POST /mcp HTTP/1.1\r\n{}\r\n{}\r\nContent-Length: {}\r\n\r\n",
+        "POST /mcp HTTP/1.1\r\n{}\r\n{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
         f.host_line(),
         f.key_line(),
         body.len()
@@ -1198,6 +1198,10 @@ impl Host for SlowHost {
         self.inner.authenticate(key_sha256)
     }
 
+    fn authenticate_keyless(&self) -> Option<AgentCtx> {
+        self.inner.authenticate_keyless()
+    }
+
     fn changed(&self, touched: &[uuid::Uuid], agent: &AgentCtx) {
         self.inner.changed(touched, agent);
     }
@@ -1223,7 +1227,7 @@ fn call_at_once(f: &Fixture<SlowHost>, calls: usize) -> Vec<Value> {
                     request("tools/call", json!({"name": "tree_summary", "arguments": {}}))
                         .to_string();
                 let head = format!(
-                    "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {KEY}\r\nContent-Length: {}\r\n\r\n{body}",
+                    "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {KEY}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
                     body.len()
                 );
                 let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
@@ -1366,4 +1370,535 @@ fn the_port_can_be_taken_again_at_once_with_clients_still_connected() {
     let next = serve(Arc::clone(&f.host), port).unwrap();
     assert_eq!(next.port(), port);
     drop((idle, half));
+}
+
+// ---- no key required: the owner chose to let any program on this computer in ----
+
+fn start_keyless() -> Fixture {
+    let f = start();
+    *f.host.keyless.lock().unwrap() = Some(gt_mcp::keyless_agent());
+    f
+}
+
+impl<H> Fixture<H> {
+    /// A POST to `/mcp` with the good host, no `Authorization` header, and the extra lines given.
+    fn post_bare(&self, extra: &[(&str, &str)], body: &Value) -> Reply {
+        let text = body.to_string();
+        let mut head = format!(
+            "POST /mcp HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n",
+            self.good_host(),
+            text.len()
+        );
+        for (name, value) in extra {
+            head.push_str(&format!("{name}: {value}\r\n"));
+        }
+        head.push_str("\r\n");
+        self.raw(&head, text.as_bytes())
+    }
+}
+
+fn call_body(name: &str, arguments: Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {"name": name, "arguments": arguments},
+    })
+}
+
+/// A tool call as the keyless agent (`keyed` false) or as the keyed one; the tool's own JSON.
+fn tool_call(f: &Fixture, keyed: bool, name: &str, arguments: Value) -> Value {
+    let body = call_body(name, arguments);
+    let reply = if keyed {
+        f.post(&[], &body)
+    } else {
+        f.post_bare(&[], &body)
+    };
+    assert_eq!(reply.status, 200);
+    let reply = reply.json();
+    assert_ne!(reply["result"]["isError"], json!(true), "{reply}");
+    serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+}
+
+fn tool_refusal(f: &Fixture, name: &str, arguments: Value) -> String {
+    let reply = f.post_bare(&[], &call_body(name, arguments));
+    assert_eq!(reply.status, 200);
+    let reply = reply.json();
+    assert_eq!(reply["result"]["isError"], json!(true), "{reply}");
+    reply["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn keyless_default_host_still_needs_a_key() {
+    // A host that does not opt in refuses a request with no key.
+    let f = start();
+    assert_eq!(f.post_bare(&[], &initialize_body()).status, 401);
+}
+
+#[test]
+fn keyless_no_header_runs_as_the_builtin_agent() {
+    let f = start_keyless();
+    assert_eq!(f.post_bare(&[], &initialize_body()).status, 200);
+    let batch =
+        tool_call(&f, false, "begin_batch", json!({"title": "Recording 3"}))["batch"].clone();
+    tool_call(
+        &f,
+        false,
+        "add_person",
+        json!({"batch": batch, "given": "Ivan", "surnames": ["Koval"]}),
+    );
+    let log = tool_call(&f, false, "get_log", json!({"filters": {"batch": batch}}));
+    let row = &log["items"][0];
+    assert_eq!(row["actor"]["id"], json!(gt_mcp::KEYLESS_AGENT_ID), "{row}");
+    assert_eq!(row["actor"]["name"], gt_mcp::KEYLESS_AGENT_NAME, "{row}");
+    assert_eq!(row["actor"]["kind"], "agent", "{row}");
+    // The change is told to the app under that identity, so it is badged and reviewable.
+    let changes = f.host.changes.lock().unwrap();
+    assert!(!changes.is_empty());
+    assert!(
+        changes
+            .iter()
+            .all(|(_, a)| a.id == gt_mcp::KEYLESS_AGENT_ID)
+    );
+}
+
+#[test]
+fn keyless_agent_id_is_fixed() {
+    assert_eq!(
+        gt_mcp::KEYLESS_AGENT_ID.to_string(),
+        "01927a00-0000-7000-8000-6e6f6b657900"
+    );
+}
+
+#[test]
+fn keyless_a_valid_key_runs_as_its_connection() {
+    let f = start_keyless();
+    let batch =
+        tool_call(&f, true, "begin_batch", json!({"title": "Recording 4"}))["batch"].clone();
+    tool_call(
+        &f,
+        true,
+        "add_person",
+        json!({"batch": batch, "given": "Olena", "surnames": ["Koval"]}),
+    );
+    let log = tool_call(&f, true, "get_log", json!({"filters": {"batch": batch}}));
+    let row = &log["items"][0];
+    assert_eq!(row["actor"]["name"], "Transcript reader", "{row}");
+    assert_eq!(row["actor"]["id"], json!(ctx().id), "{row}");
+}
+
+#[test]
+fn keyless_a_bad_key_is_401_and_never_the_builtin_agent() {
+    let f = start_keyless();
+    for auth in [
+        "Authorization: Bearer not-the-key".to_string(),
+        format!("Authorization: Basic {KEY}"),
+        format!("Authorization: {KEY}"),
+        "Authorization: Bearer ".to_string(),
+        "Authorization:".to_string(),
+    ] {
+        let head = f.head_only(&[f.host_line(), auth.clone()], UNREAD);
+        let r = f.raw(&head, b"");
+        assert_eq!(r.status, 401, "{auth}");
+        assert!(
+            r.head.to_lowercase().contains("www-authenticate: bearer"),
+            "{}",
+            r.head
+        );
+    }
+    let two = f.head_only(
+        &[
+            f.host_line(),
+            format!("Authorization: Bearer {KEY}"),
+            "Authorization: Bearer other".to_string(),
+        ],
+        UNREAD,
+    );
+    assert_eq!(f.raw(&two, b"").status, 401);
+}
+
+#[test]
+fn keyless_a_revoked_key_is_401() {
+    let f = start_keyless();
+    assert_eq!(f.post(&[], &initialize_body()).status, 200);
+    f.host.keys.lock().unwrap().clear();
+    assert_eq!(f.post(&[], &initialize_body()).status, 401);
+    // A client with no key at all is let in; one that still sends its old key is told.
+    assert_eq!(f.post_bare(&[], &initialize_body()).status, 200);
+}
+
+#[test]
+fn requiring_a_key_takes_effect_for_the_next_request_and_back() {
+    let f = start_keyless();
+    assert_eq!(f.post_bare(&[], &initialize_body()).status, 200);
+    *f.host.keyless.lock().unwrap() = None;
+    assert_eq!(f.post_bare(&[], &initialize_body()).status, 401);
+    assert_eq!(f.post(&[], &initialize_body()).status, 200);
+    *f.host.keyless.lock().unwrap() = Some(gt_mcp::keyless_agent());
+    assert_eq!(f.post_bare(&[], &initialize_body()).status, 200);
+}
+
+#[test]
+fn requiring_a_key_stops_a_request_already_past_its_head() {
+    let f = start_keyless();
+    let body = request(
+        "tools/call",
+        json!({"name": "tree_summary", "arguments": {}}),
+    )
+    .to_string();
+    let head = f.head_only(&[f.host_line()], body.len());
+    let mut s = f.connect();
+    s.write_all(head.as_bytes()).unwrap();
+    // Long enough for the head to pass its checks as the keyless agent.
+    std::thread::sleep(Duration::from_millis(200));
+    *f.host.keyless.lock().unwrap() = None;
+    s.write_all(body.as_bytes()).unwrap();
+    let r = read_reply(&mut s);
+    assert_eq!(r.status, 401);
+    assert!(!String::from_utf8_lossy(&r.body).contains("result"));
+}
+
+#[test]
+fn keyless_a_web_page_is_refused() {
+    let f = start_keyless();
+    for origin in [
+        "https://evil.example".to_string(),
+        "null".to_string(),
+        format!("http://evil.example:{}", f.port()),
+        "http://127.0.0.1:1".to_string(),
+        "http://localhost:3000".to_string(),
+    ] {
+        let head = f.head_only(&[f.host_line(), format!("Origin: {origin}")], UNREAD);
+        assert_eq!(f.raw(&head, b"").status, 403, "{origin}");
+        let with_body = f.post_bare(&[("Origin", origin.as_str())], &initialize_body());
+        assert_eq!(with_body.status, 403, "{origin}");
+    }
+    assert!(f.host.changes.lock().unwrap().is_empty());
+}
+
+#[test]
+fn keyless_a_foreign_host_is_refused() {
+    let f = start_keyless();
+    for host in [
+        format!("evil.example:{}", f.port()),
+        "evil.example".to_string(),
+        "127.0.0.1".to_string(),
+        "127.0.0.1:1".to_string(),
+        format!("127.0.0.1.evil.example:{}", f.port()),
+    ] {
+        let head = f.head_only(&[format!("Host: {host}")], UNREAD);
+        assert_eq!(f.raw(&head, b"").status, 403, "{host}");
+    }
+    let none = f.head_only(&[], UNREAD);
+    assert_eq!(f.raw(&none, b"").status, 403);
+    let two = f.head_only(&[f.host_line(), f.host_line()], UNREAD);
+    assert_eq!(f.raw(&two, b"").status, 403);
+}
+
+#[test]
+fn keyless_loopback_only_one_path_and_method() {
+    let f = start_keyless();
+    assert!(f.server.local_addr().ip().is_loopback());
+    let get = format!(
+        "GET /mcp HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+        f.good_host()
+    );
+    assert_eq!(f.raw(&get, b"").status, 405);
+    let other = format!(
+        "POST /other HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Length: 2\r\n\r\n{{}}",
+        f.good_host()
+    );
+    assert_eq!(f.raw(&other, b"").status, 404);
+}
+
+#[test]
+fn keyless_body_limits() {
+    let f = start_keyless();
+    let big = f.head_only(&[f.host_line()], 8 * 1024 * 1024 + 1);
+    assert_eq!(f.raw(&big, b"").status, 413);
+    let none = format!(
+        "POST /mcp HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+        f.good_host()
+    );
+    assert_eq!(f.raw(&none, b"").status, 411);
+    let chunked = f.head_only(
+        &[f.host_line(), "Transfer-Encoding: chunked".into()],
+        UNREAD,
+    );
+    assert_eq!(f.raw(&chunked, b"").status, 411);
+    let bad = f.head_with_length(&[f.host_line()], "12abc");
+    assert_eq!(f.raw(&bad, b"").status, 400);
+    f.assert_recovers();
+}
+
+#[test]
+fn keyless_at_most_two_tool_calls_run_at_once() {
+    let f = start_slow(Duration::from_millis(200));
+    *f.host.inner.keyless.lock().unwrap() = Some(gt_mcp::keyless_agent());
+    let port = f.port();
+    let threads: Vec<_> = (0..6)
+        .map(|_| {
+            std::thread::spawn(move || {
+                let body =
+                    request("tools/call", json!({"name": "tree_summary", "arguments": {}}))
+                        .to_string();
+                let head = format!(
+                    "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+                let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+                s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+                s.write_all(head.as_bytes()).unwrap();
+                read_reply(&mut s).json()
+            })
+        })
+        .collect();
+    for t in threads {
+        let reply = t.join().unwrap();
+        assert_ne!(reply["result"]["isError"], json!(true), "{reply}");
+    }
+    assert_eq!(f.host.peak.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn keyless_client_cannot_claim_other_name() {
+    let f = start_keyless();
+    let forged = json!({"id": uuid::Uuid::from_u128(99), "name": "The owner", "kind": "user"});
+    let meta = json!({
+        "io.modelcontextprotocol/clientInfo": {"name": "The owner", "version": "1"},
+        "name": "The owner",
+        "actor": forged,
+        "agent": forged,
+    });
+    let init = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "The owner", "version": "1"},
+        },
+    });
+    assert_eq!(f.post_bare(&[], &init).status, 200);
+    let call = |name: &str, mut arguments: Value| -> Value {
+        arguments["name"] = json!("The owner");
+        arguments["actor"] = forged.clone();
+        arguments["agent"] = forged.clone();
+        arguments["agent_name"] = json!("The owner");
+        arguments["actor_id"] = forged["id"].clone();
+        arguments["_meta"] = meta.clone();
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments, "_meta": meta},
+        });
+        let reply = f.post_bare(&[], &body).json();
+        assert_ne!(reply["result"]["isError"], json!(true), "{reply}");
+        serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+    };
+    let batch = call("begin_batch", json!({"title": "Recording 5"}))["batch"].clone();
+    call(
+        "add_person",
+        json!({"batch": batch, "given": "Ivan", "surnames": ["Koval"]}),
+    );
+    let log = call("get_log", json!({"filters": {"batch": batch}}));
+    let row = &log["items"][0];
+    assert_eq!(row["actor"]["name"], gt_mcp::KEYLESS_AGENT_NAME, "{row}");
+    assert_eq!(row["actor"]["id"], json!(gt_mcp::KEYLESS_AGENT_ID), "{row}");
+    assert!(!log.to_string().contains("The owner"), "{log}");
+}
+
+#[test]
+fn keyless_gate_refusals_and_living_status_hold() {
+    let f = start_keyless();
+    let id = with(&f.host, |s| {
+        add_person(s, draft("Ivan", "Koval", None, None))
+    });
+    let batch =
+        tool_call(&f, false, "begin_batch", json!({"title": "Recording 6"}))["batch"].clone();
+    let living =
+        |f: &Fixture| tool_call(f, false, "get_person", json!({"id": id}))["living"].clone();
+    let was = living(&f);
+    for (kind, date) in [("death", "1950"), ("burial", "1950"), ("birth", "1801")] {
+        let message = tool_refusal(
+            &f,
+            "add_event",
+            json!({"batch": batch, "person": id, "kind": kind, "date": date}),
+        );
+        assert!(message.contains("alive or dead"), "{kind}: {message}");
+    }
+    assert_eq!(living(&f), was);
+    // The owner's own note is not the agent's to change, however the call is worded.
+    with(&f.host, |s| add_note(s, id, "The owner wrote this"));
+    let owners_note = with(&f.host, |s| s.tree().notes.keys().next().copied().unwrap());
+    let message = tool_refusal(
+        &f,
+        "update_own_note",
+        json!({"batch": batch, "note": owners_note, "text": "Changed"}),
+    );
+    assert!(!message.is_empty());
+    with(&f.host, |s| {
+        let note = &s.tree().notes[&owners_note];
+        assert!(format!("{note:?}").contains("The owner wrote this"));
+    });
+}
+
+// ---- a second layer against web pages: media type and fetch metadata, in both modes ----
+
+/// A POST with exactly the header lines given (after the request line and Host).
+fn raw_post<H>(f: &Fixture<H>, lines: &[&str], body: &str) -> Reply {
+    let mut head = format!("POST /mcp HTTP/1.1\r\nHost: {}\r\n", f.good_host());
+    for line in lines {
+        head.push_str(line);
+        head.push_str("\r\n");
+    }
+    head.push_str(&format!(
+        "Connection: close\r\nContent-Length: {}\r\n\r\n",
+        body.len()
+    ));
+    f.raw(&head, body.as_bytes())
+}
+
+/// Both modes: with the key, and with none while none is required.
+fn both_modes(check: impl Fn(&Fixture, &[String])) {
+    let keyed = start();
+    check(&keyed, &[format!("Authorization: Bearer {KEY}")]);
+    let keyless = start_keyless();
+    check(&keyless, &[]);
+}
+
+#[test]
+fn json_media_type_is_required_to_post() {
+    both_modes(|f, auth| {
+        let body = initialize_body().to_string();
+        let with = |ct: Option<&str>| {
+            let mut lines: Vec<String> = auth.to_vec();
+            if let Some(ct) = ct {
+                lines.push(format!("Content-Type: {ct}"));
+            }
+            let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+            raw_post(f, &refs, &body).status
+        };
+        // What the MCP SDKs send, with and without parameters, in any case.
+        for ok in [
+            "application/json",
+            "application/json; charset=utf-8",
+            "Application/JSON;charset=UTF-8",
+            "application/json ; charset=utf-8",
+        ] {
+            assert_eq!(with(Some(ok)), 200, "{ok}");
+        }
+        // What a page can send without asking first: no preflight for these.
+        for bad in [
+            "text/plain",
+            "text/plain;charset=UTF-8",
+            "application/x-www-form-urlencoded",
+            "multipart/form-data; boundary=x",
+            "application/jsonp",
+            "application/json-seq",
+            "text/json",
+            "",
+        ] {
+            assert_eq!(with(Some(bad)), 415, "{bad:?}");
+        }
+        assert_eq!(with(None), 415, "no Content-Type");
+        assert!(f.host.changes.lock().unwrap().is_empty());
+    });
+}
+
+#[test]
+fn two_content_types_are_refused() {
+    both_modes(|f, auth| {
+        let mut lines: Vec<&str> = auth.iter().map(String::as_str).collect();
+        lines.extend(["Content-Type: application/json", "Content-Type: text/plain"]);
+        assert_eq!(
+            raw_post(f, &lines, &initialize_body().to_string()).status,
+            415
+        );
+    });
+}
+
+#[test]
+fn a_cross_site_request_is_refused_even_with_no_origin() {
+    both_modes(|f, auth| {
+        let body = initialize_body().to_string();
+        let status = |site: &str| {
+            let mut lines: Vec<String> = auth.to_vec();
+            lines.push("Content-Type: application/json".into());
+            lines.push(format!("Sec-Fetch-Site: {site}"));
+            let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+            raw_post(f, &refs, &body).status
+        };
+        for bad in ["cross-site", "same-site", "Cross-Site", "", "nonsense"] {
+            assert_eq!(status(bad), 403, "{bad:?}");
+        }
+        for ok in ["none", "same-origin", "NONE"] {
+            assert_eq!(status(ok), 200, "{ok}");
+        }
+        assert!(f.host.changes.lock().unwrap().is_empty());
+    });
+}
+
+#[test]
+fn the_bad_combinations_a_page_could_send() {
+    both_modes(|f, auth| {
+        let body = initialize_body().to_string();
+        let run = |extra: &[&str]| {
+            let mut lines: Vec<&str> = auth.iter().map(String::as_str).collect();
+            lines.extend(extra);
+            raw_post(f, &lines, &body).status
+        };
+        // text/plain with no Origin: the classic simple request.
+        assert_eq!(run(&["Content-Type: text/plain"]), 415);
+        // A form post.
+        assert_eq!(
+            run(&[
+                "Content-Type: application/x-www-form-urlencoded",
+                "Origin: https://evil.example"
+            ]),
+            403
+        );
+        assert_eq!(
+            run(&["Content-Type: application/x-www-form-urlencoded"]),
+            415
+        );
+        // A cross-site fetch that left out Origin.
+        assert_eq!(
+            run(&[
+                "Content-Type: application/json",
+                "Sec-Fetch-Site: cross-site"
+            ]),
+            403
+        );
+        assert_eq!(
+            run(&["Content-Type: text/plain", "Sec-Fetch-Site: cross-site"]),
+            403
+        );
+        // JSON from another origin.
+        assert_eq!(
+            run(&[
+                "Content-Type: application/json",
+                "Origin: https://evil.example"
+            ]),
+            403
+        );
+        // The ordinary client: JSON, no Origin, no fetch metadata.
+        assert_eq!(run(&["Content-Type: application/json"]), 200);
+    });
+}
+
+#[test]
+fn headers_alone_are_enough_to_refuse_a_cross_site_request() {
+    // The fetch-site check runs on the head, before any body byte is waited for.
+    let f = start_keyless();
+    let head = f.head_only(
+        &[f.host_line(), "Sec-Fetch-Site: cross-site".to_string()],
+        UNREAD,
+    );
+    assert_eq!(f.raw(&head, b"").status, 403);
 }

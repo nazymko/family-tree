@@ -261,6 +261,9 @@ export class TauriApi implements Api {
   agentAccessSet(enabled: boolean, port: number): Promise<AgentAccessState> {
     return call('agent_access_set', { enabled, port });
   }
+  agentAccessRequireKey(required: boolean): Promise<AgentAccessState> {
+    return call('agent_access_require_key', { required });
+  }
   agentConnectionCreate(name: string): Promise<NewConnectionDto> {
     return call('agent_connection_create', { name });
   }
