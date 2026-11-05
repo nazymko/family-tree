@@ -6,6 +6,7 @@ use gt_session::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 pub const SETTINGS_FILE: &str = "settings.json";
 pub const RECENT_FILE: &str = "recent.json";
@@ -21,6 +22,39 @@ pub struct AppSettings {
     pub language: Language,
     pub backups_to_keep: u32,
     pub tree_direction: TreeDirection,
+    pub agent_access: AgentAccessSettings,
+}
+
+/// One agent's connection. Its key is never here: only the key's hash is kept, and not in this file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionDto {
+    pub id: Uuid,
+    pub name: String,
+    /// Unix milliseconds.
+    pub created: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AgentAccessSettings {
+    pub enabled: bool,
+    pub port: u16,
+    pub connections: Vec<ConnectionDto>,
+    /// Revoked connections whose key hash may still be stored: a later start removes it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub revoked: Vec<Uuid>,
+}
+
+impl Default for AgentAccessSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: 8765,
+            connections: Vec::new(),
+            revoked: Vec::new(),
+        }
+    }
 }
 
 impl Default for AppSettings {
@@ -32,6 +66,7 @@ impl Default for AppSettings {
             language: Language::System,
             backups_to_keep: 10,
             tree_direction: TreeDirection::Normal,
+            agent_access: AgentAccessSettings::default(),
         }
     }
 }

@@ -17,6 +17,7 @@ pub const KEY: &str = "gt_test_key_not_a_secret";
 pub struct TestHost {
     pub session: Mutex<Option<Session>>,
     pub keys: Mutex<HashMap<[u8; 32], AgentCtx>>,
+    pub changes: Mutex<Vec<(Vec<Uuid>, AgentCtx)>>,
     pub _dir: Option<TempDir>,
 }
 
@@ -47,7 +48,12 @@ impl Host for TestHost {
         self.keys.lock().unwrap().get(key_sha256).cloned()
     }
 
-    fn changed(&self, _touched: &[Uuid]) {}
+    fn changed(&self, touched: &[Uuid], agent: &AgentCtx) {
+        self.changes
+            .lock()
+            .unwrap()
+            .push((touched.to_vec(), agent.clone()));
+    }
 }
 
 /// A host with the test key and no tree open.
@@ -55,6 +61,7 @@ pub fn no_tree_host() -> TestHost {
     TestHost {
         session: Mutex::new(None),
         keys: Mutex::new(HashMap::from([(hash(KEY), ctx())])),
+        changes: Mutex::new(Vec::new()),
         _dir: None,
     }
 }
@@ -68,6 +75,7 @@ pub fn empty_host() -> TestHost {
     TestHost {
         session: Mutex::new(Some(session)),
         keys: Mutex::new(HashMap::from([(hash(KEY), ctx())])),
+        changes: Mutex::new(Vec::new()),
         _dir: Some(dir),
     }
 }

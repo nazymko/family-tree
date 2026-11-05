@@ -1715,3 +1715,8 @@ fn every_field_of_every_record_is_readable() {
 fn ids_of(page: &Value) -> Vec<String> {
     ids(&page["items"])
 }
+
+#[test]
+fn key_hash_is_sha256_of_the_key() {
+    assert_eq!(gt_mcp::key_hash(KEY), hash(KEY));
+}

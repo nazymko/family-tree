@@ -1079,6 +1079,11 @@ export class MockApi implements Api {
   async agentAccessSet(enabled: boolean, port: number): Promise<AgentAccessState> {
     if (!Number.isInteger(port) || port < 1024 || port > 65535) throw invalid('The port must be a number from 1024 to 65535.');
     const taken = enabled && this.agentTakenPorts.has(port);
+    // Like the backend: a server that works keeps working when the move cannot happen.
+    if (taken && this.agent.running) {
+      this.agent = { ...this.agent, error: `Port ${port} is already used by another program. Choose another port.` };
+      return this.agentSnapshot();
+    }
     this.agent = {
       ...this.agent,
       enabled,
@@ -1092,6 +1097,12 @@ export class MockApi implements Api {
   async agentConnectionCreate(name: string): Promise<NewConnectionDto> {
     const clean = name.trim();
     if (!clean) throw invalid('Give the connection a name.');
+    if ([...clean].length > 100) throw invalid('Keep the connection name to 100 characters or fewer.');
+    // eslint-disable-next-line no-control-regex
+    if (/[\u0000-\u001f\u007f-\u009f]/.test(clean)) throw invalid('The connection name cannot contain line breaks or other control characters.');
+    if (this.agent.connections.some((c) => c.name.toLowerCase() === clean.toLowerCase())) {
+      throw invalid(`A connection named "${clean}" already exists. Choose another name.`);
+    }
     const bytes = new Uint8Array(16);
     globalThis.crypto.getRandomValues(bytes);
     const key = 'gt_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -1102,7 +1113,7 @@ export class MockApi implements Api {
   }
 
   async agentConnectionRevoke(id: string): Promise<void> {
-    if (!this.agent.connections.some((c) => c.id === id)) throw missing('connection', id);
+    if (!this.agent.connections.some((c) => c.id === id)) throw new MockApiError('not_found', `No connection with id "${id}".`);
     this.agent.connections = this.agent.connections.filter((c) => c.id !== id);
   }
 
