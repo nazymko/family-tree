@@ -2,7 +2,9 @@
 //! the results of applying, undoing and redoing them. Field names are camelCase on the wire;
 //! commands are tagged by `type`.
 
-use crate::dto::{LivingOverrideDto, NameKindDto, NoteKindDto, ParentRelId, SexKind, UnionKindId};
+use crate::dto::{
+    LivingOverrideDto, NameKindDto, NoteKindDto, ParentRelId, PersonRef, SexKind, UnionKindId,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
@@ -593,6 +595,24 @@ pub struct EditResult {
     /// Every record the change set wrote or deleted.
     pub touched: Vec<Uuid>,
     pub undo: UndoState,
+}
+
+/// A fact an undo from the change log left alone, because someone has changed it since.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedFact {
+    /// `person`, `family`, `event`, `note`, ...
+    pub kind: String,
+    pub person: Option<PersonRef>,
+    pub detail: String,
+}
+
+/// What an undo from the change log did.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoReport {
+    pub undone: u32,
+    pub skipped: Vec<SkippedFact>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

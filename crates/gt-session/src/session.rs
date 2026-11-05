@@ -373,7 +373,7 @@ impl Session {
 
     /// The first person a note belongs to: directly, through one of their names, an event they
     /// take part in, or a family they are a partner or child of.
-    fn note_owner(&self, note: Uuid) -> Option<Uuid> {
+    pub(crate) fn note_owner(&self, note: Uuid) -> Option<Uuid> {
         let t = &self.tree;
         let direct = t.persons.iter().find(|(_, p)| {
             p.common.notes.contains(&note) || p.names.iter().any(|n| n.notes.contains(&note))

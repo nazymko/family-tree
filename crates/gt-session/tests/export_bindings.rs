@@ -151,6 +151,17 @@ fn export_all(dir: &Path) {
         GroupMedia,
         PrivacyPreview,
         RelinkResult,
+        UndoReport,
+        SkippedFact,
+        ActorDto,
+        BatchRef,
+        LogChangeDto,
+        LogPersonDto,
+        LogRowDto,
+        Page<LogRowDto>,
+        BatchDto,
+        LogFilterDto,
+        ReviewScopeDto,
     );
     let mut names: Vec<String> = read_dir_files(dir)
         .keys()

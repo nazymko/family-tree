@@ -12,11 +12,13 @@ pub mod family_view;
 pub mod import_format;
 pub mod index;
 pub mod kinship;
+pub mod log;
 pub mod names;
 pub mod ops;
 pub mod person_detail;
 pub mod query;
 pub mod relation;
+pub mod revert;
 pub mod session;
 pub mod settings;
 pub mod undo;
@@ -25,10 +27,14 @@ pub use command::{
     CitationArg, CitationInput, CitationPatch, CloneOf, DeleteImpact, DraftFamily, DraftPerson,
     EditCommand, EditResult, EventInput, EventOwner, EventOwnerKind, EvidenceInput, HistoryEntry,
     HistoryOp, LivingPatch, NameInput, NewSource, NoteInput, OwnerKind, OwnerRef, ParticipantInput,
-    PersonDraft, Relation, ReuseLast, SourceInput, SourceRef, UndoState,
+    PersonDraft, Relation, ReuseLast, SkippedFact, SourceInput, SourceRef, UndoReport, UndoState,
 };
 pub use dto::*;
 pub use error::{ApiError, ErrorCode};
+pub use log::{
+    ActorDto, BatchDto, BatchRef, LogChangeDto, LogFilterDto, LogPersonDto, LogRowDto,
+    ReviewScopeDto,
+};
 pub use names::{display_name, lifespan};
 pub use session::{Session, SessionClock};
 pub use settings::SettingsPatch;

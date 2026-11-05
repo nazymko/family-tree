@@ -228,6 +228,7 @@ impl Project {
     /// One group with its author, people and changes; `None` when no such group exists.
     pub fn log_group(&self, group: Uuid) -> Result<Option<LogGroup>, StoreError> {
         let gs = group.to_string();
+        // A group has exactly one author, so its first row speaks for all of them.
         type Head = (
             i64,
             Option<String>,
@@ -355,6 +356,32 @@ impl Project {
             .prepare_cached(&format!("{BATCH_SELECT} WHERE id = ?1"))?;
         let mut rows = st.query([id.to_string()])?;
         rows.next()?.map(read_batch).transpose()
+    }
+
+    /// How much a batch holds: `(change groups, people, people still unreviewed)`. Groups that
+    /// were undone do not count as unreviewed.
+    pub fn batch_counts(&self, id: Uuid) -> Result<(u32, u32, u32), StoreError> {
+        let id = id.to_string();
+        let count = |sql: &str| -> Result<u32, StoreError> {
+            let n: i64 = self
+                .conn
+                .prepare_cached(sql)?
+                .query_row([&id], |r| r.get(0))?;
+            Ok(u32::try_from(n).unwrap_or(u32::MAX))
+        };
+        Ok((
+            count("SELECT COUNT(DISTINCT group_id) FROM change_log WHERE batch_id = ?1")?,
+            count(
+                "SELECT COUNT(DISTINCT person_id) FROM change_person WHERE group_id IN \
+                 (SELECT group_id FROM change_log WHERE batch_id = ?1)",
+            )?,
+            count(
+                "SELECT COUNT(DISTINCT cp.person_id) FROM change_person cp \
+                 WHERE cp.reviewed_ts IS NULL \
+                   AND cp.group_id IN (SELECT group_id FROM change_log WHERE batch_id = ?1) \
+                   AND NOT EXISTS (SELECT 1 FROM change_log v WHERE v.reverts_group = cp.group_id)",
+            )?,
+        ))
     }
 
     /// All batches, newest first.

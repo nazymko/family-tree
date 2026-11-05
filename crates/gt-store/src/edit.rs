@@ -460,7 +460,7 @@ impl Project {
             let after_json = ch.after.as_ref().map(json).transpose()?;
             tx.prepare_cached(
                 "INSERT INTO change_log(ts, target_type, target_id, op, before_json, group_id, \
-                 label, after_json, before_seq, reverts_group, actor_kind, actor_id, actor_name, batch_id) \r
+                 label, after_json, before_seq, reverts_group, actor_kind, actor_id, actor_name, batch_id) \
                  VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
             )?
             .execute(params![

@@ -73,6 +73,24 @@ rec!(Citation, Citation, citations, "citation");
 rec!(Media, Media, media, "media item");
 rec!(Note, Note, notes, "note");
 
+/// The record as it stands in the tree, by kind and id.
+pub(crate) fn record_in(tree: &Tree, kind: RecordKind, id: Uuid) -> Option<Record> {
+    fn get<T: Rec>(tree: &Tree, id: Uuid) -> Option<Record> {
+        T::map(tree).get(&id).cloned().map(Rec::wrap)
+    }
+    match kind {
+        RecordKind::Person => get::<Person>(tree, id),
+        RecordKind::Family => get::<Family>(tree, id),
+        RecordKind::Event => get::<Event>(tree, id),
+        RecordKind::Place => get::<Place>(tree, id),
+        RecordKind::Source => get::<Source>(tree, id),
+        RecordKind::Repository => get::<Repository>(tree, id),
+        RecordKind::Citation => get::<Citation>(tree, id),
+        RecordKind::Media => get::<Media>(tree, id),
+        RecordKind::Note => get::<Note>(tree, id),
+    }
+}
+
 pub(crate) fn new_common(now: i64) -> Common {
     Common {
         id: gt_core::ids::new_id(),
