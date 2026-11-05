@@ -3,10 +3,12 @@
 //! Every applied command is one `ChangeSet` (one change-log group). Undo reverts it fact by fact
 //! (see `revert.rs`) as a new group labelled "Undo: <label>"; redo reverts that again as a group
 //! labelled "Redo: <label>". With nothing in between both are byte for byte the old state; when an
-//! agent has changed the same fact since, they stop and the step waits. When a log undo has removed
-//! a record the step would point at, it can never go ahead: it leaves its stack and says so, so that
-//! older steps stay reachable. The stacks hold the owner's edits only, live in the session, hold at
-//! most 200 groups, and are lost when the session closes.
+//! agent has changed the same fact since, they stop and the step waits. When a record the step
+//! updates or would point at no longer exists, however it went, the step can never go ahead: it
+//! leaves its stack and says so, so that older steps stay reachable. The same goes for a changed
+//! record when no undo from the log would do anything about it (a dropped step's effects stay).
+//! The stacks hold the owner's edits only, live in the session, hold at most 200 groups, and are
+//! lost when the session closes.
 //!
 //! An agent's changes never enter the stacks. They are undone from the log (`undo_group`,
 //! `undo_batch`), which works from what the log stores and so also after a restart. A group counts
@@ -16,8 +18,8 @@ use crate::command::{DeleteImpact, EditCommand, EditResult, HistoryEntry, UndoRe
 use crate::dto::DayOrder as WireDayOrder;
 use crate::error::{ApiError, ErrorCode};
 use crate::log::history_op;
-use crate::ops::{apply_to_tree_tracked, plan_with};
-use crate::revert::{dangling_writes, settle_kept, undo_on_tree};
+use crate::ops::{apply_to_tree_tracked, plan_with, record_in};
+use crate::revert::{dangling_writes, settle_kept, touches, undo_on_tree};
 use crate::session::Session;
 use gt_core::date::DayOrder;
 use gt_core::model::Citation;
@@ -29,10 +31,8 @@ use uuid::Uuid;
 pub const MAX_UNDO: usize = 200;
 
 const AGENT_CHANGED: &str = "An agent changed this since. Undo it from the change log first.";
-const UNDO_DROPPED: &str = "Something this depends on was removed from the change log, so it cannot \
-                            be undone. The step has been dropped from the undo list.";
-const REDO_DROPPED: &str = "Something this depends on was removed from the change log, so it cannot \
-                            be redone. The step has been dropped from the redo list.";
+const STEP_DROPPED: &str = "This step was dropped: a record it needs no longer exists.";
+const STEP_OUTDATED: &str = "This step was dropped: a record it needs has changed since, and the change log cannot undo that.";
 
 #[derive(Default)]
 pub struct EditState {
@@ -172,18 +172,50 @@ impl Session {
 
     /// The writes that take `changes` (in the order to undo them) back on the tree as it stands,
     /// or the error that stops Ctrl+Z when an agent has changed the same fact or now depends on it.
-    /// `None`: the writes would point at a record that is gone, so the step can never go ahead.
-    fn ctrl_z_writes(&self, changes: &[&Change]) -> Result<Option<Vec<Change>>, ApiError> {
+    /// The inner error: the step can never go ahead, for this reason, and has to leave its stack.
+    fn ctrl_z_writes(
+        &self,
+        changes: &[&Change],
+    ) -> Result<Result<Vec<Change>, &'static str>, ApiError> {
         let (_, now) = (self.clock.0)();
         let kept = settle_kept(&self.tree, changes);
         let done = undo_on_tree(&self.tree, changes, &kept, now, false);
-        if !kept.is_empty() || !done.skipped.is_empty() {
+        let record_gone = done
+            .skipped
+            .iter()
+            .any(|ch| record_in(&self.tree, ch.kind, ch.id).is_none());
+        if record_gone || !dangling_writes(&self.tree, &done.writes).is_empty() {
+            return Ok(Err(STEP_DROPPED));
+        }
+        let mut blocked = kept;
+        blocked.extend(done.skipped.iter().map(|ch| ch.id));
+        if blocked.is_empty() {
+            return Ok(Ok(done.writes));
+        }
+        if self.log_undo_could_help(&blocked)? {
             return Err(ApiError::new(ErrorCode::Conflict, AGENT_CHANGED));
         }
-        if !dangling_writes(&self.tree, &done.writes).is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(done.writes))
+        Ok(Err(STEP_OUTDATED))
+    }
+
+    /// Whether an agent's change on these records stands, and undoing it would still do something.
+    fn log_undo_could_help(&self, blocked: &HashSet<Uuid>) -> Result<bool, ApiError> {
+        let filter = LogFilter {
+            actor_kind: Some("agent".into()),
+            ..Default::default()
+        };
+        let (groups, _) = self.project.log_page(&filter, 0, usize::MAX)?;
+        let (_, now) = (self.clock.0)();
+        Ok(groups.iter().filter(|g| !g.reverted).any(|g| {
+            if !g.changes.iter().any(|ch| touches(ch, blocked)) {
+                return false;
+            }
+            let newest_first: Vec<&Change> = g.changes.iter().rev().collect();
+            let kept = settle_kept(&self.tree, &newest_first);
+            let mut done = undo_on_tree(&self.tree, &newest_first, &kept, now, true);
+            done.skip_dangling(&self.tree, &newest_first);
+            !done.writes.is_empty()
+        }))
     }
 
     /// Reverts the newest applied group. `None` when there is nothing to undo.
@@ -193,9 +225,12 @@ impl Session {
         };
         let (_, now) = (self.clock.0)();
         let newest_first: Vec<&Change> = done.changes.iter().rev().collect();
-        let Some(changes) = self.ctrl_z_writes(&newest_first)? else {
-            self.edit.undo.pop();
-            return Err(ApiError::new(ErrorCode::Conflict, UNDO_DROPPED));
+        let changes = match self.ctrl_z_writes(&newest_first)? {
+            Ok(changes) => changes,
+            Err(why) => {
+                self.edit.undo.pop();
+                return Err(ApiError::new(ErrorCode::Conflict, why));
+            }
         };
         let inv = ChangeSet {
             group: gt_core::ids::new_id(),
@@ -220,9 +255,12 @@ impl Session {
         let (_, now) = (self.clock.0)();
         let inverse = undone.inverse();
         let in_order: Vec<&Change> = inverse.changes.iter().rev().collect();
-        let Some(changes) = self.ctrl_z_writes(&in_order)? else {
-            self.edit.redo.pop();
-            return Err(ApiError::new(ErrorCode::Conflict, REDO_DROPPED));
+        let changes = match self.ctrl_z_writes(&in_order)? {
+            Ok(changes) => changes,
+            Err(why) => {
+                self.edit.redo.pop();
+                return Err(ApiError::new(ErrorCode::Conflict, why));
+            }
         };
         let logged = ChangeSet {
             group: gt_core::ids::new_id(),

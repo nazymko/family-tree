@@ -416,7 +416,7 @@ fn in_tree(tree: &Tree, id: &Uuid) -> bool {
 }
 
 /// The records whose writes cannot go ahead: each would point at a record that does not exist
-/// once the writes are done (a log undo has removed it since). The rest stay valid without them:
+/// once the writes are done (something has removed it since). The rest stay valid without them:
 /// a record not written stays as it is, so whatever it points at cannot be removed either.
 pub(crate) fn dangling_writes(tree: &Tree, writes: &[Change]) -> HashSet<Uuid> {
     let mut dropped: HashSet<Uuid> = HashSet::new();
@@ -453,6 +453,15 @@ pub(crate) fn dangling_writes(tree: &Tree, writes: &[Change]) -> HashSet<Uuid> {
         }
         dropped.extend(more);
     }
+}
+
+/// Whether the change wrote one of `records`, or left something pointing at one.
+pub(crate) fn touches(ch: &Change, records: &HashSet<Uuid>) -> bool {
+    let mut found = records.contains(&ch.id);
+    if let Some(after) = &ch.after {
+        all_refs(after, &mut |id| found |= records.contains(&id));
+    }
+    found
 }
 
 // ---- undoing a list of changes --------------------------------------------------------------
