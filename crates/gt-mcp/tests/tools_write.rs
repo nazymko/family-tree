@@ -374,10 +374,15 @@ fn reruns_work_across_batches() {
     };
     let first = run(&host);
     let added = records(&host);
-    let writes = host.changes.lock().unwrap().len();
+    // Closing a batch tells the app too, naming nobody: that is no write.
+    let writes = |host: &TestHost| {
+        let changes = host.changes.lock().unwrap();
+        changes.iter().filter(|(ids, _)| !ids.is_empty()).count()
+    };
+    let before = writes(&host);
     assert_eq!(run(&host), first);
     assert_eq!(records(&host), added);
-    assert_eq!(host.changes.lock().unwrap().len(), writes);
+    assert_eq!(writes(&host), before);
 }
 
 #[test]
@@ -583,10 +588,7 @@ fn unnamed_brothers_and_sisters_take_the_marker_and_nothing_else() {
         let mut args = args;
         args["batch"] = batch.clone();
         let message = call_err(&host, tool, args);
-        assert!(
-            message.contains("unnamed brothers and sisters"),
-            "{tool}: {message}"
-        );
+        assert!(message.contains("nobody named"), "{tool}: {message}");
     }
     // It is nobody's relative to link to.
     let message = call_err(
@@ -594,10 +596,7 @@ fn unnamed_brothers_and_sisters_take_the_marker_and_nothing_else() {
         "add_person",
         json!({"batch": batch, "given": "Petro", "relation": {"to": id, "as": "sibling"}}),
     );
-    assert!(
-        message.contains("unnamed brothers and sisters"),
-        "{message}"
-    );
+    assert!(message.contains("nobody named"), "{message}");
 
     let person_description = tools_description(&host, "add_person");
     assert!(
@@ -1036,12 +1035,13 @@ fn link_people_connects_who_is_already_there() {
     assert_eq!(rel_of(&third_child), json!(["foster", "foster"]), "{shown}");
 
     // The same person twice in a family is no new link.
-    let message = call_err(
+    let again = call(
         &host,
         "link_people",
         json!({"batch": batch, "person": second_child, "relation": {"as": "child", "family": family}}),
     );
-    assert!(message.contains("already a child"), "{message}");
+    assert_eq!(again["alreadyThere"], true, "{again}");
+    assert_eq!(again["id"], second_child);
 
     for (relation, word) in [
         (json!({"as": "father"}), "relation.to"),

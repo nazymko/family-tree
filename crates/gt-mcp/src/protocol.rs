@@ -2,7 +2,7 @@
 //! ones (`2026-07-28`) call `server/discover` and state their version on every request in `_meta`,
 //! mirrored in HTTP headers.
 
-use crate::{AgentCtx, Host, RULES, Tool, tools};
+use crate::{AgentCtx, Host, INSTRUCTIONS, Tool, tools};
 use base64::Engine;
 use gt_session::{ApiError, ErrorCode};
 use serde_json::{Map, Value, json};
@@ -206,7 +206,7 @@ fn initialize(id: &Value, params: &Map<String, Value>) -> Reply {
             "protocolVersion": version,
             "capabilities": {"tools": {}},
             "serverInfo": server_info(),
-            "instructions": RULES,
+            "instructions": INSTRUCTIONS,
         }),
     )
 }
@@ -320,7 +320,7 @@ fn route<H: Host>(
         ("server/discover", Era::Modern) => cached(json!({
             "supportedVersions": supported_versions(),
             "capabilities": {"tools": {}},
-            "instructions": RULES,
+            "instructions": INSTRUCTIONS,
         })),
         ("tools/list", Era::Older) => list_tools::<H>(),
         ("tools/list", Era::Modern) => cached(list_tools::<H>()),

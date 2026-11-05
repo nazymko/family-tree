@@ -1,18 +1,21 @@
 //! The write tools. Each one only turns its arguments into a command for [`write`]: what an agent
 //! may change is decided by the gate in `gt_session::agent`, and its refusals go to the agent as
 //! they are, so that it can adjust. No tool takes whether someone is alive or dead.
+//!
+//! What a command is built from in the tree is read under the same lock as the write, so that
+//! nothing can change between the two.
 
 use crate::tools_read::{
-    TEXT_ARG_MAX, ToolResult, answer, checked_text, invalid, optional_str, read, str_arg, uuid_arg,
+    TEXT_ARG_MAX, ToolResult, answer, checked_text, invalid, optional_str, str_arg, uuid_arg,
 };
 use crate::{AgentCtx, Host, Tool};
 use gt_core::model::{Common, Event, Name, NameKind, NoteKind, ParticipantRef};
-use gt_session::person_detail::event_kind_id;
+use gt_session::person_detail::{event_kind_id, rel_id};
 use gt_session::{
-    AgentWrite, ApiError, CitationArg, CitationInput, CitationPatch, DateStatus, EditCommand,
-    EditResult, EventInput, EventOwner, EventOwnerKind, LivingPatch, NameInput, NameKindDto,
-    NoteInput, NoteKindDto, OwnerKind, OwnerRef, ParentRelId, PersonDraft, Relation, Session,
-    SexKind, SourceInput, SourceRef, UnionKindId, parse_date_preview,
+    AgentWrite, ApiError, CitationArg, CitationInput, CitationPatch, DateStatus, DayOrder,
+    EditCommand, EditResult, EventInput, EventOwner, EventOwnerKind, LivingPatch, NameInput,
+    NameKindDto, NoteInput, NoteKindDto, OwnerKind, OwnerRef, ParentRelId, PersonDraft, Relation,
+    Session, SexKind, SourceInput, SourceRef, UnionKindId, parse_date_preview,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -25,13 +28,26 @@ const UNIONS: &str = "married, civil_union, unmarried, unknown, other";
 const NAME_KINDS: &str = "birth, married, aka, religious, nickname, immigrant, professional, other";
 const NOTE_KINDS: &str = "general, story, research, transcription, conclusion, other";
 const TARGET_KINDS: &str = "person, family, name, event, media, citation";
-const SOURCE_DATE: &str = "Only as the source gives it, like 12 MAR 1901, ABT 1880 or BET 1880 AND 1890. Words of the source go in brackets, like (after the war).";
+const SOURCE_DATE: &str = "Only as the source gives it, like 12 MAR 1901, ABT 1880 or BET 1880 AND 1890. Words of the source go in brackets, like (after the war). A date like 03/04/1901 can be read two ways and is refused: write the month as a word.";
+/// Bytes of a note, an event's description or a citation's text.
+const TEXT_MAX: usize = 64 * 1024;
+/// Bytes of a source's text, which can be a whole transcript. Searching one this long is safe:
+/// a long text shows no snippet (see `gt_store::search`).
+const SOURCE_TEXT_MAX: usize = 1024 * 1024;
+/// Bytes of the report that closes a batch.
+const REPORT_MAX: usize = 64 * 1024;
 
 pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
     let short =
         |what: &str| json!({"type": "string", "description": what, "maxLength": TEXT_ARG_MAX});
     let id = |what: &str| json!({"type": "string", "description": what});
     let date = || json!({"type": "string", "description": SOURCE_DATE, "maxLength": TEXT_ARG_MAX});
+    let writing = |what: &str| {
+        let what = format!(
+            "{what} Up to 64 KiB: split a longer text, or put it on a source with add_source and cite it."
+        );
+        json!({"type": "string", "description": what})
+    };
     let surnames =
         || json!({"type": "array", "items": {"type": "string", "maxLength": TEXT_ARG_MAX}});
     let one_of = |list: &str| -> Value {
@@ -81,10 +97,10 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
     };
     let event_fields = |required: &[&str], more: Value| {
         let mut properties = json!({
-            "kind": {"type": "string", "description": "birth, death, burial, baptism, marriage, residence, occupation and so on, or custom:<your words>."},
+            "kind": {"type": "string", "description": "birth, death, burial, baptism, marriage, residence, occupation and so on, or custom:<your words>. A family takes what happens to a couple, like marriage, engagement, divorce, or residence."},
             "date": date(),
             "place": short("As the source writes it, smallest place first, with commas. Other readings of it go in a note."),
-            "description": {"type": "string"},
+            "description": writing("What the source says of it."),
             "age": short("Their age at the time, as the source gives it."),
             "cause": short("The cause, as the source gives it."),
         });
@@ -107,12 +123,15 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         Tool {
             name: "end_batch",
             description: "Closes a batch with your report: what was added, what was left unsettled, and questions for the family. What you added stays.",
-            schema: with_batch(&["report"], json!({"report": {"type": "string"}})),
+            schema: with_batch(
+                &["report"],
+                json!({"report": {"type": "string", "description": "Up to 64 KiB."}}),
+            ),
             call: end_batch::<H>,
         },
         Tool {
             name: "add_person",
-            description: "Adds someone new, on their own or related to someone. Search first: most people already exist, and if you cannot tell, do not add them. Unknown or unclear information goes in a note with add_note, never in a guessed name or date. Someone with a known role and no known name is a person with an empty name and a note saying so. Brothers or sisters mentioned with no names are not people to add: use add_sibling_marker. A rerun adds a person again unless you look for them first with find_by_number; record your numbers with set_number.",
+            description: "Adds someone new, on their own or related to someone. Search first: most people already exist, and if you cannot tell, do not add them. Unknown or unclear information goes in a note with add_note, never in a guessed name or date. Someone with a known role and no known name is a person with an empty name and a note saying so. Brothers or sisters mentioned with no names are not people to add: use add_sibling_marker. Give source_file and number every time, from a numbered file or a label of your own that stays the same: a rerun then answers {id, alreadyThere: true} and adds nobody, where without them it adds the person again. As a child of someone with one partnership, the person also becomes the child by birth of that partner, and the answer's parents names everyone set. If that partner is not their parent, make a family with add_family and partner1 alone, and give it as relation.family.",
             schema: with_batch(
                 &[],
                 json!({
@@ -123,13 +142,15 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
                     "birth_date": date(),
                     "birth_place": short("As the source writes it, smallest place first, with commas."),
                     "relation": relation(json!(["to", "as"])),
+                    "source_file": short("The file this person comes from, with number. Give it every time."),
+                    "number": short("Their number in that file, with source_file. Give it every time."),
                 }),
             ),
             call: add_person::<H>,
         },
         Tool {
             name: "link_people",
-            description: "Connects two people already in the tree: with relation.to and relation.as, person is the father (or mother, partner, child, sibling) of to. To make someone a child of a family, give as: child and family without to. If a link is either-or or uncertain, make none: write a note on the people involved. A second parent by birth is refused: give both versions in a note, or link as a step, adoptive or foster parent if that is what the source says.",
+            description: "Connects two people already in the tree: with relation.to and relation.as, person is the father (or mother, partner, child, sibling) of to. To make someone a child of a family, give as: child and family without to. If a link is either-or or uncertain, make none: write a note on the people involved. A second parent by birth is refused: give both versions in a note, or link as a step, adoptive or foster parent if that is what the source says. A link already there answers alreadyThere. As a child of someone with one partnership, the person also becomes the child by birth of that partner, and the answer's parents names everyone set. If that partner is not their parent, make a family with add_family and partner1 alone, and give it as relation.family.",
             schema: with_batch(
                 &["person", "relation"],
                 json!({
@@ -177,7 +198,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
                 &["target", "text"],
                 json!({
                     "target": target(),
-                    "text": {"type": "string"},
+                    "text": writing("The note."),
                     "kind": one_of(NOTE_KINDS),
                 }),
             ),
@@ -193,7 +214,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
                     "author": short("Its author."),
                     "publication": short("Where and when it was published."),
                     "abbreviation": short("A short name for it."),
-                    "text": {"type": "string", "description": "The source's text."},
+                    "text": {"type": "string", "description": "The source's text, up to 1 MiB."},
                 }),
             ),
             call: add_source::<H>,
@@ -207,7 +228,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
                     "target": target(),
                     "source": id("The source's id."),
                     "page": short("Where in the source, such as a page or a time."),
-                    "text": {"type": "string", "description": "What the source says here."},
+                    "text": writing("What the source says here."),
                     "quality": {"type": "integer", "minimum": 0, "maximum": 3},
                     "date": date(),
                 }),
@@ -216,13 +237,19 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "add_sibling_marker",
-            description: "Adds the one entry to a family that stands for brothers and sisters mentioned with no names. It takes no names or dates. Named brothers and sisters are people: use add_person.",
-            schema: with_batch(&["family"], json!({"family": id("The family's id.")})),
+            description: "Adds the one entry to a family that stands for brothers and sisters mentioned with no names. It takes no names or dates. Named brothers and sisters are people: use add_person. Give family, or give sibling_of for a person whose family is what you know: their birth family is used, and if they have none in the tree, a family with unknown parents is made with them as its child. A second time answers alreadyThere.",
+            schema: with_batch(
+                &[],
+                json!({
+                    "family": id("The family's id."),
+                    "sibling_of": id("The id of a person those brothers and sisters belong beside."),
+                }),
+            ),
             call: add_sibling_marker::<H>,
         },
         Tool {
             name: "set_number",
-            description: "Records a person's number in a source file's own numbering, so that a rerun finds them again with find_by_number instead of adding them twice. A number points at one person within a file.",
+            description: "Records a person's number in a source file's own numbering, so that a rerun finds them again with find_by_number instead of adding them twice. A number points at one person within a file. For someone new, give the number to add_person instead.",
             schema: with_batch(
                 &["person", "source_file", "number"],
                 json!({
@@ -248,12 +275,12 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "update_own_note",
-            description: "Changes the text of your own note. A note someone else wrote or changed stays as it is: add your own beside it.",
+            description: "Changes the text of your own note. On a note someone else wrote or changed you can only fill it if it is empty; otherwise it stays as it is: add your own beside it. Saying again what it says answers alreadyThere.",
             schema: with_batch(
                 &["note", "text"],
                 json!({
                     "note": id("The note's id."),
-                    "text": {"type": "string"},
+                    "text": writing("The note."),
                     "kind": one_of(NOTE_KINDS),
                 }),
             ),
@@ -261,25 +288,25 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "update_own_event",
-            description: "Changes your own event. What you leave out stays as it is. An event someone else wrote or changed stays as it is: add a note instead.",
+            description: "Changes your own event. What you leave out stays as it is. On an event someone else wrote or changed you can only fill a field that is empty; the rest stays as it is: add a note instead. Saying again what it says answers alreadyThere.",
             schema: event_fields(&["event"], json!({"event": id("The event's id.")})),
             call: update_own_event::<H>,
         },
         Tool {
             name: "update_own_name",
-            description: "Changes a name of your own. What you leave out stays as it is. A name someone else wrote or changed stays as it is: add a note instead.",
+            description: "Changes a name of your own. What you leave out stays as it is. On a name someone else wrote or changed you can only fill a field that is empty; the rest stays as it is: add a note instead. Saying again what it says answers alreadyThere.",
             schema: name_fields(&["person", "name"], json!({"name": id("The name's id.")})),
             call: update_own_name::<H>,
         },
         Tool {
             name: "update_own_citation",
-            description: "Changes your own citation. What you leave out stays as it is. A citation someone else wrote or changed stays as it is: add your own beside it.",
+            description: "Changes your own citation. What you leave out stays as it is. On a citation someone else wrote or changed you can only fill a field that is empty; the rest stays as it is: add your own beside it. Saying again what it says answers alreadyThere.",
             schema: with_batch(
                 &["citation"],
                 json!({
                     "citation": id("The citation's id."),
                     "page": short("Where in the source, such as a page or a time."),
-                    "text": {"type": "string"},
+                    "text": writing("What the source says here."),
                     "quality": {"type": "integer", "minimum": 0, "maximum": 3},
                     "date": date(),
                 }),
@@ -314,19 +341,85 @@ fn with_batch(required: &[&str], mut properties: Value) -> Value {
     schema(&all, properties)
 }
 
+/// What a write did: the gate's answer, whom it reached, and whose parents it may have set.
+type Applied = (AgentWrite, Vec<Uuid>, Option<Uuid>);
+
+/// A write of the command `build` makes, under one lock. `build` adds what the agent should hear
+/// about its arguments to the list it is given.
+fn write<H: Host>(
+    host: &H,
+    ctx: &AgentCtx,
+    batch: Uuid,
+    build: impl Fn(&Session, &mut Vec<String>) -> Result<EditCommand, ApiError>,
+    new_id: impl Fn(&Session, &EditResult) -> Option<Uuid>,
+) -> ToolResult {
+    apply(
+        host,
+        ctx,
+        |s, warnings| {
+            let cmd = build(s, warnings)?;
+            let (write, reached) = s.apply_as_agent_reaching(cmd.clone(), ctx, batch)?;
+            let child = child_of_write(&cmd, &write);
+            Ok((write, reached, child))
+        },
+        new_id,
+    )
+}
+
+/// The child a command linked, whose parents the planner may have chosen by itself.
+fn child_of_write(cmd: &EditCommand, write: &AgentWrite) -> Option<Uuid> {
+    match (cmd, write) {
+        (
+            EditCommand::QuickAdd {
+                relation: Relation::Child | Relation::Sibling,
+                ..
+            },
+            AgentWrite::Done(result),
+        ) => result.focus,
+        (
+            EditCommand::LinkExisting {
+                relation: Relation::Child | Relation::Sibling,
+                person,
+                ..
+            },
+            AgentWrite::Done(_),
+        ) => Some(*person),
+        (EditCommand::LinkChild { child, .. }, AgentWrite::Done(_)) => Some(*child),
+        _ => None,
+    }
+}
+
+/// Who a write made parents of `child`, in the families it touched.
+fn parents_set(s: &Session, child: Uuid, touched: &[Uuid]) -> Vec<Value> {
+    let mut rows = Vec::new();
+    for family in touched.iter().filter_map(|id| s.tree().families.get(id)) {
+        let links = family.children.iter().filter(|l| l.person == child);
+        for link in links {
+            let slots = [(family.partner1, &link.rel1), (family.partner2, &link.rel2)];
+            for (parent, rel) in slots {
+                if let Some(parent) = parent {
+                    let name = s.person_ref(parent).map(|p| p.name);
+                    rows.push(json!({"id": parent, "name": name, "link": rel_id(rel)}));
+                }
+            }
+        }
+    }
+    rows
+}
+
 /// The one way a tool writes, and the one place that learns what a write touched. It tells the app
 /// only after the session's lock is let go, and a repeat tells it nothing. `new_id` runs under the
 /// same lock as the write, so that it sees this write and no other.
-fn write<H: Host>(
+fn apply<H: Host>(
     host: &H,
-    cmd: EditCommand,
     ctx: &AgentCtx,
-    batch: Uuid,
+    run: impl Fn(&mut Session, &mut Vec<String>) -> Result<Applied, ApiError>,
     new_id: impl Fn(&Session, &EditResult) -> Option<Uuid>,
 ) -> ToolResult {
     let (answered, reached) = host.with_session(&mut |s| {
-        let (write, reached) = s.apply_as_agent_reaching(cmd.clone(), ctx, batch)?;
-        let answered = match write {
+        let mut warnings = Vec::new();
+        let (write, reached, child) = run(s, &mut warnings)?;
+        let mut answered = match write {
             AgentWrite::Done(result) => {
                 let mut fields = json!({"id": new_id(s, &result), "touched": result.touched});
                 let family = result
@@ -336,10 +429,17 @@ fn write<H: Host>(
                 if let Some(family) = family {
                     fields["family"] = json!(family);
                 }
+                let parents = child.map(|child| parents_set(s, child, &result.touched));
+                if let Some(parents) = parents.filter(|rows| !rows.is_empty()) {
+                    fields["parents"] = json!(parents);
+                }
                 fields
             }
             AgentWrite::AlreadyThere { record } => json!({"id": record, "alreadyThere": true}),
         };
+        if !warnings.is_empty() {
+            answered["warnings"] = json!(warnings);
+        }
         Ok((answered, reached))
     })?;
     if !reached.is_empty() {
@@ -374,12 +474,40 @@ fn short(args: &Value, name: &str) -> Result<Option<String>, ApiError> {
     Ok(optional_str(args, name)?.map(str::to_string))
 }
 
-/// Writing of any length: only the size of a request limits it.
-fn long(args: &Value, name: &str) -> Result<Option<String>, ApiError> {
+/// Writing up to `max` bytes, as what `too_long` says when it is more.
+fn writing(
+    args: &Value,
+    name: &str,
+    max: usize,
+    too_long: &str,
+) -> Result<Option<String>, ApiError> {
     match args.get(name) {
         None | Some(Value::Null) => Ok(None),
+        Some(Value::String(text)) if text.len() > max => {
+            Err(invalid(format!("{name} is too long: {too_long}")))
+        }
         Some(Value::String(text)) => Ok(Some(text.clone())),
         Some(_) => Err(invalid(format!("{name} must be text"))),
+    }
+}
+
+/// A note, an event's description or a citation's text.
+fn long(args: &Value, name: &str) -> Result<Option<String>, ApiError> {
+    writing(
+        args,
+        name,
+        TEXT_MAX,
+        "a record holds up to 64 KiB. Split it into several, or put the whole text on a source \
+         with add_source and cite it.",
+    )
+}
+
+/// `source_file` and `number`, both or neither. Blank ones are for the gate to refuse.
+fn number_args(args: &Value) -> Result<Option<(String, String)>, ApiError> {
+    match (short(args, "source_file")?, short(args, "number")?) {
+        (None, None) => Ok(None),
+        (Some(file), Some(number)) => Ok(Some((file, number))),
+        _ => Err(invalid("Give both source_file and number.".into())),
     }
 }
 
@@ -423,21 +551,41 @@ fn word_arg<T: DeserializeOwned>(
 }
 
 /// A date the session understands. The planner stores anything, and a date it cannot read is a
-/// date the owner would have to untangle, so that is refused here. Blank is no date.
-fn date_arg<H: Host>(host: &H, args: &Value, name: &str) -> Result<Option<String>, ApiError> {
+/// date the owner would have to untangle, so that is refused here, as is one that reads as two
+/// different dates: the owner's day order says nothing about how the source wrote it. Whatever
+/// else the session has to say about a date goes in `warnings`. Blank is no date.
+fn date_arg(
+    s: &Session,
+    args: &Value,
+    name: &str,
+    warnings: &mut Vec<String>,
+) -> Result<Option<String>, ApiError> {
     let Some(raw) = optional_str(args, name)?
         .map(str::trim)
         .filter(|raw| !raw.is_empty())
     else {
         return Ok(None);
     };
-    let order = read(host, |s| Ok(s.settings().day_order))?;
-    if parse_date_preview(raw, order).status == DateStatus::Unparsed {
+    let preview = parse_date_preview(raw, s.settings().day_order);
+    if preview.status == DateStatus::Unparsed {
         return Err(invalid(format!(
             "\"{raw}\" is not understood as a date. {SOURCE_DATE} Never guess one: if the source \
              gives no date like that, leave it out and put what the source says in a note."
         )));
     }
+    let (dmy, mdy) = (
+        parse_date_preview(raw, DayOrder::Dmy),
+        parse_date_preview(raw, DayOrder::Mdy),
+    );
+    let both = dmy.status == DateStatus::Ok && mdy.status == DateStatus::Ok;
+    if both && dmy.understood_as != mdy.understood_as {
+        return Err(invalid(format!(
+            "\"{raw}\" can be read two ways, as {} or as {}. Write the month as a word, like 3 APR \
+             1901. If the source does not say which, put what it says in a note.",
+            dmy.understood_as, mdy.understood_as
+        )));
+    }
+    warnings.extend(preview.warnings);
     Ok(Some(raw.to_string()))
 }
 
@@ -510,19 +658,36 @@ fn begin_batch<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
 
 fn end_batch<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let batch = batch_arg(args)?;
-    let report = long(args, "report")?.ok_or_else(|| invalid("report must be text".into()))?;
+    let report = writing(
+        args,
+        "report",
+        REPORT_MAX,
+        "a report holds up to 64 KiB. Keep to what was added, what was left unsettled, and the \
+         questions for the family.",
+    )?
+    .filter(|report| !report.trim().is_empty())
+    .ok_or_else(|| {
+        invalid(
+            "report must say what was added, what was left unsettled, and the questions for the \
+             family."
+                .into(),
+        )
+    })?;
     host.with_session(&mut |s| s.end_batch(ctx, batch, &report))?;
+    // Nothing in the tree changed, so nobody is named: this tells the app to look at its batches.
+    host.changed(&[], ctx);
     answer(&json!({"batch": batch, "closed": true}))
 }
 
 fn add_person<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let batch = batch_arg(args)?;
+    let number = number_args(args)?;
     let draft = PersonDraft {
         given: short(args, "given")?,
         surnames: surnames_arg(args)?.unwrap_or_default(),
         patronymic: short(args, "patronymic")?,
         sex: word_arg(args, "sex", "sex", SEXES)?.unwrap_or(SexKind::Unknown),
-        birth_date_raw: date_arg(host, args, "birth_date")?,
+        birth_date_raw: None,
         birth_place_text: short(args, "birth_place")?,
     };
     let cmd = match relation_arg(args)? {
@@ -538,51 +703,75 @@ fn add_person<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
             parent_rel: given.link,
         },
     };
-    write(host, cmd, ctx, batch, focus)
+    apply(
+        host,
+        ctx,
+        |s, warnings| {
+            let mut cmd = cmd.clone();
+            let date = date_arg(s, args, "birth_date", warnings)?;
+            if let EditCommand::CreatePerson { draft } | EditCommand::QuickAdd { draft, .. } =
+                &mut cmd
+            {
+                draft.birth_date_raw = date;
+            }
+            let (write, reached) = match &number {
+                Some((file, number)) => {
+                    s.apply_numbered_as_agent(cmd.clone(), file, number, ctx, batch)?
+                }
+                None => s.apply_as_agent_reaching(cmd.clone(), ctx, batch)?,
+            };
+            let child = child_of_write(&cmd, &write);
+            Ok((write, reached, child))
+        },
+        focus,
+    )
 }
 
 fn link_people<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let batch = batch_arg(args)?;
     let person = uuid_arg(args, "person")?;
     let given = relation_arg(args)?.ok_or_else(|| invalid("relation must have as".into()))?;
-    let cmd = match (given.to, given.relation, given.family) {
-        (Some(anchor), relation, family) => EditCommand::LinkExisting {
-            anchor,
-            relation,
-            person,
-            family,
-            new_parent_set: None,
-            parent_rel: given.link,
-        },
-        (None, Relation::Child, Some(family)) => {
-            if given.step {
-                return Err(invalid(
-                    "A stepchild is the child of one partner only: give that partner as \
-                     relation.to."
-                        .into(),
-                ));
-            }
-            let rel = given.link.unwrap_or(ParentRelId::Birth);
-            // A family the person already has stays the one that counts for them.
-            let first = read(host, |s| {
-                Ok(s.tree().families_as_child(person).next().is_none())
-            })?;
-            EditCommand::LinkChild {
-                family,
-                child: person,
-                rel: (rel, rel),
-                preferred: first,
-            }
-        }
-        _ => {
+    if given.to.is_none() {
+        if given.relation != Relation::Child || given.family.is_none() {
             return Err(invalid(
                 "relation.to must be the id of a person. Only a child can go straight into a \
                  family, with as: child and family."
                     .into(),
             ));
         }
-    };
-    write(host, cmd, ctx, batch, |_, _| Some(person))
+        if given.step {
+            return Err(invalid(
+                "A stepchild is the child of one partner only: give that partner as relation.to."
+                    .into(),
+            ));
+        }
+    }
+    let rel = given.link.unwrap_or(ParentRelId::Birth);
+    write(
+        host,
+        ctx,
+        batch,
+        |s, _| {
+            Ok(match (given.to, given.family) {
+                (Some(anchor), family) => EditCommand::LinkExisting {
+                    anchor,
+                    relation: given.relation,
+                    person,
+                    family,
+                    new_parent_set: None,
+                    parent_rel: given.link,
+                },
+                (None, family) => EditCommand::LinkChild {
+                    family: family.ok_or_else(|| invalid("relation.family is needed".into()))?,
+                    child: person,
+                    rel: (rel, rel),
+                    // A family the person already has stays the one that counts for them.
+                    preferred: s.tree().families_as_child(person).next().is_none(),
+                },
+            })
+        },
+        |_, _| Some(person),
+    )
 }
 
 fn add_family<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
@@ -593,9 +782,13 @@ fn add_family<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
         partner2: optional_uuid(args, "partner2")?,
         kind: word_arg(args, "kind", "kind", UNIONS)?.unwrap_or(UnionKindId::Unknown),
     };
-    write(host, cmd, ctx, batch, |s, result| {
-        written(result, |id| s.tree().families.contains_key(id))
-    })
+    write(
+        host,
+        ctx,
+        batch,
+        |_, _| Ok(cmd.clone()),
+        |s, result| written(result, |id| s.tree().families.contains_key(id)),
+    )
 }
 
 fn name_kind(kind: &NameKind) -> NameKindDto {
@@ -612,7 +805,12 @@ fn name_kind(kind: &NameKind) -> NameKindDto {
 }
 
 /// A name from the arguments, on top of what `old` says.
-fn name_input<H: Host>(host: &H, args: &Value, old: Option<&Name>) -> Result<NameInput, ApiError> {
+fn name_input(
+    s: &Session,
+    args: &Value,
+    old: Option<&Name>,
+    warnings: &mut Vec<String>,
+) -> Result<NameInput, ApiError> {
     let text = |name: &str, was: fn(&Name) -> &Option<String>| -> Result<_, ApiError> {
         Ok(short(args, name)?.or_else(|| old.and_then(|o| was(o).clone())))
     };
@@ -637,7 +835,7 @@ fn name_input<H: Host>(host: &H, args: &Value, old: Option<&Name>) -> Result<Nam
         suffix: text("suffix", |o| &o.suffix)?,
         nickname: text("nickname", |o| &o.nickname)?,
         lang: text("lang", |o| &o.lang)?,
-        date_raw: date_arg(host, args, "date")?
+        date_raw: date_arg(s, args, "date", warnings)?
             .or_else(|| old.and_then(|o| o.date.as_ref()).map(|d| d.raw.clone())),
     })
 }
@@ -645,12 +843,14 @@ fn name_input<H: Host>(host: &H, args: &Value, old: Option<&Name>) -> Result<Nam
 fn add_name<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let batch = batch_arg(args)?;
     let person = uuid_arg(args, "person")?;
-    let name = name_input(host, args, None)?;
     write(
         host,
-        EditCommand::SaveName { person, name },
         ctx,
         batch,
+        |s, warnings| {
+            let name = name_input(s, args, None, warnings)?;
+            Ok(EditCommand::SaveName { person, name })
+        },
         |s, _| s.tree().persons.get(&person)?.names.last().map(|n| n.id),
     )
 }
@@ -659,29 +859,30 @@ fn update_own_name<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResul
     let batch = batch_arg(args)?;
     let person = uuid_arg(args, "person")?;
     let id = uuid_arg(args, "name")?;
-    let old = read(host, |s| {
-        s.tree()
-            .persons
-            .get(&person)
-            .and_then(|p| p.names.iter().find(|n| n.id == id))
-            .cloned()
-            .ok_or_else(|| ApiError::not_found("name", id))
-    })?;
-    let name = name_input(host, args, Some(&old))?;
     write(
         host,
-        EditCommand::SaveName { person, name },
         ctx,
         batch,
+        |s, warnings| {
+            let old = s
+                .tree()
+                .persons
+                .get(&person)
+                .and_then(|p| p.names.iter().find(|n| n.id == id))
+                .ok_or_else(|| ApiError::not_found("name", id))?;
+            let name = name_input(s, args, Some(old), warnings)?;
+            Ok(EditCommand::SaveName { person, name })
+        },
         |_, _| Some(id),
     )
 }
 
 /// An event from the arguments, on top of what `old` says.
-fn event_input<H: Host>(
-    host: &H,
+fn event_input(
+    s: &Session,
     args: &Value,
     old: Option<&Event>,
+    warnings: &mut Vec<String>,
 ) -> Result<EventInput, ApiError> {
     let kind = short(args, "kind")?
         .or_else(|| old.map(|o| event_kind_id(&o.kind)))
@@ -690,7 +891,7 @@ fn event_input<H: Host>(
     Ok(EventInput {
         id: old.map(|o| o.common.id),
         kind,
-        date_raw: date_arg(host, args, "date")?
+        date_raw: date_arg(s, args, "date", warnings)?
             .or_else(|| old.and_then(|o| o.date.as_ref()).map(|d| d.raw.clone())),
         // Left out, the planner keeps the place an event has.
         place_text: short(args, "place")?,
@@ -721,12 +922,14 @@ fn add_event<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
         },
         _ => return Err(invalid("Give a person or a family, one of them.".into())),
     };
-    let event = event_input(host, args, None)?;
     write(
         host,
-        EditCommand::SaveEvent { owner, event },
         ctx,
         batch,
+        |s, warnings| {
+            let event = event_input(s, args, None, warnings)?;
+            Ok(EditCommand::SaveEvent { owner, event })
+        },
         |s, result| written(result, |id| s.tree().events.contains_key(id)),
     )
 }
@@ -734,33 +937,33 @@ fn add_event<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
 fn update_own_event<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let batch = batch_arg(args)?;
     let id = uuid_arg(args, "event")?;
-    let old = read(host, |s| {
-        s.tree()
-            .events
-            .get(&id)
-            .cloned()
-            .ok_or_else(|| ApiError::not_found("event", id))
-    })?;
-    let owner = old
-        .participants
-        .first()
-        .map(|taking_part| match taking_part.target {
-            ParticipantRef::Person(id) => EventOwner {
-                kind: EventOwnerKind::Person,
-                id,
-            },
-            ParticipantRef::Family(id) => EventOwner {
-                kind: EventOwnerKind::Family,
-                id,
-            },
-        })
-        .ok_or_else(|| ApiError::not_found("event", id))?;
-    let event = event_input(host, args, Some(&old))?;
     write(
         host,
-        EditCommand::SaveEvent { owner, event },
         ctx,
         batch,
+        |s, warnings| {
+            let old = s
+                .tree()
+                .events
+                .get(&id)
+                .ok_or_else(|| ApiError::not_found("event", id))?;
+            let owner = old
+                .participants
+                .first()
+                .map(|taking_part| match taking_part.target {
+                    ParticipantRef::Person(id) => EventOwner {
+                        kind: EventOwnerKind::Person,
+                        id,
+                    },
+                    ParticipantRef::Family(id) => EventOwner {
+                        kind: EventOwnerKind::Family,
+                        id,
+                    },
+                })
+                .ok_or_else(|| ApiError::not_found("event", id))?;
+            let event = event_input(s, args, Some(old), warnings)?;
+            Ok(EditCommand::SaveEvent { owner, event })
+        },
         |_, _| Some(id),
     )
 }
@@ -775,9 +978,14 @@ fn add_note<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     };
     write(
         host,
-        EditCommand::SaveNote { target, note },
         ctx,
         batch,
+        |_, _| {
+            Ok(EditCommand::SaveNote {
+                target,
+                note: note.clone(),
+            })
+        },
         |s, result| written(result, |id| s.tree().notes.contains_key(id)),
     )
 }
@@ -816,35 +1024,34 @@ fn update_own_note<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResul
     let id = uuid_arg(args, "note")?;
     let text = long(args, "text")?.ok_or_else(|| invalid("text must be text".into()))?;
     let kind: Option<NoteKindDto> = word_arg(args, "kind", "kind", NOTE_KINDS)?;
-    let (target, was) = read(host, |s| {
-        let note = s
-            .tree()
-            .notes
-            .get(&id)
-            .ok_or_else(|| ApiError::not_found("note", id))?;
-        let target = note_holder(s, id).ok_or_else(|| {
-            invalid("This note is on nothing an agent can change. Add your own instead.".into())
-        })?;
-        let was = match &note.kind {
-            NoteKind::General => NoteKindDto::General,
-            NoteKind::Story => NoteKindDto::Story,
-            NoteKind::Research => NoteKindDto::Research,
-            NoteKind::Transcription => NoteKindDto::Transcription,
-            NoteKind::Conclusion => NoteKindDto::Conclusion,
-            NoteKind::Other(_) => NoteKindDto::Other,
-        };
-        Ok((target, was))
-    })?;
-    let note = NoteInput {
-        id: Some(id),
-        kind: kind.unwrap_or(was),
-        text,
-    };
     write(
         host,
-        EditCommand::SaveNote { target, note },
         ctx,
         batch,
+        |s, _| {
+            let note = s
+                .tree()
+                .notes
+                .get(&id)
+                .ok_or_else(|| ApiError::not_found("note", id))?;
+            let target = note_holder(s, id).ok_or_else(|| {
+                invalid("This note is on nothing an agent can change. Add your own instead.".into())
+            })?;
+            let was = match &note.kind {
+                NoteKind::General => NoteKindDto::General,
+                NoteKind::Story => NoteKindDto::Story,
+                NoteKind::Research => NoteKindDto::Research,
+                NoteKind::Transcription => NoteKindDto::Transcription,
+                NoteKind::Conclusion => NoteKindDto::Conclusion,
+                NoteKind::Other(_) => NoteKindDto::Other,
+            };
+            let note = NoteInput {
+                id: Some(id),
+                kind: kind.unwrap_or(was),
+                text: text.clone(),
+            };
+            Ok(EditCommand::SaveNote { target, note })
+        },
         |_, _| Some(id),
     )
 }
@@ -857,13 +1064,22 @@ fn add_source<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
         author: short(args, "author")?,
         publication: short(args, "publication")?,
         abbreviation: short(args, "abbreviation")?,
-        text: long(args, "text")?,
+        text: writing(
+            args,
+            "text",
+            SOURCE_TEXT_MAX,
+            "a source holds up to 1 MiB. Split it across several sources.",
+        )?,
     };
     write(
         host,
-        EditCommand::SaveSource { source },
         ctx,
         batch,
+        |_, _| {
+            Ok(EditCommand::SaveSource {
+                source: source.clone(),
+            })
+        },
         |s, result| written(result, |id| s.tree().sources.contains_key(id)),
     )
 }
@@ -871,19 +1087,25 @@ fn add_source<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
 fn add_citation<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let batch = batch_arg(args)?;
     let target = target_arg(args)?;
-    let citation = CitationArg::New(CitationInput {
-        source: SourceRef::Id(uuid_arg(args, "source")?),
-        page: short(args, "page")?,
-        date_raw: date_arg(host, args, "date")?,
-        text: long(args, "text")?,
-        quality: quality_arg(args)?,
-        evidence: None,
-    });
+    let source = uuid_arg(args, "source")?;
+    let page = short(args, "page")?;
+    let text = long(args, "text")?;
+    let quality = quality_arg(args)?;
     write(
         host,
-        EditCommand::AddCitation { target, citation },
         ctx,
         batch,
+        |s, warnings| {
+            let citation = CitationArg::New(CitationInput {
+                source: SourceRef::Id(source),
+                page: page.clone(),
+                date_raw: date_arg(s, args, "date", warnings)?,
+                text: text.clone(),
+                quality,
+                evidence: None,
+            });
+            Ok(EditCommand::AddCitation { target, citation })
+        },
         // A citation can be cited: the new one is not the one it went on.
         |s, result| {
             written(result, |id| {
@@ -896,33 +1118,56 @@ fn add_citation<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
 fn update_own_citation<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let batch = batch_arg(args)?;
     let id = uuid_arg(args, "citation")?;
-    let citation = CitationPatch {
-        source: None,
-        page: short(args, "page")?,
-        date_raw: date_arg(host, args, "date")?,
-        text: long(args, "text")?,
-        quality: quality_arg(args)?,
-        evidence: None,
-    };
+    let page = short(args, "page")?;
+    let text = long(args, "text")?;
+    let quality = quality_arg(args)?;
     write(
         host,
-        EditCommand::UpdateCitation { id, citation },
         ctx,
         batch,
+        |s, warnings| {
+            let citation = CitationPatch {
+                source: None,
+                page: page.clone(),
+                date_raw: date_arg(s, args, "date", warnings)?,
+                text: text.clone(),
+                quality,
+                evidence: None,
+            };
+            Ok(EditCommand::UpdateCitation { id, citation })
+        },
         |_, _| Some(id),
     )
 }
 
 fn add_sibling_marker<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let batch = batch_arg(args)?;
-    let family = uuid_arg(args, "family")?;
-    write(
-        host,
-        EditCommand::AddSiblingMarker { family },
-        ctx,
-        batch,
-        focus,
-    )
+    match (
+        optional_uuid(args, "family")?,
+        optional_uuid(args, "sibling_of")?,
+    ) {
+        (Some(family), None) => write(
+            host,
+            ctx,
+            batch,
+            |_, _| Ok(EditCommand::AddSiblingMarker { family }),
+            focus,
+        ),
+        (None, Some(person)) => apply(
+            host,
+            ctx,
+            |s, _| {
+                let (write, reached) = s.add_sibling_marker_beside(person, ctx, batch)?;
+                Ok((write, reached, None))
+            },
+            focus,
+        ),
+        _ => Err(invalid(
+            "Give family or sibling_of, one of them: sibling_of is a person those brothers and \
+             sisters belong beside."
+                .into(),
+        )),
+    }
 }
 
 fn set_number<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
@@ -932,7 +1177,7 @@ fn set_number<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
         source_file: str_arg(args, "source_file")?.to_string(),
         number: str_arg(args, "number")?.to_string(),
     };
-    write(host, cmd, ctx, batch, focus)
+    write(host, ctx, batch, |_, _| Ok(cmd.clone()), focus)
 }
 
 fn set_sex<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
@@ -947,5 +1192,5 @@ fn set_sex<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
         living_override: LivingPatch::Keep,
         private: None,
     };
-    write(host, cmd, ctx, batch, focus)
+    write(host, ctx, batch, |_, _| Ok(cmd.clone()), focus)
 }

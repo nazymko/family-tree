@@ -149,14 +149,14 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "get_citation",
-            description: "One citation with its links and its source. The source's text is left out: get_source has it. It has no pages; a very long note in it comes as its start, to read in pieces with get_note.",
-            schema: id("The citation's id."),
+            description: "One citation with its links and its source. The source's text is left out: get_source has it. A long text of its own can pass what your client shows at once: read it in pieces with text_offset and text_limit, in characters, as nextTextOffset says. A very long note in it comes as its start, to read in pieces with get_note.",
+            schema: piece_schema("The citation's id."),
             call: get_citation::<H>,
         },
         Tool {
             name: "get_event",
-            description: "One event in full: date, place, everyone taking part, notes, citations and media. It has no pages; a very long note in it comes as its start, to read in pieces with get_note.",
-            schema: id("The event's id."),
+            description: "One event in full: date, place, everyone taking part, notes, citations and media. A long description can pass what your client shows at once: read it in pieces with text_offset and text_limit, in characters, as nextTextOffset says. A very long note in it comes as its start, to read in pieces with get_note.",
+            schema: piece_schema("The event's id."),
             call: get_event::<H>,
         },
         Tool {
@@ -652,6 +652,11 @@ fn get_family<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
 
 /// Cuts a record's `text` to the piece asked for. Asked for nothing, the whole text stays.
 fn text_piece(record: &mut Value, args: &Value) -> Result<(), ApiError> {
+    piece_of(record, "text", args)
+}
+
+/// [`text_piece`], for the field that holds the record's long text.
+fn piece_of(record: &mut Value, field: &str, args: &Value) -> Result<(), ApiError> {
     let offset = optional_u64(args, "text_offset")?;
     let limit = optional_u64(args, "text_limit")?;
     if offset.is_none() && limit.is_none() {
@@ -660,14 +665,14 @@ fn text_piece(record: &mut Value, args: &Value) -> Result<(), ApiError> {
     let offset = usize::try_from(offset.unwrap_or(0)).unwrap_or(usize::MAX);
     let limit = limit.unwrap_or(TEXT_PIECE_DEFAULT).max(1);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-    let Some(text) = record.get("text").and_then(Value::as_str) else {
+    let Some(text) = record.get(field).and_then(Value::as_str) else {
         return Ok(());
     };
     let piece: String = text.chars().skip(offset).take(limit).collect();
     let end = offset.saturating_add(limit);
     let more = text.chars().nth(end).is_some();
     if let Some(fields) = record.as_object_mut() {
-        fields.insert("text".into(), json!(piece));
+        fields.insert(field.into(), json!(piece));
         fields.insert("textOffset".into(), json!(offset));
         if more {
             fields.insert("nextTextOffset".into(), json!(end));
@@ -704,25 +709,27 @@ fn get_note<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
 
 fn get_citation<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "id")?;
-    let result = read(host, |s| {
+    let mut result = read(host, |s| {
         s.tree()
             .citations
             .get(&id)
             .map(|citation| records::citation_full(s, citation))
             .ok_or_else(|| ApiError::not_found("citation", id))
     })?;
+    text_piece(&mut result, args)?;
     answer(&result)
 }
 
 fn get_event<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "id")?;
-    let result = read(host, |s| {
+    let mut result = read(host, |s| {
         s.tree()
             .events
             .get(&id)
             .map(|event| records::event_full(s, event))
             .ok_or_else(|| ApiError::not_found("event", id))
     })?;
+    piece_of(&mut result, "description", args)?;
     answer(&result)
 }
 

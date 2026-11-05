@@ -5,7 +5,8 @@
 //! 1. The batch exists in this tree, belongs to this connection, and is not closed.
 //! 2. The command is on the list of additive commands.
 //! 3. A repeat adds nothing (`AlreadyThere`): of a note, event or citation this connection wrote,
-//!    or of any identical source, name or family.
+//!    of any identical source, name or family, of a link that is there, of a person under their
+//!    number, or of an edit that would say what its record says.
 //! 4. Facts a person has only once, one birth family, and one parent in each role.
 //! 5. Every change is compared in JSON: on what is not the agent's own, only filling an empty value
 //!    and adding to a list pass.
@@ -21,10 +22,12 @@
 //! "Own" means this connection introduced it and nobody else has changed it since. A write that
 //! only moves a `changed` stamp, as adding an event does to its person, changes no fact.
 
-use crate::command::{CitationArg, EditCommand, EditResult, LivingPatch, OwnerKind, OwnerRef};
+use crate::command::{
+    CitationArg, EditCommand, EditResult, EventOwnerKind, LivingPatch, OwnerKind, OwnerRef,
+};
 use crate::dto::ParentRelId;
 use crate::error::{ApiError, ErrorCode};
-use crate::ops::{agent_number, apply_to_tree_tracked, plan_with};
+use crate::ops::{agent_number, apply_to_tree_tracked, plan_marker_family, plan_with, rel_of};
 use crate::revert::{identity, same_ignoring_stamp, stripped};
 use crate::session::Session;
 use crate::touched::people_reached;
@@ -68,7 +71,8 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
             ..
         } => Err(refused(
             "A family needs someone in it. Add a parent or child through the family's people \
-             instead.",
+             instead. For brothers and sisters nobody named, use add_sibling_marker with \
+             sibling_of.",
         )),
         C::CreatePerson { .. }
         | C::QuickAdd { .. }
@@ -135,11 +139,93 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
     }
 }
 
+/// The people a command would give something to, or put in a relationship.
+fn people_named(cmd: &EditCommand) -> Vec<Uuid> {
+    use EditCommand as C;
+    match cmd {
+        C::UpdatePerson { id, .. } => vec![*id],
+        C::SaveName { person, .. } | C::AddNumber { person, .. } => vec![*person],
+        C::SaveNote { target, .. } | C::AddCitation { target, .. }
+            if matches!(target.kind, OwnerKind::Person) =>
+        {
+            vec![target.id]
+        }
+        C::SaveEvent { owner, .. } if matches!(owner.kind, EventOwnerKind::Person) => {
+            vec![owner.id]
+        }
+        C::QuickAdd { anchor, .. } => vec![*anchor],
+        C::LinkExisting { anchor, person, .. } => vec![*anchor, *person],
+        C::LinkChild { child, .. } => vec![*child],
+        C::SaveFamily {
+            partner1, partner2, ..
+        } => [*partner1, *partner2].into_iter().flatten().collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The record an edit names, for telling the agent it already says this.
+fn edited_record(cmd: &EditCommand) -> Option<Uuid> {
+    use EditCommand as C;
+    match cmd {
+        C::SaveNote { note, .. } => note.id,
+        C::SaveEvent { event, .. } => event.id,
+        C::SaveName { name, .. } => name.id,
+        C::UpdateCitation { id, .. } | C::UpdatePerson { id, .. } => Some(*id),
+        _ => None,
+    }
+}
+
+/// Step 4 on the plan: a family has no birth or death of its own. What the owner's data already
+/// holds stays, so only an event that is new, or new as this kind, counts.
+fn check_event_owners(cs: &ChangeSet) -> Result<(), ApiError> {
+    for ch in &cs.changes {
+        let Some(Record::Event(e)) = &ch.after else {
+            continue;
+        };
+        let of_family = e
+            .participants
+            .iter()
+            .any(|p| matches!(p.target, ParticipantRef::Family(_)));
+        let same_kind = matches!(&ch.before, Some(Record::Event(old)) if old.kind == e.kind);
+        if of_family && !same_kind && !fits_a_family(&e.kind) {
+            return Err(refused(
+                "That happens to a person, not a family: add it to the person. A family's events \
+                 are marriage, marriage_banns, marriage_contract, marriage_license, \
+                 marriage_settlement, engagement, divorce, divorce_filed, annulment, separation, \
+                 census, residence, emigration, immigration, or custom:<your words>.",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn principals(e: &Event) -> impl Iterator<Item = Uuid> + '_ {
     e.participants.iter().filter_map(|p| match p.target {
         ParticipantRef::Person(id) if p.role == Role::Principal => Some(id),
         _ => None,
     })
+}
+
+/// What a couple can have happen to it. The rest happens to a person.
+fn fits_a_family(k: &EventKind) -> bool {
+    matches!(
+        k,
+        EventKind::Marriage
+            | EventKind::MarriageBanns
+            | EventKind::MarriageContract
+            | EventKind::MarriageLicense
+            | EventKind::MarriageSettlement
+            | EventKind::Engagement
+            | EventKind::Divorce
+            | EventKind::DivorceFiled
+            | EventKind::Annulment
+            | EventKind::Separation
+            | EventKind::Census
+            | EventKind::Residence
+            | EventKind::Emigration
+            | EventKind::Immigration
+            | EventKind::Custom(_)
+    )
 }
 
 fn one_of_a_kind(k: &EventKind) -> bool {
@@ -203,6 +289,25 @@ fn has_birth_link(f: &Family, child: Uuid) -> bool {
     f.children
         .iter()
         .any(|l| l.person == child && is_birth_link(f, l))
+}
+
+/// Whether a link says what was asked for: the same kind, with birth and unknown counted as one.
+fn says_link(have: &ParentRel, asked: Option<ParentRelId>) -> bool {
+    match asked.map(|rel| rel_of(rel, None)) {
+        None | Some(ParentRel::Birth | ParentRel::Unknown) => birth_like(have),
+        Some(kind) => *have == kind,
+    }
+}
+
+/// How this family's child is linked to `partner`, one of its partners.
+fn link_to<'a>(f: &Family, link: &'a ChildLink, partner: Uuid) -> Option<&'a ParentRel> {
+    if f.partner1 == Some(partner) {
+        Some(&link.rel1)
+    } else if f.partner2 == Some(partner) {
+        Some(&link.rel2)
+    } else {
+        None
+    }
 }
 
 /// What a record says, as a whole value, so that a new field is compared without anyone having to
@@ -498,8 +603,93 @@ impl Session {
         batch: Uuid,
     ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
         self.check_batch(ctx, batch)?;
+        self.gated(cmd, None, ctx, batch)
+    }
+
+    /// [`Session::apply_as_agent_reaching`] for a new person with their number in a source file:
+    /// one write, so that no failure can leave them without it. With someone under that number
+    /// already, that is who this is, and nothing is written.
+    pub fn apply_numbered_as_agent(
+        &mut self,
+        cmd: EditCommand,
+        source_file: &str,
+        number: &str,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let Some(id) = agent_number(source_file, number) else {
+            return Err(refused("Give both the source file and the number."));
+        };
+        if !matches!(
+            cmd,
+            EditCommand::CreatePerson { .. } | EditCommand::QuickAdd { .. }
+        ) {
+            return Err(refused("Only a new person is added with a number."));
+        }
+        if let Some(record) = self.find_by_number(source_file, number) {
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
+        }
+        self.gated(cmd, Some(id), ctx, batch)
+    }
+
+    /// Adds the entry for brothers and sisters nobody named beside `person`: in their birth family,
+    /// or in a new family with no partners when they have none, which is one write with its marker.
+    pub fn add_sibling_marker_beside(
+        &mut self,
+        person: Uuid,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        if !self.tree.persons.contains_key(&person) {
+            return Err(ApiError::not_found("person", person));
+        }
+        self.check_no_marker(std::slice::from_ref(&person))?;
+        let births: Vec<Uuid> = self
+            .tree
+            .families
+            .values()
+            .filter(|f| has_birth_link(f, person))
+            .map(|f| f.common.id)
+            .collect();
+        match births.as_slice() {
+            [] => {
+                let (_, now) = (self.clock.0)();
+                let (family, cs, focus) =
+                    plan_marker_family(&self.tree, person, now, self.day_order());
+                let cmd = EditCommand::AddSiblingMarker { family };
+                self.pass_and_store(&cmd, cs, focus, ctx, batch)
+            }
+            [family] => self.gated(
+                EditCommand::AddSiblingMarker { family: *family },
+                None,
+                ctx,
+                batch,
+            ),
+            _ => Err(refused(format!(
+                "{} has more than one birth family. Say which with family: get_relatives gives \
+                 their ids.",
+                self.person_name(person)
+            ))),
+        }
+    }
+
+    /// Everything after the batch. `number` goes on the person the write creates.
+    fn gated(
+        &mut self,
+        cmd: EditCommand,
+        number: Option<ExternalId>,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
         check_allowed(&cmd)?;
         let cmd = self.keep_preferred(cmd);
+        self.check_no_marker(&people_named(&cmd))?;
+        // Before the checks below: they would answer a repeat with a conflict that is not there.
+        if let Some(record) = self.link_repeat(&cmd) {
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
+        }
         self.check_links_and_numbers(&cmd)?;
         // The planner refuses a second marker; for an agent's rerun that is a repeat, not an error.
         if let EditCommand::AddSiblingMarker { family } = &cmd
@@ -509,14 +699,45 @@ impl Session {
         }
         let (_, now) = (self.clock.0)();
         // No last citation: that is the owner's, and `check_allowed` refused asking for it.
-        let (cs, focus) = plan_with(&self.tree, &cmd, now, self.day_order(), None)?;
+        let (mut cs, focus) = plan_with(&self.tree, &cmd, now, self.day_order(), None)?;
+        if let Some(number) = number {
+            let new = cs.changes.iter_mut().find(|c| Some(c.id) == focus);
+            if let Some(Change {
+                after: Some(Record::Person(person)),
+                ..
+            }) = new
+            {
+                person.common.ext_ids.push(number);
+            }
+        }
         if let Some(record) = self.repeat_of(&cmd, &cs, ctx.id)? {
             return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
         }
+        // Saying again what a record says is no write, and leaves no row in the log.
+        let says_the_same = |c: &Change| same_ignoring_stamp(c.before.as_ref(), c.after.as_ref());
+        if let Some(first) = cs.changes.first()
+            && cs.changes.iter().all(says_the_same)
+        {
+            let record = edited_record(&cmd).unwrap_or(first.id);
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
+        }
+        self.pass_and_store(&cmd, cs, focus, ctx, batch)
+    }
+
+    /// The checks on a plan, in the order of the module comment, then the write.
+    fn pass_and_store(
+        &mut self,
+        cmd: &EditCommand,
+        cs: ChangeSet,
+        focus: Option<Uuid>,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        check_event_owners(&cs)?;
         self.check_one_of_a_kind(&cs)?;
         self.check_birth_family(&cs)?;
         self.check_parent_roles(&cs)?;
-        self.check_partner_is_no_parent(&cmd, &cs)?;
+        self.check_partner_is_no_parent(cmd, &cs)?;
         for ch in &cs.changes {
             self.check_change(ch, ctx.id)?;
         }
@@ -591,6 +812,74 @@ impl Session {
             .map(|p| p.name)
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| "this person".into())
+    }
+
+    /// Whether any of `people` is the entry for brothers and sisters nobody named. The planner has
+    /// its own refusals for this, which speak to the owner, who can delete the entry.
+    fn check_no_marker(&self, people: &[Uuid]) -> Result<(), ApiError> {
+        let is_marker = |id: &Uuid| self.tree.persons.get(id).is_some_and(|p| p.sibling_marker);
+        if people.iter().any(is_marker) {
+            return Err(refused(
+                "That entry stands for brothers and sisters nobody named, and holds nothing else. \
+                 Write on a named person or the family instead.",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Step 3 for a link: the person it would link, when the tree already says the same.
+    fn link_repeat(&self, cmd: &EditCommand) -> Option<Uuid> {
+        use crate::command::Relation as R;
+        let families = || self.tree.families.values();
+        let child_of = |f: &Family, child: Uuid, parent: Uuid, asked| {
+            f.children
+                .iter()
+                .filter(|l| l.person == child)
+                .filter_map(|l| link_to(f, l, parent))
+                .any(|have| says_link(have, asked))
+        };
+        match cmd {
+            EditCommand::LinkExisting {
+                anchor,
+                relation,
+                person,
+                family,
+                parent_rel,
+                ..
+            } => {
+                let chosen = |f: &&Family| family.is_none_or(|id| f.common.id == id);
+                let there = match relation {
+                    R::Father | R::Mother => {
+                        families().any(|f| child_of(f, *anchor, *person, *parent_rel))
+                    }
+                    R::Child => families()
+                        .filter(chosen)
+                        .any(|f| child_of(f, *person, *anchor, *parent_rel)),
+                    R::Partner => families().any(|f| {
+                        (f.partner1 == Some(*anchor) && f.partner2 == Some(*person))
+                            || (f.partner1 == Some(*person) && f.partner2 == Some(*anchor))
+                    }),
+                    R::Sibling => families().any(|f| {
+                        f.children.iter().any(|l| l.person == *anchor)
+                            && f.children.iter().any(|l| l.person == *person)
+                    }),
+                };
+                there.then_some(*person)
+            }
+            EditCommand::LinkChild {
+                family, child, rel, ..
+            } => {
+                let f = self.tree.families.get(family)?;
+                let link = f.children.iter().find(|l| l.person == *child)?;
+                let have = if f.partner1.is_some() {
+                    &link.rel1
+                } else {
+                    &link.rel2
+                };
+                says_link(have, Some(rel.0)).then_some(*child)
+            }
+            _ => None,
+        }
     }
 
     /// Step 4, the checks the command alone can answer.

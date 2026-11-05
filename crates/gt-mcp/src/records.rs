@@ -165,22 +165,30 @@ fn note_fields(note: &Note) -> Fields {
     }))
 }
 
+/// Leaves only the start of a very long text in `field` of a row, and how to read the rest.
+fn cut_long_text(fields: &mut Fields, field: &str, what: &str, tool: &str, id: Uuid) {
+    let Some(text) = fields.get(field).and_then(Value::as_str) else {
+        return;
+    };
+    if text.len() <= NOTE_TEXT_MAX {
+        return;
+    }
+    let preview: String = text.chars().take(NOTE_PREVIEW_CHARS).collect();
+    fields.insert(field.into(), json!(preview));
+    fields.insert(format!("{field}Truncated"), json!(true));
+    fields.insert(
+        format!("{field}Hint"),
+        json!(format!(
+            "Only the start of this {what}. Read the rest with {tool}, id {id}, text_offset \
+             {NOTE_PREVIEW_CHARS}, text_limit {NOTE_PIECE_CHARS}."
+        )),
+    );
+}
+
 /// A note as a row in another record. A very long one comes as its start and how to read the rest.
 pub(crate) fn note_row(note: &Note) -> Value {
     let mut fields = note_fields(note);
-    if note.text.len() > NOTE_TEXT_MAX {
-        let preview: String = note.text.chars().take(NOTE_PREVIEW_CHARS).collect();
-        fields.insert("text".into(), json!(preview));
-        fields.insert("textTruncated".into(), json!(true));
-        fields.insert(
-            "textHint".into(),
-            json!(format!(
-                "Only the start of this note. Read the rest with get_note, id {}, text_offset \
-                 {NOTE_PREVIEW_CHARS}, text_limit {NOTE_PIECE_CHARS}.",
-                note.common.id
-            )),
-        );
-    }
+    cut_long_text(&mut fields, "text", "note", "get_note", note.common.id);
     extend(common_by_id(&note.common), fields)
 }
 
@@ -282,7 +290,10 @@ fn citation_fields(s: &Session, citation: &Citation) -> Fields {
 
 /// A citation as a row in another record or a list.
 pub(crate) fn citation_row(s: &Session, citation: &Citation) -> Value {
-    extend(common_by_id(&citation.common), citation_fields(s, citation))
+    let mut fields = citation_fields(s, citation);
+    let id = citation.common.id;
+    cut_long_text(&mut fields, "text", "citation", "get_citation", id);
+    extend(common_by_id(&citation.common), fields)
 }
 
 /// A citation read by id.
@@ -414,12 +425,25 @@ fn event_fields(s: &Session, event: &Event) -> Fields {
     out
 }
 
-/// An event in a list.
-pub(crate) fn event_row(s: &Session, event: &Event) -> Value {
-    extend(common_by_id(&event.common), event_fields(s, event))
+fn cut_description(fields: &mut Fields, id: Uuid) {
+    cut_long_text(fields, "description", "description", "get_event", id);
 }
 
-/// An event read by id, or as part of its person or family.
+/// An event in a list.
+pub(crate) fn event_row(s: &Session, event: &Event) -> Value {
+    let mut fields = event_fields(s, event);
+    cut_description(&mut fields, event.common.id);
+    extend(common_by_id(&event.common), fields)
+}
+
+/// An event as part of its person or family: all of it, but a very long description.
+fn event_part(s: &Session, event: &Event) -> Value {
+    let mut fields = event_fields(s, event);
+    cut_description(&mut fields, event.common.id);
+    extend(common_resolved(s, &event.common), fields)
+}
+
+/// An event read by id.
 pub(crate) fn event_full(s: &Session, event: &Event) -> Value {
     extend(common_resolved(s, &event.common), event_fields(s, event))
 }
@@ -603,7 +627,7 @@ pub(crate) fn family_full(s: &Session, family: &Family) -> Result<Value, ApiErro
     let events: Vec<Value> = value_ids(value.get("events"))
         .into_iter()
         .filter_map(|id| s.tree().events.get(&id))
-        .map(|event| event_full(s, event))
+        .map(|event| event_part(s, event))
         .collect();
     value.insert("events".into(), json!(events));
     value.insert("kindText".into(), json!(union_kind_text(kind)));
@@ -688,7 +712,7 @@ pub(crate) fn person_full(s: &Session, person: &Person) -> Result<Value, ApiErro
     let events: Vec<Value> = value_ids(value.get("events"))
         .into_iter()
         .filter_map(|event| s.tree().events.get(&event))
-        .map(|event| event_full(s, event))
+        .map(|event| event_part(s, event))
         .collect();
     value.insert("events".into(), json!(events));
     if let Some(rows) = value.get_mut("partnerships").and_then(Value::as_array_mut) {
@@ -698,6 +722,10 @@ pub(crate) fn person_full(s: &Session, person: &Person) -> Result<Value, ApiErro
                 if let Some(fields) = event.as_object_mut() {
                     for heavy in ["citations", "notes", "media", "participants"] {
                         fields.remove(heavy);
+                    }
+                    let id = fields.get("id").and_then(Value::as_str);
+                    if let Some(id) = id.and_then(|id| Uuid::parse_str(id).ok()) {
+                        cut_description(fields, id);
                     }
                 }
             }

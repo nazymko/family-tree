@@ -99,6 +99,36 @@ pub(super) fn add_sibling_marker(p: &mut Planner, family: Uuid) -> Result<Option
             "This family already has an entry for unnamed brothers and sisters.",
         ));
     }
+    Ok(Some(put_marker(p, &mut fam)))
+}
+
+/// A family with nobody in it as a partner, for a child whose parents are not known, with that
+/// child's unnamed brothers and sisters. The family it makes, and the marker.
+pub(super) fn add_family_of_child_with_marker(
+    p: &mut Planner,
+    child: Uuid,
+) -> (Uuid, Option<Uuid>) {
+    let mut fam = Family {
+        common: super::new_common(p.now),
+        partner1: None,
+        partner2: None,
+        kind: UnionKind::Unknown,
+        children: vec![ChildLink {
+            person: child,
+            rel1: rel_of(ParentRelId::Birth, None),
+            rel2: rel_of(ParentRelId::Birth, None),
+            preferred: super::families_of_child(p.tree, child).is_empty(),
+            assertion: assertion(false),
+            citations: Vec::new(),
+            unknown: Vec::new(),
+        }],
+    };
+    let id = fam.common.id;
+    let marker = put_marker(p, &mut fam);
+    (id, Some(marker))
+}
+
+fn put_marker(p: &mut Planner, fam: &mut Family) -> Uuid {
     let mut common = super::new_common(p.now);
     let id = common.id;
     common.changed = Some(p.now);
@@ -119,8 +149,8 @@ pub(super) fn add_sibling_marker(p: &mut Planner, family: Uuid) -> Result<Option
         unknown: Vec::new(),
     });
     fam.common.changed = Some(p.now);
-    p.put(fam);
-    Ok(Some(id))
+    p.put(fam.clone());
+    id
 }
 
 /// An unnamed-siblings marker exists only as a child of one family: it goes with the link.

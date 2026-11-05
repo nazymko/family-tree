@@ -23,7 +23,15 @@ pub use protocol::handle_message;
 /// What the agent must follow: the first thing it gets, and the `get_rules` tool.
 pub const RULES: &str = include_str!("rules.md");
 
-pub const INSTRUCTIONS: &str = RULES;
+/// What the server tells a client when it connects: the rules, then how to work with these tools.
+pub const INSTRUCTIONS: &str = concat!(
+    include_str!("rules.md"),
+    "\n\nHow to work with these tools: give add_person your source_file and the person's number \
+     every time, from a numbered file or a label of your own that stays the same. A second run \
+     over the same file then gets {\"id\", \"alreadyThere\": true} and adds nobody; without the \
+     number it adds them twice. A date a source writes as 03/04/1901 can be read two ways and is \
+     refused: write the month as a word, or put the date in a note.\n"
+);
 
 /// What the server needs from the app. Used as a generic bound only.
 ///

@@ -474,6 +474,20 @@ pub fn plan_with(
     Ok((p.finish(cmd.label()), focus))
 }
 
+/// A new family with no partners, `person` as its child and the entry for brothers and sisters
+/// nobody named. Returns the family too. Nothing here can fail: the family is new.
+pub(crate) fn plan_marker_family(
+    tree: &Tree,
+    person: Uuid,
+    now_ms: i64,
+    day_order: DayOrder,
+) -> (Uuid, ChangeSet, Option<Uuid>) {
+    let mut p = Planner::new(tree, now_ms, day_order);
+    let (id, focus) = family::add_family_of_child_with_marker(&mut p, person);
+    let label = EditCommand::AddSiblingMarker { family: id }.label();
+    (id, p.finish(label), focus)
+}
+
 /// `importDraft` with its picture (already stored by the session) attached.
 pub(crate) fn plan_draft(
     tree: &Tree,
