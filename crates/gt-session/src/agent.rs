@@ -144,7 +144,8 @@ fn blank(t: &Option<String>) -> bool {
 }
 
 /// Step 2b: an agent never creates a person with no name at all, whatever tool or relation made
-/// them. Unknown parents and unnamed brothers and sisters have `add_sibling_marker`.
+/// them. Someone known only by a role goes in a note; unnamed brothers and sisters have
+/// `add_sibling_marker`.
 fn check_named(cmd: &EditCommand) -> Result<(), ApiError> {
     let (EditCommand::CreatePerson { draft } | EditCommand::QuickAdd { draft, .. }) = cmd else {
         return Ok(());
@@ -154,7 +155,7 @@ fn check_named(cmd: &EditCommand) -> Result<(), ApiError> {
         && draft.surnames.iter().all(|s| s.trim().is_empty());
     if nameless {
         return Err(refused(
-            "A person needs a name: give a given name, a surname or a nickname. To record unknown parents and unnamed brothers and sisters use add_sibling_marker with sibling_of; never create a nameless person.",
+            "A person needs a name: give a given name, a surname or a patronymic; never create a nameless person. If a source gives only a role, such as somebody's father, write a note on the people around them. For brothers and sisters mentioned with no names use add_sibling_marker, with sibling_of for a person they belong beside.",
         ));
     }
     Ok(())

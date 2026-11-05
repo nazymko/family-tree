@@ -58,9 +58,11 @@ agent's own report: what it added, what it left unsettled, and questions for the
 ### What it cannot do
 
 - **Change what is already there.** An agent adds. It does not rewrite a name, a date or a note that you or anyone else wrote,
-  and it deletes nothing. If a source disagrees with the tree, the agent adds a note that gives both versions. The one
+  and it deletes nothing of yours. If a source disagrees with the tree, the agent adds a note that gives both versions. The one
   exception is its own work: it may correct a note, event, name or citation that it wrote itself and that nobody has changed
-  since.
+  since, and it may remove an empty family it made itself in the batch still open, which a refused link can leave behind.
+- **Add a person with no name.** Someone a source knows only by a role, such as somebody's father, goes in a note on the people
+  around them.
 - **Change whether a living person counts as alive or dead.** The app decides this from dates and relationships, and the
   owner's *Living*/*Deceased* mark overrides it. An agent can never change the result, directly or by accident, so it cannot
   add a death date or burial to a person the app counts as living. It leaves a note and lists the person in its report.

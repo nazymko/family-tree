@@ -183,8 +183,9 @@ Written in English, addressing the agent:
 4. Never change what is already there. If a source disagrees, add a note giving both versions and the source.
 5. Unknown or unclarified information goes in notes. Never present an inference as a fact, and never invent a date.
 6. Brothers or sisters mentioned with no names become the one marker entry, with no names or dates.
-7. A person with a known role but no known name, such as somebody's father, is a normal person with an empty name and a note
-   saying so. (Design call: the owner specified the marker for unnamed siblings only.)
+7. A person with a known role but no known name, such as somebody's father, is not added as a person: write a note on the
+   people around them saying so. (Design call, changed after the first real run: the owner objected to empty cards. The
+   marker stays for unnamed siblings only.)
 8. If a relationship is either-or ("this parent or that one"), create no link. Write a note on the people involved.
 9. People a source says not to connect stay unconnected: put them in your report.
 10. Record which source each fact comes from, as a citation, and how reliable it is: 3 confirmed by the family directly, 2

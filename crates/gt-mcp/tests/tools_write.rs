@@ -1362,6 +1362,7 @@ fn only_the_tools_named_here_can_write() {
             "link_people",
             "add_family",
             "add_name",
+            "remove_own_empty_family",
             "add_event",
             "add_note",
             "add_source",
@@ -1373,7 +1374,6 @@ fn only_the_tools_named_here_can_write() {
             "update_own_event",
             "update_own_name",
             "update_own_citation",
-            "remove_own_empty_family",
         ]
     );
 }
