@@ -586,7 +586,7 @@ fn older_client_full_handshake() {
         .unwrap()
         .to_string();
     assert_eq!(version, "2025-06-18");
-    assert_eq!(init["result"]["instructions"], RULES);
+    assert_eq!(init["result"]["instructions"], gt_mcp::INSTRUCTIONS);
     // 2. notifications/initialized: 202 and nothing else.
     let header = [("MCP-Protocol-Version", version.as_str())];
     let r = f.post(
@@ -661,7 +661,7 @@ fn modern_client_flow() {
     let f = start();
     let r = f.post_modern("server/discover", None, json!({}));
     assert_eq!(r.status, 200);
-    assert_eq!(r.json()["result"]["instructions"], RULES);
+    assert_eq!(r.json()["result"]["instructions"], gt_mcp::INSTRUCTIONS);
 
     let r = f.post_modern("tools/list", None, json!({}));
     assert_eq!(r.status, 200);
@@ -1073,6 +1073,57 @@ fn no_request_runs_after_stop() {
 }
 
 #[test]
+fn client_cannot_claim_other_name() {
+    let f = start();
+    let forged = json!({"id": uuid::Uuid::from_u128(99), "name": "The owner", "kind": "user"});
+    let meta = json!({
+        "io.modelcontextprotocol/clientInfo": {"name": "The owner", "version": "1"},
+        "name": "The owner",
+        "actor": forged,
+        "agent": forged,
+    });
+    let init = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "The owner", "version": "1"},
+        },
+    });
+    assert_eq!(f.post(&[], &init).status, 200);
+    let call = |name: &str, mut arguments: Value| -> Value {
+        arguments["name"] = json!("The owner");
+        arguments["actor"] = forged.clone();
+        arguments["agent"] = forged.clone();
+        arguments["agent_name"] = json!("The owner");
+        arguments["actor_id"] = forged["id"].clone();
+        arguments["_meta"] = meta.clone();
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments, "_meta": meta},
+        });
+        let reply = f.post(&[], &body).json();
+        assert_ne!(reply["result"]["isError"], json!(true), "{reply}");
+        serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+    };
+    let batch = call("begin_batch", json!({"title": "Recording 2"}))["batch"].clone();
+    call(
+        "add_person",
+        json!({"batch": batch, "given": "Ivan", "surnames": ["Koval"]}),
+    );
+
+    let log = call("get_log", json!({"filters": {"batch": batch}}));
+    let row = &log["items"][0];
+    assert_eq!(row["actor"]["name"], "Transcript reader", "{row}");
+    assert_eq!(row["actor"]["id"], json!(ctx().id), "{row}");
+    assert!(!log.to_string().contains("The owner"), "{log}");
+}
+
+#[test]
 fn busy_port_is_an_error() {
     let f = start();
     let host = Arc::new(empty_host());
@@ -1147,8 +1198,8 @@ impl Host for SlowHost {
         self.inner.authenticate(key_sha256)
     }
 
-    fn changed(&self, touched: &[uuid::Uuid]) {
-        self.inner.changed(touched);
+    fn changed(&self, touched: &[uuid::Uuid], agent: &AgentCtx) {
+        self.inner.changed(touched, agent);
     }
 }
 

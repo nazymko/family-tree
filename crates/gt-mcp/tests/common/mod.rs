@@ -7,7 +7,7 @@ use gt_store::Project;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, TryLockError};
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -17,8 +17,11 @@ pub const KEY: &str = "gt_test_key_not_a_secret";
 pub struct TestHost {
     pub session: Mutex<Option<Session>>,
     pub keys: Mutex<HashMap<[u8; 32], AgentCtx>>,
+    /// What each `changed` call was told.
     pub changes: Mutex<Vec<(Vec<Uuid>, AgentCtx)>>,
     pub _dir: Option<TempDir>,
+    /// Whether any `changed` call found the session locked.
+    pub changed_under_lock: Mutex<bool>,
 }
 
 pub fn ctx() -> AgentCtx {
@@ -49,6 +52,9 @@ impl Host for TestHost {
     }
 
     fn changed(&self, touched: &[Uuid], agent: &AgentCtx) {
+        if matches!(self.session.try_lock(), Err(TryLockError::WouldBlock)) {
+            *self.changed_under_lock.lock().unwrap() = true;
+        }
         self.changes
             .lock()
             .unwrap()
@@ -63,6 +69,7 @@ pub fn no_tree_host() -> TestHost {
         keys: Mutex::new(HashMap::from([(hash(KEY), ctx())])),
         changes: Mutex::new(Vec::new()),
         _dir: None,
+        changed_under_lock: Mutex::default(),
     }
 }
 
@@ -77,6 +84,7 @@ pub fn empty_host() -> TestHost {
         keys: Mutex::new(HashMap::from([(hash(KEY), ctx())])),
         changes: Mutex::new(Vec::new()),
         _dir: Some(dir),
+        changed_under_lock: Mutex::default(),
     }
 }
 

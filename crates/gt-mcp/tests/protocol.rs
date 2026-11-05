@@ -84,7 +84,7 @@ fn initialize_old_client_gets_rules() {
             result["protocolVersion"], version,
             "the client's version is kept"
         );
-        assert_eq!(result["instructions"], RULES);
+        assert_eq!(result["instructions"], gt_mcp::INSTRUCTIONS);
         assert!(result["capabilities"]["tools"].is_object());
         assert_eq!(result["serverInfo"]["name"], "gene-tree");
         assert!(
@@ -108,7 +108,7 @@ fn discover_new_client_gets_rules() {
     let r = reply(&modern_request("server/discover", json!({})));
     let result = &r["result"];
     assert_eq!(result["resultType"], "complete");
-    assert_eq!(result["instructions"], RULES);
+    assert_eq!(result["instructions"], gt_mcp::INSTRUCTIONS);
     assert!(result["capabilities"]["tools"].is_object());
     assert_eq!(
         result["supportedVersions"],
@@ -239,6 +239,23 @@ fn tools_list_deterministic() {
         "list_repositories",
         "list_events",
         "list_citations",
+        "begin_batch",
+        "end_batch",
+        "add_person",
+        "link_people",
+        "add_family",
+        "add_name",
+        "add_event",
+        "add_note",
+        "add_source",
+        "add_citation",
+        "add_sibling_marker",
+        "set_number",
+        "set_sex",
+        "update_own_note",
+        "update_own_event",
+        "update_own_name",
+        "update_own_citation",
     ] {
         assert!(first.iter().any(|n| n == tool), "{tool} is missing");
     }

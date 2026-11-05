@@ -1,4 +1,5 @@
-//! A local MCP server: AI agents on this machine read the open family tree over loopback HTTP.
+//! A local MCP server: AI agents on this machine read and add to the open family tree over
+//! loopback HTTP.
 //!
 //! JSON-RPC by hand in [`protocol`], a small `std::net` server in [`http`], tools in `tools_*`.
 //! No sessions, tools only. Bodies and keys are never logged.
@@ -7,6 +8,7 @@ mod http;
 mod protocol;
 mod records;
 mod tools_read;
+mod tools_write;
 
 use gt_session::{ApiError, Session};
 use serde_json::Value;
@@ -20,6 +22,16 @@ pub use protocol::handle_message;
 
 /// What the agent must follow: the first thing it gets, and the `get_rules` tool.
 pub const RULES: &str = include_str!("rules.md");
+
+/// What the server tells a client when it connects: the rules, then how to work with these tools.
+pub const INSTRUCTIONS: &str = concat!(
+    include_str!("rules.md"),
+    "\n\nHow to work with these tools: give add_person your source_file and the person's number \
+     every time, from a numbered file or a label of your own that stays the same. A second run \
+     over the same file then gets {\"id\", \"alreadyThere\": true} and adds nobody; without the \
+     number it adds them twice. A date a source writes as 03/04/1901 can be read two ways and is \
+     refused: write the month as a word, or put the date in a note.\n"
+);
 
 /// What the server needs from the app. Used as a generic bound only.
 ///
@@ -58,5 +70,8 @@ pub(crate) struct Tool<H> {
 
 /// Every tool, in the order `tools/list` shows them. A new tool module is one more element.
 pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
-    [tools_read::tools::<H>()].into_iter().flatten().collect()
+    [tools_read::tools::<H>(), tools_write::tools::<H>()]
+        .into_iter()
+        .flatten()
+        .collect()
 }

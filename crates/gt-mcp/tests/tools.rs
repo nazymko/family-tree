@@ -247,7 +247,7 @@ fn records_can_be_read_by_id() {
 #[test]
 fn get_person_full_notes() {
     let host = empty_host();
-    let long = format!("{}кінець", "Довга нотатка про родовід. ".repeat(2_000));
+    let long = format!("{}кінець", "Довга нотатка про родовід. ".repeat(300));
     let id = with(&host, |s| {
         let id = add_person(s, draft("Ivan", "Koval", None, None));
         add_note(s, id, &long);
@@ -504,7 +504,7 @@ fn find_by_number_reads_the_agents_numbering() {
     let dir = tempfile::tempdir().unwrap();
     let proj = dir.path().join("project");
     let id = Uuid::now_v7();
-    // No write tool yet: the number is stored directly, the way `AddNumber` will store it.
+    // Stored directly, the way `AddNumber` stores it, to pin down how it is stored.
     let mut tree = gt_core::tree::Tree::new();
     let mut person = with(&host, |s| {
         let new = add_person(s, draft("Ivan", "Koval", None, None));
@@ -574,6 +574,29 @@ fn no_tree_open_clear_error() {
         ("get_log", json!({})),
         ("get_history", json!({"id": id})),
         ("find_by_number", json!({"source_file": "a", "number": "1"})),
+        ("begin_batch", json!({"title": "Recording 2"})),
+        ("end_batch", json!({"batch": id, "report": "Done"})),
+        ("add_person", json!({"batch": id, "given": "Ivan"})),
+        (
+            "link_people",
+            json!({"batch": id, "person": id, "relation": {"to": id, "as": "father"}}),
+        ),
+        (
+            "add_note",
+            json!({"batch": id, "target": {"kind": "person", "id": id}, "text": "x"}),
+        ),
+        (
+            "update_own_note",
+            json!({"batch": id, "note": id, "text": "x"}),
+        ),
+        (
+            "update_own_event",
+            json!({"batch": id, "event": id, "date": "1901"}),
+        ),
+        (
+            "update_own_name",
+            json!({"batch": id, "person": id, "name": id}),
+        ),
         ("get_event", json!({"id": id})),
         ("get_place", json!({"id": id})),
         ("get_repository", json!({"id": id})),
@@ -736,20 +759,240 @@ fn get_person_bounds_its_notes_and_says_how_to_read_the_rest() {
 #[test]
 fn get_person_notes_stop_at_a_size_budget_but_never_before_the_first() {
     let host = empty_host();
-    let long = "x".repeat(30_000);
+    let long = "x".repeat(10_000);
     let id = with(&host, |s| {
         let id = add_person(s, draft("Ivan", "Koval", None, None));
-        add_note(s, id, &long);
-        add_note(s, id, &long);
+        for _ in 0..3 {
+            add_note(s, id, &long);
+        }
         id
     });
     let first = call(&host, "get_person", json!({"id": id}));
-    assert_eq!(first["notes"].as_array().unwrap().len(), 1);
+    assert_eq!(first["notes"].as_array().unwrap().len(), 2);
     assert_eq!(first["notes"][0]["text"].as_str().unwrap(), long);
-    assert_eq!(first["notesNextOffset"], 1);
-    let second = call(&host, "get_person", json!({"id": id, "notes_offset": 1}));
-    assert_eq!(second["notes"][0]["text"].as_str().unwrap(), long);
-    assert_eq!(second["notesNextOffset"], Value::Null);
+    assert_eq!(first["notesNextOffset"], 2);
+    let rest = call(&host, "get_person", json!({"id": id, "notes_offset": 2}));
+    assert_eq!(rest["notes"][0]["text"].as_str().unwrap(), long);
+    assert_eq!(rest["notesNextOffset"], Value::Null);
+}
+
+#[test]
+fn a_note_over_the_budget_comes_as_a_preview_with_the_way_to_read_it() {
+    let host = empty_host();
+    let long: String = "Слова запису. ".repeat(3_000) + "Кінець.";
+    let id = with(&host, |s| {
+        let id = add_person(s, draft("Ivan", "Koval", None, None));
+        add_note(s, id, &long);
+        add_note(s, id, "A short note");
+        id
+    });
+    let raw = call_raw(&host, "get_person", json!({"id": id}));
+    let shown = raw["content"][0]["text"].as_str().unwrap();
+    assert!(shown.len() < 16 * 1024, "{} bytes", shown.len());
+    let person: Value = serde_json::from_str(shown).unwrap();
+    let note = &person["notes"][0];
+    let preview = note["text"].as_str().unwrap();
+    assert!(long.starts_with(preview));
+    assert!(preview.chars().count() < 1000);
+    assert_eq!(note["textTruncated"], true);
+    assert_eq!(note["textLength"], long.chars().count());
+    let hint = note["textHint"].as_str().unwrap();
+    for word in ["get_note", "text_offset", "text_limit"] {
+        assert!(hint.contains(word), "{hint}");
+    }
+    // The next note is not held back by the one that was cut short.
+    assert_eq!(person["notes"][1]["text"], "A short note");
+
+    // Reading by id loses nothing.
+    let note_id = note["id"].as_str().unwrap();
+    let mut joined = preview.to_string();
+    let mut offset = preview.chars().count();
+    loop {
+        let piece = call(
+            &host,
+            "get_note",
+            json!({"id": note_id, "text_offset": offset, "text_limit": 20_000}),
+        );
+        joined.push_str(piece["text"].as_str().unwrap());
+        match piece["nextTextOffset"].as_u64() {
+            Some(next) => offset = next as usize,
+            None => break,
+        }
+    }
+    assert_eq!(joined, long);
+    assert_eq!(
+        call(&host, "get_note", json!({"id": note_id}))["text"]
+            .as_str()
+            .unwrap(),
+        long
+    );
+}
+
+#[test]
+fn a_huge_note_on_an_event_or_name_is_a_preview_too() {
+    let host = empty_host();
+    let long = "x".repeat(30_000);
+    let id = with(&host, |s| {
+        let id = add_person(s, draft("Ivan", "Koval", None, Some("1901")));
+        let birth = *s.tree().events.keys().next().unwrap();
+        let name = s.tree().persons[&id].names[0].id;
+        for (kind, target) in [(OwnerKind::Event, birth), (OwnerKind::Name, name)] {
+            s.apply(EditCommand::SaveNote {
+                target: OwnerRef { kind, id: target },
+                note: NoteInput {
+                    id: None,
+                    kind: NoteKindDto::General,
+                    text: long.clone(),
+                },
+            })
+            .unwrap();
+        }
+        id
+    });
+    let raw = call_raw(&host, "get_person", json!({"id": id}));
+    let shown = raw["content"][0]["text"].as_str().unwrap();
+    assert!(!shown.contains(&long), "{} bytes", shown.len());
+    let person: Value = serde_json::from_str(shown).unwrap();
+    assert_eq!(person["events"][0]["notes"][0]["textTruncated"], true);
+    assert_eq!(person["names"][0]["notes"][0]["textTruncated"], true);
+}
+
+/// A couple with two named children, one of them `seen`, and the marker for the rest.
+fn family_with_marker(host: &TestHost) -> (Uuid, Uuid, Uuid, Uuid) {
+    with(host, |s| {
+        let father = add_person(s, draft("Ivan", "Koval", None, Some("1860")));
+        let seen = add_relative(
+            s,
+            father,
+            Relation::Child,
+            draft("Olena", "Koval", None, None),
+        );
+        let family = *s.tree().families.keys().next().unwrap();
+        let marker = s
+            .apply(EditCommand::AddSiblingMarker { family })
+            .unwrap()
+            .focus
+            .unwrap();
+        (father, seen, family, marker)
+    })
+}
+
+#[test]
+fn a_marker_has_no_details_and_says_so() {
+    let host = empty_host();
+    let (_, _, _, marker) = family_with_marker(&host);
+    for tool in ["get_person", "get_relatives"] {
+        let message = call_err(&host, tool, json!({"id": marker}));
+        assert!(
+            message.contains("unnamed brothers and sisters"),
+            "{message}"
+        );
+        assert!(message.contains("no details"), "{message}");
+    }
+}
+
+#[test]
+fn a_family_shows_its_marker_and_its_people_can_still_be_read() {
+    let host = empty_host();
+    let (father, seen, family, marker) = family_with_marker(&host);
+
+    let shown = call(&host, "get_family", json!({"id": family}));
+    let kids = shown["children"].as_array().unwrap();
+    assert_eq!(kids.len(), 2);
+    let entry = kids
+        .iter()
+        .find(|k| k["person"]["id"] == json!(marker))
+        .unwrap();
+    assert_eq!(entry["person"]["siblingMarker"], true);
+    assert_eq!(entry["person"]["name"], "");
+    let named = kids
+        .iter()
+        .find(|k| k["person"]["id"] == json!(seen))
+        .unwrap();
+    assert_eq!(named["person"]["siblingMarker"], false);
+
+    // The relatives of anyone in the family come back whole, the marker marked as what it is.
+    let down = call(&host, "get_relatives", json!({"id": father}));
+    let children = down["children"].as_array().unwrap();
+    assert_eq!(children.len(), 2);
+    let row = children
+        .iter()
+        .find(|c| c["siblingMarker"] == json!(true))
+        .unwrap();
+    assert_eq!(row["id"], json!(marker));
+    assert_eq!(row["familyId"], json!(family));
+    let across = call(&host, "get_relatives", json!({"id": seen}));
+    let sibling = &across["siblings"][0];
+    assert_eq!(sibling["id"], json!(marker));
+    assert_eq!(sibling["siblingMarker"], true);
+    assert_eq!(sibling["familyId"], json!(family));
+
+    let father_shown = call(&host, "get_person", json!({"id": father}));
+    assert_eq!(father_shown["siblingMarker"], false);
+    let row = &father_shown["partnerships"][0]["children"];
+    assert!(
+        row.as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["person"]["siblingMarker"] == json!(true)),
+        "{row}"
+    );
+
+    let listed = call(&host, "list_families", json!({}));
+    assert_eq!(listed["items"][0]["unnamedSiblings"], true);
+    assert_eq!(listed["items"][0]["childCount"], 1);
+    assert_eq!(listed["items"][0]["id"], json!(family));
+
+    // It is nobody: not listed, not counted.
+    assert_eq!(call(&host, "list_people", json!({}))["total"], 2);
+    assert_eq!(
+        call(&host, "tree_summary", json!({}))["counts"]["people"],
+        2
+    );
+}
+
+#[test]
+fn a_family_without_a_marker_says_so() {
+    let host = empty_host();
+    with(&host, |s| {
+        let father = add_person(s, draft("Ivan", "Koval", None, None));
+        add_relative(
+            s,
+            father,
+            Relation::Child,
+            draft("Olena", "Koval", None, None),
+        );
+    });
+    let listed = call(&host, "list_families", json!({}));
+    assert_eq!(listed["items"][0]["unnamedSiblings"], false);
+    assert_eq!(listed["items"][0]["childCount"], 1);
+}
+
+#[test]
+fn find_by_number_reads_what_the_session_reads() {
+    let host = empty_host();
+    let id = with(&host, |s| add_person(s, draft("Ivan", "Koval", None, None)));
+    let ctx = ctx();
+    with(&host, |s| {
+        let batch = s.begin_batch(&ctx, "Recording 2", None).unwrap();
+        s.apply_as_agent(
+            EditCommand::AddNumber {
+                person: id,
+                source_file: "Recording 2".into(),
+                number: "12".into(),
+            },
+            &ctx,
+            batch,
+        )
+        .unwrap();
+    });
+    // Blanks around either part do not matter: the session trims what it stores.
+    let found = call(
+        &host,
+        "find_by_number",
+        json!({"source_file": " Recording 2 ", "number": " 12 "}),
+    );
+    assert_eq!(found["person"], json!(id));
 }
 
 #[test]
@@ -1097,6 +1340,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
         sex: Sex::Unknown,
         names: vec![plain_name(given)],
         living_override: None,
+        sibling_marker: false,
     };
     tree.persons.insert(child, plain_person(child, "Olena"));
     tree.persons.insert(partner, plain_person(partner, "Petro"));
@@ -1126,6 +1370,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
                 unknown: vec![raw_node("name")],
             }],
             living_override: Some(LivingOverride::Deceased),
+            sibling_marker: false,
         },
     );
     tree.families.insert(

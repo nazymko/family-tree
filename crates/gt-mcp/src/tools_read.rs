@@ -1,10 +1,10 @@
 //! The read tools. Everything in the tree is readable, living people included: the agent runs on
 //! the owner's machine with a key the owner made.
 
-use crate::records::{self, NUMBER_SCHEME_PREFIX};
+use crate::records;
 use crate::{AgentCtx, Host, RULES, Tool};
 use base64::Engine;
-use gt_core::model::{ExtIdKind, Person};
+use gt_core::model::Person;
 use gt_session::names::{BIRTH_KINDS, DEATH_KINDS, compose, pick_event};
 use gt_session::{
     ApiError, ErrorCode, LogFilterDto, PersonQuery, Session, dates, index, render_px,
@@ -23,12 +23,13 @@ const PAGE_MAX: u64 = 200;
 /// Each row of the log costs the session real time, and the session is the app's own.
 const LOG_PAGE_MAX: u64 = 50;
 /// The longest free text an argument may be. Searching costs far more than the length suggests.
-const TEXT_ARG_MAX: usize = 1024;
+pub(crate) const TEXT_ARG_MAX: usize = 1024;
 /// Notes `get_person` returns unless asked for more.
 const NOTES_DEFAULT: u64 = 20;
 /// Bytes of note text after which `get_person` stops adding notes, so that a client's limit on a
-/// tool's output is not reached by accident. The first note always comes back whole.
-const NOTES_TEXT_BUDGET: usize = 16 * 1024;
+/// tool's output is not reached by accident. One note is never more than this: a longer one comes
+/// as a preview (`records::note_row`).
+const NOTES_TEXT_BUDGET: usize = records::NOTE_TEXT_MAX;
 /// Characters in a piece of text when `text_offset` is given without `text_limit`.
 const TEXT_PIECE_DEFAULT: u64 = 20_000;
 const PICTURE_DEFAULT_PX: u64 = 1600;
@@ -40,7 +41,7 @@ const BLOB_MAX: u64 = 8 * 1024 * 1024;
 /// Decoding takes a lot of memory for a short while, so only one picture is decoded at a time.
 static DECODING: Mutex<()> = Mutex::new(());
 
-type ToolResult = Result<Vec<Value>, ApiError>;
+pub(crate) type ToolResult = Result<Vec<Value>, ApiError>;
 
 pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
     let id = |what: &str| {
@@ -109,7 +110,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "get_person",
-            description: "One person in full: all names, events, citations, media details, numbers and living status, and the first notes. A person with many notes gets some at a time: read on with notes_offset, as notesNextOffset says. A very long note can be read in pieces with get_note.",
+            description: "One person in full: all names, events, citations, media details, numbers and living status, and the first notes. A person with many notes gets some at a time: read on with notes_offset, as notesNextOffset says. A very long note comes as its start, with textTruncated and textHint: read it in pieces with get_note.",
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -124,13 +125,13 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "get_relatives",
-            description: "A person's parents, partners, children and siblings as rows, with the id of the family linking each.",
+            description: "A person's parents, partners, children and siblings as rows, with the id of the family linking each. A row with siblingMarker true is no person: it stands for brothers and sisters nobody named, and has no details.",
             schema: id("The person's id."),
             call: get_relatives::<H>,
         },
         Tool {
             name: "get_family",
-            description: "One family: partners, children with how each is linked, events, notes, citations and media. It has no pages; a long note in it can be read in pieces with get_note.",
+            description: "One family: partners, children with how each is linked, events, notes, citations and media. A child with siblingMarker true is no person: it stands for brothers and sisters nobody named. It has no pages; a very long note in it comes as its start, to read in pieces with get_note.",
             schema: id("The family's id."),
             call: get_family::<H>,
         },
@@ -148,25 +149,25 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "get_citation",
-            description: "One citation with its links and its source. The source's text is left out: get_source has it. It has no pages; a long note in it can be read in pieces with get_note.",
-            schema: id("The citation's id."),
+            description: "One citation with its links and its source. The source's text is left out: get_source has it. A long text of its own can pass what your client shows at once: read it in pieces with text_offset and text_limit, in characters, as nextTextOffset says. A very long note in it comes as its start, to read in pieces with get_note.",
+            schema: piece_schema("The citation's id."),
             call: get_citation::<H>,
         },
         Tool {
             name: "get_event",
-            description: "One event in full: date, place, everyone taking part, notes, citations and media. It has no pages; a long note in it can be read in pieces with get_note.",
-            schema: id("The event's id."),
+            description: "One event in full: date, place, everyone taking part, notes, citations and media. A long description can pass what your client shows at once: read it in pieces with text_offset and text_limit, in characters, as nextTextOffset says. A very long note in it comes as its start, to read in pieces with get_note.",
+            schema: piece_schema("The event's id."),
             call: get_event::<H>,
         },
         Tool {
             name: "get_place",
-            description: "One place in full: its names with their languages and dates, parent, coordinates, notes, citations and media. It has no pages; a long note in it can be read in pieces with get_note.",
+            description: "One place in full: its names with their languages and dates, parent, coordinates, notes, citations and media. It has no pages; a very long note in it comes as its start, to read in pieces with get_note.",
             schema: id("The place's id."),
             call: get_place::<H>,
         },
         Tool {
             name: "get_repository",
-            description: "One repository in full, with the sources held there and their call numbers. It has no pages; a long note in it can be read in pieces with get_note.",
+            description: "One repository in full, with the sources held there and their call numbers. It has no pages; a very long note in it comes as its start, to read in pieces with get_note.",
             schema: id("The repository's id."),
             call: get_repository::<H>,
         },
@@ -196,7 +197,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "list_families",
-            description: "Families one page at a time, optionally those with a partner whose name contains the query. Read on with offset, as nextOffset says.",
+            description: "Families one page at a time, optionally those with a partner whose name contains the query. Read on with offset, as nextOffset says. unnamedSiblings says there are more children nobody named, beyond childCount.",
             schema: paged_query("Text to look for.", false),
             call: list_families::<H>,
         },
@@ -293,7 +294,7 @@ fn no_args() -> Value {
     json!({"type": "object", "additionalProperties": false})
 }
 
-fn read<H: Host, T>(
+pub(crate) fn read<H: Host, T>(
     host: &H,
     mut f: impl FnMut(&Session) -> Result<T, ApiError>,
 ) -> Result<T, ApiError> {
@@ -308,7 +309,7 @@ fn json_block(v: &impl Serialize) -> Result<Value, ApiError> {
     Ok(text(&serde_json::to_string(v).map_err(internal)?))
 }
 
-fn answer(v: &impl Serialize) -> ToolResult {
+pub(crate) fn answer(v: &impl Serialize) -> ToolResult {
     Ok(vec![json_block(v)?])
 }
 
@@ -320,11 +321,11 @@ fn to_value(v: &impl Serialize) -> Result<Value, ApiError> {
     serde_json::to_value(v).map_err(internal)
 }
 
-fn invalid(message: String) -> ApiError {
+pub(crate) fn invalid(message: String) -> ApiError {
     ApiError::new(ErrorCode::Invalid, message)
 }
 
-fn uuid_arg(args: &Value, name: &str) -> Result<Uuid, ApiError> {
+pub(crate) fn uuid_arg(args: &Value, name: &str) -> Result<Uuid, ApiError> {
     args.get(name)
         .and_then(Value::as_str)
         .and_then(|s| Uuid::parse_str(s).ok())
@@ -332,14 +333,14 @@ fn uuid_arg(args: &Value, name: &str) -> Result<Uuid, ApiError> {
 }
 
 /// Free text from the agent, which costs little to refuse and can cost a lot to search for.
-fn checked_text<'a>(name: &str, text: &'a str) -> Result<&'a str, ApiError> {
+pub(crate) fn checked_text<'a>(name: &str, text: &'a str) -> Result<&'a str, ApiError> {
     if text.len() > TEXT_ARG_MAX {
         return Err(invalid(format!("{name} is longer than 1 KiB. Shorten it.")));
     }
     Ok(text)
 }
 
-fn str_arg<'a>(args: &'a Value, name: &str) -> Result<&'a str, ApiError> {
+pub(crate) fn str_arg<'a>(args: &'a Value, name: &str) -> Result<&'a str, ApiError> {
     let text = args
         .get(name)
         .and_then(Value::as_str)
@@ -347,7 +348,7 @@ fn str_arg<'a>(args: &'a Value, name: &str) -> Result<&'a str, ApiError> {
     checked_text(name, text)
 }
 
-fn optional_str<'a>(args: &'a Value, name: &str) -> Result<Option<&'a str>, ApiError> {
+pub(crate) fn optional_str<'a>(args: &'a Value, name: &str) -> Result<Option<&'a str>, ApiError> {
     match args.get(name) {
         None | Some(Value::Null) => Ok(None),
         Some(_) => str_arg(args, name).map(Some),
@@ -416,9 +417,13 @@ fn event_year(s: &Session, id: Uuid, kinds: &[gt_core::model::EventKind]) -> Opt
         .filter(|y| y != "?")
 }
 
-/// The row that tells one person from another of the same name.
+/// The row that tells one person from another of the same name. The marker for unnamed brothers
+/// and sisters has nothing to tell, and says what it is.
 fn person_row(s: &Session, id: Uuid) -> Result<Value, ApiError> {
     let p = person(s, id)?;
+    if p.sibling_marker {
+        return Ok(json!({"id": id, "siblingMarker": true}));
+    }
     let person_ref = s
         .person_ref(id)
         .ok_or_else(|| ApiError::not_found("person", id))?;
@@ -474,7 +479,7 @@ fn tree_summary<H: Host>(host: &H, _: &AgentCtx, _: &Value) -> ToolResult {
         Ok(json!({
             "name": info.name,
             "counts": {
-                "people": tree.persons.len(),
+                "people": tree.persons.values().filter(|p| !p.sibling_marker).count(),
                 "families": tree.families.len(),
                 "events": tree.events.len(),
                 "places": tree.places.len(),
@@ -550,9 +555,6 @@ fn get_person<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
         let p = person(s, id)?;
         let mut value = records::person_full(s, p)?;
         bound_notes(&mut value, offset, limit);
-        if let Some(fields) = value.as_object_mut() {
-            fields.insert("siblingMarker".into(), json!(is_sibling_marker(p)));
-        }
         Ok(value)
     })?;
     answer(&result)
@@ -590,12 +592,6 @@ fn bound_notes(person: &mut Value, offset: usize, limit: usize) {
             )),
         );
     }
-}
-
-/// Whether this is the marker entry for unnamed brothers or sisters. The tree cannot hold one yet;
-/// this reads `Person.sibling_marker` once that field exists.
-fn is_sibling_marker(_: &Person) -> bool {
-    false
 }
 
 fn get_relatives<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
@@ -656,6 +652,11 @@ fn get_family<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
 
 /// Cuts a record's `text` to the piece asked for. Asked for nothing, the whole text stays.
 fn text_piece(record: &mut Value, args: &Value) -> Result<(), ApiError> {
+    piece_of(record, "text", args)
+}
+
+/// [`text_piece`], for the field that holds the record's long text.
+fn piece_of(record: &mut Value, field: &str, args: &Value) -> Result<(), ApiError> {
     let offset = optional_u64(args, "text_offset")?;
     let limit = optional_u64(args, "text_limit")?;
     if offset.is_none() && limit.is_none() {
@@ -664,14 +665,14 @@ fn text_piece(record: &mut Value, args: &Value) -> Result<(), ApiError> {
     let offset = usize::try_from(offset.unwrap_or(0)).unwrap_or(usize::MAX);
     let limit = limit.unwrap_or(TEXT_PIECE_DEFAULT).max(1);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-    let Some(text) = record.get("text").and_then(Value::as_str) else {
+    let Some(text) = record.get(field).and_then(Value::as_str) else {
         return Ok(());
     };
     let piece: String = text.chars().skip(offset).take(limit).collect();
     let end = offset.saturating_add(limit);
     let more = text.chars().nth(end).is_some();
     if let Some(fields) = record.as_object_mut() {
-        fields.insert("text".into(), json!(piece));
+        fields.insert(field.into(), json!(piece));
         fields.insert("textOffset".into(), json!(offset));
         if more {
             fields.insert("nextTextOffset".into(), json!(end));
@@ -708,25 +709,27 @@ fn get_note<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
 
 fn get_citation<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "id")?;
-    let result = read(host, |s| {
+    let mut result = read(host, |s| {
         s.tree()
             .citations
             .get(&id)
             .map(|citation| records::citation_full(s, citation))
             .ok_or_else(|| ApiError::not_found("citation", id))
     })?;
+    text_piece(&mut result, args)?;
     answer(&result)
 }
 
 fn get_event<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "id")?;
-    let result = read(host, |s| {
+    let mut result = read(host, |s| {
         s.tree()
             .events
             .get(&id)
             .map(|event| records::event_full(s, event))
             .ok_or_else(|| ApiError::not_found("event", id))
     })?;
+    piece_of(&mut result, "description", args)?;
     answer(&result)
 }
 
@@ -1074,19 +1077,7 @@ fn get_history<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
 fn find_by_number<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     let file = str_arg(args, "source_file")?;
     let number = str_arg(args, "number")?;
-    let scheme = format!("{NUMBER_SCHEME_PREFIX}{file}");
-    let person = read(host, |s| {
-        Ok(s.tree()
-            .persons
-            .iter()
-            .find(|(_, p)| {
-                p.common.ext_ids.iter().any(|e| {
-                    e.value == number
-                        && matches!(&e.kind, ExtIdKind::Exid { scheme: found } if *found == scheme)
-                })
-            })
-            .map(|(id, _)| *id))
-    })?;
+    let person = read(host, |s| Ok(s.find_by_number(file, number)))?;
     answer(&json!({"person": person}))
 }
 

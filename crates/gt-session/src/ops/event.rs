@@ -7,6 +7,13 @@ use crate::error::ApiError;
 use gt_core::model::*;
 use uuid::Uuid;
 
+/// Every kind of event but `custom:`, by id.
+const EVENT_KINDS: &str = "birth, christening, baptism, death, burial, cremation, adoption, \
+    marriage, marriage_banns, marriage_contract, marriage_license, marriage_settlement, \
+    engagement, divorce, divorce_filed, annulment, separation, census, residence, occupation, \
+    education, religion, nationality, title, emigration, immigration, naturalization, probate, \
+    will, graduation, retirement, military, physical_description";
+
 /// `marriage_banns` -> `MarriageBanns`.
 fn pascal(s: &str) -> String {
     s.split('_')
@@ -29,8 +36,11 @@ pub fn parse_event_kind(id: &str) -> Result<EventKind, ApiError> {
         }
         return Ok(EventKind::Custom(t.to_string()));
     }
-    serde_json::from_value(serde_json::Value::String(pascal(id)))
-        .map_err(|_| invalid(format!("\"{id}\" is not a kind of event.")))
+    serde_json::from_value(serde_json::Value::String(pascal(id))).map_err(|_| {
+        invalid(format!(
+            "\"{id}\" is not a kind of event. Use one of: {EVENT_KINDS}, or custom:<your words>."
+        ))
+    })
 }
 
 pub fn parse_role(id: &str) -> Role {
