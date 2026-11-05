@@ -11,10 +11,10 @@ gt-core = { path = "../gt-core" }
 gt-session = { path = "../gt-session" }
 gt-store = { path = "../gt-store" }
 base64.workspace = true
+httparse.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-tiny_http.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

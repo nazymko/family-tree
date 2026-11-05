@@ -1,7 +1,7 @@
 //! A local MCP server: AI agents on this machine read the open family tree over loopback HTTP.
 //!
-//! JSON-RPC by hand in [`protocol`], `tiny_http` in [`http`], tools in `tools_*`. No sessions,
-//! tools only. Bodies and keys are never logged.
+//! JSON-RPC by hand in [`protocol`], a small `std::net` server in [`http`], tools in `tools_*`.
+//! No sessions, tools only. Bodies and keys are never logged.
 
 mod http;
 mod protocol;
@@ -11,7 +11,7 @@ use gt_session::{ApiError, Session};
 use serde_json::Value;
 use uuid::Uuid;
 
-pub use http::{ServerHandle, serve};
+pub use http::{ServerHandle, ServerLimits, serve, serve_with};
 pub use protocol::handle_message;
 
 /// What the agent must follow: the first thing it gets, and the `get_rules` tool.

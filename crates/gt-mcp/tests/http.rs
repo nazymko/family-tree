@@ -6,15 +6,15 @@
 mod common;
 
 use common::*;
-use gt_mcp::{RULES, ServerHandle, serve};
+use gt_mcp::{RULES, ServerHandle, ServerLimits, serve, serve_with};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// A body length above what the HTTP library buffers by itself, so it reaches the checks unread.
-const UNREAD: usize = 2048;
+/// A body length announced and never sent: a reply proves no byte of it was waited for.
+const UNREAD: usize = 100;
 
 struct Reply {
     status: u16,
@@ -36,6 +36,16 @@ struct Fixture {
 fn start() -> Fixture {
     let host = Arc::new(empty_host());
     let server = serve(Arc::clone(&host), 0).unwrap();
+    Fixture { host, server }
+}
+
+fn start_with(max_connections: usize, timeout: Duration) -> Fixture {
+    let host = Arc::new(empty_host());
+    let limits = ServerLimits {
+        max_connections,
+        timeout,
+    };
+    let server = serve_with(Arc::clone(&host), 0, limits).unwrap();
     Fixture { host, server }
 }
 
@@ -87,6 +97,11 @@ impl Fixture {
 
     /// A POST head announcing `length` bytes, of which none are sent.
     fn head_only(&self, lines: &[String], length: usize) -> String {
+        self.head_with_length(lines, &length.to_string())
+    }
+
+    /// A POST head with this exact `Content-Length` text.
+    fn head_with_length(&self, lines: &[String], length: &str) -> String {
         let mut head = "POST /mcp HTTP/1.1\r\n".to_string();
         for line in lines {
             head.push_str(line);
@@ -100,6 +115,32 @@ impl Fixture {
 
     fn host_line(&self) -> String {
         format!("Host: {}", self.good_host())
+    }
+
+    fn key_line(&self) -> String {
+        format!("Authorization: Bearer {KEY}")
+    }
+
+    /// A ping that may meet a full server: the status if one came back at all.
+    fn try_ping(&self) -> Option<u16> {
+        let body = request("ping", json!({})).to_string();
+        let head = self.head_only(&[self.host_line(), self.key_line()], body.len());
+        let mut s = self.connect();
+        s.write_all(head.as_bytes()).ok()?;
+        s.write_all(body.as_bytes()).ok()?;
+        let mut all = Vec::new();
+        let _ = s.read_to_end(&mut all);
+        let text = String::from_utf8_lossy(&all);
+        text.split_whitespace().nth(1)?.parse().ok()
+    }
+
+    /// Waits for a slot to come free: pings until one is answered.
+    fn assert_recovers(&self) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while self.try_ping() != Some(200) {
+            assert!(Instant::now() < deadline, "no slot came free");
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 }
 
@@ -136,10 +177,6 @@ fn read_reply(s: &mut TcpStream) -> Reply {
 fn find_end(all: &[u8]) -> Option<usize> {
     let split = all.windows(4).position(|w| w == b"\r\n\r\n")?;
     let head = String::from_utf8_lossy(&all[..split]).to_lowercase();
-    // A request announcing a wild length is answered with no end marked: the status is all there is.
-    if head.contains("connection: upgrade") {
-        return Some(split + 4);
-    }
     let length: usize = head
         .lines()
         .find_map(|l| l.strip_prefix("content-length:"))
@@ -359,20 +396,142 @@ fn oversized_body_413() {
 }
 
 #[test]
-fn oversized_chunked_body_413() {
+fn transfer_encoding_is_refused_unread() {
     let f = start();
+    for (coding, status) in [
+        ("chunked", 411),
+        ("CHUNKED", 411),
+        ("gzip, chunked", 501),
+        ("gzip", 501),
+        ("identity", 501),
+    ] {
+        let head = format!(
+            "POST /mcp HTTP/1.1\r\n{}\r\n{}\r\nTransfer-Encoding: {coding}\r\n\r\n",
+            f.host_line(),
+            f.key_line()
+        );
+        assert_eq!(f.raw(&head, b"").status, status, "{coding}");
+    }
+    // A stranger learns nothing about it.
     let head = format!(
-        "POST /mcp HTTP/1.1\r\n{}\r\nAuthorization: Bearer {KEY}\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+        "POST /mcp HTTP/1.1\r\n{}\r\nTransfer-Encoding: chunked\r\n\r\n",
         f.host_line()
     );
+    assert_eq!(f.raw(&head, b"").status, 401);
+}
+
+#[test]
+fn missing_content_length_411() {
+    let f = start();
+    let head = format!(
+        "POST /mcp HTTP/1.1\r\n{}\r\n{}\r\n\r\n",
+        f.host_line(),
+        f.key_line()
+    );
+    assert_eq!(f.raw(&head, b"").status, 411);
+}
+
+#[test]
+fn bad_content_length_400() {
+    let f = start();
+    for length in [
+        "abc",
+        "",
+        "+5",
+        "-1",
+        "5, 5",
+        "0x10",
+        "1e3",
+        "18446744073709551616",
+        "99999999999999999999999999999999",
+    ] {
+        let head = f.head_with_length(&[f.host_line(), f.key_line()], length);
+        assert_eq!(f.raw(&head, b"").status, 400, "{length:?}");
+    }
+    for (first, second) in [("5", "5"), ("5", "6")] {
+        let head = f.head_with_length(
+            &[
+                f.host_line(),
+                f.key_line(),
+                format!("Content-Length: {first}"),
+            ],
+            second,
+        );
+        assert_eq!(f.raw(&head, b"").status, 400, "{first} and {second}");
+    }
+}
+
+#[test]
+fn oversized_head_431() {
+    let f = start();
+    let pad = format!("X-Pad: {}", "a".repeat(20 * 1024));
+    let head = f.head_only(&[f.host_line(), f.key_line(), pad], UNREAD);
+    assert_eq!(f.raw(&head, b"").status, 431);
+    // Too many headers, each of them small.
+    let many: Vec<String> = (0..200).map(|i| format!("X-{i}: 1")).collect();
+    let head = f.head_only(&many, UNREAD);
+    assert_eq!(f.raw(&head, b"").status, 431);
+    // A large head within the limit is fine.
+    let pad = format!("X-Pad: {}", "a".repeat(12 * 1024));
+    let body = request("ping", json!({})).to_string();
+    let head = f.head_only(&[f.host_line(), f.key_line(), pad], body.len());
+    assert_eq!(f.raw(&head, body.as_bytes()).status, 200);
+}
+
+#[test]
+fn malformed_head_400() {
+    let f = start();
+    for head in [
+        "garbage\r\n\r\n",
+        "POST /mcp HTTP/9.9\r\n\r\n",
+        "\u{1}\u{2}\r\n\r\n",
+    ] {
+        assert_eq!(f.raw(head, b"").status, 400, "{head:?}");
+    }
+}
+
+#[test]
+fn nothing_of_the_body_is_waited_for_before_the_key() {
+    // The body never comes and the socket timeout is far off: only an answer from the head can
+    // return in time.
+    let f = start_with(8, Duration::from_secs(60));
+    for length in [1, UNREAD, 1024, 1025, 1024 * 1024] {
+        let head = f.head_only(
+            &[f.host_line(), "Authorization: Bearer wrong".to_string()],
+            length,
+        );
+        let started = Instant::now();
+        assert_eq!(f.raw(&head, b"").status, 401, "{length}");
+        assert!(started.elapsed() < Duration::from_secs(5), "{length}");
+    }
+}
+
+#[test]
+fn expect_continue_is_answered_after_the_checks() {
+    let f = start();
+    let body = request("ping", json!({})).to_string();
+    let lines = [
+        f.host_line(),
+        f.key_line(),
+        "Expect: 100-continue".to_string(),
+    ];
     let mut s = f.connect();
-    s.write_all(head.as_bytes()).unwrap();
-    // One byte past the limit is enough: no length is announced, so the count is what decides.
-    let over = 8 * 1024 * 1024 + 1;
-    s.write_all(format!("{:x}\r\n", over * 2).as_bytes())
+    s.write_all(f.head_only(&lines, body.len()).as_bytes())
         .unwrap();
-    s.write_all(&vec![b' '; over]).unwrap();
-    assert_eq!(read_reply(&mut s).status, 413);
+    let mut seen = Vec::new();
+    let mut buf = [0u8; 256];
+    while !seen.windows(4).any(|w| w == b"\r\n\r\n") {
+        let n = s.read(&mut buf).unwrap();
+        assert_ne!(n, 0);
+        seen.extend_from_slice(&buf[..n]);
+    }
+    assert!(seen.starts_with(b"HTTP/1.1 100"), "{seen:?}");
+    s.write_all(body.as_bytes()).unwrap();
+    assert_eq!(read_reply(&mut s).status, 200);
+    // Without a key, no invitation to send anything.
+    let lines = [f.host_line(), "Expect: 100-continue".to_string()];
+    let r = f.raw(&f.head_only(&lines, UNREAD), b"");
+    assert_eq!(r.status, 401);
 }
 
 #[test]
@@ -645,20 +804,56 @@ fn session_header_is_ignored() {
 }
 
 #[test]
-fn keep_alive_connection_serves_several_requests() {
+fn one_request_per_connection() {
     let f = start();
+    let body = request("ping", json!({})).to_string();
+    let head = format!(
+        "POST /mcp HTTP/1.1\r\n{}\r\n{}\r\nContent-Length: {}\r\n\r\n",
+        f.host_line(),
+        f.key_line(),
+        body.len()
+    );
     let mut s = f.connect();
-    for _ in 0..3 {
-        let body = request("ping", json!({})).to_string();
-        let head = format!(
-            "POST /mcp HTTP/1.1\r\n{}\r\nAuthorization: Bearer {KEY}\r\nContent-Length: {}\r\n\r\n",
-            f.host_line(),
-            body.len()
-        );
+    s.write_all(head.as_bytes()).unwrap();
+    s.write_all(body.as_bytes()).unwrap();
+    let r = read_reply(&mut s);
+    assert_eq!(r.status, 200);
+    assert!(
+        r.head.to_lowercase().contains("connection: close"),
+        "{}",
+        r.head
+    );
+    // The server closes, whatever the client asked for.
+    let mut rest = Vec::new();
+    s.read_to_end(&mut rest).unwrap();
+    assert!(rest.is_empty());
+}
+
+/// A client that sends its whole body before reading still gets the refusal, not a reset.
+#[test]
+fn refusal_survives_a_body_nobody_read() {
+    let f = start();
+    let body = vec![b'x'; 100_000];
+    let head = f.head_with_length(&[f.host_line()], &body.len().to_string());
+    for _ in 0..20 {
+        let mut s = f.connect();
         s.write_all(head.as_bytes()).unwrap();
-        s.write_all(body.as_bytes()).unwrap();
-        assert_eq!(read_reply(&mut s).status, 200);
+        s.write_all(&body).unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(read_reply(&mut s).status, 401);
     }
+}
+
+#[test]
+fn every_answer_says_close() {
+    let f = start();
+    let head = f.head_only(&[f.host_line()], UNREAD);
+    let r = f.raw(&head, b"");
+    assert!(
+        r.head.to_lowercase().contains("connection: close"),
+        "{}",
+        r.head
+    );
 }
 
 /// The accept thread ends just after the server is dropped, so give it a moment.
@@ -728,22 +923,152 @@ fn silent_clients_do_not_hold_up_stopping() {
 #[test]
 fn wild_content_length_does_not_bring_the_app_down() {
     let f = start();
-    let auth = format!("Authorization: Bearer {KEY}");
+    let key = f.key_line();
+    let u64_max = u64::MAX.to_string();
+    let beyond = "99999999999999999999999999999999";
     for (length, lines, status) in [
-        (1_000_000_000_000_000_usize, vec![f.host_line()], 401),
+        ("1000000000000000", vec![f.host_line()], 401),
+        (u64_max.as_str(), vec![f.host_line()], 401),
+        (beyond, vec![f.host_line()], 401),
+        ("1000000000000000", vec![f.host_line(), key.clone()], 413),
+        (u64_max.as_str(), vec![f.host_line(), key.clone()], 413),
+        (beyond, vec![f.host_line(), key.clone()], 400),
         (
-            1_000_000_000_000_000,
-            vec![f.host_line(), auth.clone()],
-            413,
+            u64_max.as_str(),
+            vec!["Host: evil.example".to_string()],
+            403,
         ),
-        (usize::MAX, vec![f.host_line(), auth.clone()], 413),
-        (usize::MAX, vec!["Host: evil.example".to_string()], 403),
     ] {
-        let head = f.head_only(&lines, length);
+        let head = f.head_with_length(&lines, length);
         assert_eq!(f.raw(&head, b"").status, status, "{length}");
+        // Still alive and answering.
+        assert_eq!(f.post(&[], &initialize_body()).status, 200);
     }
-    // Still alive and answering.
-    assert_eq!(f.post(&[], &initialize_body()).status, 200);
+}
+
+#[test]
+fn wild_requests_leave_nothing_behind() {
+    // More requests than there are slots: a leak of even one per request would fill the server.
+    let f = start_with(4, Duration::from_secs(30));
+    let head = f.head_with_length(&[f.host_line()], &u64::MAX.to_string());
+    for _ in 0..40 {
+        f.assert_recovers();
+        let mut s = f.connect();
+        let _ = s.write_all(head.as_bytes());
+        let mut all = Vec::new();
+        let _ = s.read_to_end(&mut all);
+    }
+    f.assert_recovers();
+}
+
+#[test]
+fn slow_client_times_out_and_frees_its_slot() {
+    let timeout = Duration::from_millis(300);
+    // Nothing sent, half a head, and half a body. Only one slot, so each must give it back.
+    let f = start_with(1, timeout);
+    let body_head = f.head_only(&[f.host_line(), f.key_line()], 100);
+    for sent in ["", "POST /mcp HTTP/1.1\r\nHo", body_head.as_str()] {
+        let mut s = f.connect();
+        s.write_all(sent.as_bytes()).unwrap();
+        let started = Instant::now();
+        assert_eq!(read_reply(&mut s).status, 408, "{sent:?}");
+        assert!(started.elapsed() < Duration::from_secs(5), "{sent:?}");
+        f.assert_recovers();
+    }
+}
+
+#[test]
+fn dripping_client_cannot_outlast_the_timeout() {
+    // Each byte would reset a per-read timeout; the limit is on the whole request.
+    let f = start_with(1, Duration::from_millis(500));
+    let mut s = f.connect();
+    let mut writer = s.try_clone().unwrap();
+    let drip = std::thread::spawn(move || {
+        for _ in 0..200 {
+            if writer.write_all(b"X").is_err() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
+    let started = Instant::now();
+    let mut all = Vec::new();
+    let _ = s.read_to_end(&mut all);
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
+    f.assert_recovers();
+    drop(s);
+    drip.join().unwrap();
+}
+
+#[test]
+fn connection_cap_503_and_recovery() {
+    let f = start_with(2, Duration::from_secs(60));
+    let held = [f.connect(), f.connect()];
+    let mut over = f.connect();
+    let r = read_reply(&mut over);
+    assert_eq!(r.status, 503);
+    assert!(
+        r.head.to_lowercase().contains("connection: close"),
+        "{}",
+        r.head
+    );
+    // Still full while they stay.
+    let mut again = f.connect();
+    assert_eq!(read_reply(&mut again).status, 503);
+    drop(held);
+    f.assert_recovers();
+}
+
+#[test]
+fn stop_with_a_connection_left_open_returns_promptly() {
+    let f = start_with(8, Duration::from_secs(60));
+    let mut half = f.connect();
+    half.write_all(b"POST /mcp HTTP/1.1\r\nHo").unwrap();
+    let _idle = f.connect();
+    std::thread::sleep(Duration::from_millis(100));
+    let port = f.port();
+    let started = Instant::now();
+    f.server.stop();
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_closes(port);
+}
+
+#[test]
+fn drop_with_a_connection_left_open_returns_promptly() {
+    let f = start_with(8, Duration::from_secs(60));
+    let _idle = f.connect();
+    std::thread::sleep(Duration::from_millis(100));
+    let started = Instant::now();
+    drop(f.server);
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn no_request_runs_after_stop() {
+    let f = start_with(8, Duration::from_secs(60));
+    let mut open = f.connect();
+    std::thread::sleep(Duration::from_millis(100));
+    let body = request("ping", json!({})).to_string();
+    let head = f.head_only(&[f.host_line(), f.key_line()], body.len());
+    f.server.stop();
+    let _ = open.write_all(head.as_bytes());
+    let _ = open.write_all(body.as_bytes());
+    let mut all = Vec::new();
+    let _ = open.read_to_end(&mut all);
+    let text = String::from_utf8_lossy(&all);
+    assert!(!text.contains(" 200 "), "{text}");
 }
 
 #[test]
