@@ -1,6 +1,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Api } from '../api';
+import type { AgentAccessState, NewConnectionDto } from '../types';
 import type {
   AttachResult,
   ChartLocation,
@@ -220,4 +221,21 @@ export class TauriApi implements Api {
   setSettings(patch: Partial<Settings>): Promise<Settings> {
     return call('set_settings', { patch });
   }
+  // --- Agent access ---
+  agentAccessState(): Promise<AgentAccessState> {
+    return call('agent_access_state');
+  }
+  agentAccessSet(enabled: boolean, port: number): Promise<AgentAccessState> {
+    return call('agent_access_set', { enabled, port });
+  }
+  agentConnectionCreate(name: string): Promise<NewConnectionDto> {
+    return call('agent_connection_create', { name });
+  }
+  agentConnectionRevoke(id: string): Promise<void> {
+    return call('agent_connection_revoke', { id });
+  }
+  agentRules(): Promise<string> {
+    return call('agent_rules');
+  }
+  // --- end of Agent access ---
 }

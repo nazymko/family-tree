@@ -282,6 +282,42 @@ export function runApiContract(make: () => Promise<Api>): void {
       expect((await api.getSettings()).theme).toBe('dark');
     });
 
+    // --- Agent access (Task 7 defines this contract; Task 6 implements the Rust commands) ---
+    it('agent_access_is_off_by_default', async () => {
+      const api = await make();
+      const s = await api.agentAccessState();
+      expect(s).toEqual({ enabled: false, port: 8765, running: false, error: null, connections: [] });
+    });
+
+    it('agent_access_set_starts_and_stops', async () => {
+      const api = await make();
+      const on = await api.agentAccessSet(true, 9000);
+      expect(on).toMatchObject({ enabled: true, port: 9000, running: true, error: null });
+      expect(await api.agentAccessState()).toEqual(on);
+      const off = await api.agentAccessSet(false, 9000);
+      expect(off).toMatchObject({ enabled: false, port: 9000, running: false });
+    });
+
+    it('agent_connection_key_is_shown_once', async () => {
+      const api = await make();
+      const made = await api.agentConnectionCreate('Claude on the laptop');
+      expect(made.connection.name).toBe('Claude on the laptop');
+      expect(made.key).toMatch(/^gt_[0-9a-f]{32,}$/);
+      expect(made.snippet).toBe(
+        `claude mcp add --transport http gene-tree http://127.0.0.1:8765/mcp --header "Authorization: Bearer ${made.key}"`,
+      );
+      const s = await api.agentAccessState();
+      expect(s.connections.map((c) => c.id)).toEqual([made.connection.id]);
+      expect(JSON.stringify(s)).not.toContain(made.key);
+      await api.agentConnectionRevoke(made.connection.id);
+      expect((await api.agentAccessState()).connections).toEqual([]);
+    });
+
+    it('agent_rules_are_text', async () => {
+      const api = await make();
+      expect((await api.agentRules()).trim().length).toBeGreaterThan(20);
+    });
+    // --- end of Agent access ---
     it('privacy_preview_token_changes_with_options', async () => {
       const api = await make();
       const a = await api.previewExport({ version: '7.0', living: 'placeholder', includePrivate: false });
