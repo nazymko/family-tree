@@ -59,7 +59,7 @@ describe('tree direction setting', () => {
       expect(en.settings[k]).toBeTruthy();
       expect(uk.settings[k]).toBeTruthy();
     }
-    expect(uk.tree.flip).toBe('Перевернути дерево');
+    expect(uk.tree.flip).toBe('Перевернути родовід');
     expect(en.tree.flip).toBe('Flip tree');
   });
 });
