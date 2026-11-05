@@ -114,7 +114,7 @@ fn run(people: usize, families: usize, writes: usize, notes: usize) {
     ));
     table.push((
         "person_agent_changes (busiest)",
-        med(7, || s.person_agent_changes(busiest).unwrap()),
+        med(7, || s.person_agent_changes(busiest, 0, 20).unwrap()),
     ));
     table.push((
         "change_log first page (25)",

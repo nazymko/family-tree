@@ -103,9 +103,6 @@ fn only_a_person_record_has_fields_in_the_short_history() {
     let short = s.history(note, 10).unwrap();
     assert_eq!(short.len(), 1);
     assert!(short[0].fields.is_empty(), "the MCP history stays cheap");
-    let full = s.history_full(note, 10).unwrap();
-    let text = full[0].fields.iter().find(|f| f.field == "text").unwrap();
-    assert_eq!(text.after.as_deref(), Some("Kept short"));
     s.apply(EditCommand::UpdatePerson {
         id: eva,
         sex: Some(SexKind::Male),

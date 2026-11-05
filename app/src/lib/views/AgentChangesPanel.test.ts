@@ -519,3 +519,65 @@ describe('the person an undo removed, read after Done', () => {
 });
 
 export type { PersonDetail };
+
+describe('an editor on a record held by another record, while an agent changes it', () => {
+  async function familyNoteOpen(w: World) {
+    const fam = w.d.partnerships[0].familyId;
+    await w.raw.apply({ type: 'saveNote', target: { kind: 'family', id: fam }, note: { kind: 'general', text: 'Married in the old church' } });
+    const held = (w.raw as unknown as { db: { families: Map<string, { notes: { id: string }[] }> } }).db.families.get(fam)!.notes[0].id;
+    const note = (await w.raw.recordHome('note', held))!.note!;
+    w.platform.simulateAgentBatch(w.raw, { changes: [{ person: w.d.ref.id, kind: 'note', record: note.id, fields: [field('text', null, note.text)], fact: { kind: 'text', text: note.text } }] });
+    await open(w);
+    await w.user.click(await within(await panel()).findByRole('button', { name: /^Edit Note: Married in the old church/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit note' });
+    return { fam, note, dialog };
+  }
+
+  it('a_note_the_agent_changed_reloads_with_the_new_text', async () => {
+    const w = await world();
+    const { fam, note, dialog } = await familyNoteOpen(w);
+    await w.raw.apply({ type: 'saveNote', target: { kind: 'family', id: fam }, note: { id: note.id, kind: 'general', text: 'Changed by the agent' } });
+    w.platform.simulateAgentEvent([note.id]);
+    await w.user.click(await within(dialog).findByRole('button', { name: 'Reload' }));
+    const fresh = await screen.findByRole('dialog', { name: 'Edit note' });
+    await waitFor(() => expect(within(fresh).getByRole('textbox', { name: 'Note' })).toHaveValue('Changed by the agent'));
+  });
+
+  it('a_note_the_agent_deleted_closes_the_dialog_on_reload', async () => {
+    const w = await world();
+    const { fam, note, dialog } = await familyNoteOpen(w);
+    await w.raw.apply({ type: 'deleteNote', target: { kind: 'family', id: fam }, note: note.id });
+    w.platform.simulateAgentEvent([note.id]);
+    await w.user.click(await within(dialog).findByRole('button', { name: 'Reload' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit note' })).toBeNull());
+  });
+});
+
+describe('a reload and Show more at the same time', () => {
+  it('rows_just_appended_are_not_dropped_by_a_reload_that_began_before', async () => {
+    const w = await world();
+    w.platform.simulateAgentBatch(w.raw, { changes: Array.from({ length: 25 }, (_, i) => ({ person: w.d.ref.id, note: `Agent note ${i}` })) });
+    await open(w);
+    const p = await panel();
+    const count = () => document.querySelectorAll('section[aria-labelledby$="-h"] > ul > li').length;
+    await waitFor(() => expect(count()).toBe(20));
+    const real = w.raw.personAgentChanges.bind(w.raw);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    let calls = 0;
+    vi.spyOn(w.raw, 'personAgentChanges').mockImplementation(async (...a) => {
+      if (calls++ > 0) return real(...a);
+      const r = await real(...a);
+      await gate;
+      return r;
+    });
+    // A reload starts and is held, then the owner asks for more.
+    project.rev++;
+    await waitFor(() => expect(calls).toBe(1));
+    await w.user.click(within(p).getByRole('button', { name: 'Show more' }));
+    await waitFor(() => expect(count()).toBe(25));
+    release();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(count()).toBe(25);
+  });
+});

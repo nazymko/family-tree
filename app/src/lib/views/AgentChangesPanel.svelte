@@ -72,6 +72,8 @@
   }
 
   async function more() {
+    // A reload begun before this lands would drop the rows appended here: this call supersedes it.
+    seq++;
     try {
       const page = await api.personAgentChanges(id, rows.length, ROW_PAGE);
       rows = [...rows, ...page.items.filter((r) => !rows.some((x) => x.group === r.group))];

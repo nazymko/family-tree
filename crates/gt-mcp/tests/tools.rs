@@ -1984,3 +1984,54 @@ fn ids_of(page: &Value) -> Vec<String> {
 fn key_hash_is_sha256_of_the_key() {
     assert_eq!(gt_mcp::key_hash(KEY), hash(KEY));
 }
+
+#[test]
+fn log_and_history_give_agents_plain_words_not_the_app_markers() {
+    let host = empty_host();
+    let ctx = ctx();
+    let ivan = with(&host, |s| {
+        let ivan = add_person(s, draft("Ivan", "Koval", None, None));
+        add_relative(
+            s,
+            ivan,
+            Relation::Partner,
+            draft("Marta", "Koval", None, None),
+        );
+        let family = *s.tree().families.keys().last().unwrap();
+        let event = |place_id| EditCommand::SaveEvent {
+            owner: EventOwner {
+                kind: EventOwnerKind::Family,
+                id: family,
+            },
+            event: EventInput {
+                id: None,
+                kind: "marriage".into(),
+                date_raw: Some("1 Jan 1900".into()),
+                place_text: None,
+                place_id,
+                description: None,
+                age: None,
+                cause: None,
+                negative: false,
+                private: false,
+                preferred: true,
+                participants: None,
+            },
+        };
+        let batch = s.begin_batch(&ctx, "Recording 3", None).unwrap();
+        s.apply_as_agent(event(None), &ctx, batch).unwrap();
+        // A place the tree does not have reads as a removed record.
+        let _ = s.apply_as_agent(event(Some(Uuid::from_u128(99))), &ctx, batch);
+        ivan
+    });
+    let log = call(&host, "get_log", json!({})).to_string();
+    let history = call(&host, "get_history", json!({"id": ivan.to_string()})).to_string();
+    for text in [&log, &history] {
+        let bad: Vec<char> = text
+            .chars()
+            .filter(|c| (*c as u32) < 0x20 && *c != '\n')
+            .collect();
+        assert!(bad.is_empty(), "control characters {bad:?} in {text}");
+    }
+    assert!(log.contains(" and "), "{log}");
+}

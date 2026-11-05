@@ -281,14 +281,24 @@
       const id = d.name.id;
       const name = detail?.names.find((n) => n.id === id);
       dialog = name ? { kind: 'name', name } : null;
-    } else if (d?.kind === 'event' && d.event && !d.owner) {
+    } else if (d?.kind === 'event' && d.event) {
       const id = d.event.id;
-      const event = detail?.events.find((e) => e.id === id);
+      let event: EventDto | undefined;
+      if (!d.owner || (d.owner.kind === 'person' && d.owner.id === detail?.ref.id)) event = detail?.events.find((e) => e.id === id);
+      else if (d.owner.kind === 'family') event = (await api.getFamily(d.owner.id).catch(() => null))?.events.find((e) => e.id === id);
       dialog = event ? { ...d, event } : null;
-    } else if (d?.kind === 'note' && d.note && !d.owner) {
+    } else if (d?.kind === 'note' && d.note) {
       const id = d.note.id;
-      const note = detail?.notes.find((n) => n.id === id);
-      dialog = note ? { kind: 'note', note } : null;
+      if (!d.owner) {
+        const note = detail?.notes.find((n) => n.id === id);
+        dialog = note ? { kind: 'note', note } : null;
+      } else {
+        const home = await api.recordHome('note', id).catch(() => null);
+        dialog = home?.note ? { kind: 'note', note: home.note, owner: home.owner } : null;
+      }
+    } else if (d?.kind === 'citation') {
+      const home = await api.recordHome('citation', d.citation.id).catch(() => null);
+      dialog = home?.citation ? { kind: 'citation', citation: home.citation, owner: home.owner } : null;
     }
     dialogEpoch++;
     return true;
