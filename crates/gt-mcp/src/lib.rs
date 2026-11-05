@@ -49,10 +49,33 @@ pub trait Host: Send + Sync + 'static {
     /// The agent owning a key, by the SHA-256 of the key. `None` for an unknown or revoked key.
     fn authenticate(&self, key_sha256: &[u8; 32]) -> Option<AgentCtx>;
 
+    /// The built-in agent, for a request with no key at all, while the owner has not required
+    /// one: see [`keyless_agent`]. `None` (the default) means every request needs a key. Asked
+    /// again right before a tool runs, so turning the requirement on stops a request already
+    /// past its head. A request with a key, even a bad one, never gets here.
+    fn authenticate_keyless(&self) -> Option<AgentCtx> {
+        None
+    }
+
     /// Records changed: the app refreshes its views. A write tool passes on what
     /// `Session::apply_as_agent_reaching` returned, after `with_session` has returned, and does not
     /// call this for a repeat that wrote nothing.
     fn changed(&self, touched: &[Uuid], agent: &AgentCtx);
+}
+
+/// The fixed id of the built-in agent that works when no key is required. It cannot be revoked or
+/// deleted, and no connection can have it.
+pub const KEYLESS_AGENT_ID: Uuid = Uuid::from_u128(0x01927a00_0000_7000_8000_6e6f6b657900);
+
+/// The name stored in the log for the built-in agent. The app shows a translated label by id.
+pub const KEYLESS_AGENT_NAME: &str = "Agent without a key";
+
+/// The built-in agent of a request with no key.
+pub fn keyless_agent() -> AgentCtx {
+    AgentCtx {
+        id: KEYLESS_AGENT_ID,
+        name: KEYLESS_AGENT_NAME.to_string(),
+    }
 }
 
 /// The SHA-256 of a key, as [`Host::authenticate`] receives it.

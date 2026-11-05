@@ -15,6 +15,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
@@ -31,6 +32,7 @@ const EXIT_WAIT: Duration = Duration::from_secs(2);
 /// Most characters in a connection's name.
 const MAX_NAME: usize = 100;
 const REVOKE_NOT_RECORDED: &str = "Access stopped for now, but this could not be recorded; it may return after restart. Try again.";
+const REQUIRE_NOT_SAVED: &str = "A key is required now, but this could not be saved, so it will not be required again after the next start.";
 const OFF_NOT_SAVED: &str = "Agent access is off now, but this could not be saved, so it will come back on at the next start.";
 
 type ApiResult<T> = Result<T, ApiError>;
@@ -43,6 +45,10 @@ pub struct AgentAccessState {
     pub port: u16,
     pub running: bool,
     pub error: Option<String>,
+    /// Whether a request needs a key.
+    pub require_key: bool,
+    /// The command that connects an agent while no key is required, for display; none otherwise.
+    pub keyless_command: Option<String>,
     pub connections: Vec<ConnectionDto>,
 }
 
@@ -187,6 +193,10 @@ pub struct AgentAccess {
     server: Mutex<Server>,
     /// What the running server accepts: loaded when it starts, emptied when it stops.
     keys: Mutex<Vec<KnownKey>>,
+    /// Whether the running server lets in a request with no key: it runs, and no key is required.
+    /// Read on every such request, twice, so that turning the requirement on stops the very next
+    /// one and one already past its head.
+    keyless: AtomicBool,
     hashes: Box<dyn HashStore>,
 }
 
@@ -195,6 +205,7 @@ impl AgentAccess {
         Self {
             server: Mutex::new(Server::default()),
             keys: Mutex::new(Vec::new()),
+            keyless: AtomicBool::new(false),
             hashes,
         }
     }
@@ -243,6 +254,15 @@ impl<R: Runtime> Host for AppHost<R> {
             .try_state::<AppState>()?
             .agent
             .authenticate(key_sha256)
+    }
+
+    fn authenticate_keyless(&self) -> Option<AgentCtx> {
+        let state = self.app.try_state::<AppState>()?;
+        state
+            .agent
+            .keyless
+            .load(Ordering::SeqCst)
+            .then(gt_mcp::keyless_agent)
     }
 
     fn changed(&self, touched: &[Uuid], agent: &AgentCtx) {
@@ -372,6 +392,13 @@ fn start<R: Runtime>(app: &AppHandle<R>, state: &AppState, server: &mut Server, 
             server.error = Some(bind_error(port, &e));
         }
     }
+    sync_keyless(state, server);
+}
+
+/// Lets requests with no key in exactly while a server runs and the owner has not required one.
+fn sync_keyless(state: &AppState, server: &Server) {
+    let open = server.handle.is_some() && !AppState::lock(&state.settings).agent_access.require_key;
+    state.agent.keyless.store(open, Ordering::SeqCst);
 }
 
 /// Ends the accept loop and frees the port. Requests still on their way then find no key.
@@ -381,6 +408,7 @@ fn stop(state: &AppState, server: &mut Server) {
     }
     AppState::lock(&state.agent.keys).clear();
     server.error = None;
+    sync_keyless(state, server);
 }
 
 fn snapshot(state: &AppState, server: &Server) -> AgentAccessState {
@@ -390,6 +418,8 @@ fn snapshot(state: &AppState, server: &Server) -> AgentAccessState {
         Some(REVOKE_NOT_RECORDED.to_string())
     } else if server.unsaved && !access.enabled {
         Some(OFF_NOT_SAVED.to_string())
+    } else if server.unsaved && access.require_key {
+        Some(REQUIRE_NOT_SAVED.to_string())
     } else {
         server.error.clone()
     };
@@ -398,6 +428,8 @@ fn snapshot(state: &AppState, server: &Server) -> AgentAccessState {
         port: access.port,
         running: server.handle.is_some(),
         error,
+        require_key: access.require_key,
+        keyless_command: (!access.require_key).then(|| keyless_snippet(access.port)),
         connections: access
             .connections
             .iter()
@@ -497,8 +529,30 @@ pub fn set_access<R: Runtime>(
             }
         }
     }
+    sync_keyless(&state, &server);
     settle(&state, &mut server);
     Ok(snapshot(&state, &server))
+}
+
+/// Requires a key, or stops requiring one. Requiring takes effect first of all, whatever then
+/// fails: the next request is refused, and so is one already past its head. If that cannot be saved
+/// it is said, and trying again (or any later action) saves it. Not requiring is the loosening
+/// step, so it applies only once it is saved.
+pub fn set_require_key(state: &AppState, required: bool) -> ApiResult<AgentAccessState> {
+    if required {
+        // Before even waiting for the server's lock, which a slow keychain can hold.
+        state.agent.keyless.store(false, Ordering::SeqCst);
+    }
+    let mut server = AppState::lock(&state.agent.server);
+    if required {
+        AppState::lock(&state.settings).agent_access.require_key = true;
+        server.unsaved = true;
+    } else {
+        save_access(state, &mut server, |a| a.require_key = false)?;
+    }
+    sync_keyless(state, &server);
+    settle(state, &mut server);
+    Ok(snapshot(state, &server))
 }
 
 fn now_millis() -> i64 {
@@ -518,6 +572,10 @@ fn new_key() -> ApiResult<String> {
         )
     })?;
     Ok(format!("gt_{}", to_hex(&bytes)))
+}
+
+fn keyless_snippet(port: u16) -> String {
+    format!("claude mcp add --transport http gene-tree http://127.0.0.1:{port}/mcp")
 }
 
 fn snippet(port: u16, key: &str) -> String {

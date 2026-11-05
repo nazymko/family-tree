@@ -265,7 +265,7 @@ fn off_stays_off_on_start() {
     let state = invoke(&w, "agent_access_state", json!({})).unwrap();
     assert_eq!(
         state,
-        json!({ "enabled": false, "port": 8765, "running": false, "error": null, "connections": [] })
+        json!({ "enabled": false, "port": 8765, "running": false, "error": null, "requireKey": false, "keylessCommand": "claude mcp add --transport http gene-tree http://127.0.0.1:8765/mcp", "connections": [] })
     );
 }
 
@@ -479,7 +479,7 @@ fn the_state_has_the_shape_the_frontend_expects() {
     let state = invoke(&w, "agent_access_state", json!({})).unwrap();
     assert_eq!(
         state,
-        json!({ "enabled": false, "port": 8765, "running": false, "error": null, "connections": [connection] })
+        json!({ "enabled": false, "port": 8765, "running": false, "error": null, "requireKey": false, "keylessCommand": "claude mcp add --transport http gene-tree http://127.0.0.1:8765/mcp", "connections": [connection] })
     );
 }
 
@@ -1118,4 +1118,421 @@ fn a_stored_hash_with_a_sign_is_not_a_hash() {
     )
     .unwrap();
     assert_eq!(FileHashes::new(dir.path()).get(&id), Some([0x0a; 32]));
+}
+
+// ---- no key required (the default) ----
+
+const KEYLESS_COMMAND: &str = "claude mcp add --transport http gene-tree http://127.0.0.1:8765/mcp";
+const REQUIRE_NOT_SAVED: &str = "A key is required now, but this could not be saved, so it will not be required again after the next start.";
+
+fn require(w: &WebviewWindow<MockRuntime>, required: bool) -> Result<Value, Value> {
+    invoke(
+        w,
+        "agent_access_require_key",
+        json!({ "required": required }),
+    )
+}
+
+/// A request with no `Authorization` header at all; `extra` are more header lines.
+fn post_bare_with(port: u16, extra: &str, body: &Value) -> (u16, String) {
+    let text = body.to_string();
+    let mut s = connect(port);
+    let head = format!(
+        "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\n{extra}Content-Length: {}\r\n\r\n",
+        text.len()
+    );
+    s.write_all(head.as_bytes()).unwrap();
+    s.write_all(text.as_bytes()).unwrap();
+    read_answer(&mut s)
+}
+
+fn post_bare(port: u16, body: &Value) -> (u16, String) {
+    post_bare_with(port, "", body)
+}
+
+fn ping_bare(port: u16) -> u16 {
+    post_bare(port, &rpc("ping", json!({}))).0
+}
+
+fn tool_json(answer: &(u16, String)) -> Value {
+    assert_eq!(answer.0, 200, "{}", answer.1);
+    let v: Value = serde_json::from_str(&answer.1).unwrap();
+    assert!(v["result"]["isError"].is_null(), "{v}");
+    serde_json::from_str(v["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+}
+
+fn tool_bare(port: u16, name: &str, arguments: Value) -> Value {
+    tool_json(&post_bare(
+        port,
+        &rpc(
+            "tools/call",
+            json!({ "name": name, "arguments": arguments }),
+        ),
+    ))
+}
+
+#[test]
+fn a_new_state_asks_for_no_key_and_access_is_still_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, w) = app_with(state_in(dir.path()));
+    agent_access::resume(app.handle());
+    let state = state_of(&w);
+    assert_eq!(state["enabled"], false);
+    assert_eq!(state["running"], false);
+    assert_eq!(state["requireKey"], false);
+    assert_eq!(state["keylessCommand"], KEYLESS_COMMAND);
+    assert!(refused_connecting(8765) || ping_bare(8765) != 200);
+    assert!(
+        !settings_file::AppSettings::default()
+            .agent_access
+            .require_key
+    );
+    assert!(!settings_file::AppSettings::default().agent_access.enabled);
+}
+
+#[test]
+fn an_old_settings_file_reads_as_no_key_required_with_access_still_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    // As an earlier build wrote it: no requireKey anywhere.
+    std::fs::write(
+        config.join(SETTINGS_FILE),
+        r#"{"agentAccess":{"enabled":false,"port":9123,"connections":[]},"backupsToKeep":5}"#,
+    )
+    .unwrap();
+    let loaded = settings_file::load_settings(&config);
+    assert!(!loaded.agent_access.require_key);
+    assert!(!loaded.agent_access.enabled);
+    assert_eq!(loaded.agent_access.port, 9123);
+    assert_eq!(loaded.backups_to_keep, 5);
+
+    let (app, w) = app_with(state_in(dir.path()));
+    agent_access::resume(app.handle());
+    let state = state_of(&w);
+    assert_eq!(state["requireKey"], false);
+    assert_eq!(state["running"], false, "access was off and stays off");
+    assert!(refused_connecting(9123));
+}
+
+#[test]
+fn an_old_settings_file_with_access_on_comes_back_keyless() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let config = dir.path().join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(
+        config.join(SETTINGS_FILE),
+        format!(r#"{{"agentAccess":{{"enabled":true,"port":{port},"connections":[]}}}}"#),
+    )
+    .unwrap();
+    let (app, _w) = app_with(state_in(dir.path()));
+    agent_access::resume(app.handle());
+    assert_eq!(ping_bare(port), 200);
+    agent_access::shutdown(&app.state::<AppState>());
+}
+
+#[test]
+fn a_settings_file_that_cannot_be_read_gives_defaults_with_access_off() {
+    // Existing behaviour kept: an unreadable or malformed file is the defaults, so access is off.
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    for text in [
+        "{ not json",
+        r#"{"agentAccess":{"enabled":true,"requireKey":"yes"}}"#,
+    ] {
+        std::fs::write(config.join(SETTINGS_FILE), text).unwrap();
+        let loaded = settings_file::load_settings(&config);
+        assert!(!loaded.agent_access.enabled, "{text}");
+        assert!(!loaded.agent_access.require_key, "{text}");
+    }
+}
+
+#[test]
+fn without_a_key_a_request_runs_as_the_builtin_agent_that_the_log_lists() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = empty_project(dir.path());
+    let state = state_in(dir.path());
+    open(&state, &project);
+    let (_app, w) = app_with(state);
+    let port = free_port();
+    set(&w, true, port);
+    assert_eq!(
+        invoke(&w, "change_log_agents", json!({})).unwrap(),
+        json!([]),
+        "nobody has written yet"
+    );
+
+    let batch = tool_bare(port, "begin_batch", json!({ "title": "Recording 7" }))["batch"].clone();
+    tool_bare(
+        port,
+        "add_person",
+        json!({ "batch": batch, "given": "Ivan", "surnames": ["Koval"] }),
+    );
+    let agents = invoke(&w, "change_log_agents", json!({})).unwrap();
+    assert_eq!(
+        agents,
+        json!([{ "id": gt_mcp::KEYLESS_AGENT_ID, "name": gt_mcp::KEYLESS_AGENT_NAME }])
+    );
+    // It is never one of the connections, and it cannot be revoked.
+    assert_eq!(state_of(&w)["connections"], json!([]));
+    let e = revoke(&w, &gt_mcp::KEYLESS_AGENT_ID.to_string()).unwrap_err();
+    assert_eq!(e["code"], "not_found");
+    assert_eq!(ping_bare(port), 200);
+    set(&w, false, port);
+}
+
+#[test]
+fn without_a_key_a_valid_key_keeps_its_connection_name_and_a_bad_one_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = empty_project(dir.path());
+    let state = state_in(dir.path());
+    open(&state, &project);
+    let (_app, w) = app_with(state);
+    let port = free_port();
+    set(&w, true, port);
+    let (id, key, snippet) = create(&w, "Reader");
+    assert!(
+        snippet.contains(&key),
+        "a new connection's command has its key"
+    );
+
+    let batch = tool_json(&post(
+        port,
+        &key,
+        &rpc(
+            "tools/call",
+            json!({ "name": "begin_batch", "arguments": { "title": "Recording 8" } }),
+        ),
+    ))["batch"]
+        .clone();
+    tool_json(&post(
+        port,
+        &key,
+        &rpc(
+            "tools/call",
+            json!({ "name": "add_person", "arguments": { "batch": batch, "given": "Olena", "surnames": ["Koval"] } }),
+        ),
+    ));
+    let agents = invoke(&w, "change_log_agents", json!({})).unwrap();
+    assert_eq!(agents, json!([{ "id": id, "name": "Reader" }]));
+
+    assert_eq!(ping(port, "gt_not_a_key"), 401);
+    revoke(&w, &id).unwrap();
+    assert_eq!(
+        ping(port, &key),
+        401,
+        "a revoked key is 401, not the built-in agent"
+    );
+    assert_eq!(
+        ping_bare(port),
+        200,
+        "no key at all is still the built-in agent"
+    );
+    set(&w, false, port);
+}
+
+#[test]
+fn requiring_a_key_refuses_the_next_request_and_not_requiring_lets_it_in_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let (_, key, _) = create(&w, "Reader");
+    assert_eq!(ping_bare(port), 200);
+
+    let on = require(&w, true).unwrap();
+    assert_eq!(on["requireKey"], true);
+    assert_eq!(on["keylessCommand"], Value::Null);
+    assert_eq!(on["error"], Value::Null);
+    assert_eq!(ping_bare(port), 401);
+    assert_eq!(ping(port, &key), 200);
+    assert!(saved(dir.path()).agent_access.require_key);
+
+    let off = require(&w, false).unwrap();
+    assert_eq!(off["requireKey"], false);
+    assert_eq!(
+        off["keylessCommand"],
+        format!("claude mcp add --transport http gene-tree http://127.0.0.1:{port}/mcp")
+    );
+    assert_eq!(ping_bare(port), 200);
+    assert!(!saved(dir.path()).agent_access.require_key);
+    set(&w, false, port);
+}
+
+#[test]
+fn the_requirement_survives_a_restart_and_a_stop() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = free_port();
+    {
+        let (app, w) = app_with(state_in(dir.path()));
+        set(&w, true, port);
+        require(&w, true).unwrap();
+        agent_access::shutdown(&app.state::<AppState>());
+    }
+    let (app, w) = app_with(state_in(dir.path()));
+    agent_access::resume(app.handle());
+    assert_eq!(state_of(&w)["requireKey"], true);
+    assert_eq!(ping_bare(port), 401);
+    // Off and on again does not open it.
+    set(&w, false, port);
+    set(&w, true, port);
+    assert_eq!(ping_bare(port), 401);
+    agent_access::shutdown(&app.state::<AppState>());
+}
+
+#[test]
+fn stopping_closes_the_door_for_a_request_with_no_key_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let host = AppHost::new(app.handle().clone());
+    assert!(host.authenticate_keyless().is_some());
+    set(&w, false, port);
+    assert!(
+        host.authenticate_keyless().is_none(),
+        "a late request finds no door"
+    );
+    assert!(refused_connecting(port));
+}
+
+#[test]
+fn requiring_a_key_stops_a_request_already_past_its_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let body = rpc("ping", json!({})).to_string();
+    let mut s = connect(port);
+    let head = format!(
+        "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: {}\r\n\r\n",
+        body.len()
+    );
+    s.write_all(head.as_bytes()).unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    require(&w, true).unwrap();
+    s.write_all(body.as_bytes()).unwrap();
+    assert_eq!(read_answer(&mut s).0, 401);
+    set(&w, false, port);
+}
+
+#[test]
+fn requiring_a_key_that_cannot_be_saved_applies_now_says_so_and_can_be_tried_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    break_settings(dir.path());
+    let on = require(&w, true).unwrap();
+    assert_eq!(on["requireKey"], true);
+    assert_eq!(on["error"], REQUIRE_NOT_SAVED);
+    assert_eq!(ping_bare(port), 401, "applied in memory first");
+    assert!(
+        !saved(dir.path()).agent_access.require_key,
+        "the file is as it was"
+    );
+
+    // Trying again while it still fails says the same.
+    assert_eq!(require(&w, true).unwrap()["error"], REQUIRE_NOT_SAVED);
+    heal_settings(dir.path());
+    let again = require(&w, true).unwrap();
+    assert_eq!(again["error"], Value::Null);
+    assert!(saved(dir.path()).agent_access.require_key);
+    assert_eq!(ping_bare(port), 401);
+    set(&w, false, port);
+}
+
+#[test]
+fn a_requirement_that_could_not_be_saved_is_saved_by_a_later_action() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    break_settings(dir.path());
+    require(&w, true).unwrap();
+    heal_settings(dir.path());
+    assert_eq!(state_of(&w)["error"], Value::Null);
+    assert!(saved(dir.path()).agent_access.require_key);
+    set(&w, false, port);
+}
+
+#[test]
+fn not_requiring_a_key_applies_only_once_it_is_saved() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    require(&w, true).unwrap();
+    break_settings(dir.path());
+    let e = require(&w, false).unwrap_err();
+    assert_eq!(e["code"], "io");
+    assert_eq!(state_of(&w)["requireKey"], true, "fails closed");
+    assert_eq!(ping_bare(port), 401);
+    heal_settings(dir.path());
+    assert_eq!(require(&w, false).unwrap()["requireKey"], false);
+    assert_eq!(ping_bare(port), 200);
+    set(&w, false, port);
+}
+
+#[test]
+fn without_a_key_a_web_page_and_a_wrong_host_are_still_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let body = rpc("ping", json!({}));
+    for origin in ["https://evil.example", "null", "http://localhost:3000"] {
+        let line = format!("Origin: {origin}\r\n");
+        assert_eq!(post_bare_with(port, &line, &body).0, 403, "{origin}");
+    }
+    let text = body.to_string();
+    let mut s = connect(port);
+    let head = format!(
+        "POST /mcp HTTP/1.1\r\nHost: evil.example:{port}\r\nContent-Length: {}\r\n\r\n",
+        text.len()
+    );
+    s.write_all(head.as_bytes()).unwrap();
+    s.write_all(text.as_bytes()).unwrap();
+    assert_eq!(read_answer(&mut s).0, 403);
+    set(&w, false, port);
+}
+
+#[test]
+fn without_a_key_the_agent_still_cannot_change_who_is_alive_or_claim_a_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = empty_project(dir.path());
+    let state = state_in(dir.path());
+    open(&state, &project);
+    let (_app, w) = app_with(state);
+    let port = free_port();
+    set(&w, true, port);
+    let forged = json!({ "id": Uuid::from_u128(99), "name": "The owner", "kind": "user" });
+    let batch = tool_bare(
+        port,
+        "begin_batch",
+        json!({ "title": "Recording 9", "name": "The owner", "actor": forged, "agent": forged }),
+    )["batch"]
+        .clone();
+    let person = tool_bare(
+        port,
+        "add_person",
+        json!({ "batch": batch, "given": "Ivan", "surnames": ["Koval"], "actor": forged }),
+    )["id"]
+        .clone();
+    let refused = post_bare(
+        port,
+        &rpc(
+            "tools/call",
+            json!({ "name": "add_event", "arguments": { "batch": batch, "person": person, "kind": "death", "date": "1950" } }),
+        ),
+    );
+    assert!(refused.1.contains("alive or dead"), "{}", refused.1);
+    let agents = invoke(&w, "change_log_agents", json!({})).unwrap();
+    assert_eq!(
+        agents,
+        json!([{ "id": gt_mcp::KEYLESS_AGENT_ID, "name": gt_mcp::KEYLESS_AGENT_NAME }])
+    );
+    set(&w, false, port);
 }
