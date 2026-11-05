@@ -409,6 +409,7 @@ pub fn plan_with(
         }
         C::AttachMedia { target, media } => media::attach_media(&mut p, *target, media)?,
         C::DetachMedia { target, media } => media::detach_media(&mut p, *target, *media)?,
+        C::DeleteMedia { id } => media::delete_media(&mut p, *id)?,
         C::SetPrimaryMedia { person, media } => media::set_primary(&mut p, *person, *media)?,
         C::ImportDraft {
             persons,

@@ -27,6 +27,7 @@ const EDIT_KEYS: Record<string, [label: MessageKey, done: MessageKey]> = {
   'Remove citation': ['edit.removeCitation', 'edit.doneCitationRemoved'],
   'Attach media': ['edit.attachMedia', 'edit.doneMediaAttached'],
   'Detach media': ['edit.detachMedia', 'edit.doneMediaDetached'],
+  'Delete media': ['edit.deleteMedia', 'edit.doneMediaDeleted'],
   'Set primary media': ['edit.setPrimaryMedia', 'edit.donePrimaryMediaSet'],
   'Edit media': ['edit.editMedia', 'edit.doneMediaSaved'],
   'Link media files': ['edit.linkMediaFiles', 'edit.doneMediaFilesLinked'],

@@ -126,6 +126,7 @@ const LABELS: Record<EditCommand['type'], string> = {
   removeCitation: 'Remove citation',
   attachMedia: 'Attach media',
   detachMedia: 'Detach media',
+  deleteMedia: 'Delete media',
   setPrimaryMedia: 'Set primary media',
   updateMedia: 'Edit media',
   importDraft: 'Add traced people',
@@ -1588,6 +1589,24 @@ export class MockApi implements Api {
         const [gone] = bag.media.splice(i, 1);
         if (gone.primary && bag.media[0]) bag.media[0].primary = true;
         return { focus: cmd.target.kind === 'person' ? cmd.target.id : null, touched: [cmd.target.id, cmd.media] };
+      }
+
+      case 'deleteMedia': {
+        if (!this.db.media.has(cmd.id)) throw missing('media item', cmd.id);
+        const touched: Id[] = [cmd.id];
+        const sweep = (links: MediaLinkDto[] | undefined, owner: Id) => {
+          const i = links?.findIndex((l) => l.media.id === cmd.id) ?? -1;
+          if (!links || i < 0) return;
+          const [gone] = links.splice(i, 1);
+          if (gone.primary && links[0]) links[0].primary = true;
+          touched.push(owner);
+        };
+        for (const p of this.db.persons.values()) {
+          sweep(p.media, p.id);
+          for (const e of p.events) sweep(e.media, e.id);
+        }
+        this.db.media.delete(cmd.id);
+        return { focus: null, touched };
       }
 
       case 'setPrimaryMedia': {

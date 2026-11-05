@@ -27,7 +27,8 @@
   import People from './People.svelte';
   import FamilyView from './FamilyView.svelte';
   import type { IconName } from '../ui/icons';
-  import { getApi } from '../api/context';
+  import { getApi, getPlatform } from '../api/context';
+  import { notices } from '../ui/notices.svelte';
   import type { Id, PersonDetail, PersonRef, SearchHitDto } from '../api/types';
   import { nav, type Route } from '../state/nav.svelte';
   import { project } from '../state/project.svelte';
@@ -41,6 +42,7 @@
   import { editLabel } from '../i18n/backend';
 
   const api = getApi();
+  const platform = getPlatform();
 
   type NavName = 'family' | 'people' | 'whole' | 'pedigree' | 'descendants' | 'relatives' | 'sources' | 'media' | 'settings';
   const ITEMS: { name: NavName; label: MessageKey; icon: IconName }[] = [
@@ -71,6 +73,18 @@
       await closeTree(api);
     } catch (e) {
       toasts.push({ text: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  /** Shows the tree's folder: revealing the file inside it opens the folder itself, not its parent. */
+  async function openFolder() {
+    const dir = project.info?.dir;
+    if (!dir) return;
+    const slash = dir.includes('\\') ? '\\' : '/';
+    try {
+      await platform.reveal(`${dir.replace(/[\\/]+$/, '')}${slash}tree.db`);
+    } catch {
+      notices.show({ message: t('shell.openFolderFailed', { dir }) });
     }
   }
 
@@ -312,7 +326,7 @@
       </ul>
     </nav>
     <footer class="foot">
-      <div class="pname" title={project.info?.dir}>{project.info?.name}</div>
+      <button type="button" class="pname" title={t('shell.openFolder', { dir: project.info?.dir ?? '' })} onclick={openFolder}>{project.info?.name}</button>
       <div class="pcount tnum">{plural('common.people', project.info?.personCount ?? 0)}</div>
       <div class="saved" role="status" aria-label={t('shell.saveStatus')} class:bad={project.save === 'failed'}>
         <Icon name="check" />
@@ -492,6 +506,15 @@
     line-height: var(--t-sm-lh);
   }
   .pname {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font-size: inherit;
+    text-align: start;
+    cursor: pointer;
     font-family: var(--font-serif);
     font-weight: 600;
     overflow: hidden;
