@@ -981,6 +981,67 @@ fn notes_sources_and_media() {
 }
 
 #[test]
+fn delete_media_leaves_no_link_anywhere_and_undo_restores_it() {
+    let mut t = sample();
+    let (anna, hans) = (find(&t, "Anna"), find(&t, "Hans"));
+    let family = *t.families.keys().next().unwrap();
+    let make = |name: &str| Media {
+        common: gt_core::model::Common {
+            id: Uuid::now_v7(),
+            private: false,
+            changed: None,
+            citations: vec![],
+            notes: vec![],
+            media: vec![],
+            ext_ids: vec![],
+            unknown: vec![],
+        },
+        path: name.into(),
+        original_name: None,
+        mime: None,
+        title: None,
+        date: None,
+        description: None,
+        sha256: None,
+    };
+    let (gone, kept) = (make("gone.jpg"), make("kept.jpg"));
+    let (gone_id, kept_id) = (gone.common.id, kept.common.id);
+    t.media.insert(gone_id, gone);
+    t.media.insert(kept_id, kept);
+    let link = |media: Uuid, primary: bool| MediaLink {
+        media,
+        region: None,
+        primary,
+    };
+    t.persons.get_mut(&anna).unwrap().common.media =
+        vec![link(gone_id, true), link(kept_id, false)];
+    t.persons.get_mut(&hans).unwrap().common.media = vec![link(kept_id, true)];
+    t.families.get_mut(&family).unwrap().common.media = vec![link(gone_id, true)];
+    let before = t.clone();
+
+    let cs = run_apply(&mut t, &EditCommand::DeleteMedia { id: gone_id });
+    assert!(!t.media.contains_key(&gone_id));
+    assert!(t.media.contains_key(&kept_id));
+    assert!(t.families[&family].common.media.is_empty());
+    // The next picture takes over as the primary one; a person without the deleted picture is not touched.
+    let anna_links = &t.persons[&anna].common.media;
+    assert_eq!(anna_links.len(), 1);
+    assert_eq!(
+        (anna_links[0].media, anna_links[0].primary),
+        (kept_id, true)
+    );
+    assert_eq!(t.persons[&hans], before.persons[&hans]);
+
+    apply_to_tree(&mut t, &cs.inverse());
+    assert_eq!(t, before);
+    assert!(
+        err(&t, &EditCommand::DeleteMedia { id: Uuid::nil() })
+            .message
+            .contains("media")
+    );
+}
+
+#[test]
 fn apply_to_tree_matches_plan_inverse() {
     let t = with_stuff();
     let anna = find(&t, "Anna");
@@ -1017,7 +1078,7 @@ fn plan_does_not_mutate() {
 fn edit_command_json_matches_ts_fixtures() {
     let json = include_str!("../../../app/src/lib/api/__fixtures__/commands.json");
     let cmds: Vec<EditCommand> = serde_json::from_str(json).unwrap();
-    assert_eq!(cmds.len(), 26);
+    assert_eq!(cmds.len(), 27);
     // Absent and null differ for livingOverride.
     let EditCommand::UpdatePerson {
         living_override, ..

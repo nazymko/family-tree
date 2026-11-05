@@ -21,8 +21,9 @@ async function mountShell() {
   nav.go({ name: 'family' });
   nav.focus(info.homePerson);
   const user = userEvent.setup();
-  render(Shell, { context: apiContext(api, new MockPlatform()) });
-  return { api, raw, user };
+  const platform = new MockPlatform();
+  render(Shell, { context: apiContext(api, platform) });
+  return { api, raw, user, platform };
 }
 
 beforeEach(() => {
@@ -186,5 +187,13 @@ describe('Shell', () => {
     project.info = null;
     await user.keyboard('{Control>}s{/Control}');
     expect(toasts.items).toEqual([]);
+  });
+});
+
+describe('Shell tree name', () => {
+  it('opens_the_folder_of_the_tree', async () => {
+    const { user, platform } = await mountShell();
+    await user.click(screen.getByRole('button', { name: project.info!.name }));
+    expect(platform.calls).toContainEqual({ method: 'reveal', args: ['C:/Genealogy/Test/tree.db'] });
   });
 });

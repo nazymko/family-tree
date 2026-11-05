@@ -292,10 +292,12 @@ fn extended_command(s: &Session, rng: &mut Rng, n: usize) -> Option<EditCommand>
     let (owner, cites, notes, media) = random_owner(s, rng)?;
     Some(match rng.below(15) {
         0 => {
-            let p = t.persons.get(&nth_key(&t.persons, rng)?)?;
+            // A person's only name cannot be deleted, so aim at someone who has another.
+            let several: Vec<_> = t.persons.values().filter(|p| p.names.len() > 1).collect();
+            let p = several.get(rng.below(several.len().max(1)))?;
             EditCommand::DeleteName {
                 person: p.common.id,
-                name: p.names.get(rng.below(p.names.len().max(1)))?.id,
+                name: p.names[rng.below(p.names.len())].id,
             }
         }
         1 => {
@@ -386,7 +388,10 @@ fn extended_command(s: &Session, rng: &mut Rng, n: usize) -> Option<EditCommand>
                 citation: p.common.citations[rng.below(p.common.citations.len())],
             }
         }
-        10 => match rng.below(4) {
+        10 => match rng.below(5) {
+            3 => EditCommand::DeleteMedia {
+                id: nth_key(&t.media, rng)?,
+            },
             0 => EditCommand::AttachMedia {
                 target: owner,
                 media: vec![nth_key(&t.media, rng)?],
@@ -568,6 +573,7 @@ fn incremental_refresh_equals_rebuild_over_random_edit_undo_redo_sequences() {
         "RemoveCitation",
         "AttachMedia",
         "DetachMedia",
+        "DeleteMedia",
         "SetPrimaryMedia",
         "UpdateMedia",
         "SaveFamily",
