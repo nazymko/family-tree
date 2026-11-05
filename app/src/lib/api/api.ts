@@ -45,6 +45,7 @@ import type {
   UndoState,
   WholeMeta,
 } from './types';
+import type { AgentAccessState, NewConnectionDto } from './types';
 
 export type * from './types';
 
@@ -130,6 +131,16 @@ export interface Api {
   /** Undoes one agent change; a fact someone changed since stays and is named in the report. */
   undoChangeGroup(group: string): Promise<UndoReport>;
   undoChangeBatch(batch: string): Promise<UndoReport>;
+  // --- Agent access ---
+  agentAccessState(): Promise<AgentAccessState>;
+  /** Turns the local MCP server on or off and sets its port. A taken port comes back as `error` in the state, not as a rejection. */
+  agentAccessSet(enabled: boolean, port: number): Promise<AgentAccessState>;
+  /** The key and snippet in the answer are the only time they exist in plain text. */
+  agentConnectionCreate(name: string): Promise<NewConnectionDto>;
+  agentConnectionRevoke(id: string): Promise<void>;
+  /** The rules every connecting agent receives, as plain text. */
+  agentRules(): Promise<string>;
+  // --- end of Agent access ---
 }
 
 /** What an agent's write tells the open window. `touched` holds the ids of the people and records it changed. */

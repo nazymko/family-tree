@@ -176,6 +176,23 @@ describe('TauriApi', () => {
     }
   });
 
+  // --- Agent access: Task 6 must add Rust commands with these names and argument names ---
+  it('agent_access_commands_and_args', async () => {
+    const api = new TauriApi();
+    reply = (cmd) => (cmd === 'agent_connection_create' ? { connection: { id: 'c1', name: 'n', created: 1 }, key: 'gt_ab', snippet: 's' } : null);
+    await api.agentAccessState();
+    await api.agentAccessSet(true, 8765);
+    await api.agentConnectionCreate('Laptop');
+    await api.agentConnectionRevoke('c1');
+    await api.agentRules();
+    expect(calls).toEqual([
+      { cmd: 'agent_access_state', args: {} },
+      { cmd: 'agent_access_set', args: { enabled: true, port: 8765 } },
+      { cmd: 'agent_connection_create', args: { name: 'Laptop' } },
+      { cmd: 'agent_connection_revoke', args: { id: 'c1' } },
+      { cmd: 'agent_rules', args: {} },
+    ]);
+  });
   it('default_api_picks_tauri_when_internals_present', () => {
     // mockIPC (beforeEach) installed window.__TAURI_INTERNALS__.
     const b = defaultApi();

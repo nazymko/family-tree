@@ -841,9 +841,10 @@ fn undo_batch_retries_groups_it_could_only_partly_undo() {
 
 fn assert_says_dropped(e: &ApiError) {
     assert_eq!(e.code, ErrorCode::Conflict, "{e:?}");
-    assert!(e.message.contains("removed from the change log"), "{e:?}");
-    assert!(e.message.contains("dropped"), "{e:?}");
-    assert!(!e.message.contains("An agent changed"), "{e:?}");
+    assert_eq!(
+        e.message,
+        "This step was dropped: a record it needs no longer exists."
+    );
 }
 
 #[test]
@@ -949,6 +950,130 @@ fn ctrl_z_restoring_a_citation_of_a_source_the_log_undid_is_dropped() {
 }
 
 #[test]
+fn ctrl_z_of_a_step_updating_a_person_the_log_undid_is_dropped() {
+    let (_d, mut s, anna) = setup();
+    let ivan = s
+        .commit_command_as(child_of(anna, "Ivan"), agent(), None)
+        .unwrap()
+        .focus
+        .unwrap();
+    let g = newest_group(&s);
+    s.apply(add_note(anna, "Mine")).unwrap();
+    s.apply(add_note(ivan, "Also mine")).unwrap();
+    let note = s.tree().persons[&ivan].common.notes[0];
+    s.apply(EditCommand::DeleteNote {
+        target: person_owner(ivan),
+        note,
+    })
+    .unwrap();
+    assert!(s.undo_group(g).unwrap().skipped.is_empty());
+    assert!(!s.tree().persons.contains_key(&ivan));
+
+    let tree = s.tree().clone();
+    assert_says_dropped(&s.undo().unwrap_err());
+    assert_eq!(s.tree(), &tree);
+    assert_says_dropped(&s.undo().unwrap_err());
+    assert_eq!(s.undo_state().undo_label.as_deref(), Some("Save note"));
+    s.undo().unwrap().unwrap();
+    assert!(s.tree().persons[&anna].common.notes.is_empty());
+    assert!(!s.undo_state().can_undo);
+    assert_consistent(&s);
+}
+
+#[test]
+fn redo_of_a_step_updating_a_person_the_log_undid_is_dropped() {
+    let (_d, mut s, anna) = setup();
+    let ivan = s
+        .commit_command_as(child_of(anna, "Ivan"), agent(), None)
+        .unwrap()
+        .focus
+        .unwrap();
+    let g = newest_group(&s);
+    s.apply(add_note(ivan, "Mine")).unwrap();
+    s.undo().unwrap().unwrap();
+    assert!(s.undo_group(g).unwrap().skipped.is_empty());
+
+    assert_says_dropped(&s.redo().unwrap_err());
+    assert!(!s.undo_state().can_redo);
+    assert!(s.redo().unwrap().is_none());
+    assert_consistent(&s);
+}
+
+#[test]
+fn a_step_on_a_record_a_dropped_redo_step_would_have_made_is_dropped() {
+    let (_d, mut s, anna) = setup();
+    let ivan = s
+        .commit_command_as(child_of(anna, "Ivan"), agent(), None)
+        .unwrap()
+        .focus
+        .unwrap();
+    let g = newest_group(&s);
+    let olena = s.apply(child_of(ivan, "Olena")).unwrap().focus.unwrap();
+    s.apply(add_note(olena, "Mine")).unwrap();
+    s.undo().unwrap().unwrap();
+    s.undo().unwrap().unwrap();
+    assert!(s.undo_group(g).unwrap().skipped.is_empty());
+
+    assert_says_dropped(&s.redo().unwrap_err());
+    assert_says_dropped(&s.redo().unwrap_err());
+    assert!(!s.undo_state().can_redo);
+    assert_consistent(&s);
+}
+
+#[test]
+fn a_step_is_dropped_whatever_removed_its_record() {
+    // No log undo here: the owner unlinks a child and an agent then deletes that person.
+    let (_d, mut s, _) = setup();
+    let (family, child) = s
+        .tree()
+        .families
+        .iter()
+        .find_map(|(id, f)| f.children.first().map(|c| (*id, c.person)))
+        .unwrap();
+    s.apply(EditCommand::UnlinkChild { family, child }).unwrap();
+    s.commit_command_as(EditCommand::DeletePerson { id: child }, agent(), None)
+        .unwrap();
+
+    let tree = s.tree().clone();
+    assert_says_dropped(&s.undo().unwrap_err());
+    assert_eq!(s.tree(), &tree);
+    assert!(!s.undo_state().can_undo);
+    assert_consistent(&s);
+}
+
+#[test]
+fn a_step_blocked_by_what_a_dropped_step_left_behind_is_dropped_too() {
+    let (_d, mut s, anna) = setup();
+    s.commit_command_as(cite(anna, "Recording 2"), agent(), None)
+        .unwrap();
+    let g = newest_group(&s);
+    let source = *s.tree().sources.keys().next().unwrap();
+    let petro = s
+        .apply(EditCommand::CreatePerson {
+            draft: draft("Petro", SexKind::Male),
+        })
+        .unwrap()
+        .focus
+        .unwrap();
+    s.apply(cite_source(petro, SourceRef::Id(source))).unwrap();
+    s.apply(child_of(petro, "Olena")).unwrap();
+    s.apply(EditCommand::DeletePerson { id: petro }).unwrap();
+    assert!(s.undo_group(g).unwrap().skipped.is_empty());
+
+    // The delete cannot be undone: the citation it would restore stood on the source. So its
+    // change to the family stays, and no agent's change is left to blame for it.
+    assert_says_dropped(&s.undo().unwrap_err());
+    let tree = s.tree().clone();
+    let e = s.undo().unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+    assert!(e.message.starts_with("This step was dropped"), "{e:?}");
+    assert!(!e.message.contains("no longer exists"), "{e:?}");
+    assert_eq!(s.tree(), &tree);
+    assert_eq!(s.undo_state().undo_label.as_deref(), Some("Add citation"));
+    assert_consistent(&s);
+}
+
+#[test]
 fn redo_blocked_by_an_agent_stays_on_its_stack() {
     let (_d, mut s, anna) = setup();
     s.apply(add_note(anna, "Mine")).unwrap();
@@ -1023,6 +1148,52 @@ fn a_retry_with_nothing_left_to_do_writes_nothing() {
     assert!(rep.skipped.is_empty(), "{:?}", rep.skipped);
     assert_eq!(rows(&s).len(), n);
     assert_consistent(&s);
+}
+
+/// Undoes from the log everything that can be, as many times as it makes a difference.
+fn undo_all_from_log(s: &mut Session, context: &str) {
+    for _ in 0..50 {
+        let before = s.tree().clone();
+        let open: Vec<Uuid> = rows(s)
+            .iter()
+            .filter(|r| r.can_undo)
+            .map(|r| r.group)
+            .collect();
+        for g in open {
+            s.undo_group(g)
+                .unwrap_or_else(|e| panic!("{context}: log undo: {e:?}"));
+        }
+        if s.tree() == &before {
+            return;
+        }
+    }
+    panic!("{context}: the log undos never settle");
+}
+
+/// Runs one stack down to nothing. A step may be dropped, and may wait for a log undo, but once
+/// the log has nothing more to give the same step must not refuse again.
+fn drain(
+    s: &mut Session,
+    mut step: impl FnMut(&mut Session) -> Result<bool, ApiError>,
+    context: &str,
+) {
+    let mut waiting = false;
+    loop {
+        match step(s) {
+            Ok(false) => return,
+            Ok(true) => waiting = false,
+            Err(e) if e.message.starts_with("This step was dropped") => waiting = false,
+            Err(e) => {
+                assert_eq!(e.code, ErrorCode::Conflict, "{context}: {e:?}");
+                assert!(!waiting, "{context}: stuck on {:?}: {e:?}", s.undo_state());
+                waiting = true;
+            }
+        }
+        undo_all_from_log(s, context);
+        assert_eq!(s.tree(), &s.project().load_tree().unwrap(), "{context}");
+        s.verify_derived_state()
+            .unwrap_or_else(|e| panic!("{context}: {e}"));
+    }
 }
 
 #[test]
@@ -1126,5 +1297,12 @@ fn owner_and_agent_interleaved_stay_consistent() {
             s.verify_derived_state()
                 .unwrap_or_else(|e| panic!("seed {seed} step {step}: {e}"));
         }
+        // With everything undone from the log, both stacks run out whatever has happened.
+        let context = format!("seed {seed}");
+        undo_all_from_log(&mut s, &context);
+        drain(&mut s, |s| s.undo().map(|r| r.is_some()), &context);
+        assert!(!s.undo_state().can_undo, "{context}");
+        drain(&mut s, |s| s.redo().map(|r| r.is_some()), &context);
+        assert!(!s.undo_state().can_redo, "{context}");
     }
 }

@@ -1,4 +1,5 @@
 import type { Api } from '../api';
+import type { AgentAccessState, NewConnectionDto } from '../types';
 import type {
   ActorDto,
   BatchDto,
@@ -1037,6 +1038,62 @@ export class MockApi implements Api {
     this.settings = next;
     this.touch();
     return { ...this.settings };
+  }
+
+  // ---------------------------------------------------------------- agent access (in memory)
+
+  private agent: AgentAccessState = { enabled: false, port: 8765, running: false, error: null, connections: [] };
+  private agentSeq = 0;
+  /** Ports another program already holds, for tests. */
+  agentTakenPorts = new Set<number>();
+
+  private agentSnapshot(): AgentAccessState {
+    return { ...this.agent, connections: this.agent.connections.map((c) => ({ ...c })) };
+  }
+
+  async agentAccessState(): Promise<AgentAccessState> {
+    return this.agentSnapshot();
+  }
+
+  async agentAccessSet(enabled: boolean, port: number): Promise<AgentAccessState> {
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) throw invalid('The port must be a number from 1024 to 65535.');
+    const taken = enabled && this.agentTakenPorts.has(port);
+    this.agent = {
+      ...this.agent,
+      enabled,
+      port,
+      running: enabled && !taken,
+      error: taken ? `Port ${port} is already used by another program. Choose another port.` : null,
+    };
+    return this.agentSnapshot();
+  }
+
+  async agentConnectionCreate(name: string): Promise<NewConnectionDto> {
+    const clean = name.trim();
+    if (!clean) throw invalid('Give the connection a name.');
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    const key = 'gt_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    const connection = { id: `agent-conn-${++this.agentSeq}`, name: clean, created: Date.now() };
+    this.agent.connections = [...this.agent.connections, connection];
+    const snippet = `claude mcp add --transport http gene-tree http://127.0.0.1:${this.agent.port}/mcp --header "Authorization: Bearer ${key}"`;
+    return { connection: { ...connection }, key, snippet };
+  }
+
+  async agentConnectionRevoke(id: string): Promise<void> {
+    if (!this.agent.connections.some((c) => c.id === id)) throw missing('connection', id);
+    this.agent.connections = this.agent.connections.filter((c) => c.id !== id);
+  }
+
+  async agentRules(): Promise<string> {
+    return [
+      'Rules for agents working in this family tree',
+      '',
+      '1. Search before you add anyone, and never add a person who is already in the tree.',
+      '2. State only what the source says. Mark anything you infer as an inference.',
+      '3. Every fact you add names its source.',
+      '4. You cannot delete people, change whether a person is living, or overwrite what the owner entered.',
+    ].join('\n');
   }
 
   // ================================================================ internals
