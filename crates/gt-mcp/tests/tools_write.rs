@@ -89,6 +89,7 @@ fn write_needs_batch() {
             json!({"target": {"kind": "person", "id": id}, "source": id}),
         ),
         ("add_sibling_marker", json!({"family": id})),
+        ("remove_own_empty_family", json!({"family": id})),
         (
             "set_number",
             json!({"person": id, "source_file": "a", "number": "1"}),
@@ -1372,6 +1373,7 @@ fn only_the_tools_named_here_can_write() {
             "update_own_event",
             "update_own_name",
             "update_own_citation",
+            "remove_own_empty_family",
         ]
     );
 }

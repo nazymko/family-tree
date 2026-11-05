@@ -184,6 +184,24 @@ impl Project {
         Ok(out)
     }
 
+    /// The batch the first logged change to a record was written in, when it was a creation.
+    pub fn created_in_batch(&self, target: Uuid) -> Result<Option<Uuid>, StoreError> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT op, batch_id FROM change_log WHERE target_id = ?1 ORDER BY id LIMIT 1",
+        )?;
+        let mut rows = st.query([target.to_string()])?;
+        let Some(r) = rows.next()? else {
+            return Ok(None);
+        };
+        if ChangeOp::parse(&r.get::<_, String>(0)?)? != ChangeOp::Create {
+            return Ok(None);
+        }
+        r.get::<_, Option<String>>(1)?
+            .as_deref()
+            .map(parse_uuid)
+            .transpose()
+    }
+
     /// One page of the change log, newest group first, and the number of groups matching
     /// the filter. Rows without a group (written by schema 1) are not groups and are left out.
     pub fn log_page(

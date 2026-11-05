@@ -110,7 +110,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
     vec![
         Tool {
             name: "begin_batch",
-            description: "Opens a batch: call this first, then pass its id to every write. A batch groups what you add, so the owner can review it. Give it a title, and the file you are working from if there is one.",
+            description: "Opens a batch: call this first, then pass its id to every write. The answer is {\"batch\": id, \"id\": id}, the same value twice: batch is kept for older clients and id matches what the other tools return. A batch groups what you add, so the owner can review it. Give it a title, and the file you are working from if there is one.",
             schema: schema(
                 &["title"],
                 json!({
@@ -122,7 +122,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "end_batch",
-            description: "Closes a batch with your report: what was added, what was left unsettled, and questions for the family. What you added stays.",
+            description: "Closes a batch with your report: what was added, what was left unsettled, and questions for the family. What you added stays. The report states only what the server accepted: a write that was refused or never made is not in the tree, so check get_log for this batch before you write it, and do not count what you only planned.",
             schema: with_batch(
                 &["report"],
                 json!({"report": {"type": "string", "description": "Up to 64 KiB."}}),
@@ -131,7 +131,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "add_person",
-            description: "Adds someone new, on their own or related to someone. Search first: most people already exist, and if you cannot tell, do not add them. Unknown or unclear information goes in a note with add_note, never in a guessed name or date. Someone with a known role and no known name is a person with an empty name and a note saying so. Brothers or sisters mentioned with no names are not people to add: use add_sibling_marker. Give source_file and number every time, from a numbered file or a label of your own that stays the same: a rerun then answers {id, alreadyThere: true} and adds nobody, where without them it adds the person again. As a child of someone with one partnership, the person also becomes the child by birth of that partner, and the answer's parents names everyone set. If that partner is not their parent, make a family with add_family and partner1 alone, and give it as relation.family.",
+            description: "Adds someone new, on their own or related to someone. Search first: most people already exist, and if you cannot tell, do not add them. Unknown or unclear information goes in a note with add_note, never in a guessed name or date. Never create a nameless person (no given name, surname or nickname): it is refused. Unknown parents and unnamed brothers or sisters are recorded with add_sibling_marker and sibling_of, not as people, and the same holds for a partner or parent made through relation. A birth year goes on the birth event: give birth_date here (or add_event with kind birth), not in a name or a note. Do not assume a parent this server created for a child: the answer's parents names who was set, so read it. Give source_file and number every time, from a numbered file or a label of your own that stays the same: a rerun then answers {id, alreadyThere: true} and adds nobody, where without them it adds the person again. As a child of someone with one partnership, the person also becomes the child by birth of that partner, and the answer's parents names everyone set. If that partner is not their parent, make a family with add_family and partner1 alone, and give it as relation.family. Make the person first and the family only when you are about to link, so that a refused link leaves no empty family; if one is left, remove_own_empty_family takes it away.",
             schema: with_batch(
                 &[],
                 json!({
@@ -150,7 +150,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "link_people",
-            description: "Connects two people already in the tree: with relation.to and relation.as, person is the father (or mother, partner, child, sibling) of to. To make someone a child of a family, give as: child and family without to. If a link is either-or or uncertain, make none: write a note on the people involved. A second parent by birth is refused: give both versions in a note, or link as a step, adoptive or foster parent if that is what the source says. A link already there answers alreadyThere. As a child of someone with one partnership, the person also becomes the child by birth of that partner, and the answer's parents names everyone set. If that partner is not their parent, make a family with add_family and partner1 alone, and give it as relation.family.",
+            description: "Connects two people already in the tree: with relation.to and relation.as, person is the father (or mother, partner, child, sibling) of to. To make someone a child of a family, give as: child and family without to. If a link is either-or or uncertain, make none: write a note on the people involved. A second parent by birth is refused: give both versions in a note, or link as a step, adoptive or foster parent if that is what the source says. A link already there answers alreadyThere. As a child of someone with one partnership, the person also becomes the child by birth of that partner, and the answer's parents names everyone set. If that partner is not their parent, make a family with add_family and partner1 alone, and give it as relation.family. Make the family only when you are about to link, so that a refused link leaves no empty family; if one is left, remove_own_empty_family takes it away.",
             schema: with_batch(
                 &["person", "relation"],
                 json!({
@@ -175,13 +175,22 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "add_name",
-            description: "Adds another name to a person, such as a married name or another spelling. It never takes over as their main name. A spelling you are unsure of goes in a note instead.",
+            description: "Adds another name to a person, such as a married name or another spelling. It never takes over as their main name. A name may hold only a nickname (kind nickname, nickname set): do not invent a given name for it. A spelling you are unsure of goes in a note instead.",
             schema: name_fields(&["person", "kind"], json!({})),
             call: add_name::<H>,
         },
         Tool {
+            name: "remove_own_empty_family",
+            description: "Removes a family you made yourself in this open batch, only when it has no children, events, notes or citations: for the empty family a refused link leaves behind. Anything else is refused and stays; list it in your report. It is logged like any write and the owner can undo it. It cannot touch anyone's alive or dead status.",
+            schema: with_batch(
+                &["family"],
+                json!({"family": id("The id of the family you made.")}),
+            ),
+            call: remove_own_empty_family::<H>,
+        },
+        Tool {
             name: "add_event",
-            description: "Adds an event to a person or a family. Give one of them. Never invent a date: with no date in the source, leave it out and put what the source says in a note. Inferences go in a note too. A person has one birth, death, burial and cremation; a different version of one goes in a note. An event that would change whether someone counts as alive or dead is refused: only the owner can do that, so leave a note and put it in your report.",
+            description: "Adds an event to a person or a family. Give one of them. A birth year goes on the birth event (kind birth), with its date. Never invent a date: with no date in the source, leave it out and put what the source says in a note. Inferences go in a note too. A person has one birth, death, burial and cremation; a different version of one goes in a note. An event that would change whether someone counts as alive or dead is refused: only the owner can do that, so leave a note and put it in your report.",
             schema: event_fields(
                 &["kind"],
                 json!({
@@ -653,7 +662,7 @@ fn begin_batch<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let title = str_arg(args, "title")?;
     let file = optional_str(args, "source_file")?;
     let batch = host.with_session(&mut |s| s.begin_batch(ctx, title, file))?;
-    answer(&json!({"batch": batch}))
+    answer(&json!({"batch": batch, "id": batch}))
 }
 
 fn end_batch<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
@@ -788,6 +797,20 @@ fn add_family<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
         batch,
         |_, _| Ok(cmd.clone()),
         |s, result| written(result, |id| s.tree().families.contains_key(id)),
+    )
+}
+
+fn remove_own_empty_family<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let family = uuid_arg(args, "family")?;
+    apply(
+        host,
+        ctx,
+        |s, _| {
+            let (write, reached) = s.remove_own_empty_family(family, ctx, batch)?;
+            Ok((write, reached, None))
+        },
+        |_, _| Some(family),
     )
 }
 
