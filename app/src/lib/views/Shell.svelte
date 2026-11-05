@@ -390,6 +390,7 @@
     anchor={quickAnchor}
     relation={quickWanted.relation}
     newParentSet={quickWanted.newParentSet}
+    parentRel={quickWanted.parentRel}
     onDone={(r) => {
       ui.closeAdd();
       if (r.focus) addedPerson.note(r.focus);

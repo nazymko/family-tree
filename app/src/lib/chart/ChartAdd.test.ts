@@ -102,6 +102,8 @@ describe('add a relative from a chart', () => {
     const expected = addOptions(parentFacts(await s.api.getFamilyView(s.root)));
     const names: Record<string, string> = {
       'family.addAnotherParents': 'Add another set of parents',
+      'family.addStepFather': 'Add stepfather',
+      'family.addStepMother': 'Add stepmother',
       'edit.addFather': 'Add father',
       'edit.addMother': 'Add mother',
       'edit.addPartner': 'Add partner',

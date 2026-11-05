@@ -350,6 +350,7 @@ pub fn plan_with(
             draft,
             family,
             new_parent_set,
+            parent_rel,
         } => quick_add::quick_add(
             &mut p,
             *anchor,
@@ -357,6 +358,7 @@ pub fn plan_with(
             draft,
             *family,
             new_parent_set.unwrap_or(false),
+            *parent_rel,
         )?,
         C::LinkExisting {
             anchor,
@@ -364,6 +366,7 @@ pub fn plan_with(
             person,
             family,
             new_parent_set,
+            parent_rel,
         } => quick_add::link_existing(
             &mut p,
             *anchor,
@@ -371,6 +374,7 @@ pub fn plan_with(
             *person,
             *family,
             new_parent_set.unwrap_or(false),
+            *parent_rel,
         )?,
         C::SaveFamily {
             id,

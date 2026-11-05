@@ -27,7 +27,7 @@ describe('addOptions', () => {
 
   it('with both parents the choice becomes another set of parents', () => {
     const o = addOptions(parentFacts({ parentSets: [set(p, p)] }));
-    expect(o.map((x) => x.label)).toEqual(['family.addAnotherParents', 'edit.addPartner', 'edit.addChild', 'edit.addSibling']);
+    expect(o.map((x) => x.label)).toEqual(['family.addAnotherParents', 'family.addStepFather', 'family.addStepMother', 'edit.addPartner', 'edit.addChild', 'edit.addSibling']);
     expect(o[0]).toMatchObject({ relation: 'father', newParentSet: true, disabled: false });
   });
 

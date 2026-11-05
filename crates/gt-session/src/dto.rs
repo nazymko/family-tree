@@ -275,6 +275,10 @@ pub struct ChildDto {
 pub struct PartnershipDto {
     pub family_id: Uuid,
     pub partner: Option<PersonRef>,
+    /// The person is the family's second partner, so a child's `rel.1` is the link to them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub focus_second: Option<bool>,
     pub kind: UnionKindId,
     pub summary: Option<String>,
     pub events: Vec<EventDto>,

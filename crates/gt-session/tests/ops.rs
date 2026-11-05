@@ -34,6 +34,7 @@ fn quick(anchor: Uuid, relation: Relation, name: &str) -> EditCommand {
         draft: draft(name, SexKind::Unknown),
         family: None,
         new_parent_set: None,
+        parent_rel: None,
     }
 }
 
@@ -135,6 +136,7 @@ fn quick_add_father_when_full_conflicts_unless_new_parent_set() {
         draft: draft("Y", SexKind::Unknown),
         family: None,
         new_parent_set: Some(true),
+        parent_rel: None,
     };
     run_apply(&mut t, &cmd);
     let sets: Vec<_> = t.families_as_child(hans).collect();
@@ -171,6 +173,7 @@ fn quick_add_child_multiple_families_requires_choice() {
         draft: draft("Greta", SexKind::Female),
         family: Some(second),
         new_parent_set: None,
+        parent_rel: None,
     };
     run_apply(&mut t, &cmd);
     assert_eq!(t.families[&second].children.len(), 1);
@@ -223,6 +226,7 @@ fn quick_add_creates_birth_event_with_place_chain() {
         draft: d,
         family: None,
         new_parent_set: None,
+        parent_rel: None,
     };
     let before = t.places.len();
     let (cs, focus) = run(&t, &cmd(d.clone()));
@@ -256,6 +260,7 @@ fn quick_add_is_one_changeset() {
             draft: d,
             family: None,
             new_parent_set: None,
+            parent_rel: None,
         },
     );
     assert_eq!(cs.label, "Add child");

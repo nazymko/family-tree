@@ -14,6 +14,7 @@ fn child_of(anchor: Uuid, name: &str) -> EditCommand {
         draft: draft(name, SexKind::Unknown),
         family: None,
         new_parent_set: None,
+        parent_rel: None,
     }
 }
 
@@ -284,6 +285,7 @@ fn failed_command_changes_nothing() {
             draft: draft("X", SexKind::Male),
             family: None,
             new_parent_set: None,
+            parent_rel: None,
         })
         .unwrap_err();
     assert_eq!(e.code, ErrorCode::Conflict);

@@ -32,6 +32,8 @@ const EDIT_KEYS: Record<string, [label: MessageKey, done: MessageKey]> = {
   'Link media files': ['edit.linkMediaFiles', 'edit.doneMediaFilesLinked'],
   'Add father': ['edit.addFather', 'edit.doneFatherAdded'],
   'Add mother': ['edit.addMother', 'edit.doneMotherAdded'],
+  'Add stepfather': ['family.addStepFather', 'edit.doneStepFatherAdded'],
+  'Add stepmother': ['family.addStepMother', 'edit.doneStepMotherAdded'],
   'Add partner': ['edit.addPartner', 'edit.donePartnerAdded'],
   'Add child': ['edit.addChild', 'edit.doneChildAdded'],
   'Add sibling': ['edit.addSibling', 'edit.doneSiblingAdded'],

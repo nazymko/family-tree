@@ -449,7 +449,8 @@ export class MockApi implements Api {
   // ------------------------------------------------------------------- edits
 
   async apply(cmd: EditCommand): Promise<EditResult> {
-    const label = cmd.type === 'quickAdd' || cmd.type === 'linkExisting' ? `Add ${cmd.relation}` : LABELS[cmd.type];
+    const addedStep = (cmd.type === 'quickAdd' || cmd.type === 'linkExisting') && cmd.parentRel === 'step' && (cmd.relation === 'father' || cmd.relation === 'mother');
+    const label = addedStep ? `Add step${cmd.relation}` : cmd.type === 'quickAdd' || cmd.type === 'linkExisting' ? `Add ${cmd.relation}` : LABELS[cmd.type];
     const before = this.db;
     this.db = structuredClone(before);
     let outcome: { focus: Id | null; touched: Id[] };
@@ -1100,6 +1101,7 @@ export class MockApi implements Api {
         kind: f.kind,
         summary: this.unionSummary(f),
         events: f.events,
+        ...(f.partner1 !== id ? { focusSecond: true } : {}),
         children: f.children.flatMap((c) => {
           const cp = this.db.persons.get(c.person);
           return cp ? [{ person: this.ref(cp), rel: c.rel, birth: this.birth(cp)?.date?.display ?? '' }] : [];
@@ -1754,11 +1756,69 @@ export class MockApi implements Api {
     return { focus, touched };
   }
 
+  /** Mirrors gt-session's add_linked_parent: a step-parent, adoptive parent, ... (the birth links stay). */
+  private addLinkedParent(anchor: Id, relation: 'father' | 'mother', person: Id, kind: FamilyRec['children'][number]['rel'][number]): Id[] {
+    const same = relation === 'father' ? 'male' : 'female';
+    const current = this.preferredParentFamily(anchor);
+    const step = kind === 'step';
+    const setRel = (f: FamilyRec, child: Id, parent: Id, rel: typeof kind) => {
+      const l = f.children.find((c) => c.person === child);
+      if (l) l.rel = f.partner1 === parent ? [rel, l.rel[1]] : [l.rel[0], rel];
+    };
+    const alone = (f: FamilyRec) => !f.partner1 !== !f.partner2;
+    const spouse = step ? [current?.partner1, current?.partner2].find((id) => id && this.person(id).sex !== same) : undefined;
+    const join = step
+      ? current && alone(current) && spouse
+        ? current
+        : undefined
+      : this.parentFamilies(anchor).find((f) => {
+          const l = f.children.find((c) => c.person === anchor);
+          return alone(f) && l?.rel[f.partner1 ? 0 : 1] === kind;
+        });
+    const couple = (a: Id, b: Id) => this.partnerFamilies(a).find((f) => f.partner1 === b || f.partner2 === b);
+    if (join) {
+      const other = (join.partner1 ?? join.partner2)!;
+      const target = couple(other, person);
+      if (target) {
+        const i = join.children.findIndex((c) => c.person === anchor);
+        const [l] = join.children.splice(i, 1);
+        const toOther = l.rel[join.partner1 === other ? 0 : 1];
+        target.children.push(l);
+        setRel(target, anchor, other, toOther);
+        setRel(target, anchor, person, kind);
+        if (join.children.length === 0) this.db.families.delete(join.id);
+        return [join.id, target.id];
+      }
+      if (!join.partner1) join.partner1 = person;
+      else join.partner2 = person;
+      for (const c of join.children) setRel(join, c.person, person, kind);
+      return [join.id];
+    }
+    if (spouse) {
+      const f = couple(spouse, person) ?? this.newFamily(spouse, person);
+      f.children.push({ person: anchor, rel: ['birth', 'birth'], preferred: false });
+      setRel(f, anchor, person, kind);
+      return [f.id];
+    }
+    const f = this.newFamily(person, null);
+    f.children.push({ person: anchor, rel: step ? [kind, 'birth'] : [kind, kind], preferred: !current });
+    return [f.id];
+  }
+
+  /** Mirrors gt-session's child_link: a stepchild is the birth child of the other partner. */
+  private childRel(f: FamilyRec, anchor: Id, kind: FamilyRec['children'][number]['rel'][number] | undefined): FamilyRec['children'][number]['rel'] {
+    if (!kind || kind === 'birth') return ['birth', 'birth'];
+    if (kind !== 'step') return [kind, kind];
+    return f.partner1 === anchor ? ['step', 'birth'] : ['birth', 'step'];
+  }
+
   /** Mirrors gt-session's link_existing: quickAdd with someone already in the tree. */
   private linkExisting(cmd: Extract<EditCommand, { type: 'linkExisting' }>): { focus: Id; touched: Id[] } {
     const anchor = this.person(cmd.anchor).id;
     const person = this.person(cmd.person).id;
     if (person === anchor) throw invalid('A person cannot be their own relative.');
+    const kindOf = cmd.parentRel && cmd.parentRel !== 'birth' ? cmd.parentRel : undefined;
+    if (kindOf && cmd.relation !== 'father' && cmd.relation !== 'mother' && cmd.relation !== 'child') throw invalid('Only a parent or a child can be linked this way.');
     const descendants = (root: Id) => {
       const seen = new Set<Id>();
       const todo = [root];
@@ -1782,6 +1842,10 @@ export class MockApi implements Api {
       case 'mother': {
         if (descendants(anchor).has(person)) throw invalid('A descendant cannot also be a parent.');
         if (this.parentFamilies(anchor).some((f) => has(f, person))) throw new MockApiError('conflict', 'This person is already a parent.');
+        if (kindOf) {
+          touched.push(...this.addLinkedParent(anchor, cmd.relation, person, kindOf));
+          break;
+        }
         const current = this.preferredParentFamily(anchor);
         const f = cmd.newParentSet ? undefined : current;
         if (f) {
@@ -1834,7 +1898,7 @@ export class MockApi implements Api {
         }
         if (has(f, person)) throw invalid('A partner cannot also be a child of the same family.');
         if (f.children.some((c) => c.person === person)) throw new MockApiError('conflict', 'This person is already a child in the family.');
-        f.children.push(link(person, !this.preferredParentFamily(person)));
+        f.children.push({ ...link(person, !this.preferredParentFamily(person)), rel: this.childRel(f, anchor, kindOf) });
         touched.push(f.id);
         break;
       }
@@ -1865,6 +1929,8 @@ export class MockApi implements Api {
     const anchor = this.person(cmd.anchor);
     const sex: SexKind = cmd.relation === 'father' ? 'male' : cmd.relation === 'mother' ? 'female' : cmd.draft.sex;
     const touched: Id[] = [anchor.id];
+    const kindOf = cmd.parentRel && cmd.parentRel !== 'birth' ? cmd.parentRel : undefined;
+    if (kindOf && cmd.relation !== 'father' && cmd.relation !== 'mother' && cmd.relation !== 'child') throw invalid('Only a parent or a child can be linked this way.');
 
     // Validate and find the target before creating anything.
     let target: FamilyRec | undefined;
@@ -1872,7 +1938,7 @@ export class MockApi implements Api {
       case 'father':
       case 'mother': {
         const pf = this.preferredParentFamily(anchor.id);
-        if (pf && !cmd.newParentSet) {
+        if (pf && !cmd.newParentSet && !kindOf) {
           if (pf.partner1 && pf.partner2)
             throw new MockApiError('conflict', 'Both parents are already recorded. Add another set of parents to record a second pair.');
           target = pf;
@@ -1904,7 +1970,9 @@ export class MockApi implements Api {
     switch (cmd.relation) {
       case 'father':
       case 'mother': {
-        if (target) {
+        if (kindOf) {
+          touched.push(...this.addLinkedParent(anchor.id, cmd.relation, created.id, kindOf));
+        } else if (target) {
           if (!target.partner1) target.partner1 = created.id;
           else target.partner2 = created.id;
           touched.push(target.id);
@@ -1929,7 +1997,7 @@ export class MockApi implements Api {
       }
       case 'child': {
         const f = target ?? this.newFamily(anchor.id, null);
-        f.children.push({ person: created.id, rel: ['birth', 'birth'], preferred: true });
+        f.children.push({ person: created.id, rel: this.childRel(f, anchor.id, kindOf), preferred: true });
         touched.push(f.id);
         break;
       }

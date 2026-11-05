@@ -136,6 +136,44 @@ describe('QuickAdd', () => {
     expect(set.parents.some((p) => p?.id === other)).toBe(true);
   });
 
+  it('a_stepfather_joins_the_mother_and_the_birth_parents_stay', async () => {
+    const user = userEvent.setup();
+    const dad = (await api.apply({ type: 'createPerson', draft: { given: 'Petro', surnames: ['Koval'], sex: 'male' } })).focus!;
+    const mum = (await api.apply({ type: 'quickAdd', anchor: dad, relation: 'partner', draft: { given: 'Maria', surnames: ['Koval'], sex: 'female' } })).focus!;
+    const fam = (await api.getPerson(dad)).partnerships[0].familyId;
+    const kid = (await api.apply({ type: 'quickAdd', anchor: dad, relation: 'child', family: fam, draft: { given: 'Ivan', surnames: ['Koval'], sex: 'male' } })).focus!;
+    const { onDone } = show(await api.getPerson(kid), 'father', { parentRel: 'step' });
+    expect(screen.getByRole('dialog', { name: /^Step father of Ivan Koval/ })).toBeInTheDocument();
+    await user.type(screen.getByRole('textbox', { name: 'Given name' }), 'Stepan');
+    await user.click(screen.getByRole('button', { name: 'Add: Step father' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    const sets = (await api.getPerson(kid)).parentSets;
+    expect(sets).toHaveLength(2);
+    const birth = sets.find((s) => s.preferred)!;
+    expect(birth.parents.map((x) => x?.id)).toContain(dad);
+    const step = sets.find((s) => !s.preferred)!;
+    expect(step.parents.map((x) => x?.id)).toContain(mum);
+    const slot = step.parents.findIndex((x) => x?.id !== mum);
+    expect(step.rel[slot]).toBe('step');
+    expect(step.rel[1 - slot]).toBe('birth');
+  });
+
+  it('the_relationship_can_be_chosen', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'apply');
+    const { kid } = await fatherOnly();
+    show(kid, 'mother');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'How are they related?' }), 'adopted');
+    await user.type(screen.getByRole('textbox', { name: 'Given name' }), 'Nina');
+    await user.click(screen.getByRole('button', { name: 'Add: Adopted mother' }));
+    await waitFor(() => expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'quickAdd', relation: 'mother', parentRel: 'adopted' })));
+  });
+
+  it('a_partner_has_no_relationship_choice', () => {
+    show(single, 'partner');
+    expect(screen.queryByRole('combobox', { name: 'How are they related?' })).toBeNull();
+  });
+
   it('cancel_does_not_call_api', async () => {
     const user = userEvent.setup();
     const spy = vi.spyOn(api, 'apply');

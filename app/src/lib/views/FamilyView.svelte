@@ -18,7 +18,7 @@
   import { flipMove, snapshotRects } from './flip';
   import { t, type MessageKey } from '../i18n';
 
-  let { onQuickAdd }: { onQuickAdd?: (relation: AddRelation, opts?: { newParentSet?: boolean }) => void } = $props();
+  let { onQuickAdd }: { onQuickAdd?: (relation: AddRelation, opts?: { newParentSet?: boolean; parentRel?: ParentRelId }) => void } = $props();
 
   const api = getApi();
 
@@ -113,9 +113,9 @@
     nav.visit(id);
   }
 
-  function add(relation: AddRelation, opts?: { newParentSet?: boolean }) {
+  function add(relation: AddRelation, opts?: { newParentSet?: boolean; parentRel?: ParentRelId }) {
     if (onQuickAdd) onQuickAdd(relation, opts);
-    else ui.requestAdd(relation, view?.focus.id, opts?.newParentSet);
+    else ui.requestAdd(relation, view?.focus.id, opts?.newParentSet, opts?.parentRel);
   }
 
   const primary = $derived(view?.parentSets.find((s) => s.preferred) ?? view?.parentSets[0] ?? null);
@@ -134,6 +134,10 @@
     } else {
       items.push({ label: t('edit.addFather'), onselect: () => add('father'), disabled: !!primary?.parents[0], title: primary?.parents[0] ? t('family.fatherRecorded') : undefined });
       items.push({ label: t('edit.addMother'), onselect: () => add('mother'), disabled: !!primary?.parents[1], title: primary?.parents[1] ? t('family.motherRecorded') : undefined });
+    }
+    if (hasAnyParent) {
+      items.push({ label: t('family.addStepFather'), onselect: () => add('father', { parentRel: 'step' }) });
+      items.push({ label: t('family.addStepMother'), onselect: () => add('mother', { parentRel: 'step' }) });
     }
     items.push({ label: t('edit.addPartner'), onselect: () => add('partner') });
     items.push({ label: t('family.addFamily'), onselect: () => (familyDialog = 'new'), title: t('family.addFamilyHint') });
@@ -162,8 +166,9 @@
   function withChip(chip: Chip | undefined, role: Role): string {
     return chip ? t(`kin.${chip}.${role}` as MessageKey) : t(`kin.${role}` as MessageKey);
   }
-  function childChip(c: ChildDto): Chip | undefined {
-    return chipOf(c.rel[0]) ?? chipOf(c.rel[1]);
+  /** The child's link to the person shown: to their mother a child can be her own and her husband's stepchild. */
+  function childChip(c: ChildDto, u: PartnershipDto | null): Chip | undefined {
+    return chipOf(c.rel[u?.focusSecond ? 1 : 0]);
   }
   function partnerSummary(p: PartnershipDto): string {
     const kind = UNION[p.kind];
@@ -328,7 +333,7 @@
     </div>
 
     {#if mode === 'tree'}
-      <FamilyTree {view} {homeId} onopen={refocus} onadd={(rel, anchor, newSet) => (newSet ? ui.requestAdd(rel, anchor, true) : ui.requestAdd(rel, anchor))} />
+      <FamilyTree {view} {homeId} onopen={refocus} onadd={(...args) => ui.requestAdd(...args)} />
     {:else}
     <section class="band" aria-label={t('family.children')}>
       <h2>{t('family.children')}</h2>
@@ -344,8 +349,8 @@
                 isPrivate={c.person.private}
                 flipKey={c.person.id}
                 detail={c.birth ? t('family.bornShort', { birth: c.birth }) : undefined}
-                chips={childChip(c) ? [chipLabel(childChip(c)!)] : []}
-                relationship={withChip(childChip(c), childRole(c.person))}
+                chips={childChip(c, union) ? [chipLabel(childChip(c, union)!)] : []}
+                relationship={withChip(childChip(c, union), childRole(c.person))}
                 onclick={() => refocus(c.person.id)}
               />
             </li>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { EditCommand, EditResult, Id, PersonDetail, PersonRef, SexKind } from '../api/types';
+  import type { EditCommand, EditResult, Id, ParentRelId, PersonDetail, PersonRef, SexKind } from '../api/types';
   import { getApi } from '../api/context';
   import { nav } from '../state/nav.svelte';
   import TextField from '../ui/TextField.svelte';
@@ -22,6 +22,7 @@
     relation,
     family,
     newParentSet,
+    parentRel,
     onDone,
     onCancel,
   }: {
@@ -30,6 +31,8 @@
     family?: Id;
     /** Father/mother: start a new set of parents instead of filling the existing one. */
     newParentSet?: boolean;
+    /** Preselects how they are linked: a stepfather, an adopted child, ... */
+    parentRel?: ParentRelId;
     onDone: (r: EditResult) => void;
     onCancel: () => void;
   } = $props();
@@ -65,7 +68,24 @@
   /** People likely meant: for a parent, the partners of the parent already recorded (the father's wife, ...). */
   let suggested = $state<PersonRef[]>([]);
 
-  const prefillSurname = rel === 'child' || rel === 'sibling' || rel === 'father';
+  // svelte-ignore state_referenced_locally
+  let kind = $state<string>(parentRel ?? 'birth');
+  /** Father, mother and child can be linked other than by birth; the words say it ("Step father", "Adopted son"). */
+  const KIND_WORD = rel === 'father' || rel === 'mother' ? rel : 'child';
+  const kinds = $derived(
+    rel === 'father' || rel === 'mother' || rel === 'child'
+      ? [
+          { value: 'birth', label: t(`kin.${KIND_WORD}`) },
+          ...(['step', 'adopted', 'foster', 'guardian'] as const).map((value) => ({ value, label: t(`kin.${value}.${KIND_WORD}`) })),
+        ]
+      : [],
+  );
+  const kindLabel = $derived(kinds.find((k) => k.value === kind)?.label ?? '');
+  const linked = $derived(kind !== 'birth');
+  const relFields = $derived(linked ? { parentRel: kind as ParentRelId } : {});
+  // A stepfather or adoptive father usually has a surname of his own.
+  // svelte-ignore state_referenced_locally
+  const prefillSurname = rel === 'child' || rel === 'sibling' || (rel === 'father' && !parentRel);
   $effect(() => {
     void api
       .getPerson(anchor.id)
@@ -84,17 +104,21 @@
   $effect(() => {
     if (rel !== 'father' && rel !== 'mother') return;
     const d = detail;
-    if (!d || newParentSet) return;
+    const step = kind === 'step';
+    suggested = [];
+    if (!d || (newParentSet && !step)) return;
     const set = d.parentSets.find((s) => s.preferred) ?? d.parentSets[0];
     const known = set?.parents.filter((x): x is PersonRef => !!x) ?? [];
-    if (known.length !== 1) return;
     const want = rel === 'father' ? 'male' : 'female';
+    // A step-parent is the partner of the parent on the other side (the mother's husband), who may be the only one.
+    const spouses = step ? known.filter((x) => x.sex !== want) : known;
+    if (spouses.length !== 1) return;
     void api
-      .getFamilyView(known[0].id)
+      .getFamilyView(spouses[0].id)
       .then((v) => {
         suggested = v.partnerships
           .map((u) => u.partner)
-          .filter((x): x is PersonRef => !!x && x.id !== anchor.id && x.sex !== (want === 'male' ? 'female' : 'male'));
+          .filter((x): x is PersonRef => !!x && x.id !== anchor.id && !known.some((k) => k.id === x.id) && x.sex !== (want === 'male' ? 'female' : 'male'));
       })
       .catch(() => {});
   });
@@ -117,6 +141,7 @@
             person: picked.id,
             ...(fam ? { family: fam } : {}),
             ...(newParentSet ? { newParentSet: true } : {}),
+            ...relFields,
           }
         : {
       type: 'quickAdd',
@@ -131,6 +156,7 @@
       },
       ...(fam ? { family: fam } : {}),
       ...(newParentSet ? { newParentSet: true } : {}),
+      ...relFields,
     };
     try {
       const r = await api.apply(cmd);
@@ -145,8 +171,8 @@
 </script>
 
 <EditorDialog
-  title={t(`editor.quickTitle.${rel}`, { name: anchor.name })}
-  saveLabel={t(ADD_KEY[rel])}
+  title={linked ? t('editor.quickTitleLinked', { kind: kindLabel, name: anchor.name }) : t(`editor.quickTitle.${rel}`, { name: anchor.name })}
+  saveLabel={linked ? t('editor.addLinked', { kind: kindLabel }) : t(ADD_KEY[rel])}
   {dirty}
   {saving}
   {error}
@@ -163,6 +189,9 @@
       ]}
       bind:value={chosenFamily}
     />
+  {/if}
+  {#if kinds.length > 0}
+    <Select label={t('editor.linkKind')} options={kinds} bind:value={kind} />
   {/if}
   <RadioGroup
     legend={t('editor.who')}
