@@ -1873,6 +1873,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "gt-mcp"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "gt-core",
+ "gt-session",
+ "gt-store",
+ "httparse",
+ "image",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "gt-session"
 version = "0.1.0"
 dependencies = [
