@@ -61,6 +61,7 @@ fn add_person(t: &mut Tree, given: &str, sur: &str) -> Uuid {
             sex: Sex::Female,
             names: vec![name(given, sur)],
             living_override: None,
+            sibling_marker: false,
         },
     );
     id

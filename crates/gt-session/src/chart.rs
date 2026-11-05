@@ -240,6 +240,8 @@ struct OpenChart {
 struct Whole {
     extras: WholeExtras,
     blocks: Vec<WholeBlockDto>,
+    /// Unnamed-siblings markers among the laid-out nodes: drawn, but not people.
+    markers: u32,
 }
 
 /// Open charts and the tree revision they are checked against.
@@ -367,7 +369,9 @@ fn whole_meta(c: &OpenChart) -> WholeMeta {
                 w: (b.x + b.w).max(blocks_right),
                 h: b.y + b.h,
             },
-            node_count: u32::try_from(c.layout.nodes.len()).unwrap_or(u32::MAX),
+            node_count: u32::try_from(c.layout.nodes.len())
+                .unwrap_or(u32::MAX)
+                .saturating_sub(c.whole.as_ref().map_or(0, |w| w.markers)),
             root_node: c.layout.root,
             truncated: false,
             version: c.version,
@@ -405,6 +409,14 @@ impl Session {
             .index
             .slot(req.root)
             .ok_or_else(|| ApiError::not_found("person", req.root))?;
+        if self
+            .index
+            .summaries
+            .get(root as usize)
+            .is_some_and(|s| s.sibling_marker)
+        {
+            return Err(ApiError::sibling_marker(req.root));
+        }
         let src = TreeSource {
             tree: &self.tree,
             links: &self.links,
@@ -531,12 +543,40 @@ impl Session {
         let input = self.whole_input();
         let gt_layout::WholeLayout { layout, extras } =
             gt_layout::whole_directed(&input, &Metrics::default(), reversed);
+        // The markers are laid out like people but are not counted as people.
+        let marker_at: Vec<(f32, f32)> = layout
+            .nodes
+            .iter()
+            .filter(|n| {
+                self.index
+                    .summaries
+                    .get(n.key as usize)
+                    .is_some_and(|s| s.sibling_marker)
+            })
+            .map(|n| (n.rect.x + n.rect.w / 2.0, n.rect.y + n.rect.h / 2.0))
+            .collect();
+        let markers = u32::try_from(marker_at.len()).unwrap_or(u32::MAX);
         let blocks = extras
             .blocks
             .iter()
-            .map(|b| WholeBlockDto {
-                title: block_title(b.kind, &b.surname, b.people),
-                people: b.people,
+            .map(|b| {
+                let inside = marker_at
+                    .iter()
+                    .filter(|&&(x, y)| {
+                        x >= b.rect.x
+                            && x <= b.rect.x + b.rect.w
+                            && y >= b.rect.y
+                            && y <= b.rect.y + b.rect.h + b.body_h
+                    })
+                    .count();
+                let people = b
+                    .people
+                    .saturating_sub(u32::try_from(inside).unwrap_or(u32::MAX));
+                (b, people)
+            })
+            .map(|(b, people)| WholeBlockDto {
+                title: block_title(b.kind, &b.surname, people),
+                people,
                 unconnected: b.kind == BlockKind::Unconnected,
                 rect: Rect {
                     x: b.rect.x,
@@ -562,7 +602,11 @@ impl Session {
             kids_of: HashMap::new(),
             last_used: Cell::new(0),
             kin: RefCell::new(None),
-            whole: Some(Whole { extras, blocks }),
+            whole: Some(Whole {
+                extras,
+                blocks,
+                markers,
+            }),
         };
         charts.touch(&chart);
         let meta = whole_meta(&chart);
@@ -690,7 +734,11 @@ impl Session {
                     }
                 });
                 let label = s.filter(|_| text).map_or_else(String::new, |s| {
-                    let mut l = s.name.clone();
+                    let mut l = if s.sibling_marker {
+                        "more brothers and sisters, not named".to_string()
+                    } else {
+                        s.name.clone()
+                    };
                     if !s.lifespan.is_empty() {
                         l = format!("{l}, {}", s.lifespan);
                     }

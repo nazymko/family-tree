@@ -40,6 +40,7 @@ pub(super) fn new_person(p: &Planner, draft: &PersonDraft, sex: SexKind) -> Pers
             unknown: Vec::new(),
         }],
         living_override: None,
+        sibling_marker: false,
     }
 }
 
@@ -54,6 +55,15 @@ pub(super) fn create_person(
     Ok(Some(id))
 }
 
+fn not_marker(person: &Person) -> Result<(), ApiError> {
+    if person.sibling_marker {
+        return Err(invalid(
+            "The entry for unnamed brothers and sisters has no details to edit. Delete it instead.",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn update_person(
     p: &mut Planner,
     id: Uuid,
@@ -63,6 +73,7 @@ pub(super) fn update_person(
     private: Option<bool>,
 ) -> Result<Option<Uuid>, ApiError> {
     let mut person: Person = p.get(id)?;
+    not_marker(&person)?;
     match sex {
         Some(k) => person.sex = sex_of(*k, sex_text, Some(&person.sex)),
         None => {
@@ -115,6 +126,7 @@ pub(super) fn save_name(
     input: &NameInput,
 ) -> Result<Option<Uuid>, ApiError> {
     let mut person: Person = p.get(person_id)?;
+    not_marker(&person)?;
     let surnames: Vec<String> = input
         .surnames
         .iter()

@@ -61,6 +61,7 @@ pub(crate) fn read_indi(ctx: &mut Ctx, node: &GedNode, id: Uuid) {
             sex,
             names,
             living_override: None,
+            sibling_marker: false,
         },
     );
 }

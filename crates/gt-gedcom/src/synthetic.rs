@@ -170,6 +170,7 @@ pub fn synthetic_tree(persons: usize, families: usize) -> Tree {
                 sex: if i % 2 == 0 { Sex::Male } else { Sex::Female },
                 names: vec![name],
                 living_override: None,
+                sibling_marker: false,
             },
         );
         let year = 1700 + i32::try_from(i % 250).unwrap_or(0);

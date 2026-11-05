@@ -20,6 +20,7 @@ const EDIT_KEYS: Record<string, [label: MessageKey, done: MessageKey]> = {
   'Edit child link': ['edit.editChildLink', 'edit.doneChildLinkSaved'],
   'Remove child from family': ['edit.removeChildFromFamily', 'edit.doneChildRemovedFromFamily'],
   'Reorder children': ['edit.reorderChildren', 'edit.doneChildrenReordered'],
+  'Add unnamed brothers and sisters': ['edit.addSiblingMarker', 'edit.doneSiblingMarkerAdded'],
   'Save note': ['edit.saveNote', 'edit.doneNoteSaved'],
   'Delete note': ['edit.deleteNote', 'edit.doneNoteDeleted'],
   'Save source': ['edit.saveSource', 'edit.doneSourceSaved'],

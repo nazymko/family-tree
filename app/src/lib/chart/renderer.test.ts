@@ -9,7 +9,7 @@ const view = { w: 800, h: 600, dpr: 2 };
 function node(id: number, over: Partial<ChartNode> = {}): ChartNode {
   return {
     id,
-    person: { id: `p${id}`, name: `Person ${id}`, lifespan: '1850-1900', sex: 'male', living: false, private: false },
+    person: { id: `p${id}`, name: `Person ${id}`, lifespan: '1850-1900', sex: 'male', living: false, private: false, siblingMarker: false },
     x: id * 216,
     y: 0,
     w: 176,

@@ -29,6 +29,8 @@
     detail,
     flipKey,
     agentChanged = false,
+    siblingMarker = false,
+    ondelete,
   }: {
     name: string;
     lifespan?: string;
@@ -50,6 +52,10 @@
     flipKey?: string;
     /** An agent changed this person and nobody has reviewed it yet. */
     agentChanged?: boolean;
+    /** The entry for unnamed brothers and sisters: a label, no dates, no person page. */
+    siblingMarker?: boolean;
+    /** The only thing a marker card offers. */
+    ondelete?: () => void;
   } = $props();
 
   const accName = $derived(
@@ -79,7 +85,16 @@
   {#if home}<Ribbon size="1.1rem" />{/if}
 {/snippet}
 
-{#if href}
+{#if siblingMarker}
+  <div class="pc marker" data-flip-key={flipKey}>
+    <span class="text">
+      <bdi dir="auto" {lang} class="name">{t('person.siblingMarker')}</bdi>
+    </span>
+    {#if ondelete}
+      <button type="button" class="del" aria-label={t('famEd.deleteSiblingMarker')} onclick={ondelete}>{t('common.delete')}</button>
+    {/if}
+  </div>
+{:else if href}
   <a
     class="pc"
     class:current
@@ -121,6 +136,26 @@
   }
   .pc:hover {
     border-color: var(--ink-2);
+  }
+  .marker {
+    border-style: dashed;
+    background: transparent;
+    color: var(--ink-1);
+    cursor: default;
+  }
+  .marker .name {
+    font-weight: 400;
+    font-style: italic;
+  }
+  .del {
+    flex: none;
+    border: 0;
+    background: none;
+    color: var(--ink-1);
+    font: inherit;
+    font-size: var(--t-sm);
+    text-decoration: underline;
+    cursor: pointer;
   }
   .current {
     background: var(--ribbon-wash);

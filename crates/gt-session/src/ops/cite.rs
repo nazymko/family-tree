@@ -36,7 +36,7 @@ pub(super) fn with_owner<R>(
     let now = p.now;
     match target.kind {
         OwnerKind::Person => {
-            let mut x: Person = p.get(target.id)?;
+            let mut x: Person = p.real_person(target.id)?;
             let r = f(&mut common_fields(&mut x.common))?;
             x.common.changed = Some(now);
             p.put(x);

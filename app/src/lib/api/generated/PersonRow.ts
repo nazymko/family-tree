@@ -9,4 +9,9 @@ changed: number, id: string, name: string,
 /**
  * "c. 1968 – 2021", "b. 1970", "" (see `dates::lifespan_text`).
  */
-lifespan: string, sex: SexKind, living: boolean, private: boolean, };
+lifespan: string, sex: SexKind, living: boolean, private: boolean, 
+/**
+ * The "more brothers and sisters, unnamed" entry: it has no name or dates and the app draws
+ * its label.
+ */
+siblingMarker: boolean, };

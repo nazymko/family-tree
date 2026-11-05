@@ -72,6 +72,7 @@ pub fn person(given: &str, surname: &str) -> Person {
         sex: Sex::Unknown,
         names: vec![name(given, surname)],
         living_override: None,
+        sibling_marker: false,
     }
 }
 

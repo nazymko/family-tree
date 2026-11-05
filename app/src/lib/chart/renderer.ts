@@ -196,7 +196,7 @@ export function draw(
   let sel: ChartNode | null = null;
   for (const n of win.nodes) {
     if (n.id === selected) sel = n;
-    else if (n.dupOf !== null) dups.push(n);
+    else if (n.dupOf !== null || n.person?.siblingMarker) dups.push(n);
     else plain.push(n);
   }
   if (plain.length > 0) {
@@ -244,11 +244,19 @@ export function draw(
     }
   }
 
-  if (opts.handles !== false) for (const n of win.nodes) for (const h of handleSpots(n, kind, opts.reversed ?? false)) drawHandle(ctx, h, theme, z);
+  if (opts.handles !== false) for (const n of win.nodes.filter((x) => !x.person?.siblingMarker)) for (const h of handleSpots(n, kind, opts.reversed ?? false)) drawHandle(ctx, h, theme, z);
 
   if (lod === 'full') {
     ctx.textBaseline = 'alphabetic';
     for (const n of win.nodes) {
+      if (n.person?.siblingMarker) {
+        // A dashed, muted card with the label and nothing else: no dates, no relationship, no number.
+        ctx.textAlign = 'left';
+        ctx.fillStyle = theme.ink2;
+        ctx.font = `italic 11px ${theme.font}`;
+        ctx.fillText(fit(ctx, t('person.siblingMarker'), n.w - 20), n.x + 10, n.y + 23);
+        continue;
+      }
       const isDup = n.dupOf !== null;
       const left = n.x + (n.id === focus ? 26 : 10);
       // Room for the ancestor number, which gets long many generations back.

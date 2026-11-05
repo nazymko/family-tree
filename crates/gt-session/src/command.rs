@@ -471,6 +471,10 @@ pub enum EditCommand {
         family: Uuid,
         order: Vec<Uuid>,
     },
+    /// Adds the one entry per family that stands for more brothers and sisters nobody named.
+    AddSiblingMarker {
+        family: Uuid,
+    },
     SaveNote {
         target: OwnerRef,
         note: NoteInput,
@@ -562,6 +566,7 @@ impl EditCommand {
             EditCommand::UpdateChildLink { .. } => "Edit child link".into(),
             EditCommand::UnlinkChild { .. } => "Remove child from family".into(),
             EditCommand::ReorderChildren { .. } => "Reorder children".into(),
+            EditCommand::AddSiblingMarker { .. } => "Add unnamed brothers and sisters".into(),
             EditCommand::SaveNote { .. } => "Save note".into(),
             EditCommand::DeleteNote { .. } => "Delete note".into(),
             EditCommand::SaveSource { .. } => "Save source".into(),

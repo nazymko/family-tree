@@ -227,6 +227,7 @@ fn camel_case_wire_format() {
         sex: SexKind::Female,
         living: true,
         private: false,
+        sibling_marker: false,
     };
     let row = PersonRow {
         person: r,
