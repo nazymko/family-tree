@@ -1766,8 +1766,10 @@ name = "gt-app"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "getrandom 0.3.4",
  "gt-core",
  "gt-gedcom",
+ "gt-mcp",
  "gt-session",
  "gt-store",
  "image",

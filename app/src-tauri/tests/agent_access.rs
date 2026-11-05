@@ -1,0 +1,722 @@
+#![allow(clippy::unwrap_used, clippy::indexing_slicing)]
+//! Agent access in the app: the five commands through real IPC, the server through a real socket.
+//! `AppState::with_clock` keeps hashes in a file in the config folder, so the OS keychain is never
+//! touched here.
+
+use gt_app_lib::agent_access::{self, AppHost, HASH_FILE, KeychainHashes};
+use gt_app_lib::commands;
+use gt_app_lib::settings_file::{self, SETTINGS_FILE};
+use gt_app_lib::state::AppState;
+use gt_mcp::{AgentCtx, Host, key_hash};
+use gt_session::{ErrorCode, Session, SessionClock};
+use gt_store::Project;
+use serde_json::{Value, json};
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tauri::ipc::{CallbackFn, InvokeBody};
+use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_context, noop_assets};
+use tauri::webview::InvokeRequest;
+use tauri::{App, Listener, Manager, WebviewWindow};
+use uuid::Uuid;
+
+fn state_in(root: &Path) -> AppState {
+    AppState::with_clock(root.join("config"), Box::new(SessionClock::system))
+}
+
+fn app_with(state: AppState) -> (App<MockRuntime>, WebviewWindow<MockRuntime>) {
+    let app = tauri::test::mock_builder()
+        .manage(state)
+        .invoke_handler(commands::handler())
+        .build(mock_context(noop_assets()))
+        .unwrap();
+    let w = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    (app, w)
+}
+
+fn invoke(w: &WebviewWindow<MockRuntime>, cmd: &str, body: Value) -> Result<Value, Value> {
+    let req = InvokeRequest {
+        cmd: cmd.into(),
+        callback: CallbackFn(0),
+        error: CallbackFn(1),
+        url: "http://tauri.localhost".parse().unwrap(),
+        body: InvokeBody::Json(body),
+        headers: Default::default(),
+        invoke_key: INVOKE_KEY.to_string(),
+    };
+    get_ipc_response(w, req).map(|r| r.deserialize::<Value>().unwrap())
+}
+
+fn set(w: &WebviewWindow<MockRuntime>, enabled: bool, port: u16) -> Value {
+    invoke(
+        w,
+        "agent_access_set",
+        json!({ "enabled": enabled, "port": port }),
+    )
+    .unwrap()
+}
+
+fn create(w: &WebviewWindow<MockRuntime>, name: &str) -> (String, String, String) {
+    let made = invoke(w, "agent_connection_create", json!({ "name": name })).unwrap();
+    (
+        made["connection"]["id"].as_str().unwrap().to_string(),
+        made["key"].as_str().unwrap().to_string(),
+        made["snippet"].as_str().unwrap().to_string(),
+    )
+}
+
+/// A port nobody holds right now.
+fn free_port() -> u16 {
+    TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+fn head(port: u16, key: &str, length: usize) -> String {
+    format!(
+        "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {key}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nContent-Length: {length}\r\n\r\n"
+    )
+}
+
+fn read_answer(s: &mut TcpStream) -> (u16, String) {
+    let mut all = Vec::new();
+    let _ = s.read_to_end(&mut all);
+    let text = String::from_utf8_lossy(&all).into_owned();
+    let status = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
+    let body = text
+        .split_once("\r\n\r\n")
+        .map(|(_, b)| b.to_string())
+        .unwrap_or_default();
+    (status, body)
+}
+
+fn connect(port: u16) -> TcpStream {
+    let s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    s
+}
+
+/// One request over a real socket: the status and body of the answer.
+fn post(port: u16, key: &str, body: &Value) -> (u16, String) {
+    let text = body.to_string();
+    let mut s = connect(port);
+    s.write_all(head(port, key, text.len()).as_bytes()).unwrap();
+    s.write_all(text.as_bytes()).unwrap();
+    read_answer(&mut s)
+}
+
+/// The older protocol's request, which needs no version headers.
+fn rpc(method: &str, params: Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params })
+}
+
+fn ping(port: u16, key: &str) -> u16 {
+    post(port, key, &rpc("ping", json!({}))).0
+}
+
+fn empty_project(root: &Path) -> std::path::PathBuf {
+    let dir = root.join("project");
+    drop(Project::create(&dir).unwrap());
+    dir
+}
+
+fn open(state: &AppState, dir: &Path) {
+    let session = Session::open(dir, SessionClock::system()).unwrap();
+    *AppState::lock(&state.session) = Some(session);
+}
+
+// ---- the brief's tests ----
+
+#[test]
+fn create_then_connect_then_revoke() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    let on = set(&w, true, port);
+    assert_eq!(on["running"], json!(true));
+
+    let (id, key, snippet) = create(&w, "Claude on the laptop");
+    assert_eq!(
+        snippet,
+        format!(
+            "claude mcp add --transport http gene-tree http://127.0.0.1:{port}/mcp --header \"Authorization: Bearer {key}\""
+        )
+    );
+    // Added while the server runs: it works at once, and a wrong key does not.
+    assert_eq!(ping(port, &key), 200);
+    assert_eq!(ping(port, "gt_00"), 401);
+
+    invoke(&w, "agent_connection_revoke", json!({ "id": id })).unwrap();
+    // The very next request.
+    assert_eq!(ping(port, &key), 401);
+    let state = invoke(&w, "agent_access_state", json!({})).unwrap();
+    assert_eq!(state["connections"], json!([]));
+    assert_eq!(state["running"], json!(true));
+    set(&w, false, port);
+}
+
+#[test]
+fn key_not_in_settings_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let (id, key, _) = create(&w, "Reader");
+
+    assert!(key.starts_with("gt_"));
+    assert_eq!(key.len(), 3 + 64);
+    assert!(key[3..].bytes().all(|b| b.is_ascii_hexdigit()));
+
+    let config = dir.path().join("config");
+    let settings = std::fs::read_to_string(config.join(SETTINGS_FILE)).unwrap();
+    assert!(settings.contains(&id), "the connection list is in settings");
+    assert!(!settings.contains(&key), "never the key");
+    assert!(!settings.contains(&key[3..]), "never the key's digits");
+    let hash: String = key_hash(&key).iter().map(|b| format!("{b:02x}")).collect();
+    assert!(!settings.contains(&hash), "the hash goes elsewhere");
+
+    // With the e2e override the hash, and only the hash, is in a file.
+    let hashes = std::fs::read_to_string(config.join(HASH_FILE)).unwrap();
+    assert!(hashes.contains(&hash));
+    assert!(!hashes.contains(&key));
+
+    // Nothing later gives the key back.
+    let state = invoke(&w, "agent_access_state", json!({})).unwrap();
+    assert!(!state.to_string().contains(&key));
+
+    // Revoking removes the hash too.
+    invoke(&w, "agent_connection_revoke", json!({ "id": id })).unwrap();
+    let hashes = std::fs::read_to_string(config.join(HASH_FILE)).unwrap();
+    assert!(!hashes.contains(&hash));
+}
+
+#[test]
+fn port_taken_reports_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let holder = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = holder.local_addr().unwrap().port();
+
+    let state = set(&w, true, port);
+    assert_eq!(state["enabled"], json!(true));
+    assert_eq!(state["port"], json!(port));
+    assert_eq!(state["running"], json!(false));
+    assert_eq!(
+        state["error"],
+        json!(format!(
+            "Port {port} is already used by another program. Choose another port."
+        ))
+    );
+    assert_eq!(invoke(&w, "agent_access_state", json!({})).unwrap(), state);
+
+    // Once the other program lets go, trying again works and the error goes away.
+    drop(holder);
+    let state = set(&w, true, port);
+    assert_eq!(state["running"], json!(true));
+    assert_eq!(state["error"], Value::Null);
+    set(&w, false, port);
+}
+
+#[test]
+fn enabled_resumes_on_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let key = {
+        let (app, w) = app_with(state_in(dir.path()));
+        set(&w, true, port);
+        let (_, key, _) = create(&w, "Reader");
+        agent_access::shutdown(&app.state::<AppState>());
+        key
+    };
+    let (app, w) = app_with(state_in(dir.path()));
+    let before = invoke(&w, "agent_access_state", json!({})).unwrap();
+    assert_eq!(before["enabled"], json!(true));
+    assert_eq!(before["running"], json!(false), "not until resumed");
+
+    agent_access::resume(app.handle());
+    let after = invoke(&w, "agent_access_state", json!({})).unwrap();
+    assert_eq!(after["running"], json!(true));
+    assert_eq!(after["error"], Value::Null);
+    assert_eq!(ping(port, &key), 200);
+    agent_access::shutdown(&app.state::<AppState>());
+}
+
+// ---- starting up ----
+
+#[test]
+fn off_stays_off_on_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, w) = app_with(state_in(dir.path()));
+    agent_access::resume(app.handle());
+    let state = invoke(&w, "agent_access_state", json!({})).unwrap();
+    assert_eq!(
+        state,
+        json!({ "enabled": false, "port": 8765, "running": false, "error": null, "connections": [] })
+    );
+}
+
+#[test]
+fn resume_failure_is_stored_and_not_fatal() {
+    let dir = tempfile::tempdir().unwrap();
+    let holder = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = holder.local_addr().unwrap().port();
+    let config = dir.path().join("config");
+    let mut saved = settings_file::load_settings(&config);
+    saved.agent_access.enabled = true;
+    saved.agent_access.port = port;
+    settings_file::save_settings(&config, &saved).unwrap();
+
+    let (app, w) = app_with(state_in(dir.path()));
+    agent_access::resume(app.handle());
+    let state = invoke(&w, "agent_access_state", json!({})).unwrap();
+    assert_eq!(state["running"], json!(false));
+    assert!(state["error"].as_str().unwrap().contains(&port.to_string()));
+}
+
+#[test]
+fn a_port_out_of_range_in_the_file_does_not_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config");
+    let mut saved = settings_file::load_settings(&config);
+    saved.agent_access.enabled = true;
+    saved.agent_access.port = 80;
+    settings_file::save_settings(&config, &saved).unwrap();
+
+    let (app, w) = app_with(state_in(dir.path()));
+    agent_access::resume(app.handle());
+    let state = invoke(&w, "agent_access_state", json!({})).unwrap();
+    assert_eq!(state["running"], json!(false));
+    assert!(state["error"].as_str().unwrap().contains("1024"));
+}
+
+#[test]
+fn a_missing_hash_is_said_and_that_key_does_not_work() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let key = {
+        let (app, w) = app_with(state_in(dir.path()));
+        set(&w, true, port);
+        let (_, key, _) = create(&w, "Reader");
+        agent_access::shutdown(&app.state::<AppState>());
+        key
+    };
+    std::fs::remove_file(dir.path().join("config").join(HASH_FILE)).unwrap();
+    let (app, w) = app_with(state_in(dir.path()));
+    agent_access::resume(app.handle());
+    let state = invoke(&w, "agent_access_state", json!({})).unwrap();
+    assert_eq!(state["running"], json!(true));
+    assert!(state["error"].as_str().unwrap().contains("Reader"));
+    assert_eq!(state["connections"][0]["name"], json!("Reader"));
+    assert_eq!(ping(port, &key), 401);
+    agent_access::shutdown(&app.state::<AppState>());
+}
+
+// ---- the port ----
+
+#[test]
+fn off_then_on_with_the_same_port_succeeds_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let (_, key, _) = create(&w, "Reader");
+    assert_eq!(ping(port, &key), 200);
+
+    for _ in 0..5 {
+        let off = set(&w, false, port);
+        assert_eq!(off["running"], json!(false));
+        assert_eq!(off["error"], Value::Null);
+        let refused = TcpStream::connect_timeout(
+            &(std::net::Ipv4Addr::LOCALHOST, port).into(),
+            Duration::from_millis(200),
+        );
+        assert!(refused.is_err(), "the port is free when off");
+        let on = set(&w, true, port);
+        assert_eq!(on["running"], json!(true), "{on}");
+        assert_eq!(ping(port, &key), 200);
+    }
+    set(&w, false, port);
+}
+
+/// A client still connected to the old server must not stop the port being taken again.
+#[test]
+fn off_then_on_with_a_connection_still_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let (_, key, _) = create(&w, "Reader");
+
+    let mut idle = connect(port);
+    let mut half = connect(port);
+    half.write_all(head(port, &key, 100).as_bytes()).unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+
+    set(&w, false, port);
+    let on = set(&w, true, port);
+    assert_eq!(on["running"], json!(true), "{on}");
+    assert_eq!(on["error"], Value::Null);
+    assert_eq!(ping(port, &key), 200);
+
+    let _ = idle.write_all(b"x");
+    let _ = half.write_all(&[b' '; 100]);
+    let (status, _) = read_answer(&mut half);
+    assert_ne!(status, 200, "the old server runs nothing more");
+    set(&w, false, port);
+}
+
+#[test]
+fn changing_the_port_moves_the_server_and_frees_the_old_port() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let (a, b) = (free_port(), free_port());
+    set(&w, true, a);
+    let (_, key, _) = create(&w, "Reader");
+
+    let moved = set(&w, true, b);
+    assert_eq!(moved["running"], json!(true));
+    assert_eq!(moved["port"], json!(b));
+    assert_eq!(ping(b, &key), 200);
+    // Another program can take the old port now.
+    drop(TcpListener::bind(("127.0.0.1", a)).unwrap());
+    // And the app can go back.
+    let back = set(&w, true, a);
+    assert_eq!(back["running"], json!(true), "{back}");
+    assert_eq!(ping(a, &key), 200);
+    set(&w, false, a);
+}
+
+#[test]
+fn turning_on_twice_keeps_the_same_server() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let (_, key, _) = create(&w, "Reader");
+    let again = set(&w, true, port);
+    assert_eq!(again["running"], json!(true));
+    assert_eq!(again["error"], Value::Null);
+    assert_eq!(ping(port, &key), 200);
+    set(&w, false, port);
+}
+
+#[test]
+fn ports_outside_the_range_are_refused_and_nothing_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let before = invoke(&w, "agent_access_state", json!({})).unwrap();
+    for port in [0, 80, 1023, 65536, 70000] {
+        let e = invoke(
+            &w,
+            "agent_access_set",
+            json!({ "enabled": true, "port": port }),
+        )
+        .unwrap_err();
+        assert_eq!(e["code"], json!("invalid"), "{port}");
+        assert_eq!(
+            e["message"],
+            json!("The port must be a number from 1024 to 65535.")
+        );
+    }
+    assert_eq!(invoke(&w, "agent_access_state", json!({})).unwrap(), before);
+    for port in [1024, 65535] {
+        // The ends of the range are allowed. Off, so nothing tries to bind them.
+        assert_eq!(set(&w, false, port)["port"], json!(port));
+    }
+}
+
+#[test]
+fn port_and_switch_outlive_the_app() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let (_app, w) = app_with(state_in(dir.path()));
+        set(&w, false, 9001);
+    }
+    let (_app, w) = app_with(state_in(dir.path()));
+    assert_eq!(
+        invoke(&w, "agent_access_state", json!({})).unwrap()["port"],
+        json!(9001)
+    );
+}
+
+// ---- keys and connections ----
+
+#[test]
+fn the_state_has_the_shape_the_frontend_expects() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let made = invoke(
+        &w,
+        "agent_connection_create",
+        json!({ "name": "  Reader  " }),
+    )
+    .unwrap();
+    let mut keys: Vec<&String> = made.as_object().unwrap().keys().collect();
+    keys.sort();
+    assert_eq!(keys, ["connection", "key", "snippet"]);
+    let connection = &made["connection"];
+    assert_eq!(connection["name"], json!("Reader"), "trimmed");
+    let created = connection["created"].as_i64().unwrap();
+    assert!(
+        created > 1_700_000_000_000,
+        "Unix milliseconds, got {created}"
+    );
+
+    let state = invoke(&w, "agent_access_state", json!({})).unwrap();
+    assert_eq!(
+        state,
+        json!({ "enabled": false, "port": 8765, "running": false, "error": null, "connections": [connection] })
+    );
+}
+
+#[test]
+fn a_connection_needs_a_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let e = invoke(&w, "agent_connection_create", json!({ "name": "   " })).unwrap_err();
+    assert_eq!(e["code"], json!("invalid"));
+    assert_eq!(e["message"], json!("Give the connection a name."));
+    let state = invoke(&w, "agent_access_state", json!({})).unwrap();
+    assert_eq!(state["connections"], json!([]));
+}
+
+#[test]
+fn revoking_an_unknown_connection_is_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    for id in [Uuid::from_u128(5).to_string(), "not-an-id".to_string()] {
+        let e = invoke(&w, "agent_connection_revoke", json!({ "id": id })).unwrap_err();
+        assert_eq!(e["code"], json!("not_found"));
+    }
+}
+
+#[test]
+fn each_key_is_its_own_agent() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let (a, key_a, _) = create(&w, "First");
+    let (b, key_b, _) = create(&w, "Second");
+    assert_ne!(key_a, key_b);
+
+    let host = AppHost::new(app.handle().clone());
+    let who = |key: &str| host.authenticate(&key_hash(key));
+    assert_eq!(
+        who(&key_a),
+        Some(AgentCtx {
+            id: a.parse().unwrap(),
+            name: "First".into()
+        })
+    );
+    assert_eq!(
+        who(&key_b),
+        Some(AgentCtx {
+            id: b.parse().unwrap(),
+            name: "Second".into()
+        })
+    );
+    assert_eq!(who("gt_unknown"), None);
+
+    // Revoking one leaves the other.
+    invoke(&w, "agent_connection_revoke", json!({ "id": a })).unwrap();
+    assert_eq!(ping(port, &key_a), 401);
+    assert_eq!(ping(port, &key_b), 200);
+    set(&w, false, port);
+}
+
+#[test]
+fn revoking_while_off_means_it_fails_after_turning_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    let (id, key, _) = create(&w, "Reader");
+    invoke(&w, "agent_connection_revoke", json!({ "id": id })).unwrap();
+    set(&w, true, port);
+    assert_eq!(ping(port, &key), 401);
+    set(&w, false, port);
+}
+
+/// The request was let in before the revoke, and its body arrives after it.
+#[test]
+fn a_request_already_under_way_when_revoked_runs_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let (id, key, _) = create(&w, "Reader");
+
+    let body = rpc("ping", json!({})).to_string();
+    let mut s = connect(port);
+    s.write_all(head(port, &key, body.len()).as_bytes())
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    invoke(&w, "agent_connection_revoke", json!({ "id": id })).unwrap();
+    s.write_all(body.as_bytes()).unwrap();
+    assert_eq!(read_answer(&mut s).0, 401);
+    set(&w, false, port);
+}
+
+#[test]
+fn the_keychain_entry_is_named_after_the_connection() {
+    let id = Uuid::from_u128(5);
+    assert_eq!(KeychainHashes::user(&id), format!("mcp-{id}"));
+}
+
+// ---- reading, closing, exiting ----
+
+#[test]
+fn rules_are_the_ones_agents_get() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let rules = invoke(&w, "agent_rules", json!({})).unwrap();
+    assert_eq!(rules, json!(gt_mcp::RULES));
+}
+
+#[test]
+fn reading_works_through_the_app_and_a_closed_tree_answers_plainly() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = empty_project(dir.path());
+    let (app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let (_, key, _) = create(&w, "Reader");
+
+    let call = rpc(
+        "tools/call",
+        json!({ "name": "tree_summary", "arguments": {} }),
+    );
+    let closed = post(port, &key, &call);
+    assert_eq!(closed.0, 200);
+    assert!(closed.1.contains("isError"), "{}", closed.1);
+
+    open(&app.state::<AppState>(), &project);
+    let opened = post(port, &key, &call);
+    assert_eq!(opened.0, 200);
+    let v: Value = serde_json::from_str(&opened.1).unwrap();
+    assert!(v["result"]["isError"].is_null(), "{v}");
+    assert!(
+        v["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("counts")
+    );
+
+    // Closing the tree leaves the server up, with nothing to read.
+    commands::close_project_impl(&app.state::<AppState>());
+    let closed = post(port, &key, &call);
+    assert_eq!(closed.0, 200);
+    let v: Value = serde_json::from_str(&closed.1).unwrap();
+    assert_eq!(v["result"]["isError"], json!(true), "{v}");
+    set(&w, false, port);
+}
+
+#[test]
+fn a_host_kept_alive_by_a_late_request_finds_no_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = empty_project(dir.path());
+    let (app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let (_, key, _) = create(&w, "Reader");
+    let state = app.state::<AppState>();
+    open(&state, &project);
+
+    let call = rpc(
+        "tools/call",
+        json!({ "name": "tree_summary", "arguments": {} }),
+    )
+    .to_string();
+    let mut late = connect(port);
+    late.write_all(head(port, &key, call.len()).as_bytes())
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+
+    // As `RunEvent::Exit` does: the server first, then the tree.
+    let host = AppHost::new(app.handle().clone());
+    agent_access::shutdown(&state);
+    commands::close_project_impl(&state);
+
+    // The socket is still open here, or its thread is on its way out. Either way, nothing ran.
+    let _ = late.write_all(call.as_bytes());
+    let (status, _) = read_answer(&mut late);
+    assert_ne!(status, 200);
+
+    let mut ran = false;
+    let got = host.with_session(&mut |_s| {
+        ran = true;
+        Ok(())
+    });
+    assert_eq!(got.unwrap_err().code, ErrorCode::NoProject);
+    assert!(!ran);
+    assert_eq!(host.authenticate(&key_hash(&key)), None);
+    assert!(
+        !AppState::lock(&state.settings)
+            .agent_access
+            .connections
+            .is_empty(),
+        "shutting down forgets nothing"
+    );
+    assert!(project.join("tree.db").is_file());
+}
+
+#[test]
+fn shutdown_frees_the_port_and_twice_is_fine() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let state = app.state::<AppState>();
+    agent_access::shutdown(&state);
+    agent_access::shutdown(&state);
+    drop(TcpListener::bind(("127.0.0.1", port)).unwrap());
+    // Shutting down is not turning off: the choice is kept for the next start.
+    assert_eq!(
+        invoke(&w, "agent_access_state", json!({})).unwrap()["enabled"],
+        json!(true)
+    );
+}
+
+// ---- the event ----
+
+#[test]
+fn changes_reach_the_page_as_an_event_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, _w) = app_with(state_in(dir.path()));
+    let got: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink = Arc::clone(&got);
+    app.listen(agent_access::CHANGED_EVENT, move |e| {
+        sink.lock().unwrap().push(e.payload().to_string());
+    });
+    assert_eq!(agent_access::CHANGED_EVENT, "tree-changed-by-agent");
+
+    let host = AppHost::new(app.handle().clone());
+    let touched = [Uuid::from_u128(1), Uuid::from_u128(2)];
+    let agent = AgentCtx {
+        id: Uuid::from_u128(7),
+        name: "Reader".into(),
+    };
+    host.changed(&touched, &agent);
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while got.lock().unwrap().is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let list = got.lock().unwrap();
+    let payload: Value = serde_json::from_str(&list[0]).unwrap();
+    assert_eq!(
+        payload,
+        json!({
+            "touched": [touched[0].to_string(), touched[1].to_string()],
+            "agent": "Reader",
+        })
+    );
+}

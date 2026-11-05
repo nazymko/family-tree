@@ -1077,3 +1077,33 @@ fn busy_port_is_an_error() {
     let host = Arc::new(empty_host());
     assert!(serve(host, f.port()).is_err());
 }
+
+/// The key was good when the head came in, and revoked before the body did.
+#[test]
+fn a_key_revoked_while_the_body_is_on_its_way_gets_401() {
+    let f = start();
+    let body = request("ping", json!({})).to_string();
+    let head = f.head_only(&[f.host_line(), f.key_line()], body.len());
+    let mut open = f.connect();
+    open.write_all(head.as_bytes()).unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    f.host.keys.lock().unwrap().clear();
+    open.write_all(body.as_bytes()).unwrap();
+    assert_eq!(read_reply(&mut open).status, 401);
+}
+
+/// A client still connected to a stopped server must not hold the port against the next one.
+#[test]
+fn the_port_can_be_taken_again_at_once_with_clients_still_connected() {
+    let f = start_with(8, Duration::from_secs(60));
+    let port = f.port();
+    let idle = f.connect();
+    let mut half = f.connect();
+    let head = f.head_only(&[f.host_line(), f.key_line()], UNREAD);
+    half.write_all(head.as_bytes()).unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    f.server.stop();
+    let next = serve(Arc::clone(&f.host), port).unwrap();
+    assert_eq!(next.port(), port);
+    drop((idle, half));
+}

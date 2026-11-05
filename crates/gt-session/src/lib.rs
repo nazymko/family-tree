@@ -21,6 +21,7 @@ pub mod relation;
 pub mod revert;
 pub mod session;
 pub mod settings;
+mod touched;
 pub mod undo;
 
 pub use command::{

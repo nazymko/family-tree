@@ -20,7 +20,7 @@ pub const TIMEOUT: Duration = Duration::from_secs(300);
 /// The longest side of the picture that is sent, in pixels.
 pub const MAX_SIDE: u32 = 2000;
 const MAX_TOKENS: u32 = 16_000;
-const KEYCHAIN_SERVICE: &str = "gene-tree";
+pub(crate) const KEYCHAIN_SERVICE: &str = "gene-tree";
 const KEYCHAIN_USER: &str = "anthropic-api-key";
 
 pub const PROMPT: &str = "This is a picture of a family tree. Find every person who is named on it. \

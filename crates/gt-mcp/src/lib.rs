@@ -9,6 +9,7 @@ mod tools_read;
 
 use gt_session::{ApiError, Session};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 pub use http::{ServerHandle, ServerLimits, serve, serve_with};
@@ -35,8 +36,23 @@ pub trait Host: Send + Sync + 'static {
     /// The agent owning a key, by the SHA-256 of the key. `None` for an unknown or revoked key.
     fn authenticate(&self, key_sha256: &[u8; 32]) -> Option<AgentCtx>;
 
-    /// Records changed: the app refreshes its views.
-    fn changed(&self, touched: &[Uuid]);
+    /// Records changed: the app refreshes its views. Write tools reach this through
+    /// [`notify_changed`], which adds the people those records belong to.
+    fn changed(&self, touched: &[Uuid], agent: &AgentCtx);
+}
+
+/// The SHA-256 of a key, as [`Host::authenticate`] receives it.
+pub fn key_hash(key: &str) -> [u8; 32] {
+    Sha256::digest(key.as_bytes()).into()
+}
+
+/// Tells the app what `agent` just committed: `records` and the people they belong to. Call it
+/// right after `with_session` returns, never inside it. It takes the session lock itself.
+pub fn notify_changed<H: Host>(host: &H, records: &[Uuid], agent: &AgentCtx) {
+    let touched = host
+        .with_session(&mut |s| Ok(s.touched_with_people(records)))
+        .unwrap_or_else(|_| records.to_vec());
+    host.changed(&touched, agent);
 }
 
 /// One tool, whichever module it comes from.

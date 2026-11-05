@@ -1,5 +1,6 @@
 //! Gene Tree desktop shell.
 
+pub mod agent_access;
 pub mod ai;
 pub mod commands;
 #[cfg(debug_assertions)]
@@ -49,9 +50,16 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
+            // A test run gets its own folder and keeps agent key hashes there, not in the keychain.
             #[cfg(debug_assertions)]
-            let dir = e2e_hooks::config_dir_override().unwrap_or(dir);
-            app.manage(AppState::new(dir));
+            let state = match e2e_hooks::config_dir_override() {
+                Some(dir) => AppState::with_clock(dir, Box::new(gt_session::SessionClock::system)),
+                None => AppState::new(dir),
+            };
+            #[cfg(not(debug_assertions))]
+            let state = AppState::new(dir);
+            app.manage(state);
+            agent_access::resume(app.handle());
             Ok(())
         });
     let builder = protocol::register(builder);
@@ -76,8 +84,11 @@ pub fn run() {
         .run(|app, event| {
             // Close the project cleanly: dropping it checkpoints the WAL into tree.db, so a
             // user who copies only that file loses nothing, and the lock file is released.
+            // The server goes first, so no request meets a tree on its way out.
             if let tauri::RunEvent::Exit = event {
-                commands::close_project_impl(&app.state::<AppState>());
+                let state = app.state::<AppState>();
+                agent_access::shutdown(&state);
+                commands::close_project_impl(&state);
             }
         });
 }

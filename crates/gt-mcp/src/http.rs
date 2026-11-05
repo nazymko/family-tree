@@ -11,7 +11,6 @@
 use crate::Host;
 use crate::protocol::{self, HttpMeta, Reply};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::io::{self, ErrorKind, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -276,9 +275,11 @@ fn serve_one<H: Host>(
     if head.path() != "/mcp" {
         return Some(Answer::status(404));
     }
-    let Some(ctx) = bearer_hash(&head).and_then(|hash| host.authenticate(&hash)) else {
-        return Some(Answer::with_header(401, "WWW-Authenticate", "Bearer"));
-    };
+    let unauthorized = || Some(Answer::with_header(401, "WWW-Authenticate", "Bearer"));
+    let hash = bearer_hash(&head);
+    if hash.and_then(|hash| host.authenticate(&hash)).is_none() {
+        return unauthorized();
+    }
     if head.method != "POST" {
         return Some(Answer::with_header(405, "Allow", "POST"));
     }
@@ -301,6 +302,10 @@ fn serve_one<H: Host>(
     if stopping.load(Ordering::SeqCst) {
         return Some(Answer::status(503));
     }
+    // Again: the body can take its time, and a key revoked meanwhile must run nothing.
+    let Some(ctx) = hash.and_then(|hash| host.authenticate(&hash)) else {
+        return unauthorized();
+    };
     let Ok(value) = serde_json::from_slice::<Value>(&body) else {
         return Some(Answer::from_reply(&protocol::parse_error()));
     };
@@ -522,5 +527,5 @@ fn bearer_hash(head: &Head) -> Option<[u8; 32]> {
     if !scheme.eq_ignore_ascii_case("bearer") || key.is_empty() {
         return None;
     }
-    Some(Sha256::digest(key.as_bytes()).into())
+    Some(crate::key_hash(key))
 }

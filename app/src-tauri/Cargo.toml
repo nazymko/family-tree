@@ -30,6 +30,8 @@ serde = { workspace = true }
 uuid = { workspace = true }
 gt-session = { path = "../../crates/gt-session" }
 gt-store = { path = "../../crates/gt-store" }
+gt-mcp = { path = "../../crates/gt-mcp" }
+getrandom = { workspace = true }
 reqwest = { workspace = true }
 keyring = { workspace = true }
 base64 = { workspace = true }

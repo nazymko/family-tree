@@ -1,6 +1,7 @@
 //! One Tauri command per `Api` method. Commands stay thin: lock, call the session, map errors.
 //! A lock is never held across an await; the heavy ones run inside `spawn_blocking`.
 
+use crate::agent_access;
 use crate::settings_file;
 use crate::state::{AppState, no_project};
 use gt_session::{
@@ -87,6 +88,11 @@ command_list!(
     save_picture,
     get_settings,
     set_settings,
+    agent_access_state,
+    agent_access_set,
+    agent_connection_create,
+    agent_connection_revoke,
+    agent_rules,
 );
 
 type ApiResult<T> = Result<T, ApiError>;
@@ -809,7 +815,7 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
         };
         state.with_session(|s| s.set_settings(p).map(|_| ()))?;
     }
-    let snapshot = {
+    {
         let mut a = AppState::lock(&state.settings);
         if let Some(v) = patch.day_order {
             a.day_order = v;
@@ -829,9 +835,9 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
         if let Some(v) = patch.tree_direction {
             a.tree_direction = v;
         }
-        a.clone()
-    };
-    settings_file::save_settings(&state.config_dir, &snapshot)?;
+        // Under the lock: agent access saves this file too, and neither may undo the other.
+        settings_file::save_settings(&state.config_dir, &a)?;
+    }
     Ok(get_settings_impl(state))
 }
 
@@ -843,4 +849,39 @@ pub fn get_settings(state: State<'_, AppState>) -> ApiResult<Settings> {
 #[tauri::command(async)]
 pub fn set_settings(state: State<'_, AppState>, patch: SettingsPatchWire) -> ApiResult<Settings> {
     set_settings_impl(&state, patch)
+}
+
+// ------------------------------------------------------------ agent access
+
+#[tauri::command(async)]
+pub fn agent_access_state(state: State<'_, AppState>) -> agent_access::AgentAccessState {
+    agent_access::access_state(&state)
+}
+
+/// `port` is wider than a port, so that one out of range gets the plain refusal.
+#[tauri::command(async)]
+pub fn agent_access_set<R: Runtime>(
+    app: AppHandle<R>,
+    enabled: bool,
+    port: u32,
+) -> ApiResult<agent_access::AgentAccessState> {
+    agent_access::set_access(&app, enabled, port)
+}
+
+#[tauri::command(async)]
+pub fn agent_connection_create(
+    state: State<'_, AppState>,
+    name: String,
+) -> ApiResult<agent_access::NewConnectionDto> {
+    agent_access::create_connection(&state, &name)
+}
+
+#[tauri::command(async)]
+pub fn agent_connection_revoke(state: State<'_, AppState>, id: String) -> ApiResult<()> {
+    agent_access::revoke_connection(&state, &id)
+}
+
+#[tauri::command(async)]
+pub fn agent_rules() -> &'static str {
+    gt_mcp::RULES
 }

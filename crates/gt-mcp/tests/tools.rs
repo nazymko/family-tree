@@ -609,3 +609,45 @@ fn cyrillic_name_roundtrip() {
             .contains("Коваль")
     );
 }
+
+/// What every write tool does after its commit: the app hears the records and their people.
+#[test]
+fn notify_changed_adds_the_people_and_names_the_agent() {
+    let host = empty_host();
+    let (person, note) = with(&host, |s| {
+        let person = add_person(s, draft("Olena", "Koval", None, None));
+        s.apply(EditCommand::SaveNote {
+            target: OwnerRef {
+                kind: OwnerKind::Person,
+                id: person,
+            },
+            note: NoteInput {
+                id: None,
+                kind: NoteKindDto::General,
+                text: "Born in the old house".into(),
+            },
+        })
+        .unwrap();
+        let detail = s.get_person(person).unwrap();
+        (person, detail.notes[0].id)
+    });
+    gt_mcp::notify_changed(&host, &[note], &ctx());
+    let changes = host.changes.lock().unwrap();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].0, vec![note, person]);
+    assert_eq!(changes[0].1, ctx());
+}
+
+/// The tree went away in between: the app still hears, with the ids it was given.
+#[test]
+fn notify_changed_with_no_tree_passes_the_ids_on() {
+    let host = no_tree_host();
+    let id = Uuid::from_u128(5);
+    gt_mcp::notify_changed(&host, &[id], &ctx());
+    assert_eq!(host.changes.lock().unwrap()[0].0, vec![id]);
+}
+
+#[test]
+fn key_hash_is_sha256_of_the_key() {
+    assert_eq!(gt_mcp::key_hash(KEY), hash(KEY));
+}
