@@ -213,6 +213,7 @@ fn discard_import_only_before_edit() {
         draft: PersonDraft {
             given: Some("Otto".into()),
             surnames: vec!["Z".into()],
+            patronymic: None,
             sex: SexKind::Male,
             birth_date_raw: None,
             birth_place_text: None,
@@ -477,6 +478,7 @@ fn export_requires_current_token() {
         draft: PersonDraft {
             given: Some("Otto".into()),
             surnames: vec!["Z".into()],
+            patronymic: None,
             sex: SexKind::Male,
             birth_date_raw: None,
             birth_place_text: None,

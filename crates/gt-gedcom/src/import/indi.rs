@@ -119,11 +119,15 @@ fn split_name(v: &str) -> (Option<String>, Vec<String>, Option<String>) {
     }
 }
 
-/// `Given /Surname/ Suffix` from the parts.
+/// `Given Patronymic /Surname/ Suffix` from the parts. GEDCOM has no patronymic piece, so programs that read only the
+/// NAME line see it with the given names; `_PATR` (see `read_name`) keeps it separate for us.
 pub(crate) fn compose_name(n: &Name) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(g) = &n.given {
         parts.push(g.clone());
+    }
+    if let Some(p) = &n.patronymic {
+        parts.push(p.clone());
     }
     if !n.surnames.is_empty() || n.suffix.is_some() {
         parts.push(format!("/{}/", n.surnames.join(" ")));
@@ -176,12 +180,18 @@ fn read_name(ctx: &mut Ctx, person: Uuid, idx: usize, node: &GedNode, first: boo
         n.raw = Some(v.to_string());
     }
     let mut had_parts = false;
+    let mut had_givn = false;
     for (pos, c) in node.children.iter().enumerate() {
         let v = val(c).map(str::trim).filter(|s| !s.is_empty());
         match (c.tag.as_str(), v) {
             ("NPFX", Some(v)) => n.prefix = Some(v.to_string()),
             ("GIVN", Some(v)) => {
                 n.given = Some(v.to_string());
+                had_parts = true;
+                had_givn = true;
+            }
+            ("_PATR", Some(v)) => {
+                n.patronymic = Some(v.to_string());
                 had_parts = true;
             }
             ("NICK", Some(v)) => n.nickname = Some(v.to_string()),
@@ -240,6 +250,15 @@ fn read_name(ctx: &mut Ctx, person: Uuid, idx: usize, node: &GedNode, first: boo
                 }
             }
         }
+    }
+    // Without GIVN the given names come from the NAME line, which also carries the patronymic.
+    if !had_givn
+        && let (Some(g), Some(p)) = (&n.given, &n.patronymic)
+        && let Some(rest) = g
+            .strip_suffix(p.as_str())
+            .filter(|r| r.is_empty() || r.ends_with(char::is_whitespace))
+    {
+        n.given = some(rest);
     }
     if n.raw.is_none() && (had_parts || n.given.is_some() || !n.surnames.is_empty()) {
         n.raw = Some(compose_name(&n));

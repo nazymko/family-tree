@@ -154,6 +154,9 @@ pub struct PersonDraft {
     #[ts(optional)]
     pub given: Option<String>,
     pub surnames: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub patronymic: Option<String>,
     pub sex: SexKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
