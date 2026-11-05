@@ -211,10 +211,12 @@
         {#if r.people.length > 0}
           <p class="people">
             {#each r.people as p (p.id)}
-              {#if p.exists}
+              {#if p.siblingMarker && p.exists}
+                <span>{t('person.siblingMarker')}</span>
+              {:else if p.exists}
                 <button type="button" class="link" onclick={() => openPerson(p.id)}><bdi dir="auto">{personName(p)}</bdi></button>
               {:else}
-                <span>{t('changeLog.personGone', { name: personName(p) })}</span>
+                <span>{t('changeLog.personGone', { name: p.siblingMarker ? t('person.siblingMarker') : personName(p) })}</span>
               {/if}
             {/each}
           </p>

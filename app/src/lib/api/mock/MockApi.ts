@@ -1170,7 +1170,7 @@ export class MockApi implements Api {
       batch: e.batch,
       label: e.label,
       changes: e.changes,
-      people: e.people.map((p) => ({ ...p, exists: this.db.persons.has(p.id) })),
+      people: e.people.map((p) => ({ ...p, exists: this.db.persons.has(p.id), siblingMarker: this.db.persons.get(p.id)?.siblingMarker ?? false })),
       reverted: e.reverted,
       canUndo: e.actor.kind === 'agent' && !e.reverted,
     });

@@ -218,6 +218,32 @@ fn agent_group_lists_people_of_family_link() {
 }
 
 #[test]
+fn a_marker_in_the_log_says_it_has_no_person_page() {
+    let (_d, mut s, _anna) = setup();
+    let family = *s.tree().families.keys().next().unwrap();
+    s.commit_command_as(EditCommand::AddSiblingMarker { family }, agent(), None)
+        .unwrap();
+    let marker = s
+        .tree()
+        .persons
+        .values()
+        .find(|p| p.sibling_marker)
+        .unwrap()
+        .common
+        .id;
+    let r = rows(&s);
+    let entry = r[0].people.iter().find(|p| p.id == marker).unwrap();
+    assert!(entry.exists);
+    assert!(entry.sibling_marker);
+    assert!(
+        r[0].people
+            .iter()
+            .filter(|p| p.id != marker)
+            .all(|p| !p.sibling_marker)
+    );
+}
+
+#[test]
 fn deleted_people_are_still_named() {
     let (_d, mut s, anna) = setup();
     let p = s

@@ -76,6 +76,8 @@ pub struct LogPersonDto {
     pub name: String,
     /// False once the person has gone from the tree.
     pub exists: bool,
+    /// The entry for unnamed brothers and sisters, which has no person page.
+    pub sibling_marker: bool,
     /// When the owner reviewed this change for this person.
     #[ts(type = "number | null")]
     pub reviewed: Option<i64>,
@@ -439,6 +441,10 @@ impl Session {
                 id: p.id,
                 name: self.logged_name(p.id, &g.changes),
                 exists: self.tree.persons.contains_key(&p.id),
+                sibling_marker: matches!(
+                    self.find_logged(RecordKind::Person, p.id, &g.changes),
+                    Some(Record::Person(r)) if r.sibling_marker
+                ),
                 reviewed: p.reviewed,
             })
             .collect();

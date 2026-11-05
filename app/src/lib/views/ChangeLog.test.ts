@@ -16,7 +16,7 @@ import { fixtureTree } from '../api/mock/fixtures';
 import { makeFakeContext } from '../../test-setup';
 import { draw, type Theme } from '../chart/renderer';
 import { drawWhole, type WholeTheme } from '../chart/wholeRenderer';
-import { renderWithApi } from '../editors/testing/helpers';
+import { findPerson, renderWithApi } from '../editors/testing/helpers';
 import NameEditor from '../editors/NameEditor.svelte';
 import { agentChanges } from '../state/agentChanges.svelte';
 import { nav } from '../state/nav.svelte';
@@ -418,7 +418,7 @@ describe('agent badges', () => {
   const theme: Theme = { paper: '#fff', rule: '#ccc', ink: '#000', ink2: '#666', ribbon: '#f00', wash: '#fee', font: 'sans-serif', serif: 'serif' };
   const node = (id: number, person: Id) => ({
     id,
-    person: { id: person, name: person, lifespan: '', sex: 'female' as const, living: false, private: false },
+    person: { id: person, name: person, lifespan: '', sex: 'female' as const, living: false, private: false, siblingMarker: false },
     x: id * 200,
     y: 0,
     w: 176,
@@ -463,6 +463,39 @@ describe('agent badges', () => {
     const wholeTheme = { ...theme, male: '#00f', female: '#f0f', other: '#999' } as unknown as WholeTheme;
     drawWhole(whole, win, [], { x: 0, y: 0, zoom: 1 }, { w: 800, h: 600, dpr: 1 }, { selected: null, home: null, lineage: null, theme: wholeTheme, badged: new Set(['p1']) });
     expect(arcs(whole)).toEqual([176]);
+  });
+
+  it('a_marker_never_carries_a_badge', async () => {
+    const asMarker = { ...win, nodes: win.nodes.map((n) => (n.person?.id === 'p2' ? { ...n, person: { ...n.person, siblingMarker: true } } : n)) };
+    const chart = makeFakeContext();
+    draw(chart, asMarker, { x: 0, y: 0, zoom: 1 }, { w: 800, h: 600, dpr: 1 }, { selected: null, focus: null, theme, handles: false, badged: new Set(['p2']) });
+    expect(arcs(chart)).toEqual([]);
+
+    const dots = makeFakeContext();
+    draw(dots, asMarker, { x: 0, y: 0, zoom: 0.1 }, { w: 800, h: 600, dpr: 1 }, { selected: null, focus: null, theme, handles: false, badged: new Set(['p2']) });
+    expect(arcs(dots)).toEqual([]);
+
+    const whole = makeFakeContext();
+    const wholeTheme = { ...theme, male: '#00f', female: '#f0f', other: '#999' } as unknown as WholeTheme;
+    drawWhole(whole, asMarker, [], { x: 0, y: 0, zoom: 1 }, { w: 800, h: 600, dpr: 1 }, { selected: null, home: null, lineage: null, theme: wholeTheme, badged: new Set(['p2']) });
+    expect(arcs(whole)).toEqual([]);
+
+    const card = render(PersonCard, { props: { name: '', siblingMarker: true, agentChanged: true } });
+    expect(card.queryByText('Agent')).toBeNull();
+    card.unmount();
+  });
+
+  it('a_marker_in_a_log_row_has_no_link_to_a_person_page', async () => {
+    const { raw, platform } = await logScreen();
+    const family = (await findPerson(raw, (p) => p.partnerships.length > 0)).partnerships[0].familyId;
+    await raw.apply({ type: 'addSiblingMarker', family });
+    const marker = (await raw.getFamily(family)).children.find((c) => c.person.siblingMarker)!.person.id;
+    platform.simulateAgentBatch(raw, { changes: [{ person: marker, note: 'About the others' }] });
+    await waitFor(() => expect(rowsOnScreen().length).toBeGreaterThan(1));
+    const shown = await screen.findAllByText('<Some more Sisters/Brothers>');
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown.filter((el) => el.closest('button'))).toEqual([]);
+    expect(screen.queryByRole('button', { name: /Some more/ })).toBeNull();
   });
 
   it('people_list_family_tree_and_person_page_badge_follow_the_store', async () => {

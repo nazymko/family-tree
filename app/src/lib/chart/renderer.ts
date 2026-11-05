@@ -46,7 +46,7 @@ export function drawAgentBadges(ctx: CanvasRenderingContext2D, nodes: ChartNode[
   ctx.strokeStyle = theme.paper;
   ctx.lineWidth = 1.5 / z;
   for (const n of nodes) {
-    if (!n.person || !badged.has(n.person.id)) continue;
+    if (!n.person || n.person.siblingMarker || !badged.has(n.person.id)) continue;
     ctx.beginPath();
     ctx.arc(n.x + n.w, n.y, 5 / z, 0, Math.PI * 2);
     ctx.fill();
