@@ -3,6 +3,8 @@
   import Button from '../ui/Button.svelte';
   import TextField from '../ui/TextField.svelte';
   import Select from '../ui/Select.svelte';
+  import DatePartsField from '../editors/DatePartsField.svelte';
+  import { settings } from '../state/settings.svelte';
   import { getApi } from '../api/context';
   import type { Id, SexKind } from '../api/types';
   import type { AddRelation as Relation } from '../state/ui.svelte';
@@ -98,7 +100,7 @@
         { value: 'other', label: t('sexOption.other') },
       ]}
     />
-    <TextField label={t('newPerson.birthDate')} bind:value={birth} hint={t('newPerson.birthHint')} />
+    <DatePartsField label={t('newPerson.birthDate')} value={birth} onChange={(r) => (birth = r)} order={settings.value.dayOrder} />
   </form>
   {#snippet footer()}
     <Button onclick={onclose}>{t('common.cancel')}</Button>
