@@ -44,9 +44,14 @@
   const guard = staleGuard(() => watch);
   const stale = $derived(guard.stale);
   const host = getContext<EditorHost | undefined>(EDITOR_HOST);
-  /** The page that opened this dialog reloads and reopens it; if there is none, closing is the way to fresh data. */
-  async function reload() {
-    if (!(await host?.reopen())) oncancel();
+  /**
+   * The page that opened this dialog reloads and reopens it; if there is none, closing is the way to fresh data.
+   * A reopen that worked has replaced this dialog, so one that is still here means the load failed.
+   */
+  async function reload(): Promise<boolean> {
+    if (await host?.reopen()) return false;
+    oncancel();
+    return true;
   }
 
   function requestCancel() {

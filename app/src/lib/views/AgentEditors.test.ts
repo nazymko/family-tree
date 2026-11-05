@@ -14,6 +14,8 @@ import CitationEditor from '../editors/CitationEditor.svelte';
 import EventEditor from '../editors/EventEditor.svelte';
 import FamilyEditor from '../editors/FamilyEditor.svelte';
 import NoteEditor from '../editors/NoteEditor.svelte';
+import { en } from '../i18n/en';
+import { uk } from '../i18n/uk';
 import { agentChanges } from '../state/agentChanges.svelte';
 import { nav } from '../state/nav.svelte';
 import { observeApi } from '../state/observe';
@@ -24,6 +26,7 @@ import { toasts } from '../state/toast.svelte';
 const ALL: PersonQuery = { sort: 'surname', desc: false, text: '', living: 'any', noSource: false, noBirthDate: false, privateOnly: false };
 const PERSON_BANNER = 'An agent changed this person. Reload to continue.';
 const BANNER = 'An agent changed this. Reload to continue.';
+const RELOAD_FAILED = 'Could not reload. Try again.';
 const fixture = fixtureTree(60);
 
 let stop: (() => void) | null = null;
@@ -222,6 +225,31 @@ describe('what an editor counts as seen', () => {
     await waitFor(() => expect(screen.queryByText(PERSON_BANNER)).toBeNull());
   });
 
+  it('a_reload_that_fails_says_so_beside_the_button', async () => {
+    const w = await world();
+    const dlg = await openOwnEditor(w);
+    w.platform.simulateAgentBatch(w.raw, { changes: [{ person: w.people[0].id, note: 'Underneath you' }] });
+    const reload = await within(dlg).findByRole('button', { name: 'Reload' });
+    expect(within(dlg).queryByText(RELOAD_FAILED)).toBeNull();
+    await settle();
+    vi.spyOn(w.raw, 'getPerson').mockRejectedValueOnce({ code: 'io', message: 'The disk is gone.' });
+    await w.user.click(reload);
+    expect(await within(dlg).findByRole('alert')).toHaveTextContent(RELOAD_FAILED);
+
+    // A second try starts clean, and landing takes the whole notice away.
+    const held = holdNextLoad(w.raw);
+    await w.user.click(within(dlg).getByRole('button', { name: 'Reload' }));
+    expect(within(dlg).queryByText(RELOAD_FAILED)).toBeNull();
+    held.release();
+    await waitFor(() => expect(screen.queryByText(PERSON_BANNER)).toBeNull());
+    expect(screen.queryByText(RELOAD_FAILED)).toBeNull();
+  });
+
+  it('the_failed_reload_message_is_in_both_languages', () => {
+    expect(en.changeLog.reloadFailed).toBe(RELOAD_FAILED);
+    expect(uk.changeLog.reloadFailed).toBe('Не вдалося перезавантажити. Спробуйте ще раз.');
+  });
+
   it('a_write_during_the_reload_leaves_it_stale', async () => {
     const w = await world();
     const dlg = await openOwnEditor(w);
@@ -261,6 +289,66 @@ describe('what an editor counts as seen', () => {
     await w.user.click(add);
     await screen.findByRole('dialog', { name: 'Add name' });
     expect(screen.queryByText(PERSON_BANNER)).toBeNull();
+  });
+});
+
+describe('a sub-editor of the family dialog', () => {
+  /** The family dialog on the person page, with partner 2 and the union changed and "Add event" open over it. */
+  async function nested() {
+    const w = await world();
+    const d = await findPerson(w.raw, (p) => p.partnerships.some((s) => s.partner && s.kind !== 'civil_union'));
+    const ps = d.partnerships.find((s) => s.partner && s.kind !== 'civil_union')!;
+    render(PersonEditor, { props: { id: d.ref.id }, context: apiContext(w.api, w.platform) });
+    const partner = ps.partner?.name ?? '';
+    await w.user.click(await screen.findByRole('button', { name: `Edit family with ${partner}` }));
+    const outer = await screen.findByRole('dialog', { name: 'Edit family' });
+    const second = () => within(screen.getByRole('dialog', { name: 'Edit family' })).getByRole('combobox', { name: 'Partner 2' });
+    const union = () => within(screen.getByRole('dialog', { name: 'Edit family' })).getByRole('combobox', { name: 'Type of union' });
+    await waitFor(() => expect(second()).toHaveValue(partner));
+    await w.user.clear(second());
+    await w.user.selectOptions(union(), 'civil_union');
+    await w.user.click(within(outer).getByRole('button', { name: 'Add event' }));
+    const sub = await screen.findByRole('dialog', { name: 'Add event' });
+    w.platform.simulateAgentEvent([ps.familyId]);
+    await within(sub).findByText(BANNER);
+    return { ...w, outer, sub, partner, family: ps.familyId, original: ps.kind, second, union };
+  }
+
+  it('its_reload_closes_only_itself_and_the_outer_changes_survive', async () => {
+    const { user, outer, sub, second, union } = await nested();
+    await user.click(within(sub).getByRole('button', { name: 'Reload' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add event' })).toBeNull());
+    expect(outer.isConnected).toBe(true);
+    expect(second()).toHaveValue('');
+    expect(union()).toHaveValue('civil_union');
+    expect(within(outer).getByText(BANNER)).toBeInTheDocument();
+  });
+
+  it('it_asks_about_its_own_form_first', async () => {
+    const { user, sub, second, union } = await nested();
+    await user.type(within(sub).getAllByRole('textbox')[0], '1901');
+    await user.click(within(sub).getByRole('button', { name: 'Reload' }));
+    expect(within(sub).getByText('Discard changes?')).toBeInTheDocument();
+    await user.click(within(sub).getByRole('button', { name: 'Keep editing' }));
+    expect(screen.getByRole('dialog', { name: 'Add event' })).toBe(sub);
+    await user.click(within(sub).getByRole('button', { name: 'Reload' }));
+    await user.click(within(sub).getByRole('button', { name: 'Discard changes' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add event' })).toBeNull());
+    expect(second()).toHaveValue('');
+    expect(union()).toHaveValue('civil_union');
+  });
+
+  it('the_family_dialog_itself_still_reopens_on_fresh_data', async () => {
+    const { user, outer, sub, partner, original, second, union } = await nested();
+    await user.click(within(sub).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add event' })).toBeNull());
+    await user.click(within(outer).getByRole('button', { name: 'Reload' }));
+    expect(within(outer).getByText('Discard changes?')).toBeInTheDocument();
+    await user.click(within(outer).getByRole('button', { name: 'Discard changes' }));
+    await waitFor(() => expect(screen.queryByText(BANNER)).toBeNull());
+    expect(screen.getByRole('dialog', { name: 'Edit family' })).toBeInTheDocument();
+    await waitFor(() => expect(second()).toHaveValue(partner));
+    expect(union()).toHaveValue(original);
   });
 });
 

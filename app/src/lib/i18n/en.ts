@@ -1529,6 +1529,7 @@ export const en = {
     staleBanner: 'An agent changed this person. Reload to continue.',
     staleBannerAny: 'An agent changed this. Reload to continue.',
     reload: 'Reload',
+    reloadFailed: 'Could not reload. Try again.',
     errors: {
       agentChanged: 'An agent changed this since. Undo it from the change log first.',
       stepDropped: 'This step was dropped: a record it needs no longer exists.',

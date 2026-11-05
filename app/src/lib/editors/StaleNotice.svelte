@@ -13,11 +13,13 @@
     aboutPerson?: boolean;
     /** Reloading would lose what was typed, so it asks first. */
     dirty?: boolean;
-    onreload: () => void | Promise<void>;
+    /** Answers false when the load failed and the editor stays as it is; this notice then says so. */
+    onreload: () => void | boolean | Promise<void | boolean>;
   } = $props();
 
   let box = $state<HTMLElement>();
   let asking = $state(false);
+  let failed = $state(false);
   let reloading = false;
 
   // Save may have held focus when it went disabled.
@@ -36,8 +38,9 @@
   async function reload() {
     if (reloading) return;
     reloading = true;
+    failed = false;
     try {
-      await onreload();
+      failed = (await onreload()) === false;
     } finally {
       reloading = false;
     }
@@ -73,7 +76,10 @@
       <Button variant="danger" onclick={discard}>{t('editor.discard')}</Button>
     </div>
   {:else}
-    <Button onclick={ask}>{t('changeLog.reload')}</Button>
+    <div class="ask">
+      <Button onclick={ask}>{t('changeLog.reload')}</Button>
+      {#if failed}<span class="failed" role="alert">{t('changeLog.reloadFailed')}</span>{/if}
+    </div>
   {/if}
 </div>
 
@@ -91,5 +97,8 @@
   }
   .ask span {
     font-weight: 500;
+  }
+  .ask .failed {
+    color: var(--danger);
   }
 </style>
