@@ -43,7 +43,7 @@
   import CitationEditor from '../editors/CitationEditor.svelte';
   import { errMessage } from '../editors/errors';
   import { t, plural, currentLocale, type MessageKey } from '../i18n';
-  import { editLabel, eventKindLabel } from '../i18n/backend';
+  import { agentLabel, editLabel, eventKindLabel } from '../i18n/backend';
 
   let {
     id,
@@ -360,7 +360,7 @@
     else if (target.kind === 'family') dialog = { kind: 'family', family: target.family };
     else dialog = { kind: 'citation', citation: target.citation, owner: target.owner };
   }
-  const whoWrote = (r: LogRowDto) => (r.actor.kind === 'user' ? t('changeLog.you') : r.actor.kind === 'agent' ? r.actor.name : t('changeLog.beforeTracking'));
+  const whoWrote = (r: LogRowDto) => (r.actor.kind === 'user' ? t('changeLog.you') : r.actor.kind === 'agent' ? agentLabel(r.actor.id, r.actor.name) : t('changeLog.beforeTracking'));
   function when(ts: number): string {
     return new Date(ts).toLocaleString(currentLocale());
   }

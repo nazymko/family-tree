@@ -10,6 +10,7 @@ import { toasts } from '../state/toast.svelte';
 import { ui } from '../state/ui.svelte';
 import { nav } from '../state/nav.svelte';
 import { setLanguage } from '../i18n';
+import { KEYLESS_AGENT_ID, KEYLESS_AGENT_NAME } from '../i18n/backend';
 
 const toastTexts = () => toasts.items.map((t) => t.text);
 
@@ -178,6 +179,23 @@ describe('PersonEditor', () => {
       renderWithApi(observeApi(api), PersonEditor, { id });
       const row = await historyRow();
       expect(changedRows(row)).toContain('Суфікс порожньо Jr');
+    } finally {
+      setLanguage('en');
+    }
+  });
+
+  it('history_words_the_agent_without_a_key_in_the_active_language_and_keeps_other_names', async () => {
+    api.recordAgentBatch({ agent: KEYLESS_AGENT_NAME, agentId: KEYLESS_AGENT_ID, changes: [{ person: id, note: 'Told' }] });
+    api.recordAgentBatch({ agent: 'Transcript reader', changes: [{ person: id, note: 'Read' }] });
+    setLanguage('uk');
+    try {
+      renderWithApi(observeApi(api), PersonEditor, { id });
+      await waitFor(() => {
+        const metas = [...document.querySelectorAll('section[aria-labelledby="h-history"] .meta')].map((m) => m.textContent);
+        expect(metas).toContain('Агент без ключа');
+        expect(metas).toContain('Transcript reader');
+        expect(metas).not.toContain(KEYLESS_AGENT_NAME);
+      });
     } finally {
       setLanguage('en');
     }
