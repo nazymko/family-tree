@@ -660,7 +660,8 @@ fn wrap(inner: &str) -> String {
 }
 
 #[test]
-fn decompression_bomb_is_refused_without_inflating_it_all() {
+#[ignore = "heavy: runs before merge"]
+fn heavy_decompression_bomb_is_refused_without_inflating_it_all() {
     let mut e = GzEncoder::new(Vec::new(), Compression::best());
     e.write_all(b"<database>").expect("write");
     let chunk = vec![b' '; 1 << 20];

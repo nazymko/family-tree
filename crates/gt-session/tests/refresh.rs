@@ -518,7 +518,8 @@ fn check(s: &Session, seed: u64, step: usize, what: &str) {
 }
 
 #[test]
-fn incremental_refresh_equals_rebuild_over_random_edit_undo_redo_sequences() {
+#[ignore = "heavy: runs before merge"]
+fn heavy_incremental_refresh_equals_rebuild_over_random_edit_undo_redo_sequences() {
     let tree = tree_of(GED);
     let mut applied = 0;
     let mut kinds: std::collections::BTreeMap<String, usize> = Default::default();
