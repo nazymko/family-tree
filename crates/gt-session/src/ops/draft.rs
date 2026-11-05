@@ -80,7 +80,7 @@ pub(super) fn import_draft(
         }
         let id = match d.existing {
             Some(e) => {
-                p.get::<Person>(e)?;
+                p.real_person(e)?;
                 e
             }
             None => {

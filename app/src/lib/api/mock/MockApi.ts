@@ -135,6 +135,7 @@ const LABELS: Record<EditCommand['type'], string> = {
 
 const missing = (what: string, id: Id) => new MockApiError('not_found', `No ${what} with id "${id}" in this project.`);
 const invalid = (message: string) => new MockApiError('invalid', message);
+const markerEntry = (id: Id) => new MockApiError('not_found', `"${id}" is the entry for unnamed brothers and sisters. It has no details.`);
 
 /** An unnamed person is valid in genealogy; show it as Unknown. */
 function unnamedOk(n: NameDto): NameDto {
@@ -287,7 +288,7 @@ export class MockApi implements Api {
 
   async getPerson(id: Id): Promise<PersonDetail> {
     const p = this.person(id);
-    if (p.siblingMarker) throw missing('person', id);
+    if (p.siblingMarker) throw markerEntry(id);
     return structuredClone({
       ref: this.ref(p),
       sex: p.sex,
@@ -308,6 +309,7 @@ export class MockApi implements Api {
 
   async getFamilyView(id: Id): Promise<FamilyViewDto> {
     const p = this.person(id);
+    if (p.siblingMarker) throw markerEntry(id);
     const parentSets = this.parentSets(id);
     const seen = new Set<Id>([id]);
     const sibs: PersonRec[] = [];
@@ -535,7 +537,7 @@ export class MockApi implements Api {
 
   async chartOpen(req: ChartRequest): Promise<ChartMeta> {
     if (req.kind === 'whole') throw invalid('The whole tree has no starting person. Open it with the whole-tree command.');
-    this.person(req.root);
+    if (this.person(req.root).siblingMarker) throw markerEntry(req.root);
     const generations = Math.max(1, Math.min(req.generations, req.kind === 'pedigree' ? 255 : 20));
     const src: RustLayoutSource = {
       ref: (id) => this.ref(this.person(id)),
@@ -578,20 +580,27 @@ export class MockApi implements Api {
     const surnames = result.nodes.map((n) => rows.get(n.person!.id)?.surname ?? '');
     for (const n of result.nodes) {
       const p = n.person!;
-      n.label = `${p.name}${p.lifespan ? `, ${p.lifespan}` : ''}, generation ${n.gen + 1}`;
+      n.label = `${p.siblingMarker ? 'more brothers and sisters, not named' : `${p.name}${p.lifespan ? `, ${p.lifespan}` : ''}`}, generation ${n.gen + 1}`;
     }
+    // The markers are drawn like people but are not counted as people.
+    const markerAt = result.nodes.filter((n) => n.person?.siblingMarker).map((n) => ({ x: n.x + n.w / 2, y: n.y + n.h / 2 }));
+    const blocks = result.blocks.map((b) => {
+      const inside = markerAt.filter((m) => m.x >= b.rect.x && m.x <= b.rect.x + b.rect.w && m.y >= b.rect.y && m.y <= b.rect.y + b.rect.h + b.bodyH).length;
+      const people = b.people - inside;
+      return inside === 0 ? b : { ...b, people, title: b.title.replace(/\(\d+/, `(${people}`) };
+    });
     const chartId = this.nextChart++;
     const meta: WholeMeta = {
       meta: {
         chartId,
         kind: 'whole',
         bounds: result.bounds,
-        nodeCount: result.nodes.length,
+        nodeCount: result.nodes.length - markerAt.length,
         rootNode: 0,
         truncated: false,
         version: this.version,
       },
-      blocks: result.blocks,
+      blocks,
     };
     const layout: Layout = { nodes: result.nodes, edges: result.edges, bounds: result.bounds, truncated: false, kids: [], labels: [] };
     this.charts.set(chartId, { kind: 'whole', layout, version: this.version, reference: null, whole: { result, surnames, meta, reversed } });
@@ -981,7 +990,7 @@ export class MockApi implements Api {
       name: this.prefName(p)?.display ?? '',
       lifespan: this.lifespan(p),
       sex: p.sex,
-      living: this.isLiving(p),
+      living: !p.siblingMarker && this.isLiving(p),
       private: p.private,
       siblingMarker: p.siblingMarker === true,
     };

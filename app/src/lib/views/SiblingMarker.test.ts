@@ -39,8 +39,8 @@ describe('the unnamed-siblings marker', () => {
       gen: 1,
       ahnen: 3,
       dupOf: null,
-      moreUp: false,
-      moreDown: false,
+      moreUp: true,
+      moreDown: true,
       nav: { parent: null, child: null, prev: null, next: null },
       label: '',
       kinship: { kind: 'blood', up: 0, down: 0, half: false, married: false, sex: 'unknown', via: 'unknown' },
@@ -69,5 +69,21 @@ describe('the unnamed-siblings marker', () => {
     const after = await api.listPersons({ sort: 'surname', desc: false, text: '', living: 'any', noSource: false, noBirthDate: false, privateOnly: false }, 0, 1);
     expect(after.total).toBe(before);
     await expect(api.apply({ type: 'addSiblingMarker', family: fam })).rejects.toMatchObject({ code: 'conflict' });
+  });
+  it('the_mock_counts_refuses_and_reports_not_living', async () => {
+    const api = new MockApi(fixtureTree(30));
+    const info = await api.openProject('C:/Genealogy/Test');
+    const view = await api.getFamilyView(info.homePerson!);
+    const fam = view.partnerships[0]?.familyId ?? view.parentSets[0]!.familyId;
+    const before = await api.chartOpenWhole();
+    await api.apply({ type: 'addSiblingMarker', family: fam });
+    const marker = (await api.getFamily(fam)).children.find((c) => c.person.siblingMarker)!.person;
+    expect(marker.living).toBe(false);
+    const after = await api.chartOpenWhole();
+    expect(after.meta.nodeCount).toBe(before.meta.nodeCount);
+    expect(after.blocks.map((x) => x.people)).toEqual(before.blocks.map((x) => x.people));
+    await expect(api.getFamilyView(marker.id)).rejects.toMatchObject({ code: 'not_found', message: expect.stringContaining('unnamed brothers and sisters') });
+    await expect(api.getPerson(marker.id)).rejects.toMatchObject({ code: 'not_found', message: expect.stringContaining('no details') });
+    await expect(api.chartOpen({ kind: 'descendants', root: marker.id, generations: 3 })).rejects.toMatchObject({ code: 'not_found' });
   });
 });

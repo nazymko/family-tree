@@ -124,7 +124,7 @@ pub(super) fn add_sibling_marker(p: &mut Planner, family: Uuid) -> Result<Option
 }
 
 /// An unnamed-siblings marker exists only as a child of one family: it goes with the link.
-fn remove_if_marker(p: &mut Planner, person: Uuid) {
+pub(super) fn remove_if_marker(p: &mut Planner, person: Uuid) {
     if p.find::<Person>(person).is_some_and(|x| x.sibling_marker) {
         p.remove::<Person>(person);
     }

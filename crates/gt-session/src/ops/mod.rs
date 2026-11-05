@@ -159,7 +159,7 @@ impl<'a> Planner<'a> {
         let person: Person = self.get(id)?;
         if person.sibling_marker {
             return Err(invalid(
-                "The entry for unnamed brothers and sisters cannot be linked to anyone. Delete it instead.",
+                "The entry for unnamed brothers and sisters holds nothing and cannot be used here. Delete it instead.",
             ));
         }
         Ok(person)

@@ -59,7 +59,17 @@ pub(super) fn delete_person(p: &mut Planner, id: Uuid) -> Result<Option<Uuid>, A
             p.abandon(&link.citations, &[], true);
         }
         f.children.retain(|c| c.person != id);
-        if f.partner1.is_none() && f.partner2.is_none() && f.children.is_empty() {
+        // A family left with only an unnamed-siblings marker has nobody to belong to.
+        let only_markers = f.children.iter().all(|c| {
+            p.tree
+                .persons
+                .get(&c.person)
+                .is_some_and(|x| x.sibling_marker)
+        });
+        if f.partner1.is_none() && f.partner2.is_none() && only_markers {
+            for c in &f.children {
+                super::family::remove_if_marker(p, c.person);
+            }
             p.abandon(&f.common.citations, &f.common.notes, true);
             dead_families.insert(f.common.id);
             p.remove::<Family>(f.common.id);

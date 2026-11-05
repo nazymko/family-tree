@@ -669,7 +669,8 @@
   }
 
   function recentre(n: ChartNode): void {
-    if (!n.person) return;
+    // The "more brothers and sisters" entry is nobody to centre on.
+    if (!n.person || n.person.siblingMarker) return;
     animateTo(centerOn(cam, n, size));
     if (n.relation) onRecentre(n.person.id, relationText(n));
     else onRecentre(n.person.id);
@@ -734,7 +735,7 @@
     if (!cur) return;
     const w = toWorld(e);
     const handle = hitHandle(cur.win, kind, w.x, w.y, cam.zoom, reversed);
-    if (handle?.person) {
+    if (handle?.person && !handle.person.siblingMarker) {
       if (handle.relation) onRecentre(handle.person.id, relationText(handle));
       else onRecentre(handle.person.id);
       return;
@@ -818,7 +819,7 @@
       const n = hit && hit.dupOf !== null ? (cur.win.nodes.find((x) => x.id === hit.dupOf) ?? hit) : hit;
       if (n) {
         select(n);
-        person = n.person?.id ?? null;
+        person = realPerson(n)?.id ?? null;
       }
     }
     void pictureMenu?.openAt(e.clientX, e.clientY, person);

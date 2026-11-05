@@ -745,7 +745,7 @@
       const n = hitTest(cur.win, w.x, w.y);
       if (n) {
         select(n);
-        person = n.person?.id ?? null;
+        person = realPerson(n)?.id ?? null;
       }
     }
     void pictureMenu?.openAt(e.clientX, e.clientY, person);

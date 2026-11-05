@@ -141,6 +141,9 @@ pub fn family_view(s: &Session, id: Uuid) -> Result<FamilyViewDto, ApiError> {
     let focus = s
         .person_ref(id)
         .ok_or_else(|| ApiError::not_found("person", id))?;
+    if focus.sibling_marker {
+        return Err(ApiError::sibling_marker(id));
+    }
     let mut seen: HashSet<Uuid> = HashSet::from([id]);
     let mut siblings: Vec<Uuid> = Vec::new();
     for (fid, _) in s.links.child_in.get(&id).into_iter().flatten() {

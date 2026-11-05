@@ -68,19 +68,12 @@ fn marker_not_counted() {
 }
 
 #[test]
-fn marker_not_searched() {
+fn marker_survives_reload() {
+    // A marker has no name, so no query could ever match it: what matters is that the saved
+    // flag comes back (the store tests cover the search table itself).
     let (dir, mut s) = open_tree(&tree_of(WITH_SISTER));
     let fam = family_of(&s, find(s.tree(), "Hans"));
     let m = add_marker(&mut s, fam);
-    for q in ["Schmidt", "Hans", "Unknown", "Anna", "a", "n"] {
-        let hits = s.search(q, 50).unwrap();
-        assert!(
-            hits.iter()
-                .all(|h| h.person.as_ref().is_none_or(|p| p.id != m)),
-            "{q}"
-        );
-    }
-    // The saved rows survive a reload, and the flag with them.
     s.close();
     let s = Session::open(
         &dir.path().join("project"),
@@ -88,12 +81,7 @@ fn marker_not_searched() {
     )
     .unwrap();
     assert_eq!(markers(&s), vec![m]);
-    assert!(
-        s.search("Schmidt", 50)
-            .unwrap()
-            .iter()
-            .all(|h| h.person.as_ref().is_none_or(|p| p.id != m))
-    );
+    assert!(s.person_ref(m).unwrap().sibling_marker);
     s.verify_derived_state().unwrap();
 }
 
@@ -323,5 +311,268 @@ fn marker_belongs_to_its_one_family() {
         parent_rel: None,
     };
     assert_eq!(s.apply(add).unwrap_err().code, ErrorCode::Invalid);
+    s.verify_derived_state().unwrap();
+}
+
+fn marker_of_hans(s: &mut Session) -> (Uuid, Uuid) {
+    let hans = find(s.tree(), "Hans");
+    let fam = family_of(s, hans);
+    (fam, add_marker(s, fam))
+}
+
+fn owner(id: Uuid) -> OwnerRef {
+    OwnerRef {
+        kind: OwnerKind::Person,
+        id,
+    }
+}
+
+fn refused(s: &mut Session, cmd: EditCommand) {
+    let before = s.tree().clone();
+    let err = s.apply(cmd).unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid, "{}", err.message);
+    assert_eq!(*s.tree(), before);
+    s.verify_derived_state().unwrap();
+}
+
+#[test]
+fn marker_is_not_a_chart_root_family_view_or_person() {
+    let (_d, mut s) = open_tree(&tree_of(WITH_SISTER));
+    let (_, m) = marker_of_hans(&mut s);
+    for kind in [
+        ChartKind::Pedigree,
+        ChartKind::Descendants,
+        ChartKind::Relatives,
+    ] {
+        let err = s
+            .chart_open(&ChartRequest {
+                kind,
+                root: m,
+                generations: 3,
+                aunts_uncles: None,
+            })
+            .unwrap_err();
+        assert_eq!(err.code, ErrorCode::NotFound);
+        assert!(err.message.contains("unnamed brothers and sisters"));
+    }
+    let err = s.family_view(m).unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound);
+    assert!(err.message.contains("unnamed brothers and sisters"));
+    let err = s.get_person(m).unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound);
+    assert!(err.message.contains("no details"));
+    // Anyone else still opens.
+    let hans = find(s.tree(), "Hans");
+    s.family_view(hans).unwrap();
+}
+
+#[test]
+fn whole_tree_count_leaves_markers_out() {
+    let (_d, mut s) = open_tree(&tree_of(WITH_SISTER));
+    let before = s.chart_open_whole().unwrap();
+    let people: u32 = before.blocks.iter().map(|b| b.people).sum();
+    marker_of_hans(&mut s);
+    let after = s.chart_open_whole().unwrap();
+    assert_eq!(after.meta.node_count, before.meta.node_count);
+    assert_eq!(after.blocks.iter().map(|b| b.people).sum::<u32>(), people);
+    assert_eq!(
+        after.blocks.iter().map(|b| &b.title).collect::<Vec<_>>(),
+        before.blocks.iter().map(|b| &b.title).collect::<Vec<_>>()
+    );
+    // The marker is still drawn: the layout has one more node than the people.
+    let win = s
+        .chart_window(
+            after.meta.chart_id,
+            &Rect {
+                x: -1e6,
+                y: -1e6,
+                w: 2e6,
+                h: 2e6,
+            },
+            1.0,
+        )
+        .unwrap();
+    assert_eq!(win.nodes.len() as u32, after.meta.node_count + 1);
+}
+
+#[test]
+fn marker_living_flag_is_false() {
+    let (_d, mut s) = open_tree(&tree_of(WITH_SISTER));
+    let (_, m) = marker_of_hans(&mut s);
+    assert!(!s.person_ref(m).unwrap().living);
+    // A person with no dates is living, so the flag is not simply false everywhere.
+    assert!(s.person_ref(find(s.tree(), "Eva")).unwrap().living);
+}
+
+#[test]
+fn marker_refuses_note() {
+    let (_d, mut s) = open_tree(&tree_of(WITH_SISTER));
+    let (_, m) = marker_of_hans(&mut s);
+    refused(
+        &mut s,
+        EditCommand::SaveNote {
+            target: owner(m),
+            note: NoteInput {
+                id: None,
+                kind: NoteKindDto::General,
+                text: "two more daughters".into(),
+            },
+        },
+    );
+}
+
+#[test]
+fn marker_refuses_citation() {
+    let (_d, mut s) = open_tree(&tree_of(WITH_SISTER));
+    let (_, m) = marker_of_hans(&mut s);
+    refused(
+        &mut s,
+        EditCommand::AddCitation {
+            target: owner(m),
+            citation: CitationArg::New(CitationInput {
+                source: SourceRef::New(NewSource {
+                    title: "Parish book".into(),
+                }),
+                page: None,
+                date_raw: None,
+                text: None,
+                quality: None,
+                evidence: None,
+            }),
+        },
+    );
+}
+
+/// A media record to point commands at (attached to Eva, who is a real person).
+fn some_media(dir: &tempfile::TempDir, s: &mut Session) -> Uuid {
+    let eva = find(s.tree(), "Eva");
+    let file = dir.path().join("note.pdf");
+    std::fs::write(&file, b"%PDF-1.4\n%fake body\n").unwrap();
+    let r = s.attach_files(owner(eva), &[file]).unwrap();
+    assert_eq!(r.attached.len(), 1);
+    s.tree().media.keys().next().copied().unwrap()
+}
+
+#[test]
+fn marker_refuses_media() {
+    let (d, mut s) = open_tree(&tree_of(WITH_SISTER));
+    let media = some_media(&d, &mut s);
+    let (_, m) = marker_of_hans(&mut s);
+    refused(
+        &mut s,
+        EditCommand::AttachMedia {
+            target: owner(m),
+            media: vec![media],
+        },
+    );
+    refused(&mut s, EditCommand::SetPrimaryMedia { person: m, media });
+    let file = d.path().join("more.pdf");
+    std::fs::write(&file, b"%PDF-1.4\n%another body\n").unwrap();
+    let before = s.tree().clone();
+    assert!(s.attach_files(owner(m), &[file]).is_err());
+    assert_eq!(*s.tree(), before);
+}
+
+#[test]
+fn marker_refuses_import_draft_over_it() {
+    let (_d, mut s) = open_tree(&tree_of(WITH_SISTER));
+    let (_, m) = marker_of_hans(&mut s);
+    refused(
+        &mut s,
+        EditCommand::ImportDraft {
+            persons: vec![DraftPerson {
+                key: "a".into(),
+                existing: Some(m),
+                given: None,
+                surname: None,
+                patronymic: None,
+                sex: SexKind::Unknown,
+                birth_date_raw: Some("1900".into()),
+                death_date_raw: None,
+                notes: None,
+            }],
+            families: vec![],
+            attach_picture: false,
+        },
+    );
+}
+
+#[test]
+fn marker_refuses_edits_names_and_events() {
+    let (_d, mut s) = open_tree(&tree_of(WITH_SISTER));
+    let (_, m) = marker_of_hans(&mut s);
+    refused(
+        &mut s,
+        EditCommand::UpdatePerson {
+            id: m,
+            sex: Some(SexKind::Female),
+            sex_text: None,
+            living_override: LivingPatch::Keep,
+            private: None,
+        },
+    );
+    refused(
+        &mut s,
+        EditCommand::SaveName {
+            person: m,
+            name: NameInput {
+                id: None,
+                kind: NameKindDto::Birth,
+                kind_text: None,
+                preferred: true,
+                private: false,
+                prefix: None,
+                given: Some("Zed".into()),
+                call: None,
+                surname_prefix: None,
+                surnames: vec![],
+                patronymic: None,
+                suffix: None,
+                nickname: None,
+                lang: None,
+                date_raw: None,
+            },
+        },
+    );
+    refused(
+        &mut s,
+        EditCommand::SaveEvent {
+            owner: EventOwner {
+                kind: EventOwnerKind::Person,
+                id: m,
+            },
+            event: EventInput {
+                id: None,
+                kind: "birth".into(),
+                date_raw: Some("1900".into()),
+                place_text: None,
+                place_id: None,
+                description: None,
+                age: None,
+                cause: None,
+                negative: false,
+                private: false,
+                preferred: true,
+                participants: None,
+            },
+        },
+    );
+}
+
+#[test]
+fn family_left_with_only_a_marker_goes_with_its_last_member() {
+    let ged = "0 @I1@ INDI\n1 NAME Hans /Schmidt/\n1 SEX M\n1 FAMC @F1@\n\
+0 @F1@ FAM\n1 CHIL @I1@\n";
+    let (_d, mut s) = open_tree(&tree_of(ged));
+    let hans = find(s.tree(), "Hans");
+    let fam = family_of(&s, hans);
+    let m = add_marker(&mut s, fam);
+    s.apply(EditCommand::DeletePerson { id: hans }).unwrap();
+    assert!(s.tree().families.is_empty(), "the family is gone");
+    assert!(s.tree().persons.is_empty(), "and the marker with it");
+    s.verify_derived_state().unwrap();
+    s.undo().unwrap().unwrap();
+    assert_eq!(s.tree().families[&fam].children.len(), 2);
+    assert_eq!(markers(&s), vec![m]);
     s.verify_derived_state().unwrap();
 }
