@@ -279,6 +279,13 @@ fn work(c: &HttpClient, items: &BTreeMap<u32, String>) -> Run {
         "link_people",
         json!({"batch": batch, "person": petro, "relation": {"to": stepan, "as": "father"}}),
     );
+    // Forbidden attempts, each of which must be refused: a second father.
+    let other_ivan = find(c, "Ivan Koval", "1899");
+    let message = c.call_err(
+        "link_people",
+        json!({"batch": batch, "person": other_ivan, "relation": {"to": stepan, "as": "father"}}),
+    );
+    assert!(message.contains("already has a father"), "{message}");
     note(
         on("person", stepan),
         format!("Mother unsettled. {}", items[&5]),
@@ -309,11 +316,20 @@ fn work(c: &HttpClient, items: &BTreeMap<u32, String>) -> Run {
         "add_event",
         json!({"batch": batch, "person": ivan, "kind": "death", "date": "1975"}),
     );
-    // The sex of the owner's person stays: a set is no change, whatever the answer says.
-    let _ = c.call_raw(
+    // Sex on the owner's person is refused, not silently ignored.
+    let sexed = c.call_err(
         "set_sex",
         json!({"batch": batch, "person": yaroslav, "sex": "male"}),
     );
+    assert!(sexed.contains("would change sex"), "{sexed}");
+    // The owner's patronymic cannot be overwritten with the other version.
+    let names = c.call("get_person", json!({"id": ivan}))["names"].clone();
+    let overwrite = c.call_err(
+        "update_own_name",
+        json!({"batch": batch, "person": ivan, "name": names[0]["id"], "patronymic": "Pavlovych"}),
+    );
+    assert!(overwrite.contains("patronymic"), "{overwrite}");
+    assert!(overwrite.contains("Agents only add"), "{overwrite}");
     // 9. A death on someone alive is refused, so it becomes a note.
     let anna = find(c, "Anna Koval", "1985");
     let refused = c.call_err(
@@ -473,6 +489,45 @@ fn the_file_is_worked_through_over_http_and_a_rerun_adds_nothing() {
             "the tree differs from before the agent"
         )
     });
+    server.stop();
+
+    // And what is stored agrees: close the session, open the project again and read it back.
+    let dir = host._dir.as_ref().unwrap().path().join("project");
+    drop(host.session.lock().unwrap().take());
+    let stored = gt_store::Project::open(&dir).unwrap().load_tree().unwrap();
+    assert!(
+        plain(&before) == plain(&stored),
+        "the stored tree differs from before the agent"
+    );
+}
+
+/// The gate cannot tell that a source's "this parent or that one" was either-or: a mother link
+/// into an empty role is an addition and passes. Keeping it out is the rules' job (rule 8) and
+/// the agent's; the tool descriptions say so too. This pins down what the gate does.
+#[test]
+fn the_gate_lets_a_mother_into_an_empty_role_so_either_or_is_the_rules_job() {
+    let host = Arc::new(seeded().host);
+    let server = serve(Arc::clone(&host), 0).unwrap();
+    let c = HttpClient::new(server.port());
+    let batch = c.call("begin_batch", json!({"title": "Either-or"}))["batch"].clone();
+    let stepan = c.call(
+        "add_person",
+        json!({"batch": batch, "given": "Stepan", "surnames": ["Koval"], "source_file": FILE, "number": "5"}),
+    )["id"]
+        .clone();
+    let maria = find(&c, "Maria Koval", "1875");
+    let linked = c.call(
+        "link_people",
+        json!({"batch": batch, "person": maria, "relation": {"to": stepan, "as": "mother"}}),
+    );
+    assert!(linked["family"].is_string(), "{linked}");
+    // A second mother, though, is refused.
+    let other = find(&c, "Olena Koval", "1905");
+    let message = c.call_err(
+        "link_people",
+        json!({"batch": batch, "person": other, "relation": {"to": stepan, "as": "mother"}}),
+    );
+    assert!(message.contains("already has a mother"), "{message}");
     server.stop();
 }
 

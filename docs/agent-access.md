@@ -39,8 +39,8 @@ It can add:
 - people (with names, sex, a birth date and place), and families;
 - links between people already in the tree, and extra names for a person;
 - events, notes, sources and citations;
-- one **marker** for brothers and sisters a source mentions without names (the app draws it as *&lt;Some more Sisters/Brothers&gt;* in the
-  current language, and it has no name or date);
+- one **marker** for brothers and sisters a source mentions without names (the app draws it as a label reading "Some more
+  Sisters/Brothers" in the current language, and it has no name or date);
 - the file number of a person, so that a second run finds them again.
 
 It works in **batches**. A batch has a title, such as the name of the file the agent is working from, and ends with the
@@ -91,8 +91,9 @@ to be created again.
 What the agent wrote before then stays in the tree. A batch it never closed shows as *Unfinished* in the log. It is still
 valid, and you can review or undo it like any other.
 
-With the app open but no tree open, every tool answers that no tree is open. If you open a different tree, an agent's open
-batch belongs to the old one and writes to it are refused; the agent starts a new batch.
+With the app open but no tree open, every tool answers that no tree is open. A batch is stored in the tree it was opened in.
+If you open a different tree, writes to the old batch are refused with "This batch is not in the tree that is open now"; the
+agent opens a new batch. The old batch is still there, unfinished, when you open the old tree again.
 
 ## Security, in plain words
 
@@ -111,6 +112,7 @@ batch belongs to the old one and writes to it are refused; the agent starts a ne
 - You cannot ask an agent to add a death date to someone the app counts as living, or to fill the sex of someone you entered.
   Do those yourself in the person editor, then ask the agent to carry on.
 - Text is limited: a note, event description or citation text up to 64 KiB, a source's text up to 1 MiB, a batch report up to
-  64 KiB. For something longer the agent puts it on a source.
+  64 KiB. For something longer the agent puts it on a source. A whole request (everything the agent sends in one call) may be
+  at most 8 MiB.
 - A rerun over the same file adds nothing, provided the agent gave each person its number from that file. Notes, events and
   citations that say the same thing are recognised too.

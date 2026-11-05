@@ -147,8 +147,8 @@ fn three_hundred_agent_writes_on_five_thousand_people() {
 }
 
 #[test]
-#[ignore = "slow: 5,000 people and 5,000 agent changes"]
-fn the_first_page_of_the_log_with_five_thousand_changes() {
+#[ignore = "slow: 5,000 people, 5,000 user and 5,000 agent groups in the log"]
+fn the_first_page_of_a_log_of_ten_thousand_groups() {
     let (host, ids) = big();
     let agent = ctx();
     {
