@@ -205,6 +205,7 @@ impl Session {
                     text: n.text.clone(),
                     shared: n.shared,
                     lang: n.lang.clone(),
+                    media: self.media_dtos(&n.common.media),
                 })
             })
             .collect()

@@ -440,6 +440,121 @@ fn gtmedia_protocol_serves_thumb_and_404() {
     );
 }
 
+/// 3000 bytes of a valid WAV header and silence; generated here.
+fn wav_file() -> Vec<u8> {
+    let data = vec![0u8; 2956];
+    let mut out = b"RIFF".to_vec();
+    out.extend((36 + data.len() as u32).to_le_bytes());
+    out.extend(b"WAVEfmt ");
+    out.extend(16u32.to_le_bytes());
+    out.extend([1, 0, 1, 0]);
+    out.extend(8000u32.to_le_bytes());
+    out.extend(16000u32.to_le_bytes());
+    out.extend([2, 0, 16, 0]);
+    out.extend(b"data");
+    out.extend((data.len() as u32).to_le_bytes());
+    out.extend(data);
+    out
+}
+
+/// A project whose first person has a note with a voice sample; returns the sample's media id.
+fn state_with_voice_sample(root: &Path) -> (AppState, uuid::Uuid) {
+    use gt_session::{EditCommand, NoteInput, NoteKindDto};
+    let proj = project_from(root, "tree", &ged(1, "1900"));
+    let state = state_in(root);
+    commands::open_project_impl(&state, proj.to_str().unwrap()).unwrap();
+    let person = first_id(&state);
+    let clip = root.join("clip.bin");
+    std::fs::write(&clip, wav_file()).unwrap();
+    let id = state
+        .with_session(|s| {
+            s.apply(EditCommand::SaveNote {
+                target: OwnerRef {
+                    kind: OwnerKind::Person,
+                    id: person,
+                },
+                note: NoteInput {
+                    id: None,
+                    kind: NoteKindDto::General,
+                    text: "Told at the table.".into(),
+                },
+            })?;
+            let note = s.get_person(person)?.notes[0].id;
+            let r = s.attach_files(
+                OwnerRef {
+                    kind: OwnerKind::Note,
+                    id: note,
+                },
+                &[clip],
+            )?;
+            Ok(r.attached[0].id)
+        })
+        .unwrap();
+    (state, id)
+}
+
+#[test]
+fn gtmedia_serves_a_voice_sample_whole_and_in_ranges() {
+    let dir = tempfile::tempdir().unwrap();
+    let (state, id) = state_with_voice_sample(dir.path());
+    let path = format!("/{id}/original");
+    let whole = protocol::respond(&state, &path);
+    assert_eq!(whole.status(), 200);
+    assert_eq!(whole.headers()["content-type"], "audio/wav");
+    assert_eq!(whole.headers()["accept-ranges"], "bytes");
+    assert_eq!(whole.body().len(), 3000);
+
+    let part = protocol::respond_range(&state, &path, Some("bytes=0-99"));
+    assert_eq!(part.status(), 206);
+    assert_eq!(part.headers()["content-range"], "bytes 0-99/3000");
+    assert_eq!(part.body().as_slice(), &whole.body()[..100]);
+
+    let open = protocol::respond_range(&state, &path, Some("bytes=2900-"));
+    assert_eq!(open.status(), 206);
+    assert_eq!(open.headers()["content-range"], "bytes 2900-2999/3000");
+    assert_eq!(open.body().len(), 100);
+
+    let tail = protocol::respond_range(&state, &path, Some("bytes=-50"));
+    assert_eq!(tail.status(), 206);
+    assert_eq!(tail.headers()["content-range"], "bytes 2950-2999/3000");
+
+    let past = protocol::respond_range(&state, &path, Some("bytes=3000-"));
+    assert_eq!(past.status(), 416);
+
+    // Not a range we understand: the whole file, as if no header came.
+    let odd = protocol::respond_range(&state, &path, Some("items=1-2"));
+    assert_eq!(odd.status(), 200);
+    assert_eq!(odd.body().len(), 3000);
+
+    // Sound has no thumbnail or preview; the page asks for neither, and a stray ask is a 404.
+    for size in ["thumb", "preview"] {
+        let r = protocol::respond(&state, &format!("/{id}/{size}"));
+        assert_eq!(r.status(), 404, "{size}");
+    }
+}
+
+#[test]
+fn range_headers_are_read_strictly() {
+    use protocol::{ByteRange, parse_range};
+    assert_eq!(parse_range("bytes=0-"), Some(ByteRange::From(0, None)));
+    assert_eq!(parse_range("bytes=5-9"), Some(ByteRange::From(5, Some(9))));
+    assert_eq!(parse_range("bytes=-7"), Some(ByteRange::Last(7)));
+    assert_eq!(
+        parse_range("bytes=0-1, 5-9"),
+        Some(ByteRange::From(0, Some(1)))
+    );
+    for bad in [
+        "bytes=9-5",
+        "bytes=a-b",
+        "bytes=",
+        "bytes",
+        "chars=0-1",
+        "bytes=--",
+    ] {
+        assert_eq!(parse_range(bad), None, "{bad}");
+    }
+}
+
 #[test]
 fn gtmedia_url_built_by_the_ui_is_served_and_encoded_slash_is_rejected() {
     let dir = tempfile::tempdir().unwrap();

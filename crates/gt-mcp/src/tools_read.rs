@@ -225,7 +225,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "get_media",
-            description: "A media file's details and the file itself: a picture as an image, shrunk to max_size pixels on its longest side, so a smaller max_size means a smaller answer; anything else, or a picture that cannot be decoded, as a blob of up to 8 MiB.",
+            description: "A media file's details and the file itself: a picture as an image, shrunk to max_size pixels on its longest side, so a smaller max_size means a smaller answer; a sound recording (a note's voice sample) as its details only, never its bytes; anything else, or a picture that cannot be decoded, as a blob of up to 8 MiB.",
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -962,7 +962,12 @@ fn list_notes<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
                 .map(|(id, r)| (*id, vec![Cow::Borrowed(r.text.as_str())]))
                 .collect()
         },
-        |s, id| s.tree().notes.get(&id).map(records::note_list_row),
+        |s, id| {
+            s.tree()
+                .notes
+                .get(&id)
+                .map(|n| records::note_list_row(s, n))
+        },
     )
 }
 
@@ -1092,6 +1097,10 @@ fn get_media<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     })?;
     let block = match path {
         None => text("The file is missing from the project folder."),
+        Some(path) if mime.starts_with("audio/") => text(&format!(
+            "This is a sound recording ({mime}, {} bytes). Its bytes are not sent to agents; the              details above are all there is to read.",
+            std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
+        )),
         Some(path) if mime.starts_with("image/") => picture_block(&path, max_size, id, &mime),
         Some(path) => blob_block(&path, id, &mime),
     };

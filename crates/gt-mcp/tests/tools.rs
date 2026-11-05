@@ -353,6 +353,121 @@ fn get_media_large_document_gets_a_message() {
     assert!(content[1]["text"].as_str().unwrap().contains("8 MiB"));
 }
 
+/// A tiny valid WAV (8 kHz, mono, 16 bit) of `n` samples, generated here.
+fn wav_bytes(n: usize) -> Vec<u8> {
+    let data = vec![0u8; n * 2];
+    let mut out = b"RIFF".to_vec();
+    out.extend((36 + data.len() as u32).to_le_bytes());
+    out.extend(b"WAVEfmt ");
+    out.extend(16u32.to_le_bytes());
+    out.extend([1, 0, 1, 0]);
+    out.extend(8000u32.to_le_bytes());
+    out.extend(16000u32.to_le_bytes());
+    out.extend([2, 0, 16, 0]);
+    out.extend(b"data");
+    out.extend((data.len() as u32).to_le_bytes());
+    out.extend(data);
+    out
+}
+
+/// Ivan Koval with one note and a voice sample on it; returns the person, note and media ids.
+fn person_with_voice_sample(host: &TestHost, bytes: &[u8]) -> (Uuid, Uuid, Uuid) {
+    let (id, note) = with(host, |s| {
+        let id = add_person(s, draft("Ivan", "Koval", None, None));
+        add_note(s, id, "He told this one at the table.");
+        let note = s.get_person(id).unwrap().notes[0].id;
+        (id, note)
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("table-story.wav");
+    std::fs::write(&path, bytes).unwrap();
+    let media = with(host, |s| {
+        let r = s
+            .attach_files(
+                OwnerRef {
+                    kind: OwnerKind::Note,
+                    id: note,
+                },
+                std::slice::from_ref(&path),
+            )
+            .unwrap();
+        assert!(r.failed.is_empty(), "{:?}", r.failed);
+        r.attached[0].id
+    });
+    with(host, |s| {
+        s.apply(EditCommand::UpdateMedia {
+            id: media,
+            title: Some("At the table".into()),
+            description: None,
+            date_raw: None,
+        })
+        .unwrap();
+    });
+    (id, note, media)
+}
+
+#[test]
+fn get_media_of_a_voice_sample_is_details_only_never_the_bytes() {
+    let host = empty_host();
+    let bytes = wav_bytes(400);
+    let (_, _, media) = person_with_voice_sample(&host, &bytes);
+    let result = call_raw(&host, "get_media", json!({"id": media}));
+    assert_ne!(result["isError"], json!(true), "{result}");
+    let content = result["content"].as_array().unwrap();
+    assert_eq!(content.len(), 2);
+    let details: Value = serde_json::from_str(content[0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(details["mime"], "audio/wav");
+    assert_eq!(details["title"], "At the table");
+    assert_eq!(content[1]["type"], "text");
+    // No blob, no base64 of the file anywhere in the reply.
+    let whole = result.to_string();
+    assert!(!whole.contains("blob"), "{whole}");
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    assert!(!whole.contains(&b64[..40]), "bytes leaked");
+}
+
+#[test]
+fn get_media_of_a_big_voice_sample_is_the_same_short_answer() {
+    let host = empty_host();
+    let (_, _, media) = person_with_voice_sample(&host, &wav_bytes(5 << 20));
+    let result = call_raw(&host, "get_media", json!({"id": media}));
+    assert_ne!(result["isError"], json!(true), "{result}");
+    assert!(result.to_string().len() < 4000);
+}
+
+#[test]
+fn notes_list_their_voice_samples_with_title_type_and_size() {
+    let host = empty_host();
+    let bytes = wav_bytes(400);
+    let (person, note, media) = person_with_voice_sample(&host, &bytes);
+    let expect = json!([{
+        "id": media,
+        "title": "At the table",
+        "originalName": "table-story.wav",
+        "mime": "audio/wav",
+        "sizeBytes": bytes.len(),
+        "resolved": true,
+    }]);
+    let p = call(&host, "get_person", json!({"id": person}));
+    assert_eq!(p["notes"][0]["voiceSamples"], expect);
+    let n = call(&host, "get_note", json!({"id": note}));
+    assert_eq!(n["voiceSamples"], expect);
+    let listed = call(&host, "list_notes", json!({}));
+    assert_eq!(listed["items"][0]["voiceSamples"], expect);
+}
+
+#[test]
+fn a_note_without_a_recording_has_no_voice_samples_field() {
+    let host = empty_host();
+    let id = with(&host, |s| {
+        let id = add_person(s, draft("Olena", "Koval", None, None));
+        add_note(s, id, "Plain.");
+        id
+    });
+    let p = call(&host, "get_person", json!({"id": id}));
+    assert!(p["notes"][0].get("voiceSamples").is_none());
+}
+
 #[test]
 fn paged_lists() {
     let host = empty_host();

@@ -42,6 +42,8 @@ pub enum OwnerKind {
     Event,
     Media,
     Citation,
+    /// A note: only media (voice samples) can be attached to it.
+    Note,
     ChildLink,
 }
 

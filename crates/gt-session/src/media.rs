@@ -51,6 +51,21 @@ pub struct AttachResult {
     pub failed: Vec<AttachFailure>,
 }
 
+/// The most one ranged reply carries. A player asks again for the next piece, so a long
+/// recording never has to sit in memory whole.
+pub const MAX_RANGE_BYTES: u64 = 4 << 20;
+
+/// One piece of an original file, for a `206 Partial Content` reply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaSlice {
+    pub bytes: Vec<u8>,
+    pub mime: String,
+    /// Offset of the first byte in the file.
+    pub start: u64,
+    /// Size of the whole file.
+    pub total: u64,
+}
+
 /// File types the pipeline accepts, found from the first bytes only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -60,6 +75,16 @@ pub(crate) enum Kind {
     Gif,
     Tiff,
     Pdf,
+    /// MPEG audio (layer III) or anything starting with an ID3 tag.
+    Mp3,
+    Wav,
+    /// Ogg container: Vorbis, Opus or FLAC-in-Ogg.
+    Ogg,
+    /// MPEG-4 audio (`.m4a`).
+    M4a,
+    /// Raw AAC in ADTS frames.
+    Aac,
+    Flac,
 }
 
 impl Kind {
@@ -71,11 +96,24 @@ impl Kind {
             Kind::Gif => "image/gif",
             Kind::Tiff => "image/tiff",
             Kind::Pdf => "application/pdf",
+            Kind::Mp3 => "audio/mpeg",
+            Kind::Wav => "audio/wav",
+            Kind::Ogg => "audio/ogg",
+            Kind::M4a => "audio/mp4",
+            Kind::Aac => "audio/aac",
+            Kind::Flac => "audio/flac",
         }
     }
 
+    pub(crate) fn is_audio(self) -> bool {
+        matches!(
+            self,
+            Kind::Mp3 | Kind::Wav | Kind::Ogg | Kind::M4a | Kind::Aac | Kind::Flac
+        )
+    }
+
     pub(crate) fn is_image(self) -> bool {
-        self != Kind::Pdf
+        !self.is_audio() && self != Kind::Pdf
     }
 }
 
@@ -95,6 +133,46 @@ pub(crate) fn sniff(head: &[u8]) -> Option<Kind> {
         Some(Kind::Tiff)
     } else if head.starts_with(b"%PDF-") {
         Some(Kind::Pdf)
+    } else {
+        sniff_audio(head)
+    }
+}
+
+/// Audio containers, by their first 16 bytes. Each check wants more than a bare two-byte sync
+/// so that an unrelated binary file is not taken for sound.
+fn sniff_audio(head: &[u8]) -> Option<Kind> {
+    if head.len() >= 12 && head.starts_with(b"RIFF") && head.get(8..12) == Some(b"WAVE") {
+        Some(Kind::Wav)
+    } else if head.starts_with(b"OggS") {
+        Some(Kind::Ogg)
+    } else if head.starts_with(b"fLaC") {
+        Some(Kind::Flac)
+    } else if head.starts_with(b"ID3") {
+        Some(Kind::Mp3)
+    } else if head.len() >= 12 && head.get(4..8) == Some(b"ftyp") {
+        // Only the brands audio recorders write; a video or a HEIC picture is also `ftyp`.
+        match head.get(8..12)? {
+            b"M4A " | b"M4B " | b"M4P " | b"mp42" | b"isom" => Some(Kind::M4a),
+            _ => None,
+        }
+    } else if let [0xFF, b1, b2, ..] = *head {
+        if b1 & 0xF6 == 0xF0 {
+            // ADTS: sync 0xFFF, layer bits 00; sampling-frequency index below 13.
+            return ((b2 >> 2) & 0x0F < 13).then_some(Kind::Aac);
+        }
+        // MPEG audio frame: 11 sync bits, version not reserved, layer III, bitrate index
+        // neither "free" nor "bad", sampling index not reserved.
+        let version = (b1 >> 3) & 3;
+        let layer = (b1 >> 1) & 3;
+        let bitrate = b2 >> 4;
+        let rate = (b2 >> 2) & 3;
+        (b1 & 0xE0 == 0xE0
+            && version != 1
+            && layer == 1
+            && bitrate != 0
+            && bitrate != 0x0F
+            && rate != 3)
+            .then_some(Kind::Mp3)
     } else {
         None
     }
@@ -140,6 +218,16 @@ impl Session {
     pub(crate) fn media_dims(&self, id: Uuid, stored: &str) -> (Option<u32>, Option<u32>) {
         if let Some(hit) = self.media_dims.borrow().get(&id) {
             return hit.map_or((None, None), |(w, h)| (Some(w), Some(h)));
+        }
+        // Sound has no size, and the file is not opened to find that out.
+        if self
+            .tree
+            .media
+            .get(&id)
+            .and_then(|m| m.mime.as_deref())
+            .is_some_and(|m| m.starts_with("audio/"))
+        {
+            return (None, None);
         }
         let Some(file) = self.resolve_media_file(stored) else {
             return (None, None);
@@ -281,7 +369,9 @@ impl Session {
             MediaSize::Preview => ThumbSize::Preview,
         };
         let no_preview = || ApiError::new(ErrorCode::NotFound, "No preview for this file type.");
-        if m.mime.as_deref() == Some("application/pdf") {
+        if m.mime.as_deref() == Some("application/pdf")
+            || m.mime.as_deref().is_some_and(|t| t.starts_with("audio/"))
+        {
             return Err(no_preview());
         }
         let bytes =
@@ -294,6 +384,46 @@ impl Session {
                 }
             })?;
         Ok((bytes, "image/jpeg".into()))
+    }
+
+    /// A piece of the original file, `start..=end` (`end` open: as far as one reply may go),
+    /// read without loading the rest. `None` when `start` is past the end of the file.
+    pub fn media_range(
+        &self,
+        id: Uuid,
+        start: u64,
+        end: Option<u64>,
+    ) -> Result<Option<MediaSlice>, ApiError> {
+        use std::io::{Seek, SeekFrom};
+        let m = self
+            .tree
+            .media
+            .get(&id)
+            .ok_or_else(|| ApiError::not_found("media", id))?;
+        let file = self
+            .resolve_media_file(&m.path)
+            .ok_or_else(|| ApiError::not_found("media file", id))?;
+        let io = |_| ApiError::new(ErrorCode::Io, "cannot read file");
+        let mut f = std::fs::File::open(&file).map_err(io)?;
+        let total = f.metadata().map_err(io)?.len();
+        let mut head = Vec::with_capacity(16);
+        (&mut f).take(16).read_to_end(&mut head).map_err(io)?;
+        let kind =
+            sniff(&head).ok_or_else(|| ApiError::new(ErrorCode::Invalid, "unsupported type"))?;
+        if start >= total {
+            return Ok(None);
+        }
+        let last = end.unwrap_or(u64::MAX).min(total - 1);
+        let len = (last.saturating_sub(start) + 1).min(MAX_RANGE_BYTES);
+        f.seek(SeekFrom::Start(start)).map_err(io)?;
+        let mut bytes = Vec::new();
+        f.take(len).read_to_end(&mut bytes).map_err(io)?;
+        Ok(Some(MediaSlice {
+            bytes,
+            mime: kind.mime().into(),
+            start,
+            total,
+        }))
     }
 
     /// Capture date and GPS position from the picture's EXIF data, when it has any.

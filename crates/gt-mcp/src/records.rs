@@ -146,7 +146,31 @@ fn note_kind(kind: &NoteKind) -> (&'static str, Option<&str>) {
     }
 }
 
-fn note_fields(note: &Note) -> Fields {
+/// The sound recordings attached to a note: what they are, never their bytes.
+fn voice_samples(s: &Session, common: &Common) -> Vec<Value> {
+    common
+        .media
+        .iter()
+        .filter_map(|link| s.tree().media.get(&link.media))
+        .filter(|m| m.mime.as_deref().is_some_and(|t| t.starts_with("audio/")))
+        .map(|m| {
+            let file = s.media_original_path(m.common.id).ok();
+            json!({
+                "id": m.common.id,
+                "title": m.title,
+                "originalName": m.original_name,
+                "mime": m.mime,
+                "sizeBytes": file.and_then(|f| std::fs::metadata(f).ok()).map(|f| f.len()),
+                "resolved": s.media_dtos(&[MediaLink { media: m.common.id, region: None, primary: false }])
+                    .first()
+                    .is_some_and(|d| d.media.resolved),
+            })
+        })
+        .collect()
+}
+
+fn note_fields(s: &Session, note: &Note) -> Fields {
+    let samples = voice_samples(s, &note.common);
     let Note {
         common: _,
         kind,
@@ -155,14 +179,18 @@ fn note_fields(note: &Note) -> Fields {
         shared,
     } = note;
     let (kind, kind_text) = note_kind(kind);
-    fields_of(json!({
+    let mut out = fields_of(json!({
         "kind": kind,
         "kindText": kind_text,
         "text": text,
         "textLength": text.chars().count(),
         "lang": lang,
         "shared": shared,
-    }))
+    }));
+    if !samples.is_empty() {
+        out.insert("voiceSamples".into(), Value::Array(samples));
+    }
+    out
 }
 
 /// Leaves only the start of a very long text in `field` of a row, and how to read the rest.
@@ -194,21 +222,21 @@ pub(crate) fn cut_text(fields: &mut Fields, field: &str, what: &str, tool: &str,
 }
 
 /// A note as a row in another record. A very long one comes as its start and how to read the rest.
-pub(crate) fn note_row(note: &Note) -> Value {
-    let mut fields = note_fields(note);
+pub(crate) fn note_row(s: &Session, note: &Note) -> Value {
+    let mut fields = note_fields(s, note);
     cut_long_text(&mut fields, "text", "note", "get_note", note.common.id);
     extend(common_by_id(&note.common), fields)
 }
 
 /// A note read by id.
 pub(crate) fn note_full(s: &Session, note: &Note) -> Value {
-    extend(common_resolved(s, &note.common), note_fields(note))
+    extend(common_resolved(s, &note.common), note_fields(s, note))
 }
 
 /// A note in a list: the start of its text only.
-pub(crate) fn note_list_row(note: &Note) -> Value {
+pub(crate) fn note_list_row(s: &Session, note: &Note) -> Value {
     const PREVIEW_CHARS: usize = 200;
-    let mut fields = note_fields(note);
+    let mut fields = note_fields(s, note);
     fields.insert(
         "text".into(),
         json!(note.text.chars().take(PREVIEW_CHARS).collect::<String>()),
@@ -218,7 +246,7 @@ pub(crate) fn note_list_row(note: &Note) -> Value {
 
 fn note_rows(s: &Session, ids: &[Uuid]) -> Vec<Value> {
     ids.iter()
-        .filter_map(|id| s.tree().notes.get(id).map(note_row))
+        .filter_map(|id| s.tree().notes.get(id).map(|n| note_row(s, n)))
         .collect()
 }
 
