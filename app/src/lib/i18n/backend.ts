@@ -213,7 +213,7 @@ function dateGrammar(display: string): string | null {
 
 /** One fact of the change log. Fixed words are translated; what the owner or an agent wrote stays as written. */
 export function factText(fact: LogFactDto): string {
-  const name = (s: string) => (s === 'Unknown' ? t('changeLog.unknownPerson') : s);
+  const name = (s: string) => (s === 'Unknown' ? t('changeLog.unknownPerson') : s === '\u0001siblings' ? t('person.siblingMarker') : s);
   if (fact.kind === 'text') return name(fact.text);
   if (fact.kind === 'family') {
     const [a, b] = fact.partners.map(name);

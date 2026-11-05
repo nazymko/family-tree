@@ -43,6 +43,8 @@
   const LIST_SEP = '\u001f';
   /** Stands for a record that was deleted and cannot be read any more. */
   const REMOVED = '\u0001removed';
+  /** Stands for the entry of unnamed brothers and sisters, which has no name. */
+  const SIBLINGS = '\u0001siblings';
   const YES_NO = new Set(['preferred', 'private', 'shared', 'negative', 'original', 'primaryInfo', 'direct', 'childPreferred', 'mediaPrimary']);
   const PEOPLE = new Set(['partner1', 'partner2', 'child']);
   const NOTE_KINDS = ['general', 'story', 'research', 'transcription', 'conclusion'];
@@ -77,14 +79,14 @@
   /** A stored token in words; text fields come out as stored. `null` when the side is empty. */
   function word(field: string, v: string | null): string | null {
     const w = plain(field, v);
-    return w === null ? null : w.replaceAll(REMOVED, t('fieldChange.removed'));
+    return w === null ? null : w.replaceAll(REMOVED, t('fieldChange.removed')).replaceAll(SIBLINGS, t('person.siblingMarker'));
   }
 
   /** The people of a row's `of`, an unknown one in words, joined with the language's "and". */
   function ofText(of: string): string {
     return of
       .split(LIST_SEP)
-      .map((p) => (p === 'Unknown' ? t('changeLog.unknownPerson') : p))
+      .map((p) => (p === 'Unknown' ? t('changeLog.unknownPerson') : p === SIBLINGS ? t('person.siblingMarker') : p))
       .join(` ${t('fieldChange.and')} `);
   }
 

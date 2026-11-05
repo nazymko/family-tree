@@ -1162,6 +1162,9 @@
   .box.marker .nm {
     font-weight: 400;
     font-style: italic;
+    /* The label has to be read whole: nothing else on this box says what it is. */
+    white-space: normal;
+    overflow: visible;
   }
   .box:hover {
     border-color: var(--ink-2);

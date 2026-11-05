@@ -16,6 +16,12 @@ const rows = () =>
     .map((r) => [...r.children].map((c) => c.textContent?.replace(/\s+/g, ' ').trim()));
 
 describe('FieldChanges', () => {
+  it('names_the_unnamed_siblings_entry_instead_of_unknown', () => {
+    render(FieldChanges, { fields: [{ field: 'child', before: null, after: '\u0001siblings', of: '\u0001siblings' }] });
+    expect(document.body.textContent).toContain('<Some more Sisters/Brothers>');
+    expect(document.body.textContent).not.toContain('\u0001');
+  });
+
   it('is a table of the field, its value before and its value after', () => {
     render(FieldChanges, { fields: [surname, { field: 'given', before: 'Ivan', after: 'Olena' }] });
     const head = screen.getAllByRole('columnheader').map((h) => h.textContent);

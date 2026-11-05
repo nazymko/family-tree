@@ -55,6 +55,10 @@ pub const LIST_SEP: char = '\u{1f}';
 /// The UI words it in its own language; it never appears in stored data.
 pub const REMOVED: &str = "\u{1}removed";
 
+/// What stands for the entry of unnamed brothers and sisters where a name would go. It has no name,
+/// and "Unknown" would read as a person. The UI words it in its own language.
+pub const SIBLING_MARKER: &str = "\u{1}siblings";
+
 fn yes(b: bool) -> String {
     if b { "yes" } else { "no" }.to_string()
 }

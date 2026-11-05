@@ -3,7 +3,9 @@
 use crate::command::{HistoryOp, OwnerKind, OwnerRef, SkippedFact};
 use crate::dto::{CitationDto, NoteDto, Page};
 use crate::error::{ApiError, ErrorCode};
-use crate::field_diff::{FieldChangeDto, LIST_SEP, REMOVED, Words, record_field_changes};
+use crate::field_diff::{
+    FieldChangeDto, LIST_SEP, REMOVED, SIBLING_MARKER, Words, record_field_changes,
+};
 use crate::names::display_name;
 use crate::ops::record_in;
 use crate::person_detail::{event_kind_id, event_label};
@@ -401,6 +403,7 @@ impl Session {
 
     fn logged_name(&self, id: Uuid, group: &[Change]) -> String {
         match self.find_logged(RecordKind::Person, id, group) {
+            Some(Record::Person(p)) if p.sibling_marker => SIBLING_MARKER.to_string(),
             Some(Record::Person(p)) => display_name(&p, self.settings.name_order),
             _ => "Unknown".to_string(),
         }
@@ -416,6 +419,9 @@ impl Session {
     /// One record in readable words.
     pub(crate) fn describe(&self, rec: &Record, group: &[Change]) -> String {
         match self.fact(rec, group) {
+            LogFactDto::Text { text } if text == SIBLING_MARKER => {
+                "Some more Sisters/Brothers".to_string()
+            }
             LogFactDto::Text { text } => text,
             LogFactDto::Family { partners } if partners.is_empty() => "Family".to_string(),
             LogFactDto::Family { partners } => partners.join(" and "),
@@ -460,6 +466,7 @@ impl Session {
 
     fn record_text(&self, rec: &Record, group: &[Change]) -> String {
         match rec {
+            Record::Person(p) if p.sibling_marker => SIBLING_MARKER.to_string(),
             Record::Person(p) => display_name(p, self.settings.name_order),
             Record::Family(_) | Record::Event(_) => String::new(),
             Record::Place(p) => p

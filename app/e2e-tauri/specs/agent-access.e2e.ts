@@ -97,7 +97,8 @@ async function choose(label: string, value: string) {
   await select.selectByAttribute('value', value);
 }
 
-const nav = (name: string) => $(`//nav[@aria-label="Main"]//a[normalize-space(.)="${name}"]`);
+// By its link only: the nav's own label is translated too, and this spec switches language.
+const nav = (name: string) => $(`//nav//a[normalize-space(.)="${name}"]`);
 
 async function open(name: string) {
   const a = await nav(name);

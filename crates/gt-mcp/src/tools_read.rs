@@ -328,7 +328,11 @@ fn plain_markers(v: &mut Value) {
         Value::String(s) if s.contains([gt_session::field_diff::LIST_SEP, '\u{1}']) => {
             *s = s
                 .replace(gt_session::field_diff::LIST_SEP, " and ")
-                .replace(gt_session::field_diff::REMOVED, "(removed)");
+                .replace(gt_session::field_diff::REMOVED, "(removed)")
+                .replace(
+                    gt_session::field_diff::SIBLING_MARKER,
+                    "<Some more Sisters/Brothers>",
+                );
         }
         Value::Array(a) => a.iter_mut().for_each(plain_markers),
         Value::Object(o) => o.values_mut().for_each(plain_markers),
@@ -1220,8 +1224,15 @@ mod tests {
 #[cfg(test)]
 mod marker_tests {
     use super::plain_markers;
-    use gt_session::field_diff::{LIST_SEP, REMOVED};
+    use gt_session::field_diff::{LIST_SEP, REMOVED, SIBLING_MARKER};
     use serde_json::json;
+
+    #[test]
+    fn the_unnamed_siblings_entry_reads_as_itself() {
+        let mut v = json!({"of": SIBLING_MARKER});
+        plain_markers(&mut v);
+        assert_eq!(v, json!({"of": "<Some more Sisters/Brothers>"}));
+    }
 
     #[test]
     fn the_apps_markers_become_plain_words_at_any_depth() {
