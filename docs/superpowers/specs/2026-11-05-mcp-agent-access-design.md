@@ -153,9 +153,10 @@ refused, because these are additive only in form (Design call):
 
 - a second birth event, or any other event a person has only one of, when one already exists
 - a parent link on a child who already has a parent in that role
-- a death or burial event on a person the tree treats as living, or anything else that would change them to deceased. The
-  agent leaves a note and lists the case in its report; the owner confirms. (Design call, taken as the owner's default: a
-  transcript can be wrong about who died, especially with shared names.)
+- anything that would change whether an existing person counts as alive or dead, in either direction, directly or
+  indirectly. That covers a death or burial event on someone treated as living, the living override, and a birth date or
+  link that would make the app's calculation flip. The server checks the result of the write, not just its type. The
+  agent leaves a note and lists the case in its report; only the owner changes this status. (Your decision)
 
 A refusal tells the agent to write a note instead. Mistakes by an agent in earlier runs are for the owner to undo from the
 log.
@@ -218,7 +219,8 @@ Undo from the log works from what the log stores, since the in-memory undo steps
   restart; Ctrl+Z over an agent's later change stops.
 - Migration: a version 2 tree opens, its history reads "Before tracking", nothing is lost.
 - Marker entry: not counted, not searched, not exported, one per family.
-- Refusals and repeats: a second birth, a second father, or a death on someone treated as living is refused; two files may share a number; an identical repeat adds
+- Refusals and repeats: a second birth, a second father, or any write that flips an existing person's alive or dead status
+  (a death event, or a birth date that changes the calculation) is refused and leaves the tree unchanged; two files may share a number; an identical repeat adds
   nothing. Undo per fact: undoing one of two notes keeps the other; a later owner edit survives.
 - End to end on the real app, with a scripted MCP client in the automated tests and a synthetic transcript summary with
   namesakes, an unnamed sibling group, a contested patronymic and an either-or parent: run it twice and check there are no
