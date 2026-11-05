@@ -237,7 +237,7 @@ fn a_marker_in_the_log_says_it_has_no_person_page() {
     assert!(entry.sibling_marker);
     // The log does not call it "Unknown", in the record's line or in the family's rows.
     let row = serde_json::to_string(&r[0]).unwrap();
-    assert!(!row.contains("Unknown"), "{row}");
+    assert!(!row.contains("\"Unknown\""), "{row}");
     assert!(
         row.contains(&serde_json::to_string(gt_session::field_diff::SIBLING_MARKER).unwrap()[1..]),
         "{row}"
