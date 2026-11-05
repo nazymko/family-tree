@@ -117,12 +117,13 @@
 
   /** Neighbouring rows about the same name share one heading instead of repeating it. */
   const groups = $derived.by(() => {
-    const out: { heading: string; rows: FieldChangeDto[] }[] = [];
+    const out: { heading: string; id: string | undefined; rows: FieldChangeDto[] }[] = [];
     for (const f of fields) {
       const heading = who(f);
       const last = out[out.length - 1];
-      if (last && last.heading === heading) last.rows.push(f);
-      else out.push({ heading, rows: [f] });
+      // Two names can read alike ("Name 1 (birth)": one removed, one kept); the id tells them apart.
+      if (last && last.heading === heading && last.id === f.nameId) last.rows.push(f);
+      else out.push({ heading, id: f.nameId, rows: [f] });
     }
     return out;
   });

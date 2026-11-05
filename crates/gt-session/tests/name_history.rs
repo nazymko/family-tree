@@ -245,6 +245,41 @@ fn which_name_is_named_only_with_several_names() {
 }
 
 #[test]
+fn deleting_the_first_of_two_same_kind_names_keeps_the_rows_apart_by_name_id() {
+    let first = name(1);
+    let mut second = name(2);
+    second.given = Some("Ivan Petro".into());
+    let before = person(vec![first, second.clone()]);
+    let mut kept_name = second;
+    kept_name.nickname = Some("Vanya".into());
+    let after = person(vec![kept_name]);
+    let d = person_field_changes(&before, &after);
+    // Both read "Name 1 (birth)", so only the id tells the rows apart.
+    assert!(
+        d.iter()
+            .all(|f| f.name_number == Some(1) && f.name_kind.as_deref() == Some("birth"))
+    );
+    let kept: Vec<_> = d
+        .iter()
+        .filter(|f| f.name_id == Some(Uuid::from_u128(2)))
+        .collect();
+    let gone: Vec<_> = d
+        .iter()
+        .filter(|f| f.name_id == Some(Uuid::from_u128(1)))
+        .collect();
+    assert_eq!(kept.len() + gone.len(), d.len(), "{d:?}");
+    assert_eq!(
+        kept.iter().map(|f| f.field.as_str()).collect::<Vec<_>>(),
+        ["nickname"]
+    );
+    assert!(gone.iter().all(|f| f.after.is_none()));
+    assert!(
+        gone.iter()
+            .any(|f| f.field == "given" && f.before.as_deref() == Some("Ivan"))
+    );
+}
+
+#[test]
 fn moving_the_main_name_is_a_change_of_position_and_preferred() {
     let (a, b) = (name(1), name(2));
     let before = person(vec![a.clone(), b.clone()]);

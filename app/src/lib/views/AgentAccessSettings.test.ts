@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import AgentAccessSettings from './AgentAccessSettings.svelte';
@@ -151,6 +151,21 @@ describe('AgentAccessSettings', () => {
     await user.type(port, '70000');
     await user.tab();
     await waitFor(() => expect(port).toHaveValue(65535));
+  });
+
+  it('the_enable_toggle_never_sends_an_uncommitted_port_unclamped', async () => {
+    const user = userEvent.setup();
+    const api = mount();
+    const set = vi.spyOn(api, 'agentAccessSet');
+    const toggle = await screen.findByRole('checkbox', { name: TOGGLE });
+    const port = screen.getByRole('spinbutton', { name: 'Port' });
+    await user.clear(port);
+    await user.type(port, '80');
+    // Ticking Enable with the typed port still in the field (no blur in between).
+    await fireEvent.click(toggle);
+    await waitFor(() => expect(set).toHaveBeenCalled());
+    for (const [, sent] of set.mock.calls) expect(sent).toBeGreaterThanOrEqual(1024);
+    expect(set.mock.calls[0][1]).toBe(1024);
   });
 
   it('port_error_shown', async () => {

@@ -86,6 +86,25 @@ describe('FieldChanges', () => {
     expect(r).toHaveLength(5);
   });
 
+  it('keeps the rows of two names apart by name id even when number and kind read the same', () => {
+    render(FieldChanges, {
+      fields: [
+        { field: 'position', nameNumber: 1, nameKind: 'birth', nameId: 'n2', before: '2', after: '1' },
+        { field: 'given', nameNumber: 1, nameKind: 'birth', nameId: 'n1', before: 'Ivan', after: null },
+        { field: 'surnames', nameNumber: 1, nameKind: 'birth', nameId: 'n1', before: 'Koval', after: null },
+      ],
+    });
+    const r = rows();
+    expect(r.map((x) => x[0])).toEqual([
+      'Name 1 (Birth name)',
+      'Order among names (1 is the main name)',
+      'Name 1 (Birth name)',
+      'Given name',
+      'Surname',
+    ]);
+    expect(r).toHaveLength(5);
+  });
+
   it('uses the plural label only when a side holds several surnames', () => {
     render(FieldChanges, { fields: [{ field: 'surnames', before: 'Koval', after: 'Koval, Petrenko' }] });
     expect(rows()).toEqual([['Surnames', 'Koval', 'Koval, Petrenko']]);

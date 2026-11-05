@@ -205,19 +205,47 @@ fn citations_of(r: &Record) -> Vec<Uuid> {
     out
 }
 
-/// A field value cut to `FIELD_PREVIEW` characters.
+/// Characters of context kept before the first difference when a long value is clipped.
+const CLIP_LEAD: usize = 40;
+
+/// `s` from char `start`, at most `FIELD_PREVIEW` chars, with an ellipsis on a side that was cut.
+fn window(s: &str, start: usize) -> String {
+    let mut rest = s.chars().skip(start);
+    let cut: String = rest.by_ref().take(FIELD_PREVIEW).collect();
+    let more = rest.next().is_some();
+    let mut out = String::new();
+    if start > 0 {
+        out.push('…');
+    }
+    out.push_str(if more { cut.trim_end() } else { &cut });
+    if more {
+        out.push('…');
+    }
+    out
+}
+
+/// A field's Before and After cut to `FIELD_PREVIEW` characters each. When both are there and
+/// either is too long, both start at the same place: just before they first differ, so an edit
+/// far into a long text still shows. A side that was cut carries an ellipsis there.
 fn clip_fields(fields: &mut [FieldChangeDto]) {
-    let clip = |v: &mut Option<String>| {
-        if let Some(s) = v
-            && s.chars().count() > FIELD_PREVIEW
-        {
-            let cut: String = s.chars().take(FIELD_PREVIEW).collect();
-            *v = Some(format!("{}…", cut.trim_end()));
-        }
-    };
     for f in fields {
-        clip(&mut f.before);
-        clip(&mut f.after);
+        let long = |v: &Option<String>| {
+            v.as_ref()
+                .is_some_and(|s| s.chars().count() > FIELD_PREVIEW)
+        };
+        if !long(&f.before) && !long(&f.after) {
+            continue;
+        }
+        let start = match (&f.before, &f.after) {
+            (Some(b), Some(a)) => {
+                let same = b.chars().zip(a.chars()).take_while(|(x, y)| x == y).count();
+                same.saturating_sub(CLIP_LEAD)
+            }
+            _ => 0,
+        };
+        for s in [&mut f.before, &mut f.after].into_iter().flatten() {
+            *s = window(s, start);
+        }
     }
 }
 
@@ -851,5 +879,127 @@ pub(crate) fn history_op(op: ChangeOp) -> HistoryOp {
         ChangeOp::Create => HistoryOp::Create,
         ChangeOp::Update => HistoryOp::Update,
         ChangeOp::Delete => HistoryOp::Delete,
+    }
+}
+
+#[cfg(test)]
+mod clip_tests {
+    use super::*;
+
+    fn clipped(before: &str, after: &str) -> (String, String) {
+        let mut f = vec![FieldChangeDto {
+            field: "text".into(),
+            of: None,
+            name_number: None,
+            name_kind: None,
+            name_id: None,
+            before: Some(before.into()),
+            after: Some(after.into()),
+        }];
+        clip_fields(&mut f);
+        (
+            f[0].before.clone().unwrap_or_default(),
+            f[0].after.clone().unwrap_or_default(),
+        )
+    }
+
+    fn body(s: &str) -> &str {
+        s.trim_start_matches('…').trim_end_matches('…')
+    }
+
+    fn within_limit(s: &str) {
+        assert!(body(s).chars().count() <= FIELD_PREVIEW, "{}", s.len());
+    }
+
+    #[test]
+    fn short_values_stay_as_they_are() {
+        let (b, a) = clipped("Ivan Koval", "Olena Koval");
+        assert_eq!((b.as_str(), a.as_str()), ("Ivan Koval", "Olena Koval"));
+        let exact = "x".repeat(FIELD_PREVIEW);
+        let (b, a) = clipped(&exact, &format!("{}y", &exact[1..]));
+        assert_eq!(b, exact);
+        assert!(a.ends_with('y'));
+    }
+
+    #[test]
+    fn an_append_to_a_long_note_shows_the_added_text() {
+        let old = "word ".repeat(180);
+        let new = format!("{old}Added line about Ivan Koval.");
+        let (b, a) = clipped(&old, &new);
+        assert_ne!(b, a);
+        assert!(a.contains("Added line about Ivan Koval."), "{a}");
+        assert!(b.starts_with('…') && a.starts_with('…'));
+        assert!(!a.ends_with('…'), "the after side reaches its end: {a}");
+        within_limit(&b);
+        within_limit(&a);
+    }
+
+    #[test]
+    fn an_insert_in_the_middle_shows_it_with_context_and_marks_both_cuts() {
+        let old = format!("{}{}", "a".repeat(500), "b".repeat(500));
+        let new = format!("{}INSERTED{}", "a".repeat(500), "b".repeat(500));
+        let (b, a) = clipped(&old, &new);
+        assert!(a.contains("INSERTED"), "{a}");
+        assert!(!b.contains("INSERTED"));
+        assert!(a.starts_with('…') && a.ends_with('…'));
+        assert!(b.starts_with('…') && b.ends_with('…'));
+        within_limit(&b);
+        within_limit(&a);
+    }
+
+    #[test]
+    fn a_change_at_the_start_keeps_the_head_and_marks_only_the_end() {
+        let old = format!("Old start {}", "z".repeat(600));
+        let new = format!("New start {}", "z".repeat(600));
+        let (b, a) = clipped(&old, &new);
+        assert!(b.starts_with("Old start") && a.starts_with("New start"));
+        assert!(b.ends_with('…') && a.ends_with('…'));
+        within_limit(&b);
+        within_limit(&a);
+    }
+
+    #[test]
+    fn a_common_prefix_longer_than_the_limit_is_skipped() {
+        let prefix = "p".repeat(FIELD_PREVIEW * 3);
+        let (b, a) = clipped(&format!("{prefix}one"), &format!("{prefix}two"));
+        assert!(b.contains("one") && a.contains("two"), "{b} | {a}");
+        assert!(b.starts_with('…') && a.starts_with('…'));
+        within_limit(&b);
+        within_limit(&a);
+    }
+
+    #[test]
+    fn multi_byte_text_is_cut_on_char_boundaries() {
+        let prefix = "Родовід Ковалів 👪 ".repeat(40);
+        let (b, a) = clipped(
+            &format!("{prefix}кінець"),
+            &format!("{prefix}кінець і ще 🌳 рядок"),
+        );
+        assert!(a.contains("ще 🌳 рядок"), "{a}");
+        within_limit(&b);
+        within_limit(&a);
+        let (b, a) = clipped(
+            &format!("{prefix}😀{prefix}"),
+            &format!("{prefix}🌳{prefix}"),
+        );
+        assert!(b.contains('😀') && a.contains('🌳'));
+    }
+
+    #[test]
+    fn a_side_that_is_missing_is_clipped_on_its_own() {
+        let long = "q".repeat(500);
+        let mut f = vec![FieldChangeDto {
+            field: "text".into(),
+            of: None,
+            name_number: None,
+            name_kind: None,
+            name_id: None,
+            before: None,
+            after: Some(long),
+        }];
+        clip_fields(&mut f);
+        let a = f[0].after.clone().unwrap_or_default();
+        assert!(a.ends_with('…') && !a.starts_with('…'));
+        within_limit(&a);
     }
 }

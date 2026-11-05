@@ -775,6 +775,151 @@ fn get_person_bounds_its_notes_and_says_how_to_read_the_rest() {
     assert_eq!(seen, expected);
 }
 
+/// A person of 20 events with 3 notes of 15,000 bytes each and a long description, and 8 long citations.
+fn heavy_person(host: &TestHost) -> (Uuid, Vec<Uuid>) {
+    with(host, |s| {
+        let person = add_person(s, draft("Ivan", "Koval", None, None));
+        let source = s
+            .apply(EditCommand::SaveSource {
+                source: SourceInput {
+                    id: None,
+                    title: Some("Parish book".into()),
+                    author: None,
+                    publication: None,
+                    abbreviation: None,
+                    text: Some("T".repeat(200_000)),
+                },
+            })
+            .unwrap()
+            .touched[0];
+        for _ in 0..8 {
+            s.apply(EditCommand::AddCitation {
+                target: OwnerRef {
+                    kind: OwnerKind::Person,
+                    id: person,
+                },
+                citation: CitationArg::New(CitationInput {
+                    source: SourceRef::Id(source),
+                    page: Some("p. 3".into()),
+                    date_raw: None,
+                    text: Some("C".repeat(15_000)),
+                    quality: None,
+                    evidence: None,
+                }),
+            })
+            .unwrap();
+        }
+        for i in 0..20 {
+            let event = s
+                .apply(EditCommand::SaveEvent {
+                    owner: EventOwner {
+                        kind: EventOwnerKind::Person,
+                        id: person,
+                    },
+                    event: EventInput {
+                        id: None,
+                        kind: "residence".into(),
+                        date_raw: Some(format!("{}", 1900 + i)),
+                        place_text: None,
+                        place_id: None,
+                        description: Some("D".repeat(15_000)),
+                        age: None,
+                        cause: None,
+                        negative: false,
+                        private: false,
+                        preferred: false,
+                        participants: None,
+                    },
+                })
+                .unwrap()
+                .touched[0];
+            for n in 0..3 {
+                s.apply(EditCommand::SaveNote {
+                    target: OwnerRef {
+                        kind: OwnerKind::Event,
+                        id: event,
+                    },
+                    note: NoteInput {
+                        id: None,
+                        kind: NoteKindDto::Transcription,
+                        text: format!("{n}{}", "N".repeat(14_998)),
+                    },
+                })
+                .unwrap();
+            }
+        }
+        let notes = s.tree().notes.keys().copied().collect();
+        (person, notes)
+    })
+}
+
+#[test]
+fn get_person_keeps_its_whole_reply_in_budget_and_everything_left_out_stays_reachable() {
+    let host = empty_host();
+    let (id, all_notes) = heavy_person(&host);
+    assert_eq!(all_notes.len(), 60);
+    let raw = call_raw(&host, "get_person", json!({"id": id}));
+    let shown = raw["content"][0]["text"].as_str().unwrap();
+    assert!(shown.len() < 128 * 1024, "{} bytes", shown.len());
+    let person: Value = serde_json::from_str(shown).unwrap();
+    let omitted = &person["omitted"];
+    assert!(omitted["notes"].as_u64().unwrap() > 0, "{omitted}");
+    assert!(omitted["citations"].as_u64().unwrap() > 0, "{omitted}");
+    assert!(omitted["descriptions"].as_u64().unwrap() > 0, "{omitted}");
+    let hint = omitted["hint"].as_str().unwrap();
+    for word in ["get_note", "get_citation", "get_event"] {
+        assert!(hint.contains(word), "{hint}");
+    }
+    // Every note of every event is either in the reply or an id to read with get_note.
+    let mut seen = Vec::new();
+    let mut stubs = 0;
+    for event in person["events"].as_array().unwrap() {
+        for note in event["notes"].as_array().unwrap() {
+            seen.push(note["id"].as_str().unwrap().to_string());
+            if note["omitted"] == true {
+                stubs += 1;
+                let full = call(&host, "get_note", json!({"id": note["id"]}));
+                assert!(full["text"].as_str().unwrap().len() > 10_000);
+            }
+        }
+    }
+    seen.sort();
+    let mut want: Vec<String> = all_notes.iter().map(Uuid::to_string).collect();
+    want.sort();
+    assert_eq!(seen, want);
+    assert_eq!(stubs, omitted["notes"].as_u64().unwrap());
+    // The same for the person's citations: the omitted ones read whole by id.
+    let citations = person["citations"].as_array().unwrap();
+    assert_eq!(citations.len(), 8);
+    let left_out: Vec<_> = citations.iter().filter(|c| c["omitted"] == true).collect();
+    assert!(!left_out.is_empty());
+    for c in &left_out {
+        let full = call(&host, "get_citation", json!({"id": c["id"]}));
+        assert_eq!(full["text"].as_str().unwrap().len(), 15_000);
+    }
+    // A description that was cut comes whole with get_event.
+    let cut = person["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["descriptionTruncated"] == true)
+        .unwrap();
+    let full = call(&host, "get_event", json!({"id": cut["id"]}));
+    assert_eq!(full["description"].as_str().unwrap().len(), 15_000);
+}
+
+#[test]
+fn a_small_person_is_not_touched_by_the_reply_budget() {
+    let host = empty_host();
+    let id = with(&host, |s| {
+        let id = add_person(s, draft("Olena", "Koval", None, None));
+        add_note(s, id, "A short note");
+        id
+    });
+    let person = call(&host, "get_person", json!({"id": id}));
+    assert!(person.get("omitted").is_none(), "{person}");
+}
+
 #[test]
 fn get_person_notes_stop_at_a_size_budget_but_never_before_the_first() {
     let host = empty_host();
