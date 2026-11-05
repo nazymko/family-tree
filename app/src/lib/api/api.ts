@@ -40,6 +40,7 @@ import type {
   UndoState,
   WholeMeta,
 } from './types';
+import type { AgentAccessState, NewConnectionDto } from './types';
 
 export type * from './types';
 
@@ -115,6 +116,16 @@ export interface Api {
   savePicture(dest: string, bytes: Uint8Array): Promise<{ bytes: number }>;
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;
+  // --- Agent access ---
+  agentAccessState(): Promise<AgentAccessState>;
+  /** Turns the local MCP server on or off and sets its port. A taken port comes back as `error` in the state, not as a rejection. */
+  agentAccessSet(enabled: boolean, port: number): Promise<AgentAccessState>;
+  /** The key and snippet in the answer are the only time they exist in plain text. */
+  agentConnectionCreate(name: string): Promise<NewConnectionDto>;
+  agentConnectionRevoke(id: string): Promise<void>;
+  /** The rules every connecting agent receives, as plain text. */
+  agentRules(): Promise<string>;
+  // --- end of Agent access ---
 }
 
 /** OS dialogs and drag-drop; separate from Api so the mock can fake it. */

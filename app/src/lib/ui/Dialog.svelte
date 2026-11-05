@@ -9,7 +9,16 @@
     onclose,
     children,
     footer,
-  }: { open: boolean; title: string; onclose: () => void; children: Snippet; footer?: Snippet } = $props();
+    dismissOnScrim = true,
+  }: {
+    open: boolean;
+    title: string;
+    onclose: () => void;
+    children: Snippet;
+    footer?: Snippet;
+    /** False when a stray click outside must not close the dialog (Esc and the close button still do). */
+    dismissOnScrim?: boolean;
+  } = $props();
 
   const uid = $props.id();
   let panel = $state<HTMLElement>();
@@ -56,7 +65,7 @@
 </script>
 
 {#if open}
-  <div class="scrim" role="presentation" onmousedown={(e) => e.target === e.currentTarget && onclose()}>
+  <div class="scrim" role="presentation" onmousedown={(e) => dismissOnScrim && e.target === e.currentTarget && onclose()}>
     <div
       bind:this={panel}
       class="dialog"
