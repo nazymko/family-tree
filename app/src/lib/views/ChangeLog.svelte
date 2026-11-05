@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import type { BatchDto, Id, LogAgentDto, LogFilterDto, LogPersonDto, LogRowDto, UndoReport } from '../api/types';
+  import type { BatchDto, Id, LogAgentDto, LogFilterDto, LogPersonDto, LogRowDto } from '../api/types';
   import { getApi } from '../api/context';
   import { errMessage } from '../editors/errors';
   import { agentChanges } from '../state/agentChanges.svelte';
@@ -11,11 +11,11 @@
   import Badge from '../ui/Badge.svelte';
   import Button from '../ui/Button.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
-  import Dialog from '../ui/Dialog.svelte';
   import Select from '../ui/Select.svelte';
   import { currentLocale, plural, t } from '../i18n';
-  import { agentLabel, editLabel, factText, recordKindLabel } from '../i18n/backend';
+  import { agentLabel, editLabel, factText } from '../i18n/backend';
   import LogChanges from './LogChanges.svelte';
+  import UndoDialog, { type Pending } from './UndoDialog.svelte';
 
   const PAGE = 50;
   const api = getApi();
@@ -140,48 +140,16 @@
     }
   }
 
-  type Pending = { kind: 'group'; id: string } | { kind: 'batch'; id: string; title: string };
   let pending = $state<Pending | null>(null);
-  let report = $state<UndoReport | null>(null);
-  let busy = $state(false);
-  let undoError = $state('');
-  let summary = $state<HTMLElement>();
 
   function ask(p: Pending) {
-    undoError = '';
-    report = null;
     pending = p;
   }
 
-  async function confirmUndo() {
-    if (busy || !pending) return;
-    busy = true;
-    undoError = '';
-    try {
-      report = pending.kind === 'group' ? await api.undoChangeGroup(pending.id) : await api.undoChangeBatch(pending.id);
-      void agentChanges.reload();
-      // The button just pressed has gone with the question.
-      await tick();
-      summary?.focus();
-    } catch (e) {
-      undoError = errMessage(e);
-    } finally {
-      busy = false;
-    }
-  }
-
   async function closeDialog() {
-    // What the undo did comes back to this dialog; closing now would lose it.
-    if (busy) return;
     pending = null;
-    report = null;
-    undoError = '';
     await keepFocus();
   }
-
-  const dialogTitle = $derived(
-    report ? t('changeLog.resultTitle') : pending?.kind === 'batch' ? t('changeLog.confirmBatchTitle') : t('changeLog.confirmChangeTitle'),
-  );
 
   function openPerson(id: Id) {
     nav.focus(id);
@@ -292,34 +260,7 @@
   {/if}
 </div>
 
-<Dialog open={pending !== null} title={dialogTitle} onclose={closeDialog}>
-  {#if report}
-    <p tabindex="-1" bind:this={summary} class="summary">
-      {#if report.undone > 0 || report.skipped.length > 0}{plural('changeLog.resultUndone', report.undone)}{:else}{t('changeLog.resultNothing')}{/if}
-    </p>
-    {#if report.skipped.length > 0}
-      <p>{t('changeLog.skippedHeading')}</p>
-      <ul class="skipped">
-        {#each report.skipped as s, i (i)}
-          <li>
-            {recordKindLabel(s.kind)}{#if s.person}, <bdi dir="auto">{personName(s.person)}</bdi>{/if}: <bdi dir="auto">{factText(s.fact)}</bdi>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-  {:else if pending}
-    {#if undoError}<Banner kind="error">{undoError}</Banner>{/if}
-    <p>{pending.kind === 'batch' ? t('changeLog.confirmBatchBody', { title: pending.title }) : t('changeLog.confirmChangeBody')}</p>
-  {/if}
-  {#snippet footer()}
-    {#if report}
-      <Button variant="primary" onclick={closeDialog}>{t('changeLog.done')}</Button>
-    {:else}
-      <Button disabled={busy} onclick={closeDialog}>{t('changeLog.keep')}</Button>
-      <Button variant="danger" onclick={confirmUndo}>{t('changeLog.undo')}</Button>
-    {/if}
-  {/snippet}
-</Dialog>
+<UndoDialog {pending} onclose={closeDialog} />
 
 <style>
   .page {
@@ -416,13 +357,6 @@
   .actions {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--s-2);
-  }
-  .summary {
-    outline: none;
-    font-weight: 500;
-  }
-  .skipped {
     gap: var(--s-2);
   }
 </style>

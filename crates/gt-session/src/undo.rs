@@ -18,6 +18,7 @@ use crate::command::{DeleteImpact, EditCommand, EditResult, HistoryEntry, UndoRe
 use crate::dto::DayOrder as WireDayOrder;
 use crate::error::{ApiError, ErrorCode};
 use crate::field_diff::record_field_changes;
+use crate::log::LogWords;
 use crate::log::history_op;
 use crate::ops::{apply_to_tree_tracked, plan_with, record_in};
 use crate::revert::{dangling_writes, settle_kept, touches, undo_on_tree};
@@ -376,15 +377,32 @@ impl Session {
         self.edit.last_citation.as_ref()
     }
 
-    /// Change-log entries of one record, newest first.
+    /// Change-log entries of one record, newest first. Field changes come only for a person
+    /// (its sex and names); every other kind carries none, which keeps a long history cheap to
+    /// read (the MCP `get_history` tool reads all of it).
     pub fn history(&self, record: Uuid, limit: usize) -> Result<Vec<HistoryEntry>, ApiError> {
+        let wanted = |h: &gt_store::HistoryEntry| {
+            matches!(h.before, Some(gt_store::Record::Person(_)))
+                || matches!(h.after, Some(gt_store::Record::Person(_)))
+        };
         Ok(self
             .project
             .history(record, limit)?
             .into_iter()
             .map(|h| HistoryEntry {
                 ts: h.ts,
-                fields: record_field_changes(h.before.as_ref(), h.after.as_ref()),
+                fields: if wanted(&h) {
+                    record_field_changes(
+                        h.before.as_ref(),
+                        h.after.as_ref(),
+                        &LogWords {
+                            session: self,
+                            group: &[],
+                        },
+                    )
+                } else {
+                    Vec::new()
+                },
                 label: h.label,
                 op: history_op(h.op),
             })

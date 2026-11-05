@@ -103,6 +103,7 @@ export * from './PlaceOption';
 export * from './PrivacyPreview';
 export * from './ProjectInfo';
 export * from './RecentProject';
+export * from './RecordHomeDto';
 export * from './Rect';
 export * from './Relation';
 export * from './RelinkResult';

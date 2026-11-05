@@ -7,7 +7,11 @@ export type LogChangeDto = {
 /**
  * `person`, `family`, `event`, `place`, `source`, `repository`, `citation`, `media`, `note`.
  */
-kind: string, op: HistoryOp, 
+kind: string, 
+/**
+ * The record's id, to open it.
+ */
+id: string, op: HistoryOp, 
 /**
  * The record in readable words: a note's first words, an event's kind and date.
  */
@@ -21,6 +25,7 @@ fact: LogFactDto,
  */
 sources: Array<string>, 
 /**
- * For a changed person: which sex and name fields went from what to what.
+ * Which fields went from what to what, with ids in words. In the change log's pages a long
+ * value is cut short; the person page's list has it whole.
  */
 fields: Array<FieldChangeDto>, };

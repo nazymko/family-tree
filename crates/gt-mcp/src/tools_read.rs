@@ -317,6 +317,21 @@ fn internal(e: serde_json::Error) -> ApiError {
     ApiError::new(ErrorCode::Internal, e.to_string())
 }
 
+/// Field changes carry two markers for the app (a list separator and a removed-record mark); an agent
+/// gets plain words instead.
+fn plain_markers(v: &mut Value) {
+    match v {
+        Value::String(s) if s.contains([gt_session::field_diff::LIST_SEP, '\u{1}']) => {
+            *s = s
+                .replace(gt_session::field_diff::LIST_SEP, " and ")
+                .replace(gt_session::field_diff::REMOVED, "(removed)");
+        }
+        Value::Array(a) => a.iter_mut().for_each(plain_markers),
+        Value::Object(o) => o.values_mut().for_each(plain_markers),
+        _ => {}
+    }
+}
+
 fn to_value(v: &impl Serialize) -> Result<Value, ApiError> {
     serde_json::to_value(v).map_err(internal)
 }
@@ -1053,7 +1068,8 @@ fn get_log<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     }
     let result = read(host, |s| {
         let rows = s.log(filter.clone(), page.offset, page.limit)?;
-        let items = rows.items.iter().map(to_value).collect::<Result<_, _>>()?;
+        let mut items: Vec<Value> = rows.items.iter().map(to_value).collect::<Result<_, _>>()?;
+        items.iter_mut().for_each(plain_markers);
         Ok(paged(rows.total as usize, page, items))
     })?;
     answer(&result)
@@ -1063,12 +1079,14 @@ fn get_history<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "id")?;
     let page = page_args(args, LOG_PAGE_MAX)?;
     let result = read(host, |s| {
-        // These rows hold no record bodies, so one record's whole history is cheap to read.
+        // Only a person's rows carry field changes; those of every other kind carry none, so a
+        // record's whole history stays cheap to read (the page below is cut after reading).
         let all = s.history(id, usize::MAX)?;
         let total = all.len();
-        let items = slice(all, page)
+        let mut items: Vec<Value> = slice(all, page)
             .map(|entry| to_value(&entry))
             .collect::<Result<_, _>>()?;
+        items.iter_mut().for_each(plain_markers);
         Ok(paged(total, page, items))
     })?;
     answer(&result)
@@ -1110,5 +1128,23 @@ mod tests {
             thread.join().unwrap();
         }
         assert_eq!(peak.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[cfg(test)]
+mod marker_tests {
+    use super::plain_markers;
+    use gt_session::field_diff::{LIST_SEP, REMOVED};
+    use serde_json::json;
+
+    #[test]
+    fn the_apps_markers_become_plain_words_at_any_depth() {
+        let mut v =
+            json!({"rows": [{"before": format!("Ivan{LIST_SEP}Marta"), "after": REMOVED}], "n": 1});
+        plain_markers(&mut v);
+        assert_eq!(
+            v,
+            json!({"rows": [{"before": "Ivan and Marta", "after": "(removed)"}], "n": 1})
+        );
     }
 }

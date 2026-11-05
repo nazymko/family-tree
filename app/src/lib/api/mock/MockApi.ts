@@ -9,6 +9,7 @@ import type {
   LogFactDto,
   LogFilterDto,
   LogRowDto,
+  RecordHomeDto,
   ReviewScopeDto,
   UndoReport,
   RelinkResult,
@@ -132,6 +133,10 @@ export interface AgentBatchSpec {
     note?: string;
     label?: string;
     kind?: string;
+    /** The record the change is about; the note it adds when omitted. */
+    record?: Id;
+    /** The table the panel shows for the change. */
+    fields?: FieldChangeDto[];
     op?: HistoryEntry['op'];
     fact?: LogFactDto;
     sources?: string[];
@@ -571,9 +576,38 @@ export class MockApi implements Api {
     return [...new Set(left.filter((p) => p.reviewed === null).map((p) => p.id))];
   }
 
-  async personAgentChanges(id: Id): Promise<LogRowDto[]> {
-    const rows = this.logRows.filter((e) => this.standing(e) && e.people.some((p) => p.id === id));
-    return rows.reverse().map((e) => this.logRow(e));
+  async personAgentChanges(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
+    const rows = this.logRows.filter((e) => e.actor.kind === 'agent' && this.standing(e) && e.people.some((p) => p.id === id)).reverse();
+    return { total: rows.length, offset, items: rows.slice(offset, offset + Math.min(limit, MAX_PAGE)).map((e) => this.logRow(e)) };
+  }
+
+  async hasUntrackedChanges(): Promise<boolean> {
+    return this.logRows.some((e) => e.actor.kind === 'beforeTracking');
+  }
+
+  async recordHome(kind: 'note' | 'citation', id: Id): Promise<RecordHomeDto | null> {
+    const holds = (bag: OwnerBag) => (kind === 'note' ? bag.notes : bag.citations)?.some((x) => x.id === id);
+    const home = (owner: OwnerRef, bag: OwnerBag): RecordHomeDto => ({
+      owner,
+      ...(kind === 'note' ? { note: structuredClone(bag.notes!.find((x) => x.id === id)!) } : { citation: structuredClone(bag.citations!.find((x) => x.id === id)!) }),
+    });
+    const bags: [OwnerRef, OwnerBag][] = [];
+    for (const p of this.db.persons.values()) {
+      bags.push([{ kind: 'person', id: p.id }, { notes: p.notes, citations: p.citations }]);
+      for (const n of p.names) bags.push([{ kind: 'name', id: n.id }, { citations: n.citations }]);
+      for (const e of p.events) bags.push([{ kind: 'event', id: e.id }, { notes: e.notes, citations: e.citations }]);
+    }
+    for (const f of this.db.families.values()) {
+      bags.push([{ kind: 'family', id: f.id }, { notes: f.notes, citations: f.citations }]);
+      for (const e of f.events) bags.push([{ kind: 'event', id: e.id }, { notes: e.notes, citations: e.citations }]);
+    }
+    const found = bags.find(([, bag]) => holds(bag));
+    return found ? home(found[0], found[1]) : null;
+  }
+
+  async personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
+    const rows = this.logRows.filter((e) => e.people.some((p) => p.id === id)).reverse();
+    return { total: rows.length, offset, items: rows.slice(offset, offset + Math.min(limit, MAX_PAGE)).map((e) => this.logRow(e)) };
   }
 
   async undoChangeGroup(group: string): Promise<UndoReport> {
@@ -635,7 +669,7 @@ export class MockApi implements Api {
         actor,
         batch,
         label: c.label ?? 'Save note',
-        changes: [{ kind: c.kind ?? 'note', op: c.op ?? 'create', detail: text, fact, sources: c.sources ?? [], fields: [] }],
+        changes: [{ kind: c.kind ?? 'note', id: c.record ?? note, op: c.op ?? 'create', detail: text, fact, sources: c.sources ?? [], fields: c.fields ?? [] }],
         people: [{ id: c.person, name: this.ref(p).name, reviewed: null }],
         fact: { person: c.person, note, conflict: c.conflict ?? false },
       });
@@ -653,7 +687,7 @@ export class MockApi implements Api {
       actor: { kind: 'beforeTracking' },
       batch: null,
       label,
-      changes: [{ kind: 'person', op: 'update', detail: name, fact: { kind: 'text', text: name }, sources: [], fields: [] }],
+      changes: [{ kind: 'person', id: person, op: 'update', detail: name, fact: { kind: 'text', text: name }, sources: [], fields: [] }],
       people: [{ id: person, name, reviewed: null }],
     });
   }
@@ -1188,7 +1222,7 @@ export class MockApi implements Api {
       actor: { kind: 'user' },
       batch: null,
       label,
-      changes: people.map((p) => ({ kind: 'person', op, detail: p.name, fact: { kind: 'text', text: p.name }, sources: [], fields: fields.get(p.id) ?? [] })),
+      changes: people.map((p) => ({ kind: 'person', id: p.id, op, detail: p.name, fact: { kind: 'text', text: p.name }, sources: [], fields: fields.get(p.id) ?? [] })),
       people,
     });
   }

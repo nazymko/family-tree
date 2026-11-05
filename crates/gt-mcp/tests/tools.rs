@@ -716,6 +716,25 @@ fn get_history_pages_like_the_log() {
 }
 
 #[test]
+fn get_history_of_a_note_carries_no_field_bodies() {
+    let host = empty_host();
+    let note = with(&host, |s| {
+        let id = add_person(s, draft("Ivan", "Koval", None, None));
+        add_note(s, id, &"A very long remembered story. ".repeat(500));
+        *s.tree().notes.keys().last().unwrap()
+    });
+    let history = call(&host, "get_history", json!({"id": note}));
+    let first = &history["items"][0];
+    assert_eq!(first["op"], "create", "{history}");
+    assert!(
+        first
+            .get("fields")
+            .is_none_or(|f| f.as_array().is_some_and(Vec::is_empty)),
+        "a note's history must stay small: {first}"
+    );
+}
+
+#[test]
 fn get_person_bounds_its_notes_and_says_how_to_read_the_rest() {
     let host = empty_host();
     let id = with(&host, |s| {
@@ -1964,4 +1983,53 @@ fn ids_of(page: &Value) -> Vec<String> {
 #[test]
 fn key_hash_is_sha256_of_the_key() {
     assert_eq!(gt_mcp::key_hash(KEY), hash(KEY));
+}
+
+#[test]
+fn log_and_history_give_agents_plain_words_not_the_app_markers() {
+    let host = empty_host();
+    let ctx = ctx();
+    let ivan = with(&host, |s| {
+        let ivan = add_person(s, draft("Ivan", "Koval", None, None));
+        add_relative(
+            s,
+            ivan,
+            Relation::Partner,
+            draft("Marta", "Koval", None, None),
+        );
+        let family = *s.tree().families.keys().last().unwrap();
+        let event = |place_id| EditCommand::SaveEvent {
+            owner: EventOwner {
+                kind: EventOwnerKind::Family,
+                id: family,
+            },
+            event: EventInput {
+                id: None,
+                kind: "marriage".into(),
+                date_raw: Some("1 Jan 1900".into()),
+                place_text: None,
+                place_id,
+                description: None,
+                age: None,
+                cause: None,
+                negative: false,
+                private: false,
+                preferred: true,
+                participants: None,
+            },
+        };
+        let batch = s.begin_batch(&ctx, "Recording 3", None).unwrap();
+        s.apply_as_agent(event(None), &ctx, batch).unwrap();
+        ivan
+    });
+    let log = call(&host, "get_log", json!({})).to_string();
+    let history = call(&host, "get_history", json!({"id": ivan.to_string()})).to_string();
+    for text in [&log, &history] {
+        let bad: Vec<char> = text
+            .chars()
+            .filter(|c| (*c as u32) < 0x20 && *c != '\n')
+            .collect();
+        assert!(bad.is_empty(), "control characters {bad:?} in {text}");
+    }
+    assert!(log.contains(" and "), "{log}");
 }

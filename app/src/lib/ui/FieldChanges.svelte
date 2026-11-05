@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { FieldChangeDto } from '../api/types';
-  import { t, type MessageKey } from '../i18n';
+  import { plural, t, type MessageKey } from '../i18n';
+  import { dateText, eventKindLabel } from '../i18n/backend';
 
   /** A table of a person's changed fields: the field, its value before and its value after. */
   let { fields }: { fields: FieldChangeDto[] } = $props();
@@ -29,26 +30,82 @@
     position: 'fieldChange.position',
   };
 
+  /** Fields of the records other than a person; each has a label `fieldChange.<id>`. */
+  const OWN = new Set([
+    'noteKind', 'text', 'shared', 'eventKind', 'when', 'place', 'description', 'age', 'cause', 'negative', 'participant',
+    'partner1', 'partner2', 'unionKind', 'child', 'childRel1', 'childRel2', 'childPreferred', 'childCitations', 'childUnknown',
+    'source', 'page', 'quality', 'original', 'primaryInfo', 'direct', 'title', 'author', 'publication', 'abbreviation',
+    'repository', 'placeNames', 'parent', 'placeKind', 'lat', 'lon', 'placeRaw', 'repoName', 'address', 'urls', 'path',
+    'originalName', 'mime', 'sha256', 'media', 'extIds', 'mediaPrimary', 'mediaRegion',
+  ]);
+
+  /** Joins the names of one row's `of` (the partners of a family); the page puts its own "and" between them. */
+  const LIST_SEP = '\u001f';
+  /** Stands for a record that was deleted and cannot be read any more. */
+  const REMOVED = '\u0001removed';
+  const YES_NO = new Set(['preferred', 'private', 'shared', 'negative', 'original', 'primaryInfo', 'direct', 'childPreferred', 'mediaPrimary']);
+  const PEOPLE = new Set(['partner1', 'partner2', 'child']);
+  const NOTE_KINDS = ['general', 'story', 'research', 'transcription', 'conclusion'];
+  const UNION: Record<string, MessageKey> = {
+    married: 'famEd.unionMarried',
+    civil_union: 'famEd.unionCivil',
+    unmarried: 'famEd.unionUnmarried',
+    unknown: 'famEd.unionUnknown',
+  };
+  const RELS: Record<string, MessageKey> = {
+    birth: 'famEd.relBirth',
+    adopted: 'famEd.relAdopted',
+    step: 'famEd.relStep',
+    foster: 'famEd.relFoster',
+    guardian: 'famEd.relGuardian',
+    sealed: 'famEd.relSealed',
+    unknown: 'famEd.relUnknown',
+  };
+  const ROLES = ['principal', 'witness', 'godparent', 'clergy', 'officiator', 'informant', 'parent', 'father', 'mother', 'child', 'spouse', 'husband', 'wife', 'friend', 'neighbor', 'multiple'];
+
   const KINDS = ['birth', 'married', 'aka', 'religious', 'nickname', 'immigrant', 'professional'];
   const SEXES = ['male', 'female', 'intersex', 'unknown'];
 
   /** Singular `Surname` unless either side holds several surnames (joined with a comma). */
   function label(field: string, f?: FieldChangeDto): string {
     if (field === 'surnames' && f && !(f.before ?? '').includes(', ') && !(f.after ?? '').includes(', ')) return t('fieldChange.surname');
+    if (OWN.has(field)) return t(`fieldChange.${field}` as MessageKey);
     const key = LABELS[field];
     return key ? t(key) : field;
   }
 
   /** A stored token in words; text fields come out as stored. `null` when the side is empty. */
   function word(field: string, v: string | null): string | null {
+    const w = plain(field, v);
+    return w === null ? null : w.replaceAll(REMOVED, t('fieldChange.removed'));
+  }
+
+  /** The people of a row's `of`, an unknown one in words, joined with the language's "and". */
+  function ofText(of: string): string {
+    return of
+      .split(LIST_SEP)
+      .map((p) => (p === 'Unknown' ? t('changeLog.unknownPerson') : p))
+      .join(` ${t('fieldChange.and')} `);
+  }
+
+  function plain(field: string, v: string | null): string | null {
     if (v === null || v === '') return null;
-    if (field === 'preferred' || field === 'private') return t(v === 'yes' ? 'fieldChange.yes' : 'fieldChange.no');
+    if (field === 'unknown' || field === 'childUnknown') return plural('fieldChange.items', Number(v));
+    if (YES_NO.has(field)) return t(v === 'yes' ? 'fieldChange.yes' : 'fieldChange.no');
     if (field === 'proof') return t(v === 'proven' ? 'fieldChange.proven' : 'fieldChange.disproven');
     if (field === 'kind' || field === 'sex') {
       if (v.startsWith('other:')) return v.slice(6) || t(field === 'kind' ? 'nameKind.other' : 'sex.other');
       if (field === 'kind' && KINDS.includes(v)) return t(`nameKind.${v}` as MessageKey);
       if (field === 'sex' && SEXES.includes(v)) return t(`sex.${v}` as MessageKey);
     }
+    if (field === 'eventKind') return eventKindLabel(v);
+    if (field === 'when') return dateText(v);
+    if (PEOPLE.has(field)) return v === 'Unknown' ? t('changeLog.unknownPerson') : v;
+    const mapped = (map: Record<string, MessageKey>, other: MessageKey) => (v.startsWith('other:') ? v.slice(6) || t(other) : map[v] ? t(map[v]) : v);
+    if (field === 'unionKind') return mapped(UNION, 'famEd.unionOther');
+    if (field === 'childRel1' || field === 'childRel2') return mapped(RELS, 'famEd.relOther');
+    if (field === 'noteKind') return v.startsWith('other:') ? v.slice(6) || t('noteKind.other') : NOTE_KINDS.includes(v) ? t(`noteKind.${v}` as MessageKey) : v;
+    if (field === 'participant') return ROLES.includes(v) ? t(`fieldChange.role.${v}` as MessageKey) : v.startsWith('other:') ? v.slice(6) || t('fieldChange.role.other') : v;
     return v;
   }
 
@@ -89,7 +146,7 @@
         {#if g.heading}<tr><th class="who" colspan="3" scope="rowgroup">{g.heading}</th></tr>{/if}
         {#each g.rows as f, j (j)}
           <tr>
-            <th scope="row">{label(f.field, f)}</th>
+            <th scope="row">{label(f.field, f) + (f.of ? ' · ' : '')}{#if f.of}<bdi dir="auto">{ofText(f.of).replaceAll(REMOVED, t('fieldChange.removed'))}</bdi>{/if}</th>
             <td>{@render value(word(f.field, f.before))}</td>
             <td>{@render value(word(f.field, f.after))}</td>
           </tr>
@@ -126,6 +183,9 @@
   }
   .who {
     font-weight: 500;
+  }
+  td {
+    white-space: pre-wrap;
   }
   .none {
     color: var(--ink-2);

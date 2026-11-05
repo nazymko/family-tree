@@ -283,7 +283,13 @@ export function runApiContract(make: () => Promise<Api>): void {
       expect(page.items[0]).toMatchObject({ actor: { kind: 'user' }, label: 'Add person', reverted: false, canUndo: false });
       expect(page.items[0].people.map((p) => p.id)).toContain(r.focus);
       expect((await api.changeLog({ unreviewedOnly: true }, 0, 10)).total).toBe(0);
-      expect(await api.personAgentChanges(r.focus!)).toEqual([]);
+      expect((await api.personAgentChanges(r.focus!, 0, 20)).items).toEqual([]);
+      expect(await api.hasUntrackedChanges()).toBe(false);
+      expect(await api.recordHome('note', r.focus!)).toBeNull();
+      const history = await api.personHistory(r.focus!, 0, 20);
+      expect(history.total).toBe(1);
+      expect(history.items[0].group).toBe(page.items[0].group);
+      expect((await api.personHistory(r.focus!, 1, 20)).items).toEqual([]);
       expect((await rejection(api.undoChangeGroup(page.items[0].group))).code).toBe('invalid');
     });
 

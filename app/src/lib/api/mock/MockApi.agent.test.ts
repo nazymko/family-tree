@@ -142,7 +142,7 @@ describe('MockApi agent writes', () => {
     });
     await api.markReviewed({ kind: 'person', id: people[0].id });
     await api.undoChangeGroup(groups[0]);
-    const rows = await api.personAgentChanges(people[0].id);
+    const rows = (await api.personAgentChanges(people[0].id, 0, 20)).items;
     expect(rows.map((r) => r.group)).toEqual([groups[1]]);
     expect(rows[0].people[0].reviewed).not.toBeNull();
   });

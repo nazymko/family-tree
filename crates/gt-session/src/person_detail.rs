@@ -29,7 +29,7 @@ fn snake(s: &str) -> String {
 }
 
 /// `Birth` -> `birth`, `MarriageBanns` -> `marriage_banns`, `Custom("x")` -> `custom:x`.
-fn enum_id<T: Serialize>(v: &T) -> String {
+pub(crate) fn enum_id<T: Serialize>(v: &T) -> String {
     match serde_json::to_value(v) {
         Ok(serde_json::Value::String(s)) => snake(&s),
         Ok(serde_json::Value::Object(map)) => match map.into_iter().next() {

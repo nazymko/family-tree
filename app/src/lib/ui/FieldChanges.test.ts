@@ -95,4 +95,41 @@ describe('FieldChanges', () => {
     const { container } = render(FieldChanges, { fields: [] });
     expect(container.querySelector('table')).toBeNull();
   });
+
+  it('puts the language\'s own "and" between the partners of a family, whatever the names say', () => {
+    const f: FieldChangeDto = { field: 'participant', of: 'Anna Koval\u001fUnknown', before: null, after: 'witness' };
+    render(FieldChanges, { fields: [f] });
+    expect(rows()[0][0]).toBe('Participant · Anna Koval and Unknown');
+  });
+
+  it('reads the partners in Ukrainian with та and a word for the unknown one', () => {
+    setLanguage('uk');
+    render(FieldChanges, { fields: [{ field: 'participant', of: 'Анна Коваль\u001fUnknown', before: null, after: 'witness' }] });
+    expect(rows()[0][0]).toContain('Анна Коваль та ');
+    expect(rows()[0][0]).not.toContain('Unknown');
+    expect(rows()[0][0]).not.toContain(' and ');
+  });
+
+  it('words a record that was removed, not as empty', () => {
+    render(FieldChanges, { fields: [{ field: 'place', before: '\u0001removed', after: null }, { field: 'citations', before: 'A; \u0001removed', after: null }] });
+    expect(rows()).toEqual([
+      ['Place', '(record removed)', 'empty'],
+      ['Citations', 'A; (record removed)', 'empty'],
+    ]);
+  });
+
+  it('counts the other data kept and the external ids, truthfully', () => {
+    render(FieldChanges, {
+      fields: [
+        { field: 'unknown', before: '2', after: '0' },
+        { field: 'extIds', before: null, after: 'agent:file: 42' },
+        { field: 'mediaPrimary', of: 'photo.jpg', before: null, after: 'yes' },
+      ],
+    });
+    expect(rows()).toEqual([
+      ['Other data', '2 items', '0 items'],
+      ['External ids', 'empty', 'agent:file: 42'],
+      ['Main picture · photo.jpg', 'empty', 'yes'],
+    ]);
+  });
 });

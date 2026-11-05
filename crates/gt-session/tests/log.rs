@@ -726,8 +726,8 @@ fn log_filters_reviews_and_batches() {
     assert_eq!(b[0].actor_id, Uuid::from_u128(7));
     assert_eq!((b[0].groups, b[0].people, b[0].unreviewed), (2, 2, 2));
 
-    assert_eq!(s.person_agent_changes(anna).unwrap().len(), 1);
-    assert_eq!(s.person_agent_changes(eva).unwrap().len(), 1);
+    assert_eq!(s.person_agent_changes(anna, 0, 20).unwrap().items.len(), 1);
+    assert_eq!(s.person_agent_changes(eva, 0, 20).unwrap().items.len(), 1);
 
     s.mark_reviewed(ReviewScopeDto::Person { id: anna })
         .unwrap();
@@ -747,13 +747,18 @@ fn log_filters_reviews_and_batches() {
     s.mark_reviewed(ReviewScopeDto::Batch { id: batch })
         .unwrap();
     assert!(s.unreviewed_people().unwrap().is_empty());
-    let row = &s.person_agent_changes(anna).unwrap()[0];
+    let row = &s.person_agent_changes(anna, 0, 20).unwrap().items[0];
     assert!(row.people.iter().all(|p| p.reviewed.is_some()));
 
     // Undoing takes the row off the person page but never out of the log.
     let g = row.group;
     s.undo_group(g).unwrap();
-    assert!(s.person_agent_changes(anna).unwrap().is_empty());
+    assert!(
+        s.person_agent_changes(anna, 0, 20)
+            .unwrap()
+            .items
+            .is_empty()
+    );
     assert!(rows(&s).iter().any(|r| r.group == g && r.reverted));
 }
 
@@ -815,7 +820,7 @@ fn partly_undone_group_keeps_its_badge_and_a_retry_finishes_it() {
     assert!(!row.reverted, "something of it still stands");
     assert!(row.can_undo);
     assert!(s.unreviewed_people().unwrap().contains(&aaa));
-    assert_eq!(s.person_agent_changes(aaa).unwrap().len(), 1);
+    assert_eq!(s.person_agent_changes(aaa, 0, 20).unwrap().items.len(), 1);
     assert_eq!(
         s.project()
             .log_group(rows(&s)[0].group)
@@ -847,7 +852,7 @@ fn partly_undone_group_keeps_its_badge_and_a_retry_finishes_it() {
     assert!(row.reverted);
     assert!(!row.can_undo);
     assert!(s.unreviewed_people().unwrap().is_empty());
-    assert!(s.person_agent_changes(aaa).unwrap().is_empty());
+    assert!(s.person_agent_changes(aaa, 0, 20).unwrap().items.is_empty());
     assert_eq!(unstamped(s.tree()), original);
     assert_consistent(&s);
 }
@@ -868,7 +873,7 @@ fn a_group_nothing_could_be_undone_of_keeps_its_badge() {
     assert!(!rep.skipped.is_empty());
     assert!(!row_of(&s, g).reverted);
     assert!(s.unreviewed_people().unwrap().contains(&greta));
-    assert_eq!(s.person_agent_changes(greta).unwrap().len(), 1);
+    assert_eq!(s.person_agent_changes(greta, 0, 20).unwrap().items.len(), 1);
 
     s.undo().unwrap().unwrap();
     let done = s.undo_group(g).unwrap();

@@ -10,9 +10,9 @@ use gt_session::{
     ExportOptions, FamilyDto, FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto,
     ImportRequest, LocationKind, LocationWarningDto, LogAgentDto, LogFilterDto, LogRowDto,
     OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery, PersonRow, PlaceOption, PrivacyPreview,
-    ProjectInfo, RecentProject, Rect, RelinkResult, ReviewScopeDto, SearchHitDto, Session,
-    Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport, UndoState,
-    WholeMeta,
+    ProjectInfo, RecentProject, RecordHomeDto, Rect, RelinkResult, ReviewScopeDto, SearchHitDto,
+    Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport,
+    UndoState, WholeMeta,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -66,6 +66,9 @@ command_list!(
     mark_reviewed,
     unreviewed_people,
     person_agent_changes,
+    person_history,
+    has_untracked_changes,
+    record_home,
     undo_change_group,
     undo_change_batch,
     history,
@@ -436,8 +439,37 @@ pub fn unreviewed_people(state: State<'_, AppState>) -> ApiResult<Vec<Uuid>> {
 }
 
 #[tauri::command(async)]
-pub fn person_agent_changes(state: State<'_, AppState>, id: Uuid) -> ApiResult<Vec<LogRowDto>> {
-    state.with_session(|s| s.person_agent_changes(id))
+pub fn person_agent_changes(
+    state: State<'_, AppState>,
+    id: Uuid,
+    offset: usize,
+    limit: usize,
+) -> ApiResult<Page<LogRowDto>> {
+    state.with_session(|s| s.person_agent_changes(id, offset, limit))
+}
+
+#[tauri::command(async)]
+pub fn has_untracked_changes(state: State<'_, AppState>) -> ApiResult<bool> {
+    state.with_session(|s| s.has_untracked_changes())
+}
+
+#[tauri::command(async)]
+pub fn record_home(
+    state: State<'_, AppState>,
+    kind: String,
+    id: Uuid,
+) -> ApiResult<Option<RecordHomeDto>> {
+    state.with_session(|s| s.record_home(&kind, id))
+}
+
+#[tauri::command(async)]
+pub fn person_history(
+    state: State<'_, AppState>,
+    id: Uuid,
+    offset: usize,
+    limit: usize,
+) -> ApiResult<Page<LogRowDto>> {
+    state.with_session(|s| s.person_history(id, offset, limit))
 }
 
 #[tauri::command(async)]
