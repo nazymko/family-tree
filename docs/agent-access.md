@@ -13,18 +13,27 @@ It is off until you turn it on.
    may send what it reads to its AI provider.
 3. The port is 8765 unless you change it (any number from 1024 to 65535). If another program already uses it, Settings says
    so; choose another.
-4. Under **Connections**, give the agent a name and press **Create connection**. Make one connection per agent. The name is
-   what the log shows next to every change.
-5. A window shows the **secret key** and a ready-made command. The key is shown once. Copy the command now; after you close
-   the window nobody can show the key again. If you lose it, revoke the connection and make a new one.
-6. Run the command in a terminal. For Claude Code it looks like this (your port and key will differ):
+4. **Without a key (the default).** Settings shows a ready-made command with no key. For Claude Code:
+
+   ```
+   claude mcp add --transport http gene-tree http://127.0.0.1:8765/mcp
+   ```
+
+   The agent then works as the built-in **Agent without a key**. All programs without a key share that one identity. They can
+   write into, and finish, each other's open batch.
+5. **With a key: a name of its own in the log.** Under **Connections**, give the agent a name and press **Create connection**.
+   Make one connection per agent. The name is what the log shows next to every change. A window shows the **secret key** and a
+   ready-made command. The key is shown once; if you lose it, revoke the connection and make a new one.
 
    ```
    claude mcp add --transport http gene-tree http://127.0.0.1:8765/mcp --header "Authorization: Bearer <the key>"
    ```
 
-   Any other MCP client that speaks HTTP works the same way: the address is `http://127.0.0.1:<port>/mcp` and the key goes in
-   an `Authorization: Bearer` header.
+6. To stop programs connecting without a key, turn on **Require a key** in the same section. It applies to the very next
+   request.
+
+Any other MCP client that speaks HTTP works the same way: the address is `http://127.0.0.1:<port>/mcp`, requests are
+`Content-Type: application/json`, and a key, if any, goes in an `Authorization: Bearer` header.
 
 **Rules agents receive** (a button in the same settings page) shows the instructions every agent is given when it connects.
 They are read only.
@@ -97,13 +106,19 @@ agent opens a new batch. The old batch is still there, unfinished, when you open
 
 ## Security, in plain words
 
-- The server listens on this computer only (`127.0.0.1`). Nothing on your network, and no web page in your browser, can reach
-  it: requests with a foreign `Host` or `Origin` are turned away.
-- Every request needs a secret key. The key is made when you create the connection and shown once.
+- Access is off until you turn it on. The server listens on this computer only (`127.0.0.1`), so nothing on your network can
+  reach it.
+- Web pages in your browser are refused in every mode: a foreign `Host`, `Origin` or `Sec-Fetch-Site` is turned away, and a
+  request must be `application/json`, which a page cannot send without the server's permission.
+- **By default no key is needed. While that is so, any program running on this computer can read and change the open tree,
+  including living relatives.** Turn on **Require a key** if you do not fully trust what runs on this computer.
+- A wrong, malformed or revoked key is always refused, even when no key is needed.
+- A key is made when you create a connection and shown once.
 - The app does not keep the key itself, only a one-way fingerprint of it (a SHA-256 hash), and that is stored in the operating
   system's keychain. Keys are never written to a log.
 - **Revoke** a connection in Settings and that agent loses access at once. Its name stays in the log of changes.
-- The author of a change always comes from the key used, never from anything the agent says about itself.
+- The author of a change always comes from the key used, or is **Agent without a key** when there is none; never from anything
+  the agent says about itself.
 - Text in your tree and in files the agent reads is treated as data. The rules tell the agent never to take instructions from it.
 - What an agent reads may go to its AI provider. Turn access off when you do not need it.
 
