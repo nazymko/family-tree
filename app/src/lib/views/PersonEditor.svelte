@@ -36,6 +36,7 @@
   import Dialog from '../ui/Dialog.svelte';
   import NameEditor from '../editors/NameEditor.svelte';
   import NoteEditor from '../editors/NoteEditor.svelte';
+  import VoiceSamples from '../media/VoiceSamples.svelte';
   import QuickAdd from '../editors/QuickAdd.svelte';
   import EventEditor from '../editors/EventEditor.svelte';
   import SurnamesEditor from '../editors/SurnamesEditor.svelte';
@@ -554,6 +555,7 @@
         <article class="note">
           <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
           <p class="note-text">{n.text}</p>
+          <VoiceSamples items={n.media} />
           <div class="btns">
             <Button onclick={() => (dialog = { kind: 'note', note: n })} aria-label={t('person.editNote', { kind: t(`noteKind.${n.kind}`) })}>{t('common.edit')}</Button>
             <Button

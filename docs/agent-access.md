@@ -43,6 +43,8 @@ They are read only.
 It can read everything in the open tree: people, families, events, places, sources, notes, citations, pictures, the change log
 and each record's history. It can also search, and look people up by the number they had in a file.
 
+Voice samples on a note (recordings you attached) show up in what an agent reads as a list with each one's title, type and size. The agent never receives the sound itself: asking for a recording returns only those details, so no audio leaves your computer through the agent. An agent cannot attach, replace or remove a recording; only you can, in the note editor.
+
 It can add:
 
 - people (with names, sex, a birth date and place), and families;

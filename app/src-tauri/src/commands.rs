@@ -9,10 +9,10 @@ use gt_session::{
     CitationDto, DatePreview, DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion,
     ExportOptions, FamilyDto, FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto,
     ImportRequest, LocationKind, LocationWarningDto, LogAgentDto, LogFilterDto, LogRowDto,
-    OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery, PersonRow, PlaceOption, PrivacyPreview,
-    ProjectInfo, RecentProject, RecordHomeDto, Rect, RelinkResult, ReviewScopeDto, SearchHitDto,
-    Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport,
-    UndoState, WholeMeta,
+    MediaDto, OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery, PersonRow, PlaceOption,
+    PrivacyPreview, ProjectInfo, RecentProject, RecordHomeDto, Rect, RelinkResult, ReviewScopeDto,
+    SearchHitDto, Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo,
+    UndoReport, UndoState, WholeMeta,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -86,6 +86,7 @@ command_list!(
     chart_close,
     exif_suggestion,
     attach_files,
+    unlinked_media,
     stage_trace_image,
     save_trace_draft,
     load_trace_draft,
@@ -514,7 +515,7 @@ pub fn last_citation(state: State<'_, AppState>) -> ApiResult<Option<CitationDto
 
 // ------------------------------------------------------------ charts
 
-// NOTE: `chart_open`, `attach_files` and `export_gedcom` hold the session mutex for the whole call
+// NOTE: `chart_open` and `export_gedcom` hold the session mutex for the whole call
 // (gtmedia thumbnail decoding in `protocol` runs under the same mutex, so it waits for them).
 // This is accepted for now; do not restructure without a measured need.
 #[tauri::command]
@@ -593,6 +594,22 @@ pub fn exif_suggestion(
     state.with_session(|s| s.exif_suggestion(media))
 }
 
+/// Attaching in two steps so that a long copy and hash never holds the session: the project
+/// folder is read under the lock, the files are sniffed, copied and hashed with the lock free,
+/// and the lock is taken again only to record them. `between` runs after the copy (a test uses
+/// it to take the lock itself, or to close the project).
+pub fn attach_in_two_steps(
+    state: &AppState,
+    target: OwnerRef,
+    paths: &[PathBuf],
+    between: impl FnOnce(),
+) -> ApiResult<AttachResult> {
+    let dir = state.with_session(|s| Ok(s.project_dir()))?;
+    let prepared = gt_session::prepare_attach(&dir, target.kind, paths);
+    between();
+    state.with_session(|s| s.commit_attach(target, prepared))
+}
+
 #[tauri::command]
 pub async fn attach_files<R: Runtime>(
     app: AppHandle<R>,
@@ -601,9 +618,15 @@ pub async fn attach_files<R: Runtime>(
 ) -> ApiResult<AttachResult> {
     blocking(&app, move |s| {
         let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-        s.with_session(|se| se.attach_files(target, &paths))
+        attach_in_two_steps(s, target, &paths, || ())
     })
     .await
+}
+
+/// Media that no record links to (left behind by a deleted note or person), so the owner can remove them.
+#[tauri::command(async)]
+pub fn unlinked_media(state: State<'_, AppState>) -> ApiResult<Vec<MediaDto>> {
+    state.with_session(|s| Ok(s.unlinked_media()))
 }
 
 // ------------------------------------------------------------ trace a tree picture

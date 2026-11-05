@@ -123,6 +123,16 @@ describe('PersonEditor', () => {
     expect(cmd.note.text).toBe(text);
   });
 
+  it('note_voice_samples_play_on_the_page_without_the_editor', async () => {
+    await api.apply({ type: 'saveNote', target: { kind: 'person', id }, note: { kind: 'general', text: 'Voice of Ivan Koval.' } });
+    const d = await api.getPerson(id);
+    const note = d.notes[d.notes.length - 1];
+    await api.attachFiles({ kind: 'note', id: note.id }, ['C:/Mock/ivan.wav']);
+    await open();
+    await waitFor(() => expect(document.querySelector('audio')).not.toBeNull());
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('history_lists_entries', async () => {
     await api.apply({ type: 'updatePerson', id, private: true });
     await open();

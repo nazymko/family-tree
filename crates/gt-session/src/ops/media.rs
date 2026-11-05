@@ -169,6 +169,8 @@ pub(crate) fn plan_attach(
         .filter_map(|m| Some((m.sha256.clone()?, m.common.id)))
         .collect();
     let mut fresh: Vec<Media> = Vec::new();
+    // Existing records the content matched, with the type the file's own bytes show.
+    let mut reused: Vec<(Uuid, Option<String>)> = Vec::new();
     let (outcomes, _) = with_owner(&mut p, target, |f| {
         let links = f
             .media
@@ -177,6 +179,11 @@ pub(crate) fn plan_attach(
         let mut out = Vec::with_capacity(staged.len());
         for m in &staged {
             let sha = m.sha256.clone().unwrap_or_default();
+            if let Some(old) = by_sha.get(&sha)
+                && !fresh.iter().any(|x| x.common.id == *old)
+            {
+                reused.push((*old, m.mime.clone()));
+            }
             let id = *by_sha.entry(sha).or_insert_with(|| {
                 fresh.push(m.clone());
                 m.common.id
@@ -196,6 +203,22 @@ pub(crate) fn plan_attach(
     })?;
     for m in fresh {
         p.put(m);
+    }
+    // An imported record may carry free text ("mp3") or nothing as its type. The bytes just
+    // showed what the file is, so the record is corrected in the same, logged, change set;
+    // otherwise a note would hold a recording it cannot list.
+    let mut done: Vec<Uuid> = Vec::new();
+    for (id, mime) in reused {
+        if done.contains(&id) {
+            continue;
+        }
+        done.push(id);
+        let mut old: Media = p.get(id)?;
+        if mime.is_some() && old.mime != mime {
+            old.mime = mime;
+            old.common.changed = Some(now);
+            p.put(old);
+        }
     }
     Ok((p.finish("Attach media".into()), outcomes))
 }

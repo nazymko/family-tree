@@ -2347,3 +2347,56 @@ fn nothing_can_be_written_onto_a_marker() {
     );
     assert_eq!(s.tree(), &tree);
 }
+
+// ---- voice samples: an agent cannot attach or remove a note's recordings --------------------
+
+#[test]
+fn an_agent_cannot_attach_or_remove_media_on_a_note() {
+    let (_d, mut s) = open_tree(&tree_of(SAMPLE));
+    let b = batch(&mut s, &me());
+    let anna = find(s.tree(), "Anna");
+    // The note is the agent's own, added the way agents may.
+    let r = done(s.apply_as_agent(note(anna, "Told at the table."), &me(), b));
+    let note_id = *r
+        .touched
+        .iter()
+        .find(|id| s.tree().notes.contains_key(*id))
+        .unwrap();
+    let on_note = OwnerRef {
+        kind: OwnerKind::Note,
+        id: note_id,
+    };
+    let any = Uuid::from_u128(99);
+    for cmd in [
+        EditCommand::AttachMedia {
+            target: on_note,
+            media: vec![any],
+        },
+        EditCommand::DetachMedia {
+            target: on_note,
+            media: any,
+        },
+        EditCommand::UpdateMedia {
+            id: any,
+            title: Some("A title".into()),
+            description: None,
+            date_raw: None,
+        },
+        EditCommand::DeleteMedia { id: any },
+    ] {
+        let msg = refuse(&mut s, cmd, &me(), b);
+        assert!(msg.contains("not open to agents"), "{msg}");
+    }
+    // Nor can it nest a note in a note.
+    let nested = EditCommand::SaveNote {
+        target: on_note,
+        note: NoteInput {
+            id: None,
+            kind: NoteKindDto::General,
+            text: "A note on a note".into(),
+        },
+    };
+    let tree = s.tree().clone();
+    assert!(s.apply_as_agent(nested, &me(), b).is_err());
+    assert_eq!(s.tree(), &tree);
+}

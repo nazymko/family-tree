@@ -8,15 +8,19 @@ use common::*;
 use gt_core::date::{DayOrder, GenDate};
 use gt_core::model::*;
 use gt_core::raw::RawNode;
+use gt_core::tree::Tree;
 use gt_mcp::RULES;
 use gt_session::{
     CitationArg, CitationInput, EditCommand, EventInput, EventOwner, EventOwnerKind, NoteInput,
     NoteKindDto, OwnerKind, OwnerRef, Relation, Session, SessionClock, SettingsPatch, SourceInput,
     SourceRef,
 };
+use gt_store::Project;
 use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::io::Cursor;
+use std::sync::Mutex;
 use uuid::Uuid;
 
 fn ids(rows: &Value) -> Vec<String> {
@@ -351,6 +355,194 @@ fn get_media_large_document_gets_a_message() {
     assert_eq!(content.len(), 2, "details and a message, no blob");
     assert_eq!(content[1]["type"], "text");
     assert!(content[1]["text"].as_str().unwrap().contains("8 MiB"));
+}
+
+/// A tiny valid WAV (8 kHz, mono, 16 bit) of `n` samples, generated here.
+fn wav_bytes(n: usize) -> Vec<u8> {
+    let data = vec![0u8; n * 2];
+    let mut out = b"RIFF".to_vec();
+    out.extend((36 + data.len() as u32).to_le_bytes());
+    out.extend(b"WAVEfmt ");
+    out.extend(16u32.to_le_bytes());
+    out.extend([1, 0, 1, 0]);
+    out.extend(8000u32.to_le_bytes());
+    out.extend(16000u32.to_le_bytes());
+    out.extend([2, 0, 16, 0]);
+    out.extend(b"data");
+    out.extend((data.len() as u32).to_le_bytes());
+    out.extend(data);
+    out
+}
+
+/// Ivan Koval with one note and a voice sample on it; returns the person, note and media ids.
+fn person_with_voice_sample(host: &TestHost, bytes: &[u8]) -> (Uuid, Uuid, Uuid) {
+    let (id, note) = with(host, |s| {
+        let id = add_person(s, draft("Ivan", "Koval", None, None));
+        add_note(s, id, "He told this one at the table.");
+        let note = s.get_person(id).unwrap().notes[0].id;
+        (id, note)
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("table-story.wav");
+    std::fs::write(&path, bytes).unwrap();
+    let media = with(host, |s| {
+        let r = s
+            .attach_files(
+                OwnerRef {
+                    kind: OwnerKind::Note,
+                    id: note,
+                },
+                std::slice::from_ref(&path),
+            )
+            .unwrap();
+        assert!(r.failed.is_empty(), "{:?}", r.failed);
+        r.attached[0].id
+    });
+    with(host, |s| {
+        s.apply(EditCommand::UpdateMedia {
+            id: media,
+            title: Some("At the table".into()),
+            description: None,
+            date_raw: None,
+        })
+        .unwrap();
+    });
+    (id, note, media)
+}
+
+#[test]
+fn get_media_of_a_voice_sample_is_details_only_never_the_bytes() {
+    let host = empty_host();
+    let bytes = wav_bytes(400);
+    let (_, _, media) = person_with_voice_sample(&host, &bytes);
+    let result = call_raw(&host, "get_media", json!({"id": media}));
+    assert_ne!(result["isError"], json!(true), "{result}");
+    let content = result["content"].as_array().unwrap();
+    assert_eq!(content.len(), 2);
+    let details: Value = serde_json::from_str(content[0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(details["mime"], "audio/wav");
+    assert_eq!(details["title"], "At the table");
+    assert_eq!(content[1]["type"], "text");
+    // No blob, no base64 of the file anywhere in the reply.
+    let whole = result.to_string();
+    assert!(!whole.contains("blob"), "{whole}");
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    assert!(!whole.contains(&b64[..40]), "bytes leaked");
+}
+
+/// A host whose tree holds one imported-looking media record: the stored type is whatever
+/// `mime` says (nothing, or free text such as "mp3"), the file behind it is the generated `bytes`.
+fn host_with_imported_media(mime: Option<&str>, bytes: &[u8]) -> (TestHost, Uuid) {
+    let dir = tempfile::tempdir().unwrap();
+    let proj = dir.path().join("project");
+    let id = Uuid::now_v7();
+    let mut tree = Tree::new();
+    tree.media.insert(
+        id,
+        Media {
+            common: Common {
+                id,
+                private: false,
+                changed: None,
+                citations: vec![],
+                notes: vec![],
+                media: vec![],
+                ext_ids: vec![],
+                unknown: vec![],
+            },
+            path: "media/ab/interview.mp3".into(),
+            original_name: Some("interview.mp3".into()),
+            mime: mime.map(str::to_string),
+            title: None,
+            date: None,
+            description: None,
+            sha256: None,
+        },
+    );
+    let mut p = Project::create(&proj).unwrap();
+    p.save_tree(&tree, 2_460_000).unwrap();
+    drop(p);
+    std::fs::create_dir_all(proj.join("media/ab")).unwrap();
+    std::fs::write(proj.join("media/ab/interview.mp3"), bytes).unwrap();
+    let session = Session::open(&proj, SessionClock::system()).unwrap();
+    let host = TestHost {
+        session: Mutex::new(Some(session)),
+        keys: Mutex::new(HashMap::from([(hash(KEY), ctx())])),
+        changes: Mutex::new(Vec::new()),
+        keyless: Mutex::default(),
+        _dir: Some(dir),
+        changed_under_lock: Mutex::default(),
+    };
+    (host, id)
+}
+
+#[test]
+fn get_media_decides_by_the_file_not_the_stored_type() {
+    // An import leaves the type empty, or as free text. The bytes are a recording either way.
+    for stored in [None, Some("mp3"), Some("audio")] {
+        let bytes = wav_bytes(400);
+        let (host, media) = host_with_imported_media(stored, &bytes);
+        let result = call_raw(&host, "get_media", json!({"id": media}));
+        assert_ne!(result["isError"], json!(true), "{stored:?}: {result}");
+        let content = result["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2, "{stored:?}");
+        assert_eq!(content[1]["type"], "text", "{stored:?}");
+        let whole = result.to_string();
+        assert!(!whole.contains("blob"), "{stored:?}: {whole}");
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        assert!(!whole.contains(&b64[..40]), "{stored:?}: bytes leaked");
+    }
+}
+
+#[test]
+fn get_media_stays_quiet_about_a_recording_the_sniffer_does_not_know() {
+    // Not a format we can recognise, but the stored type and the file name both say sound.
+    let (host, media) = host_with_imported_media(Some("mp3"), b"\0\0\0\0 not a known header");
+    let result = call_raw(&host, "get_media", json!({"id": media}));
+    assert_eq!(result["content"][1]["type"], "text", "{result}");
+    assert!(!result.to_string().contains("blob"));
+}
+
+#[test]
+fn get_media_of_a_big_voice_sample_is_the_same_short_answer() {
+    let host = empty_host();
+    let (_, _, media) = person_with_voice_sample(&host, &wav_bytes(5 << 20));
+    let result = call_raw(&host, "get_media", json!({"id": media}));
+    assert_ne!(result["isError"], json!(true), "{result}");
+    assert!(result.to_string().len() < 4000);
+}
+
+#[test]
+fn notes_list_their_voice_samples_with_title_type_and_size() {
+    let host = empty_host();
+    let bytes = wav_bytes(400);
+    let (person, note, media) = person_with_voice_sample(&host, &bytes);
+    let expect = json!([{
+        "id": media,
+        "title": "At the table",
+        "originalName": "table-story.wav",
+        "mime": "audio/wav",
+        "sizeBytes": bytes.len(),
+        "resolved": true,
+    }]);
+    let p = call(&host, "get_person", json!({"id": person}));
+    assert_eq!(p["notes"][0]["voiceSamples"], expect);
+    let n = call(&host, "get_note", json!({"id": note}));
+    assert_eq!(n["voiceSamples"], expect);
+    let listed = call(&host, "list_notes", json!({}));
+    assert_eq!(listed["items"][0]["voiceSamples"], expect);
+}
+
+#[test]
+fn a_note_without_a_recording_has_no_voice_samples_field() {
+    let host = empty_host();
+    let id = with(&host, |s| {
+        let id = add_person(s, draft("Olena", "Koval", None, None));
+        add_note(s, id, "Plain.");
+        id
+    });
+    let p = call(&host, "get_person", json!({"id": id}));
+    assert!(p["notes"][0].get("voiceSamples").is_none());
 }
 
 #[test]

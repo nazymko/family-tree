@@ -236,4 +236,16 @@ describe('Shell tree name', () => {
     await user.click(screen.getByRole('button', { name: project.info!.name }));
     expect(platform.calls).toContainEqual({ method: 'reveal', args: ['C:/Genealogy/Test/tree.db'] });
   });
+
+  it('audio_linked_to_a_person_shows_as_a_voice_row_not_a_broken_photo', async () => {
+    const { raw } = await mountShell();
+    const r = await raw.apply({ type: 'createPerson', draft: { given: 'Olena', surnames: ['Koval'], sex: 'female' } });
+    const db = (raw as unknown as { db: { media: Map<string, unknown>; persons: Map<string, { media: unknown[] }> } }).db;
+    const m = { id: 'imp-1', title: null, mime: null, originalName: 'greeting.mp3', date: null, description: null, resolved: true, width: null, height: null, sha256: null };
+    db.media.set(m.id, m);
+    db.persons.get(r.focus!)!.media.push({ media: m, primary: false });
+    nav.go({ name: 'person', id: r.focus! });
+    await waitFor(() => expect(screen.getAllByTestId('voice-sample')).toHaveLength(1));
+    expect(document.querySelector('img[src*="thumb"]')).toBeNull();
+  });
 });

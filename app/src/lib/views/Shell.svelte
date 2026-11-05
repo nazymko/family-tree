@@ -25,6 +25,8 @@
   import { added as addedPerson } from '../state/added.svelte';
   import CitationList from '../editors/CitationList.svelte';
   import MediaGrid from '../media/MediaGrid.svelte';
+  import VoiceSamples from '../media/VoiceSamples.svelte';
+  import { isSound } from '../media/sound';
   import People from './People.svelte';
   import FamilyView from './FamilyView.svelte';
   import type { IconName } from '../ui/icons';
@@ -257,7 +259,11 @@
 
 {#snippet mediaSection(d: PersonDetail)}
   {#if d.media.length > 0}
-    <MediaGrid items={d.media} target={{ kind: 'person', id: d.ref.id }} onOpen={() => openMedia(d.ref.id)} />
+    {@const pictures = d.media.filter((l) => !isSound(l.media))}
+    {#if pictures.length > 0}
+      <MediaGrid items={pictures} target={{ kind: 'person', id: d.ref.id }} onOpen={() => openMedia(d.ref.id)} />
+    {/if}
+    <VoiceSamples items={d.media} />
   {:else}
     <p class="sec-empty">{t('shell.nothingAttached')}</p>
   {/if}
