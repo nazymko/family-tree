@@ -67,6 +67,67 @@ fn all() -> LogFilter {
 }
 
 #[test]
+fn v3_project_with_a_log_gets_the_reverts_index() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("old.genetree");
+    std::fs::create_dir_all(&dir).unwrap();
+    let target = Uuid::now_v7();
+    {
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        for m in &MIGRATIONS[..3] {
+            c.execute_batch(m.1).unwrap();
+        }
+        c.pragma_update(None, "user_version", 3).unwrap();
+        let first = Uuid::now_v7().to_string();
+        c.execute(
+            "INSERT INTO change_log(ts, target_type, target_id, op, group_id, label, actor_kind) \
+             VALUES (5, 'person', ?1, 'update', ?2, 'Edit', 'user')",
+            [target.to_string(), first.clone()],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO change_log(ts, target_type, target_id, op, group_id, label, actor_kind, reverts_group) \
+             VALUES (6, 'person', ?1, 'update', ?2, 'Undo', 'user', ?3)",
+            [target.to_string(), Uuid::now_v7().to_string(), first],
+        )
+        .unwrap();
+        let none: Option<String> = c
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE name = 'change_log_reverts'",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+        assert!(none.is_none());
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), 4);
+    drop(p);
+    let c = Connection::open(dir.join("tree.db")).unwrap();
+    let table: String = c
+        .query_row(
+            "SELECT tbl_name FROM sqlite_master WHERE type = 'index' AND name = 'change_log_reverts'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(table, "change_log");
+    // The rows survived, and the lookup uses the index.
+    let rows: i64 = c
+        .query_row("SELECT COUNT(*) FROM change_log", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(rows, 2);
+    let plan: String = c
+        .query_row(
+            "EXPLAIN QUERY PLAN SELECT 1 FROM change_log WHERE reverts_group = 'x'",
+            [],
+            |r| r.get(3),
+        )
+        .unwrap();
+    assert!(plan.contains("change_log_reverts"), "{plan}");
+}
+
+#[test]
 fn v2_upgrades_and_reads_before_tracking() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("old.genetree");
@@ -92,8 +153,8 @@ fn v2_upgrades_and_reads_before_tracking() {
         .unwrap();
     }
     let p = Project::open(&dir).unwrap();
-    assert_eq!(p.schema_version(), 3);
-    assert_eq!(SCHEMA_VERSION, 3);
+    assert_eq!(p.schema_version(), 4);
+    assert_eq!(SCHEMA_VERSION, 4);
     let (page, total) = p.log_page(&all(), 0, 10).unwrap();
     // The row without a group cannot be addressed, so it is left out of the log.
     assert_eq!(total, 1);

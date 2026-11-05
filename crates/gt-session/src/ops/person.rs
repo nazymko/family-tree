@@ -149,6 +149,22 @@ pub(super) fn save_name(
         None => None,
     };
     let old = idx.and_then(|i| person.names.get(i));
+    let prefix = text(input.prefix.as_deref());
+    let surname_prefix = text(input.surname_prefix.as_deref());
+    let suffix = text(input.suffix.as_deref());
+    // The name as the source wrote it stays while the parts it was written from are as they were.
+    // Once one changes it would sit beside parts it no longer matches, so it goes (the history
+    // row still shows it). Nickname, language, date, kind and flags are not part of that text.
+    let raw = old
+        .filter(|n| {
+            n.prefix == prefix
+                && n.given == given
+                && n.surname_prefix == surname_prefix
+                && n.surnames == surnames
+                && n.patronymic == patronymic
+                && n.suffix == suffix
+        })
+        .and_then(|n| n.raw.clone());
     let made = Name {
         id: input.id.unwrap_or_else(new_id),
         kind: name_kind(input, old.map(|n| &n.kind)),
@@ -158,17 +174,17 @@ pub(super) fn save_name(
             confidence: old.and_then(|n| n.assertion.confidence),
         },
         private: input.private,
-        prefix: text(input.prefix.as_deref()),
+        prefix,
         given,
         call: text(input.call.as_deref()),
-        surname_prefix: text(input.surname_prefix.as_deref()),
+        surname_prefix,
         surnames,
         patronymic,
-        suffix: text(input.suffix.as_deref()),
+        suffix,
         nickname: text(input.nickname.as_deref()),
         lang: text(input.lang.as_deref()),
         date: parse_date(input.date_raw.as_deref(), p.order),
-        raw: None,
+        raw,
         citations: old.map(|n| n.citations.clone()).unwrap_or_default(),
         notes: old.map(|n| n.notes.clone()).unwrap_or_default(),
         unknown: old.map(|n| n.unknown.clone()).unwrap_or_default(),
