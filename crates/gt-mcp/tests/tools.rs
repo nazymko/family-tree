@@ -2020,8 +2020,6 @@ fn log_and_history_give_agents_plain_words_not_the_app_markers() {
         };
         let batch = s.begin_batch(&ctx, "Recording 3", None).unwrap();
         s.apply_as_agent(event(None), &ctx, batch).unwrap();
-        // A place the tree does not have reads as a removed record.
-        let _ = s.apply_as_agent(event(Some(Uuid::from_u128(99))), &ctx, batch);
         ivan
     });
     let log = call(&host, "get_log", json!({})).to_string();

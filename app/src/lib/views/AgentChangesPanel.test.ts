@@ -543,6 +543,16 @@ describe('an editor on a record held by another record, while an agent changes i
     await waitFor(() => expect(within(fresh).getByRole('textbox', { name: 'Note' })).toHaveValue('Changed by the agent'));
   });
 
+  it('a_reload_that_fails_for_another_reason_keeps_the_dialog_open', async () => {
+    const w = await world();
+    const { note, dialog } = await familyNoteOpen(w);
+    w.platform.simulateAgentEvent([note.id]);
+    const read = vi.spyOn(w.raw, 'recordHome').mockRejectedValueOnce({ code: 'io', message: 'busy' });
+    await w.user.click(await within(dialog).findByRole('button', { name: 'Reload' }));
+    await waitFor(() => expect(read).toHaveBeenCalled());
+    expect(screen.getByRole('dialog', { name: 'Edit note' })).toBeInTheDocument();
+  });
+
   it('a_note_the_agent_deleted_closes_the_dialog_on_reload', async () => {
     const w = await world();
     const { fam, note, dialog } = await familyNoteOpen(w);

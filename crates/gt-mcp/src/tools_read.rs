@@ -1130,3 +1130,21 @@ mod tests {
         assert_eq!(peak.load(Ordering::SeqCst), 1);
     }
 }
+
+#[cfg(test)]
+mod marker_tests {
+    use super::plain_markers;
+    use gt_session::field_diff::{LIST_SEP, REMOVED};
+    use serde_json::json;
+
+    #[test]
+    fn the_apps_markers_become_plain_words_at_any_depth() {
+        let mut v =
+            json!({"rows": [{"before": format!("Ivan{LIST_SEP}Marta"), "after": REMOVED}], "n": 1});
+        plain_markers(&mut v);
+        assert_eq!(
+            v,
+            json!({"rows": [{"before": "Ivan and Marta", "after": "(removed)"}], "n": 1})
+        );
+    }
+}

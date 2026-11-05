@@ -277,6 +277,13 @@
     if (!dialog) return false;
     if (!(await load())) return true;
     const d = dialog;
+    // Only a record that is really gone closes the dialog. Any other failure keeps it open, with what was typed.
+    const unlessGone = <T,>(read: Promise<T>) =>
+      read.catch((e: unknown) => {
+        if ((e as { code?: string } | null)?.code === 'not_found') return null;
+        throw e;
+      });
+    try {
     if (d?.kind === 'name' && d.name) {
       const id = d.name.id;
       const name = detail?.names.find((n) => n.id === id);
@@ -285,7 +292,7 @@
       const id = d.event.id;
       let event: EventDto | undefined;
       if (!d.owner || (d.owner.kind === 'person' && d.owner.id === detail?.ref.id)) event = detail?.events.find((e) => e.id === id);
-      else if (d.owner.kind === 'family') event = (await api.getFamily(d.owner.id).catch(() => null))?.events.find((e) => e.id === id);
+      else if (d.owner.kind === 'family') event = (await unlessGone(api.getFamily(d.owner.id)))?.events.find((e) => e.id === id);
       dialog = event ? { ...d, event } : null;
     } else if (d?.kind === 'note' && d.note) {
       const id = d.note.id;
@@ -293,12 +300,15 @@
         const note = detail?.notes.find((n) => n.id === id);
         dialog = note ? { kind: 'note', note } : null;
       } else {
-        const home = await api.recordHome('note', id).catch(() => null);
+        const home = await unlessGone(api.recordHome('note', id));
         dialog = home?.note ? { kind: 'note', note: home.note, owner: home.owner } : null;
       }
     } else if (d?.kind === 'citation') {
-      const home = await api.recordHome('citation', d.citation.id).catch(() => null);
+      const home = await unlessGone(api.recordHome('citation', d.citation.id));
       dialog = home?.citation ? { kind: 'citation', citation: home.citation, owner: home.owner } : null;
+    }
+    } catch {
+      return true;
     }
     dialogEpoch++;
     return true;
