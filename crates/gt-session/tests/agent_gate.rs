@@ -1417,14 +1417,42 @@ fn death_under_an_owners_living_mark_refused() {
 }
 
 #[test]
-fn death_under_an_owners_deceased_mark_refused() {
+fn death_and_burial_allowed_on_someone_the_owner_marked_deceased() {
     let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
     let b = batch(&mut s, &me());
     let ivan = find(s.tree(), "Ivan");
     set_override(&mut s, ivan, LivingPatch::Set(LivingOverrideDto::Deceased));
-    refuse(&mut s, event(ivan, "death", Some("1990")), &me(), b);
+    assert!(!living_of(&s, ivan));
+    done(s.apply_as_agent(event(ivan, "death", Some("1990")), &me(), b));
+    done(s.apply_as_agent(event(ivan, "burial", Some("1990")), &me(), b));
+    assert!(!living_of(&s, ivan));
     set_override(&mut s, ivan, LivingPatch::Clear);
-    assert!(living_of(&s, ivan));
+    assert!(!living_of(&s, ivan), "dead with the mark and without it");
+}
+
+#[test]
+fn old_birth_on_someone_marked_deceased_refused_when_it_moves_an_unmarked_parent() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let (ivan, petro) = (find(s.tree(), "Ivan"), find(s.tree(), "Petro"));
+    set_override(&mut s, ivan, LivingPatch::Set(LivingOverrideDto::Deceased));
+    let msg = refuse(&mut s, event(ivan, "birth", Some("1850")), &me(), b);
+    assert!(msg.contains("Petro"), "{msg}");
+    assert!(living_of(&s, petro));
+
+    // With the parent marked too, nobody's status can come to differ from what the owner said.
+    set_override(&mut s, petro, LivingPatch::Set(LivingOverrideDto::Deceased));
+    done(s.apply_as_agent(event(ivan, "birth", Some("1850")), &me(), b));
+}
+
+#[test]
+fn own_status_under_a_living_mark_stays_refused_with_a_deceased_relative() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let (ivan, petro) = (find(s.tree(), "Ivan"), find(s.tree(), "Petro"));
+    set_override(&mut s, petro, LivingPatch::Set(LivingOverrideDto::Deceased));
+    set_override(&mut s, ivan, LivingPatch::Set(LivingOverrideDto::Living));
+    refuse(&mut s, event(ivan, "death", Some("1990")), &me(), b);
 }
 
 #[test]

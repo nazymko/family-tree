@@ -991,9 +991,20 @@ impl Session {
         apply_to_tree_tracked(&mut self.tree, cs, &mut removed_at);
         let (effective, computed) = self.living_maps();
         apply_to_tree_tracked(&mut self.tree, &cs.inverse(), &mut removed_at);
+        // Someone the owner marked dead may turn out dead by the rule too: that changes no status,
+        // now or once the mark comes off. A death date is what transcripts most often add.
+        let agrees_with_mark = |id: &Uuid| {
+            computed_before.get(id) == Some(&true)
+                && computed.get(id) == Some(&false)
+                && self
+                    .tree
+                    .persons
+                    .get(id)
+                    .is_some_and(|p| p.living_override == Some(LivingOverride::Deceased))
+        };
         let flipped = self.tree.persons.keys().find(|id| {
             effective_before.get(id) != effective.get(id)
-                || computed_before.get(id) != computed.get(id)
+                || (computed_before.get(id) != computed.get(id) && !agrees_with_mark(id))
         });
         match flipped {
             Some(id) => Err(refused(format!(
