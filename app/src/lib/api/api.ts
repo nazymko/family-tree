@@ -138,6 +138,11 @@ export interface Api {
   agentAccessState(): Promise<AgentAccessState>;
   /** Turns the local MCP server on or off and sets its port. A taken port comes back as `error` in the state, not as a rejection. */
   agentAccessSet(enabled: boolean, port: number): Promise<AgentAccessState>;
+  /**
+   * Requires a key, or stops requiring one. Requiring applies at once, even when it cannot be saved (then
+   * `error` says so). Not requiring applies only when saved; if it cannot be, this rejects and a key stays required.
+   */
+  agentAccessRequireKey(required: boolean): Promise<AgentAccessState>;
   /** The key and snippet in the answer are the only time they exist in plain text. */
   agentConnectionCreate(name: string): Promise<NewConnectionDto>;
   agentConnectionRevoke(id: string): Promise<void>;

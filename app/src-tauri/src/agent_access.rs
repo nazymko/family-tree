@@ -32,7 +32,7 @@ const EXIT_WAIT: Duration = Duration::from_secs(2);
 /// Most characters in a connection's name.
 const MAX_NAME: usize = 100;
 const REVOKE_NOT_RECORDED: &str = "Access stopped for now, but this could not be recorded; it may return after restart. Try again.";
-const REQUIRE_NOT_SAVED: &str = "A key is required now, but this could not be saved, so it will not be required again after the next start.";
+const REQUIRE_NOT_SAVED: &str = "A key is required now, but this could not be saved, so after the next start no key will be required.";
 const OFF_NOT_SAVED: &str = "Agent access is off now, but this could not be saved, so it will come back on at the next start.";
 
 type ApiResult<T> = Result<T, ApiError>;
@@ -607,7 +607,9 @@ pub fn create_connection(state: &AppState, name: &str) -> ApiResult<NewConnectio
     let mut server = AppState::lock(&state.agent.server);
     settle(state, &mut server);
     let same_name = |c: &ConnectionDto| c.name.to_lowercase() == name.to_lowercase();
-    let taken = server.pending_revokes.iter().any(same_name)
+    // The built-in agent's name is taken, so no connection can pass for it in the log.
+    let taken = name.to_lowercase() == gt_mcp::KEYLESS_AGENT_NAME.to_lowercase()
+        || server.pending_revokes.iter().any(same_name)
         || AppState::lock(&state.settings)
             .agent_access
             .connections

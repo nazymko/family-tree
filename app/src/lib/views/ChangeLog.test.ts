@@ -25,6 +25,7 @@ import { project } from '../state/project.svelte';
 import { settings } from '../state/settings.svelte';
 import { toasts } from '../state/toast.svelte';
 import { setLanguage } from '../i18n';
+import { KEYLESS_AGENT_ID, KEYLESS_AGENT_NAME } from '../i18n/backend';
 import { en } from '../i18n/en';
 import { uk } from '../i18n/uk';
 
@@ -79,6 +80,33 @@ describe('ChangeLog', () => {
     expect(agentRow).toHaveTextContent('Told at the kitchen table');
     await user.click(within(agentRow).getByRole('button', { name: people[0].name }));
     expect(nav.route).toEqual({ name: 'person', id: people[0].id });
+  });
+
+  it('the_agent_without_a_key_has_a_translated_label_in_the_log_and_the_filter', async () => {
+    const { raw, platform, people } = await logScreen();
+    platform.simulateAgentBatch(raw, {
+      agent: KEYLESS_AGENT_NAME,
+      agentId: KEYLESS_AGENT_ID,
+      title: 'Recording 1',
+      changes: [{ person: people[0].id, note: 'Told' }],
+    });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(1));
+    expect(within(rowsOnScreen()[0]).getByText('Agent without a key')).toBeInTheDocument();
+    expect(within(screen.getByRole('combobox', { name: 'Author' })).getByRole('option', { name: 'Agent without a key' })).toBeInTheDocument();
+
+    setLanguage('uk');
+    const ukRows = () => within(screen.getByRole('group', { name: 'Зміни' })).queryAllByRole('listitem');
+    await waitFor(() => expect(within(ukRows()[0]).getByText('Агент без ключа')).toBeInTheDocument());
+    expect(within(screen.getByRole('combobox', { name: 'Автор' })).getByRole('option', { name: 'Агент без ключа' })).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('Agent without a key');
+    setLanguage('en');
+  });
+
+  it('a_connection_with_another_id_keeps_its_own_name', async () => {
+    const { raw, platform, people } = await logScreen();
+    platform.simulateAgentBatch(raw, { agent: 'Transcript reader', changes: [{ person: people[0].id, note: 'Told' }] });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(1));
+    expect(within(rowsOnScreen()[0]).getByText('Transcript reader')).toBeInTheDocument();
   });
 
   it('before_tracking_label', async () => {

@@ -321,7 +321,31 @@ export function runApiContract(make: () => Promise<Api>): void {
     it('agent_access_is_off_by_default', async () => {
       const api = await make();
       const s = await api.agentAccessState();
-      expect(s).toEqual({ enabled: false, port: 8765, running: false, error: null, connections: [] });
+      expect(s).toEqual({
+        enabled: false,
+        port: 8765,
+        running: false,
+        error: null,
+        requireKey: false,
+        keylessCommand: 'claude mcp add --transport http gene-tree http://127.0.0.1:8765/mcp',
+        connections: [],
+      });
+    });
+
+    it('agent_access_does_not_require_a_key_until_asked', async () => {
+      const api = await make();
+      const on = await api.agentAccessRequireKey(true);
+      expect(on).toMatchObject({ requireKey: true, keylessCommand: null, enabled: false });
+      expect(await api.agentAccessState()).toEqual(on);
+      const off = await api.agentAccessRequireKey(false);
+      expect(off.requireKey).toBe(false);
+      expect(off.keylessCommand).toContain('http://127.0.0.1:8765/mcp');
+      expect(off.keylessCommand).not.toContain('Bearer');
+    });
+
+    it('a_connection_cannot_take_the_name_of_the_agent_without_a_key', async () => {
+      const api = await make();
+      await expect(api.agentConnectionCreate('Agent without a key')).rejects.toBeTruthy();
     });
 
     it('agent_access_set_starts_and_stops', async () => {

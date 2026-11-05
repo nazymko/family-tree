@@ -1123,7 +1123,7 @@ fn a_stored_hash_with_a_sign_is_not_a_hash() {
 // ---- no key required (the default) ----
 
 const KEYLESS_COMMAND: &str = "claude mcp add --transport http gene-tree http://127.0.0.1:8765/mcp";
-const REQUIRE_NOT_SAVED: &str = "A key is required now, but this could not be saved, so it will not be required again after the next start.";
+const REQUIRE_NOT_SAVED: &str = "A key is required now, but this could not be saved, so after the next start no key will be required.";
 
 fn require(w: &WebviewWindow<MockRuntime>, required: bool) -> Result<Value, Value> {
     invoke(
@@ -1396,6 +1396,20 @@ fn stopping_closes_the_door_for_a_request_with_no_key_too() {
         "a late request finds no door"
     );
     assert!(refused_connecting(port));
+}
+
+#[test]
+fn no_connection_can_take_the_builtin_agents_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let e = invoke(
+        &w,
+        "agent_connection_create",
+        json!({ "name": " agent WITHOUT a key " }),
+    )
+    .unwrap_err();
+    assert_eq!(e["code"], "invalid");
+    assert_eq!(state_of(&w)["connections"], json!([]));
 }
 
 #[test]
