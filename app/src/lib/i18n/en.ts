@@ -961,6 +961,8 @@ export const en = {
     goHome: 'Go to home person',
     generations: 'Generations',
     nGenerations: { one: '{n} generation', other: '{n} generations' },
+    showAll: 'Show all',
+    cutOff: 'This chart is too big to show whole. It stops at {n} cards, nearest generations first.',
     selectedPerson: 'Selected person',
     help: 'Use arrow keys to move between people, Enter to centre, E to edit.',
     wide: { one: '{n} child, wider than the window: drag or press F to fit all', other: '{n} children, wider than the window: drag or press F to fit all' },

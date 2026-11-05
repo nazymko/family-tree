@@ -233,7 +233,8 @@ export function draw(
     for (const n of win.nodes) {
       const isDup = n.dupOf !== null;
       const left = n.x + (n.id === focus ? 26 : 10);
-      const maxW = n.x + n.w - 10 - left - (n.ahnen !== null ? 22 : 0);
+      // Room for the ancestor number, which gets long many generations back.
+      const maxW = n.x + n.w - 10 - left - (n.ahnen !== null ? Math.max(22, String(n.ahnen).length * 6 + 8) : 0);
       ctx.textAlign = 'left';
       ctx.fillStyle = isDup ? theme.ink2 : theme.ink;
       ctx.font = `600 13px ${theme.serif}`;

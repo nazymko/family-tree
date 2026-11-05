@@ -414,7 +414,10 @@ impl Session {
         let reversed = self.settings.tree_direction == TreeDirection::Reversed;
         let mut layout = match req.kind {
             ChartKind::Pedigree => {
-                let g = u8::try_from(req.generations.clamp(1, 12)).unwrap_or(12);
+                // No lower limit than the type's: "Show all" asks for u8::MAX. Each person is expanded once, so
+                // the chart is bounded by the tree and by MAX_NODES.
+                let g =
+                    u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
                 gt_layout::pedigree(&src, root, g, &m, MAX_NODES)
             }
             ChartKind::Descendants => {

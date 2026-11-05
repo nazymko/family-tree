@@ -533,7 +533,7 @@ export class MockApi implements Api {
   async chartOpen(req: ChartRequest): Promise<ChartMeta> {
     if (req.kind === 'whole') throw invalid('The whole tree has no starting person. Open it with the whole-tree command.');
     this.person(req.root);
-    const generations = Math.max(1, Math.min(req.generations, 20));
+    const generations = Math.max(1, Math.min(req.generations, req.kind === 'pedigree' ? 255 : 20));
     const src: RustLayoutSource = {
       ref: (id) => this.ref(this.person(id)),
       birth: (id) => this.birthSort(this.person(id)),
