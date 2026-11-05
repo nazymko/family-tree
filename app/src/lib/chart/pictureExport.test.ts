@@ -48,7 +48,7 @@ describe('names', () => {
     expect(captionText('pedigree', 'Ivan Koval', day)).toBe('Pedigree - Ivan Koval · November 4, 2026');
     setLanguage('uk');
     expect(chartTitle('pedigree', 'Іван Коваль')).toBe('Предки - Іван Коваль');
-    expect(captionText('whole', '', day)).toMatch(/^Усе дерево · 4 листопада 2026/);
+    expect(captionText('whole', '', day)).toMatch(/^Увесь родовід · 4 листопада 2026/);
   });
 
   it('has_the_picture_texts_in_both_languages', () => {

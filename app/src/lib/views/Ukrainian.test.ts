@@ -60,7 +60,7 @@ describe('Ukrainian interface', () => {
 
   it('import_wizard_is_in_ukrainian', async () => {
     renderWith(ImportWizard, { mode: 'import', oncancel: () => {} });
-    expect(screen.getByRole('heading', { name: 'Імпорт файлу родинного дерева' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Імпорт файлу родоводу' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Скасувати' })).toBeInTheDocument();
     expect(screen.getByText('Файл не вибрано')).toBeInTheDocument();
   });
