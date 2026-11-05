@@ -5,6 +5,7 @@ import type { MockApi } from '../api/mock/MockApi';
 import ChartCanvas from './ChartCanvas.svelte';
 import WholeCanvas from './WholeCanvas.svelte';
 import Host from './testing/Host.svelte';
+import { agentChanges } from '../state/agentChanges.svelte';
 import { allNodes, attachContext, fakeRaf, lastCamera, makeApi, richestRoot } from './testing/helpers';
 
 const RECT = { left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON() {} };
@@ -80,6 +81,15 @@ describe('the unnamed-siblings marker on the chart', () => {
     expect(s.onOpenPerson).not.toHaveBeenCalled();
   });
 
+  it('is_never_announced_as_changed_by_an_agent', async () => {
+    const s = await openChart();
+    agentChanges.unreviewed = new Set([s.marker]);
+    await fireEvent.contextMenu(s.canvas, { button: 2, ...centreOf(s.markerNode, s.ctx) });
+    await waitFor(() => expect(screen.getByRole('option').textContent).toContain('brothers and sisters'));
+    expect(screen.getByRole('option').textContent).not.toContain('Changed by an agent');
+    agentChanges.reset();
+  });
+
   it('right_click_offers_no_person_items_and_reads_no_family', async () => {
     const s = await openChart();
     const m = centreOf(s.markerNode, s.ctx);
@@ -114,11 +124,14 @@ describe('the unnamed-siblings marker on the whole-tree chart', () => {
     const node = (await allNodes(s.api as MockApi, id)).find((n) => n.person?.siblingMarker)!;
     expect(node).toBeTruthy();
     viewSpy.mockClear();
+    agentChanges.unreviewed = new Set([s.marker]);
     await fireEvent.contextMenu(canvas, { button: 2, ...centreOf(node, ctx) });
     const menu = await screen.findByRole('menu', { name: 'Save as picture' });
     expect(menu).toBeTruthy();
     expect(screen.getByRole('option').textContent).toContain('brothers and sisters');
+    expect(screen.getByRole('option').textContent).not.toContain('Changed by an agent');
     expect(viewSpy).not.toHaveBeenCalled();
+    agentChanges.reset();
     window.matchMedia = mm;
   });
 });

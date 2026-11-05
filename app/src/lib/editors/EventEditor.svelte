@@ -173,6 +173,7 @@
 <EditorDialog
   title={event ? t('editor.editEvent', { kind: eventKindLabel(event.kind, event.label).toLowerCase() }) : t('editor.addEvent')}
   saveLabel={t('edit.saveEvent')}
+  watch={[event?.id, owner.id]}
   {dirty}
   {saving}
   {error}
@@ -244,8 +245,8 @@
 
   {#if citations}{@render citations(event)}{/if}
 
-  {#snippet extra()}
-    {#if event}<Button variant="danger" onclick={remove}>{t('editor.deleteEvent')}</Button>{/if}
+  {#snippet extra(stale: boolean)}
+    {#if event}<Button variant="danger" disabled={stale} onclick={remove}>{t('editor.deleteEvent')}</Button>{/if}
   {/snippet}
 </EditorDialog>
 

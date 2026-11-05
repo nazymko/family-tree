@@ -157,9 +157,11 @@ fn export_all(dir: &Path) {
         BatchRef,
         LogChangeDto,
         LogPersonDto,
+        LogFactDto,
         LogRowDto,
         Page<LogRowDto>,
         BatchDto,
+        LogAgentDto,
         LogFilterDto,
         ReviewScopeDto,
     );

@@ -6,6 +6,10 @@ export type LogPersonDto = { id: string, name: string,
  */
 exists: boolean, 
 /**
+ * The entry for unnamed brothers and sisters, which has no person page.
+ */
+siblingMarker: boolean, 
+/**
  * When the owner reviewed this change for this person.
  */
 reviewed: number | null, };

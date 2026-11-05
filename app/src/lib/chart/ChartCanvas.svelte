@@ -20,6 +20,7 @@
   import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
   import { t, plural } from '../i18n';
   import { nodeLabel, relationText } from '../i18n/relation';
+  import { agentChanges } from '../state/agentChanges.svelte';
 
   let {
     kind,
@@ -124,8 +125,13 @@
     const ctx = canvas.getContext('2d');
     if (!cur || !ctx) return;
     theme ??= themeFromCss();
-    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, theme, kind, reversed });
+    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, theme, kind, reversed, badged: agentChanges.unreviewed });
   }
+
+  $effect(() => {
+    void agentChanges.unreviewed;
+    invalidate();
+  });
 
   function setCam(c: Camera): void {
     userMoved = true;
@@ -568,7 +574,7 @@
   }
 
   function announce(): void {
-    announcement = selNode ? `${nodeLabel(selNode)}${counts()}` : '';
+    announcement = selNode ? `${agentChanges.spoken(nodeLabel(selNode), realPerson(selNode)?.id)}${counts()}` : '';
   }
 
   function select(n: ChartNode): void {
@@ -936,7 +942,7 @@
     ></canvas>
     <div class="sr-only" role="listbox" aria-label={t('chartCanvas.selectedPerson')}>
       {#if selNode}
-        <div id="{uid}-sel" role="option" aria-selected="true">{nodeLabel(selNode)}</div>
+        <div id="{uid}-sel" role="option" aria-selected="true">{agentChanges.spoken(nodeLabel(selNode), realPerson(selNode)?.id)}</div>
       {/if}
     </div>
     {#if hint}

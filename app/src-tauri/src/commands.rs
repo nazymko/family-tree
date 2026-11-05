@@ -4,13 +4,14 @@
 use crate::settings_file;
 use crate::state::{AppState, no_project};
 use gt_session::{
-    ApiError, AttachResult, ChartLocation, ChartMeta, ChartRequest, ChartWindow, CitationDto,
-    DatePreview, DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion, ExportOptions,
-    FamilyDto, FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto, ImportRequest,
-    LocationKind, LocationWarningDto, OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery,
-    PersonRow, PlaceOption, PrivacyPreview, ProjectInfo, RecentProject, Rect, RelinkResult,
-    SearchHitDto, Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo,
-    UndoState, WholeMeta,
+    ApiError, AttachResult, BatchDto, ChartLocation, ChartMeta, ChartRequest, ChartWindow,
+    CitationDto, DatePreview, DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion,
+    ExportOptions, FamilyDto, FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto,
+    ImportRequest, LocationKind, LocationWarningDto, LogAgentDto, LogFilterDto, LogRowDto,
+    OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery, PersonRow, PlaceOption, PrivacyPreview,
+    ProjectInfo, RecentProject, Rect, RelinkResult, ReviewScopeDto, SearchHitDto, Session,
+    Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport, UndoState,
+    WholeMeta,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -58,6 +59,14 @@ command_list!(
     undo,
     redo,
     undo_state,
+    change_log,
+    change_batches,
+    change_log_agents,
+    mark_reviewed,
+    unreviewed_people,
+    person_agent_changes,
+    undo_change_group,
+    undo_change_batch,
     history,
     parse_date,
     suggest_places,
@@ -385,6 +394,53 @@ pub fn history(
     limit: usize,
 ) -> ApiResult<Vec<HistoryEntry>> {
     state.with_session(|s| s.history(record, limit))
+}
+
+// ------------------------------------------------------------ change log
+
+#[tauri::command(async)]
+pub fn change_log(
+    state: State<'_, AppState>,
+    filter: LogFilterDto,
+    offset: usize,
+    limit: usize,
+) -> ApiResult<Page<LogRowDto>> {
+    state.with_session(|s| s.log(filter, offset, limit))
+}
+
+#[tauri::command(async)]
+pub fn change_batches(state: State<'_, AppState>) -> ApiResult<Vec<BatchDto>> {
+    state.with_session(|s| s.batches())
+}
+
+#[tauri::command(async)]
+pub fn change_log_agents(state: State<'_, AppState>) -> ApiResult<Vec<LogAgentDto>> {
+    state.with_session(|s| s.log_agents())
+}
+
+#[tauri::command(async)]
+pub fn mark_reviewed(state: State<'_, AppState>, scope: ReviewScopeDto) -> ApiResult<()> {
+    state.with_session(|s| s.mark_reviewed(scope))
+}
+
+#[tauri::command(async)]
+pub fn unreviewed_people(state: State<'_, AppState>) -> ApiResult<Vec<Uuid>> {
+    state.with_session(|s| s.unreviewed_people())
+}
+
+#[tauri::command(async)]
+pub fn person_agent_changes(state: State<'_, AppState>, id: Uuid) -> ApiResult<Vec<LogRowDto>> {
+    state.with_session(|s| s.person_agent_changes(id))
+}
+
+#[tauri::command(async)]
+pub fn undo_change_group(state: State<'_, AppState>, group: Uuid) -> ApiResult<UndoReport> {
+    state.with_session(|s| s.undo_group(group))
+}
+
+#[tauri::command(async)]
+pub fn undo_change_batch(state: State<'_, AppState>, batch: Uuid) -> ApiResult<UndoReport> {
+    state.with_session(|s| s.undo_batch(batch))
 }
 
 // ------------------------------------------------------------ lookups

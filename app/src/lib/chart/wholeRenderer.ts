@@ -1,6 +1,6 @@
 import type { ChartEdge, ChartNode, ChartWindow, SexKind, WholeBlockDto } from '../api/types';
 import type { Camera } from './camera';
-import { fit, lodFor, nameLines, themeFromCss, type Theme } from './renderer';
+import { drawAgentBadges, fit, lodFor, nameLines, themeFromCss, type Theme } from './renderer';
 import { kinshipText } from '../family/kinship';
 
 export interface WholeTheme extends Theme {
@@ -24,6 +24,8 @@ export interface WholeDrawOpts {
   /** Ancestors, descendants and the selected person; everything else is faded. Null shows everyone normally. */
   lineage: ReadonlySet<number> | null;
   theme: WholeTheme;
+  /** People an agent changed and nobody has reviewed; their boxes carry a dot. A saved picture leaves this out. */
+  badged?: ReadonlySet<string>;
 }
 
 function barColor(sex: SexKind | undefined, t: WholeTheme): string {
@@ -272,5 +274,6 @@ export function drawWhole(
     }
   }
   if (overlay) drawHeadings(ctx, blocks, cam, view, theme, true);
+  drawAgentBadges(ctx, win.nodes, opts.badged, theme, z);
   return { drawn: win.nodes.length };
 }

@@ -273,6 +273,26 @@ export function runApiContract(make: () => Promise<Api>): void {
       expect((await rejection(api.apply({ type: 'deletePerson', id: 'x' }))).code).toBe('not_found');
     });
 
+    it('change_log_records_the_owner_edit_as_you', async () => {
+      const api = await make();
+      expect(await api.changeBatches()).toEqual([]);
+      expect(await api.unreviewedPeople()).toEqual([]);
+      const r = await api.apply({ type: 'createPerson', draft: { given: 'Ada', surnames: ['Koval'], sex: 'female' } });
+      const page = await api.changeLog({ unreviewedOnly: false }, 0, 10);
+      expect(page.total).toBe(1);
+      expect(page.items[0]).toMatchObject({ actor: { kind: 'user' }, label: 'Add person', reverted: false, canUndo: false });
+      expect(page.items[0].people.map((p) => p.id)).toContain(r.focus);
+      expect((await api.changeLog({ unreviewedOnly: true }, 0, 10)).total).toBe(0);
+      expect(await api.personAgentChanges(r.focus!)).toEqual([]);
+      expect((await rejection(api.undoChangeGroup(page.items[0].group))).code).toBe('invalid');
+    });
+
+    it('change_log_unknown_ids_reject', async () => {
+      const api = await make();
+      expect((await rejection(api.undoChangeGroup('x'))).code).toBe('not_found');
+      expect((await rejection(api.undoChangeBatch('x'))).code).toBe('not_found');
+    });
+
     it('settings_roundtrip', async () => {
       const api = await make();
       const s = await api.getSettings();

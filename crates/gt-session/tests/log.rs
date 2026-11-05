@@ -218,6 +218,32 @@ fn agent_group_lists_people_of_family_link() {
 }
 
 #[test]
+fn a_marker_in_the_log_says_it_has_no_person_page() {
+    let (_d, mut s, _anna) = setup();
+    let family = *s.tree().families.keys().next().unwrap();
+    s.commit_command_as(EditCommand::AddSiblingMarker { family }, agent(), None)
+        .unwrap();
+    let marker = s
+        .tree()
+        .persons
+        .values()
+        .find(|p| p.sibling_marker)
+        .unwrap()
+        .common
+        .id;
+    let r = rows(&s);
+    let entry = r[0].people.iter().find(|p| p.id == marker).unwrap();
+    assert!(entry.exists);
+    assert!(entry.sibling_marker);
+    assert!(
+        r[0].people
+            .iter()
+            .filter(|p| p.id != marker)
+            .all(|p| !p.sibling_marker)
+    );
+}
+
+#[test]
 fn deleted_people_are_still_named() {
     let (_d, mut s, anna) = setup();
     let p = s
@@ -543,6 +569,114 @@ fn log_change_detail_is_readable() {
     let r = rows(&s);
     let c = r[1].changes.iter().find(|c| c.kind == "citation").unwrap();
     assert_eq!(c.sources, vec!["Recording 2".to_string()]);
+}
+
+#[test]
+fn log_change_fact_is_structured_for_translation() {
+    let (_d, mut s, anna) = setup();
+    s.commit_command_as(add_note(anna, "From the recording"), agent(), None)
+        .unwrap();
+    let r = rows(&s);
+    let n = r[0].changes.iter().find(|c| c.kind == "note").unwrap();
+    assert_eq!(
+        n.fact,
+        LogFactDto::Text {
+            text: "From the recording".into()
+        }
+    );
+
+    s.commit_command_as(birth(find(s.tree(), "Eva"), "1 Jan 1900"), agent(), None)
+        .unwrap();
+    let r = rows(&s);
+    let e = r[0].changes.iter().find(|c| c.kind == "event").unwrap();
+    assert_eq!(
+        e.fact,
+        LogFactDto::Event {
+            event: "birth".into(),
+            label: "Birth".into(),
+            date: Some("1 Jan 1900".into()),
+            place: None,
+        }
+    );
+
+    let family = *s.tree().families.keys().next().unwrap();
+    let eva = find(s.tree(), "Eva");
+    s.commit_command_as(link_child(family, eva), agent(), None)
+        .unwrap();
+    let r = rows(&s);
+    let f = r[0].changes.iter().find(|c| c.kind == "family").unwrap();
+    let LogFactDto::Family { partners } = &f.fact else {
+        panic!("{:?}", f.fact);
+    };
+    assert_eq!(partners.join(" and "), f.detail);
+}
+
+#[test]
+fn skipped_fact_is_structured_for_translation() {
+    let (_d, mut s, anna) = setup();
+    s.commit_command_as(add_note(anna, "From the recording"), agent(), None)
+        .unwrap();
+    let group = rows(&s)[0].group;
+    let note = *s.tree().notes.keys().next().unwrap();
+    s.apply(edit_note(anna, note, "Mine now")).unwrap();
+    let report = s.undo_group(group).unwrap();
+    let skipped = report.skipped.iter().find(|f| f.kind == "note").unwrap();
+    // The fact as the agent wrote it: that is what stayed unreverted, whatever it says now.
+    assert_eq!(
+        skipped.fact,
+        LogFactDto::Text {
+            text: "From the recording".into()
+        }
+    );
+}
+
+#[test]
+fn log_agents_are_every_author_once_with_the_latest_name() {
+    let (_d, mut s, anna) = setup();
+    assert!(s.log_agents().unwrap().is_empty());
+    s.apply(add_note(anna, "Mine")).unwrap();
+    let other = Actor::Agent {
+        id: Uuid::from_u128(8),
+        name: "Archive helper".into(),
+    };
+    s.commit_command_as(add_note(anna, "One"), agent(), None)
+        .unwrap();
+    s.commit_command_as(add_note(anna, "Two"), other, None)
+        .unwrap();
+    let renamed = Actor::Agent {
+        id: Uuid::from_u128(7),
+        name: "Zoe the reader".into(),
+    };
+    s.commit_command_as(add_note(anna, "Three"), renamed, None)
+        .unwrap();
+    let agents = s.log_agents().unwrap();
+    let got: Vec<(Uuid, &str)> = agents.iter().map(|a| (a.id, a.name.as_str())).collect();
+    assert_eq!(
+        got,
+        vec![
+            (Uuid::from_u128(8), "Archive helper"),
+            (Uuid::from_u128(7), "Zoe the reader")
+        ]
+    );
+}
+
+#[test]
+fn a_batch_counts_the_changes_that_still_stand() {
+    let (d, s, anna) = setup();
+    let batch = Uuid::from_u128(44);
+    let mut s = with_batch(&d, s, batch, "Recording 2 summary");
+    let eva = find(s.tree(), "Eva");
+    s.commit_command_as(add_note(anna, "One"), agent(), Some(batch))
+        .unwrap();
+    let first = newest_group(&s);
+    s.commit_command_as(add_note(eva, "Two"), agent(), Some(batch))
+        .unwrap();
+    assert_eq!(s.batches().unwrap()[0].standing, 2);
+    s.undo_group(first).unwrap();
+    let b = s.batches().unwrap();
+    assert_eq!((b[0].groups, b[0].standing), (2, 1));
+    s.undo_batch(batch).unwrap();
+    assert_eq!(s.batches().unwrap()[0].standing, 0);
 }
 
 #[test]

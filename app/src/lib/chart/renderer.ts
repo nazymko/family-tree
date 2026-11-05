@@ -35,6 +35,23 @@ export interface DrawOpts {
   reversed?: boolean;
   /** Draw the "+" handles of boxes with more people hidden (default true; a saved picture leaves them out). */
   handles?: boolean;
+  /** People an agent changed and nobody has reviewed; their boxes carry a dot. A saved picture leaves this out. */
+  badged?: ReadonlySet<string>;
+}
+
+/** The "changed by an agent" dot at a box's top corner, a constant size on screen at every zoom. */
+export function drawAgentBadges(ctx: CanvasRenderingContext2D, nodes: ChartNode[], badged: ReadonlySet<string> | undefined, theme: Theme, z: number): void {
+  if (!badged || badged.size === 0) return;
+  ctx.fillStyle = theme.ribbon;
+  ctx.strokeStyle = theme.paper;
+  ctx.lineWidth = 1.5 / z;
+  for (const n of nodes) {
+    if (!n.person || n.person.siblingMarker || !badged.has(n.person.id)) continue;
+    ctx.beginPath();
+    ctx.arc(n.x + n.w, n.y, 5 / z, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
 }
 
 /** Theme from the CSS custom properties on <html> (re-read when the colour scheme changes). */
@@ -169,6 +186,7 @@ export function draw(
         ctx.stroke();
       }
     }
+    drawAgentBadges(ctx, win.nodes, opts.badged, theme, z);
     return { drawn: win.nodes.length };
   }
 
@@ -271,5 +289,6 @@ export function draw(
       }
     }
   }
+  drawAgentBadges(ctx, win.nodes, opts.badged, theme, z);
   return { drawn: win.nodes.length };
 }

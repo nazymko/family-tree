@@ -10,6 +10,7 @@
   import EventEditor from './EventEditor.svelte';
   import QuickAdd from './QuickAdd.svelte';
   import EditorDialog from './EditorDialog.svelte';
+  import SubEditors from './SubEditors.svelte';
   import { errMessage } from './errors';
   import { t } from '../i18n';
   import { eventKindLabel } from '../i18n/backend';
@@ -269,6 +270,7 @@
 <EditorDialog
   title={editing ? t('famEd.editFamily') : t('famEd.addFamily')}
   saveLabel={t('edit.saveFamily')}
+  watch={[family, anchor]}
   {dirty}
   {saving}
   {error}
@@ -414,34 +416,38 @@
     </section>
   {/if}
 
-  {#snippet extra()}
-    {#if editing}<Button variant="danger" onclick={() => (sub = { kind: 'delete' })}>{t('edit.deleteFamily')}</Button>{/if}
+  {#snippet extra(stale: boolean)}
+    {#if editing}<Button variant="danger" disabled={stale} onclick={() => (sub = { kind: 'delete' })}>{t('edit.deleteFamily')}</Button>{/if}
   {/snippet}
 </EditorDialog>
 
 {#if sub?.kind === 'event' && family}
-  <EventEditor
-    owner={{ kind: 'family', id: family }}
-    event={sub.event}
-    onCancel={() => (sub = null)}
-    onSaved={(r) => {
-      sub = null;
-      onChanged?.(r);
-      void reload(false);
-    }}
-  />
+  <SubEditors>
+    <EventEditor
+      owner={{ kind: 'family', id: family }}
+      event={sub.event}
+      onCancel={() => (sub = null)}
+      onSaved={(r) => {
+        sub = null;
+        onChanged?.(r);
+        void reload(false);
+      }}
+    />
+  </SubEditors>
 {:else if sub?.kind === 'child' && childAnchor && family}
-  <QuickAdd
-    anchor={childAnchor}
-    relation="child"
-    {family}
-    onCancel={() => (sub = null)}
-    onDone={(r) => {
-      sub = null;
-      onChanged?.(r);
-      void reload(false);
-    }}
-  />
+  <SubEditors>
+    <QuickAdd
+      anchor={childAnchor}
+      relation="child"
+      {family}
+      onCancel={() => (sub = null)}
+      onDone={(r) => {
+        sub = null;
+        onChanged?.(r);
+        void reload(false);
+      }}
+    />
+  </SubEditors>
 {:else if sub?.kind === 'delete'}
   <Dialog open={true} title={t('famEd.deleteTitle')} onclose={() => (sub = null)}>
     <p>{t('famEd.childrenKept')}</p>

@@ -16,6 +16,7 @@
   import FamilyEditor from '../editors/FamilyEditor.svelte';
   import FamilyTree from './FamilyTree.svelte';
   import { flipMove, snapshotRects } from './flip';
+  import { agentChanges } from '../state/agentChanges.svelte';
   import { t, type MessageKey } from '../i18n';
 
   let { onQuickAdd }: { onQuickAdd?: (relation: AddRelation, opts?: { newParentSet?: boolean; parentRel?: ParentRelId }) => void } = $props();
@@ -229,6 +230,7 @@
               sex={p.sex}
               living={p.living}
               isPrivate={p.private}
+              agentChanged={agentChanges.unreviewed.has(p.id)}
               home={p.id === homeId}
               flipKey={p.id}
               chips={chipOf(primary.rel[slot]) ? [chipLabel(chipOf(primary.rel[slot])!)] : []}
@@ -259,6 +261,7 @@
                     sex={p.sex}
                     living={p.living}
                     isPrivate={p.private}
+                    agentChanged={agentChanges.unreviewed.has(p.id)}
                     flipKey={p.id}
                     chips={chipOf(set.rel[slot]) ? [chipLabel(chipOf(set.rel[slot])!)] : []}
                     relationship={withChip(chipOf(set.rel[slot]), parentRole(p, slot))}
@@ -324,6 +327,7 @@
                   sex={union.partner.sex}
                   living={union.partner.living}
                   isPrivate={union.partner.private}
+                  agentChanged={agentChanges.unreviewed.has(union.partner.id)}
                   home={union.partner.id === homeId}
                   flipKey={union.partner.id}
                   relationship={t('kin.partner')}
@@ -356,6 +360,7 @@
                 sex={c.person.sex}
                 living={c.person.living}
                 isPrivate={c.person.private}
+                agentChanged={agentChanges.unreviewed.has(c.person.id)}
                 flipKey={c.person.id}
                 siblingMarker={c.person.siblingMarker}
                 ondelete={() => deleteMarker(c.person.id)}
@@ -384,6 +389,7 @@
                 sex={s.sex}
                 living={s.living}
                 isPrivate={s.private}
+                agentChanged={agentChanges.unreviewed.has(s.id)}
                 flipKey={s.id}
                 siblingMarker={s.siblingMarker}
                 ondelete={() => deleteMarker(s.id)}

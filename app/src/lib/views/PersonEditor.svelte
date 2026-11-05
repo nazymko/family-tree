@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { setContext, tick, untrack, type Snippet } from 'svelte';
   import type {
     EditResult,
     EventDto,
@@ -17,7 +17,10 @@
   import { settings } from '../state/settings.svelte';
   import { undoState } from '../state/undo.svelte';
   import { ui } from '../state/ui.svelte';
+  import { agentChanges, EDITOR_HOST, type EditorHost } from '../state/agentChanges.svelte';
   import FamilyTree from './FamilyTree.svelte';
+  import AgentChangesPanel from './AgentChangesPanel.svelte';
+  import AgentBadge from '../ui/AgentBadge.svelte';
   import IndexCard from '../ui/IndexCard.svelte';
   import Ribbon from '../ui/Ribbon.svelte';
   import Button from '../ui/Button.svelte';
@@ -77,25 +80,57 @@
   let familyView = $state<FamilyViewDto | null>(null);
 
   let loadSeq = 0;
-  async function load() {
+  /** The agent event count when `detail` was read; an editor built from `detail` counts from here. */
+  let detailAt = 0;
+  let basics = $state<HTMLElement>();
+  /** What was last written into the "describe" field, so anything else there is text not yet committed. */
+  let sexTextShown = '';
+  let committing = 0;
+
+  const holdsFocus = (field: string) => !!basics?.querySelector(`[data-field="${field}"]`)?.contains(document.activeElement);
+
+  /** Brings the basics in line with the tree, except where the owner is working. `force` is for a commit that failed. */
+  function syncBasics(d: PersonDetail, force = false) {
+    const free = (field: string) => force || !holdsFocus(field);
+    // The sex decides whether the "describe" field exists at all, so typing there holds it too.
+    const typing = sexText !== sexTextShown || !free('sexText');
+    if (!typing) {
+      sexText = d.sexText ?? '';
+      sexTextShown = sexText;
+      if (free('sex')) sex = d.sex;
+    }
+    if (free('living')) living = d.livingOverride ?? '';
+    if (free('private')) isPrivate = d.private;
+  }
+
+  /** Focus moved on: a field held back while it had focus catches up. A commit under way reloads by itself. */
+  async function basicsBlurred() {
+    await tick();
+    if (detail && committing === 0) syncBasics(detail);
+  }
+
+  /** True when what it read is what the page now holds: not overtaken by a newer load, and not failed. */
+  async function load(): Promise<boolean> {
     const mine = ++loadSeq;
+    const at = untrack(() => agentChanges.seq);
+    let landed = false;
     try {
       const d = await api.getPerson(id);
       const h = await api.history(id, 20);
       const fv = await api.getFamilyView(id).catch(() => null);
-      if (mine !== loadSeq) return; // a newer load is in flight
+      if (mine !== loadSeq) return false; // a newer load is in flight
       detail = d;
+      detailAt = at;
       familyView = fv;
-      sex = d.sex;
-      sexText = d.sexText ?? '';
-      living = d.livingOverride ?? '';
-      isPrivate = d.private;
+      syncBasics(d);
       history = h;
       loadError = '';
+      landed = true;
     } catch (e) {
       if (mine === loadSeq) loadError = errMessage(e);
     }
     if (!settings.loaded) void settings.load(api).catch(() => {});
+    return landed;
   }
 
   $effect(() => {
@@ -112,12 +147,17 @@
 
   async function commit(field: string, patch: { sex?: PersonDetail['sex']; sexText?: string; livingOverride?: 'living' | 'deceased' | null; private?: boolean }) {
     error = '';
+    if (patch.sexText !== undefined) sexTextShown = patch.sexText;
+    committing++;
     try {
       const r = await api.apply({ type: 'updatePerson', id, ...patch });
       await afterEdit(r);
     } catch (e) {
       error = errMessage(e);
       await load();
+      if (detail) syncBasics(detail, true);
+    } finally {
+      committing--;
     }
   }
 
@@ -198,6 +238,29 @@
   function closeDialog() {
     dialog = null;
   }
+  /** An agent changed what the open dialog shows: reopen it on what the tree says now, or close it if that is gone. */
+  let dialogEpoch = $state(0);
+  async function reopenDialog(): Promise<boolean> {
+    if (!dialog) return false;
+    if (!(await load())) return true;
+    const d = dialog;
+    if (d?.kind === 'name' && d.name) {
+      const id = d.name.id;
+      const name = detail?.names.find((n) => n.id === id);
+      dialog = name ? { kind: 'name', name } : null;
+    } else if (d?.kind === 'event' && d.event) {
+      const id = d.event.id;
+      const event = detail?.events.find((e) => e.id === id);
+      dialog = event ? { ...d, event } : null;
+    } else if (d?.kind === 'note' && d.note) {
+      const id = d.note.id;
+      const note = detail?.notes.find((n) => n.id === id);
+      dialog = note ? { kind: 'note', note } : null;
+    }
+    dialogEpoch++;
+    return true;
+  }
+  setContext<EditorHost>(EDITOR_HOST, { loadedAt: () => detailAt, reopen: reopenDialog });
   /** "Event saved" or "Event deleted", from what the edit actually did. */
   async function saved(r: EditResult) {
     dialog = null;
@@ -234,7 +297,7 @@
     <div class="card">
     <IndexCard as="section" ribbon={isHome}>
       <div class="head">
-        <h1><bdi dir="auto">{detail.ref.name}</bdi></h1>
+        <h1><bdi dir="auto">{detail.ref.name}</bdi>{#if agentChanges.unreviewed.has(id)} <AgentBadge />{/if}</h1>
         <p class="life">{detail.ref.lifespan || t('person.noDates')}</p>
         <div class="head-actions" role="group" aria-label={t('person.quickEdit')}>
           <Button
@@ -261,6 +324,7 @@
       {/snippet}
     </IndexCard>
     </div>
+    <AgentChangesPanel {id} />
 
     {#if error}<Banner kind="error">{error}</Banner>{/if}
 
@@ -300,32 +364,40 @@
 
     <section aria-labelledby="h-basics">
       <h2 id="h-basics">{t('person.basics')}</h2>
-      <div class="grid">
-        <Select
-          label={t('newPerson.sex')}
-          options={SEXES}
-          bind:value={sex}
-          onchange={(v) => commit('Sex', { sex: v as PersonDetail['sex'] })}
-        />
-        {#if sex === 'other'}
-          <TextField
-            label={t('person.describeSex')}
-            bind:value={sexText}
-            onchange={() => commit('Sex', { sex: 'other', sexText })}
+      <div class="grid" bind:this={basics} onfocusout={basicsBlurred}>
+        <div data-field="sex">
+          <Select
+            label={t('newPerson.sex')}
+            options={SEXES}
+            bind:value={sex}
+            onchange={(v) => commit('Sex', { sex: v as PersonDetail['sex'] })}
           />
+        </div>
+        {#if sex === 'other'}
+          <div data-field="sexText">
+            <TextField
+              label={t('person.describeSex')}
+              bind:value={sexText}
+              onchange={() => commit('Sex', { sex: 'other', sexText })}
+            />
+          </div>
         {/if}
-        <Select
-          label={t('person.livingStatus')}
-          options={livingOptions}
-          bind:value={living}
-          onchange={(v) => commit('Living status', { livingOverride: v === '' ? null : (v as 'living' | 'deceased') })}
-        />
-        <Checkbox
-          label={t('common.private')}
-          hint={t('person.privateHint')}
-          bind:checked={isPrivate}
-          onchange={(c) => commit('Privacy', { private: c })}
-        />
+        <div data-field="living">
+          <Select
+            label={t('person.livingStatus')}
+            options={livingOptions}
+            bind:value={living}
+            onchange={(v) => commit('Living status', { livingOverride: v === '' ? null : (v as 'living' | 'deceased') })}
+          />
+        </div>
+        <div data-field="private">
+          <Checkbox
+            label={t('common.private')}
+            hint={t('person.privateHint')}
+            bind:checked={isPrivate}
+            onchange={(c) => commit('Privacy', { private: c })}
+          />
+        </div>
       </div>
     </section>
 
@@ -452,6 +524,7 @@
   {/if}
 </div>
 
+{#key dialogEpoch}
 {#if detail && dialog?.kind === 'name'}
   <NameEditor person={id} name={dialog.name} onCancel={closeDialog} onSaved={(r) => saved(r)} />
 {:else if detail && dialog?.kind === 'event'}
@@ -497,6 +570,7 @@
     {/snippet}
   </Dialog>
 {/if}
+{/key}
 
 <style>
   .page {
@@ -514,6 +588,9 @@
   }
   .card {
     max-width: var(--measure);
+  }
+  [data-field] {
+    display: contents;
   }
   .head {
     display: grid;

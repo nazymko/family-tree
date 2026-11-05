@@ -13,6 +13,7 @@
   import { settings } from '../state/settings.svelte';
   import { ui } from '../state/ui.svelte';
   import { registerShortcuts } from '../state/shortcuts';
+  import { agentChanges } from '../state/agentChanges.svelte';
   import { t, plural, formatNumber } from '../i18n';
 
   const api = getApi();
@@ -209,7 +210,7 @@
           >
             <!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
             {#snippet row(item, _index, sel)}
-              <PersonRowView row={isRow(item) ? item : null} home={isRow(item) && item.id === homeId} selected={sel} />
+              <PersonRowView row={isRow(item) ? item : null} home={isRow(item) && item.id === homeId} selected={sel} agentChanged={isRow(item) && agentChanges.unreviewed.has(item.id)} />
             {/snippet}
           </PagedList>
         {/key}

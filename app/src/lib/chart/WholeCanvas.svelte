@@ -19,6 +19,7 @@
   import { founderOf } from './wholeStart';
   import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
+  import { agentChanges } from '../state/agentChanges.svelte';
   import { compactX, isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
 
@@ -104,8 +105,13 @@
     const ctx = canvas.getContext('2d');
     if (!cur || !ctx) return;
     theme ??= wholeThemeFromCss();
-    drawWhole(ctx, cur.win, meta.blocks, cam, { w: size.w, h: size.h, dpr }, { selected, home: homeNode, lineage, theme });
+    drawWhole(ctx, cur.win, meta.blocks, cam, { w: size.w, h: size.h, dpr }, { selected, home: homeNode, lineage, theme, badged: agentChanges.unreviewed });
   }
+
+  $effect(() => {
+    void agentChanges.unreviewed;
+    invalidate();
+  });
 
   function setCam(c: Camera, byUser = true): void {
     if (byUser) userMoved = true;
@@ -494,7 +500,7 @@
 
   function announceOnce(): void {
     pendingAnnounce = false;
-    announcement = selNode && selNode.label ? nodeLabel(selNode) : '';
+    announcement = selNode && selNode.label ? agentChanges.spoken(nodeLabel(selNode), realPerson(selNode)?.id) : '';
   }
 
   /** Far out the window carries only the surname; ask for the real name and dates of the one selected card. */
@@ -893,7 +899,7 @@
     ></canvas>
     <div class="sr-only" role="listbox" aria-label={t('chartCanvas.selectedPerson')}>
       {#if selNode}
-        <div id="{uid}-sel" role="option" aria-selected="true">{selNode.label ? nodeLabel(selNode) : selNode.person?.name}</div>
+        <div id="{uid}-sel" role="option" aria-selected="true">{agentChanges.spoken(selNode.label ? nodeLabel(selNode) : (selNode.person?.name ?? ''), realPerson(selNode)?.id)}</div>
       {/if}
     </div>
     {#if hint}

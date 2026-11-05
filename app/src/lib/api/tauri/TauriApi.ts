@@ -3,6 +3,12 @@ import { listen } from '@tauri-apps/api/event';
 import type { Api } from '../api';
 import type { AgentAccessState, NewConnectionDto } from '../types';
 import type {
+  BatchDto,
+  LogAgentDto,
+  LogFilterDto,
+  LogRowDto,
+  ReviewScopeDto,
+  UndoReport,
   AttachResult,
   ChartLocation,
   ChartMeta,
@@ -220,6 +226,30 @@ export class TauriApi implements Api {
   }
   setSettings(patch: Partial<Settings>): Promise<Settings> {
     return call('set_settings', { patch });
+  }
+  changeLog(filter: LogFilterDto, offset: number, limit: number): Promise<Page<LogRowDto>> {
+    return call('change_log', { filter, offset, limit });
+  }
+  changeBatches(): Promise<BatchDto[]> {
+    return call('change_batches');
+  }
+  changeLogAgents(): Promise<LogAgentDto[]> {
+    return call('change_log_agents');
+  }
+  markReviewed(scope: ReviewScopeDto): Promise<void> {
+    return call('mark_reviewed', { scope });
+  }
+  unreviewedPeople(): Promise<Id[]> {
+    return call('unreviewed_people');
+  }
+  personAgentChanges(id: Id): Promise<LogRowDto[]> {
+    return call('person_agent_changes', { id });
+  }
+  undoChangeGroup(group: string): Promise<UndoReport> {
+    return call('undo_change_group', { group });
+  }
+  undoChangeBatch(batch: string): Promise<UndoReport> {
+    return call('undo_change_batch', { batch });
   }
   // --- Agent access ---
   agentAccessState(): Promise<AgentAccessState> {

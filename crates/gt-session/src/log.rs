@@ -5,7 +5,7 @@ use crate::dto::Page;
 use crate::error::{ApiError, ErrorCode};
 use crate::names::display_name;
 use crate::ops::record_in;
-use crate::person_detail::event_label;
+use crate::person_detail::{event_kind_id, event_label};
 use crate::revert::common_of;
 use crate::session::Session;
 use gt_core::model::{ParticipantRef, Role};
@@ -37,6 +37,24 @@ pub struct BatchRef {
     pub title: String,
 }
 
+/// A record in the log as data, so that the UI can word its fixed parts in its own language.
+/// Everything here is the user's or the agent's own text, except the event `label` fallback.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum LogFactDto {
+    /// Text as written: a person's name, a note's first words, a source's title.
+    Text { text: String },
+    /// The names of the partners; empty when the family has none.
+    Family { partners: Vec<String> },
+    /// `event` is the kind's id (`birth`, `custom:Pilgrimage`), `label` its English name.
+    Event {
+        event: String,
+        label: String,
+        date: Option<String>,
+        place: Option<String>,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct LogChangeDto {
@@ -45,6 +63,8 @@ pub struct LogChangeDto {
     pub op: HistoryOp,
     /// The record in readable words: a note's first words, an event's kind and date.
     pub detail: String,
+    /// The same record as data, for the UI to word in its own language.
+    pub fact: LogFactDto,
     /// Titles of the sources this change cited.
     pub sources: Vec<String>,
 }
@@ -56,6 +76,8 @@ pub struct LogPersonDto {
     pub name: String,
     /// False once the person has gone from the tree.
     pub exists: bool,
+    /// The entry for unnamed brothers and sisters, which has no person page.
+    pub sibling_marker: bool,
     /// When the owner reviewed this change for this person.
     #[ts(type = "number | null")]
     pub reviewed: Option<i64>,
@@ -93,6 +115,16 @@ pub struct BatchDto {
     pub groups: u32,
     pub people: u32,
     pub unreviewed: u32,
+    /// Changes of this batch that have not been undone.
+    pub standing: u32,
+}
+
+/// An agent that has written to the log.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LogAgentDto {
+    pub id: Uuid,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -248,33 +280,53 @@ impl Session {
 
     /// One record in readable words.
     pub(crate) fn describe(&self, rec: &Record, group: &[Change]) -> String {
+        match self.fact(rec, group) {
+            LogFactDto::Text { text } => text,
+            LogFactDto::Family { partners } if partners.is_empty() => "Family".to_string(),
+            LogFactDto::Family { partners } => partners.join(" and "),
+            LogFactDto::Event {
+                label, date, place, ..
+            } => std::iter::once(label)
+                .chain(date)
+                .chain(place)
+                .collect::<Vec<_>>()
+                .join(", "),
+        }
+    }
+
+    /// One record as data.
+    pub(crate) fn fact(&self, rec: &Record, group: &[Change]) -> LogFactDto {
         match rec {
-            Record::Person(p) => display_name(p, self.settings.name_order),
-            Record::Family(f) => {
-                let names: Vec<String> = f
+            Record::Family(f) => LogFactDto::Family {
+                partners: f
                     .partner1
                     .iter()
                     .chain(&f.partner2)
                     .map(|id| self.logged_name(*id, group))
-                    .collect();
-                if names.is_empty() {
-                    "Family".to_string()
-                } else {
-                    names.join(" and ")
-                }
-            }
-            Record::Event(e) => {
-                let mut parts = vec![event_label(&e.kind)];
-                parts.extend(e.date.as_ref().map(|d| d.display()));
-                let place = e
+                    .collect(),
+            },
+            Record::Event(e) => LogFactDto::Event {
+                event: event_kind_id(&e.kind),
+                label: event_label(&e.kind),
+                date: e.date.as_ref().map(|d| d.display()),
+                place: e
                     .place
-                    .and_then(|id| self.find_logged(RecordKind::Place, id, group));
-                parts.extend(place.and_then(|r| match r {
-                    Record::Place(p) => p.names.first().map(|n| n.name.clone()).or(p.raw),
-                    _ => None,
-                }));
-                parts.join(", ")
-            }
+                    .and_then(|id| self.find_logged(RecordKind::Place, id, group))
+                    .and_then(|r| match r {
+                        Record::Place(p) => p.names.first().map(|n| n.name.clone()).or(p.raw),
+                        _ => None,
+                    }),
+            },
+            other => LogFactDto::Text {
+                text: self.record_text(other, group),
+            },
+        }
+    }
+
+    fn record_text(&self, rec: &Record, group: &[Change]) -> String {
+        match rec {
+            Record::Person(p) => display_name(p, self.settings.name_order),
+            Record::Family(_) | Record::Event(_) => String::new(),
             Record::Place(p) => p
                 .names
                 .first()
@@ -378,6 +430,7 @@ impl Session {
                     .or(ch.before.as_ref())
                     .map(|r| self.describe(r, &g.changes))
                     .unwrap_or_default(),
+                fact: self.change_fact(ch, &g.changes),
                 sources: self.sources_of_change(ch, &g.changes),
             })
             .collect();
@@ -388,6 +441,10 @@ impl Session {
                 id: p.id,
                 name: self.logged_name(p.id, &g.changes),
                 exists: self.tree.persons.contains_key(&p.id),
+                sibling_marker: matches!(
+                    self.find_logged(RecordKind::Person, p.id, &g.changes),
+                    Some(Record::Person(r)) if r.sibling_marker
+                ),
                 reviewed: p.reviewed,
             })
             .collect();
@@ -452,9 +509,20 @@ impl Session {
                     groups,
                     people,
                     unreviewed,
+                    standing: self.project.batch_standing(b.id)?,
                 })
             })
             .collect()
+    }
+
+    /// Every agent in the log, sorted by name.
+    pub fn log_agents(&self) -> Result<Vec<LogAgentDto>, ApiError> {
+        Ok(self
+            .project
+            .log_agents()?
+            .into_iter()
+            .map(|(id, name)| LogAgentDto { id, name })
+            .collect())
     }
 
     pub fn mark_reviewed(&mut self, scope: ReviewScopeDto) -> Result<(), ApiError> {
@@ -491,6 +559,15 @@ impl Session {
             .collect()
     }
 
+    fn change_fact(&self, ch: &Change, group: &[Change]) -> LogFactDto {
+        ch.after.as_ref().or(ch.before.as_ref()).map_or(
+            LogFactDto::Text {
+                text: String::new(),
+            },
+            |r| self.fact(r, group),
+        )
+    }
+
     /// A change that could not be undone in full, in the owner's terms.
     pub(crate) fn skipped_fact(&self, ch: &Change) -> SkippedFact {
         let group = std::slice::from_ref(ch);
@@ -516,6 +593,7 @@ impl Session {
                 .or(ch.before.as_ref())
                 .map(|r| self.describe(r, group))
                 .unwrap_or_default(),
+            fact: self.change_fact(ch, group),
         }
     }
 
