@@ -1,0 +1,25 @@
+[package]
+name = "gt-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "A local MCP server that lets AI agents read and add to the open family tree."
+
+[dependencies]
+gt-core = { path = "../gt-core" }
+gt-session = { path = "../gt-session" }
+gt-store = { path = "../gt-store" }
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tiny_http.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+image.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
