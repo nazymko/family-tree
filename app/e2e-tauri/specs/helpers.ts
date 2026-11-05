@@ -77,9 +77,18 @@ export async function importSynthetic(name: string): Promise<string> {
   return `${parent}/${name}`;
 }
 
+/** Opens the imported tree (it lands on the whole tree) and goes to Family, where the flows start. */
 export async function openTreeFromReport() {
   await click('Open the tree');
   await $('aria/Main').waitForExist({ timeout: 60000 });
+  await toFamily();
+}
+
+async function toFamily() {
+  const current = await $('//nav[@aria-label="Main"]//a[@aria-current="page"]');
+  await current.waitForExist({ timeout: 20000 });
+  if ((await current.getText()).trim() !== 'Whole tree') throw new Error(`a tree opened on "${await current.getText()}", not the whole tree`);
+  await goTo('Family');
 }
 
 export async function shot(file: string) {
@@ -96,6 +105,7 @@ export async function ensureOpen(name: string) {
   await row.waitForClickable({ timeout: 20000 });
   await row.click();
   await $('aria/Main').waitForExist({ timeout: 60000 });
+  await toFamily();
 }
 
 /** Starts the app again, like quitting and launching it: a new WebDriver session is a new process. */

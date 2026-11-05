@@ -57,7 +57,7 @@ describe('openTree', () => {
     const api = new MockApi(fixtureTree(50));
     const spy = vi.spyOn(api, 'closeProject');
     await enterProject(api, await api.openProject('C:/Trees/A'));
-    expect(nav.route.name).toBe('family');
+    expect(nav.route.name).toBe('whole');
     await closeTree(api);
     expect(spy).toHaveBeenCalledOnce();
     expect(project.info).toBeNull();

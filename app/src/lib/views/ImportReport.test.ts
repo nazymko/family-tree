@@ -128,10 +128,10 @@ describe('ImportReport', () => {
     await waitFor(() => expect(save).toHaveBeenCalledWith('C:/Mock/import-report.txt'));
   });
 
-  it('open_the_tree_goes_to_family', async () => {
+  it('open_the_tree_goes_to_the_whole_tree', async () => {
     const { user } = await setup();
     await user.click(screen.getByRole('button', { name: 'Open the tree' }));
-    await waitFor(() => expect(nav.route.name).toBe('family'));
+    await waitFor(() => expect(nav.route.name).toBe('whole'));
     expect(nav.focusPerson).toBeTruthy();
     expect(project.report).toBeNull();
   });
