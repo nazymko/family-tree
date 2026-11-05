@@ -120,9 +120,14 @@ export async function goTo(item: 'Family' | 'People' | 'Pedigree' | 'Descendants
   await a.click();
 }
 
+/** Takes the focus off any control. Not a click on the page: its middle can be a button, such as "Add mother". */
+export async function clearFocus() {
+  await browser.execute(() => (document.activeElement as HTMLElement | null)?.blur());
+}
+
 /** Opens the search palette and types the query. */
 export async function search(query: string) {
-  await $('body').click();
+  await clearFocus();
   await chord('k');
   const box = await $('input[role="combobox"]');
   await box.waitForDisplayed();
