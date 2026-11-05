@@ -4,13 +4,15 @@
 //!
 //! 1. The batch exists in this tree, belongs to this connection, and is not closed.
 //! 2. The command is on the list of additive commands.
-//! 3. A repeat of what this connection already wrote adds nothing (`AlreadyThere`).
-//! 4. Facts a person has only once, and parents a child has only one of in each role.
+//! 3. A repeat adds nothing (`AlreadyThere`): of a note, event or citation this connection wrote,
+//!    or of any identical source, name or family.
+//! 4. Facts a person has only once, one birth family, and one parent in each role.
 //! 5. Every change is compared in JSON: on what is not the agent's own, only filling an empty value
 //!    and adding to a list pass.
 //! 6. The owner's rule: the plan is tried on the tree, and if anyone who existed before the write
-//!    would count differently as alive or dead, it is refused. This reads the result and not the
-//!    command, because the status follows from dates and links in ways no list of commands covers.
+//!    would count differently as alive or dead, by the owner's mark or by the rule under it, it is
+//!    refused. This reads the result and not the command, because the status follows from dates
+//!    and links in ways no list of commands covers.
 //! 7. The write is stored under the agent, outside the owner's undo and redo.
 //!
 //! The checks that need no plan come first, so that the planner's own errors ("both parents are
@@ -41,7 +43,7 @@ pub struct AgentCtx {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentWrite {
     Done(EditResult),
-    /// This connection already wrote exactly this; nothing was added.
+    /// Exactly this is already in the tree; nothing was added.
     AlreadyThere {
         record: Uuid,
     },
@@ -137,6 +139,16 @@ fn one_of_a_kind(k: &EventKind) -> bool {
     )
 }
 
+fn kind_word(k: &EventKind) -> &'static str {
+    match k {
+        EventKind::Birth => "birth",
+        EventKind::Death => "death",
+        EventKind::Burial => "burial",
+        EventKind::Cremation => "cremation",
+        _ => "event",
+    }
+}
+
 /// The new record of this kind in a plan.
 fn added<T>(cs: &ChangeSet, f: impl Fn(&Record) -> Option<&T>) -> Option<&T> {
     cs.changes
@@ -145,27 +157,73 @@ fn added<T>(cs: &ChangeSet, f: impl Fn(&Record) -> Option<&T>) -> Option<&T> {
         .find_map(|c| c.after.as_ref().and_then(&f))
 }
 
-/// The parents who hold a role for `child`: by birth, or with the link unknown. The second value
-/// says it is by birth. A step, adoptive or foster parent does not hold one.
-fn role_holders<'a>(
-    families: impl Iterator<Item = &'a Family>,
-    child: Uuid,
-) -> HashMap<Uuid, bool> {
-    let mut out = HashMap::new();
+/// By birth, or not known to be anything else. A step, adoptive or foster link is neither.
+fn birth_like(rel: &ParentRel) -> bool {
+    matches!(rel, ParentRel::Birth | ParentRel::Unknown)
+}
+
+/// The parents who hold a role for `child`. A step, adoptive or foster parent does not hold one.
+fn role_holders<'a>(families: impl Iterator<Item = &'a Family>, child: Uuid) -> HashSet<Uuid> {
+    let mut out = HashSet::new();
     for f in families {
         for link in f.children.iter().filter(|c| c.person == child) {
             for (slot, rel) in [(f.partner1, &link.rel1), (f.partner2, &link.rel2)] {
                 if let Some(parent) = slot
-                    && matches!(rel, ParentRel::Birth | ParentRel::Unknown)
+                    && birth_like(rel)
                 {
-                    let by_birth = *rel == ParentRel::Birth;
-                    let seen = out.entry(parent).or_insert(false);
-                    *seen |= by_birth;
+                    out.insert(parent);
                 }
             }
         }
     }
     out
+}
+
+/// Whether this link makes the family the child's birth family: through a parent who holds a role,
+/// or, with no parent recorded yet, by what the link says.
+fn is_birth_link(f: &Family, link: &ChildLink) -> bool {
+    if f.partner1.is_none() && f.partner2.is_none() {
+        return birth_like(&link.rel1) || birth_like(&link.rel2);
+    }
+    (f.partner1.is_some() && birth_like(&link.rel1))
+        || (f.partner2.is_some() && birth_like(&link.rel2))
+}
+
+fn has_birth_link(f: &Family, child: Uuid) -> bool {
+    f.children
+        .iter()
+        .any(|l| l.person == child && is_birth_link(f, l))
+}
+
+/// Every field an agent can give a name, so anything else is a different name.
+fn same_name(a: &Name, b: &Name) -> bool {
+    a.kind == b.kind
+        && a.private == b.private
+        && a.prefix == b.prefix
+        && a.given == b.given
+        && a.call == b.call
+        && a.surname_prefix == b.surname_prefix
+        && a.surnames == b.surnames
+        && a.patronymic == b.patronymic
+        && a.suffix == b.suffix
+        && a.nickname == b.nickname
+        && a.lang == b.lang
+        && a.date == b.date
+}
+
+/// The families changed by a plan, each with what it is after (`None`: removed).
+fn changed_families(cs: &ChangeSet) -> HashMap<Uuid, Option<&Family>> {
+    cs.changes
+        .iter()
+        .filter(|c| c.kind == RecordKind::Family)
+        .map(|c| {
+            let after = match &c.after {
+                Some(Record::Family(f)) => Some(f),
+                _ => None,
+            };
+            (c.id, after)
+        })
+        .collect()
 }
 
 fn same_role(a: &Sex, b: &Sex) -> bool {
@@ -405,6 +463,7 @@ impl Session {
             return Ok(AgentWrite::AlreadyThere { record });
         }
         self.check_one_of_a_kind(&cs)?;
+        self.check_birth_family(&cs)?;
         self.check_parent_roles(&cs)?;
         for ch in &cs.changes {
             self.check_change(ch, ctx.id)?;
@@ -471,13 +530,13 @@ impl Session {
             EditCommand::QuickAdd {
                 anchor,
                 relation: relation @ (R::Father | R::Mother),
-                parent_rel: None | Some(ParentRelId::Birth),
+                parent_rel: None | Some(ParentRelId::Birth | ParentRelId::Unknown),
                 ..
             }
             | EditCommand::LinkExisting {
                 anchor,
                 relation: relation @ (R::Father | R::Mother),
-                parent_rel: None | Some(ParentRelId::Birth),
+                parent_rel: None | Some(ParentRelId::Birth | ParentRelId::Unknown),
                 ..
             } => {
                 let holders = role_holders(self.tree.families.values(), *anchor);
@@ -485,7 +544,7 @@ impl Session {
                     R::Father => (Sex::Male, "father"),
                     _ => (Sex::Female, "mother"),
                 };
-                let taken = holders.keys().any(|id| {
+                let taken = holders.iter().any(|id| {
                     self.tree
                         .persons
                         .get(id)
@@ -501,14 +560,13 @@ impl Session {
                 }
                 Ok(())
             }
+            // Whatever the link: `check_birth_family` covers the other routes, for birth links.
             EditCommand::LinkChild { family, child, .. } => {
-                let elsewhere = self.tree.families.values().any(|f| {
-                    f.common.id != *family
-                        && f.children.iter().any(|l| {
-                            l.person == *child
-                                && (l.rel1 == ParentRel::Birth || l.rel2 == ParentRel::Birth)
-                        })
-                });
+                let elsewhere = self
+                    .tree
+                    .families
+                    .values()
+                    .any(|f| f.common.id != *family && has_birth_link(f, *child));
                 if elsewhere {
                     return Err(refused(format!(
                         "{} already has a birth family. Add a note giving both versions and the \
@@ -567,8 +625,10 @@ impl Session {
         }
     }
 
-    /// Step 3: the record that already says what this addition says, written by this connection.
-    /// Only additions: an edit names its record and is never a repeat.
+    /// Step 3: the record that already says what this addition says. Notes, events and citations
+    /// count when this connection wrote them; a source, name or family that is identical counts
+    /// whoever wrote it, since a copy of it adds nothing. Only additions: an edit names its record
+    /// and is never a repeat.
     fn repeat_of(
         &self,
         cmd: &EditCommand,
@@ -590,7 +650,12 @@ impl Session {
                     notes
                         .iter()
                         .copied()
-                        .filter(|id| self.tree.notes.get(id).is_some_and(|n| n.text == note.text))
+                        .filter(|id| {
+                            self.tree
+                                .notes
+                                .get(id)
+                                .is_some_and(|n| n.text.trim() == note.text.trim())
+                        })
                         .collect(),
                 )
             }
@@ -613,6 +678,10 @@ impl Session {
                             e.kind == new.kind
                                 && e.date == new.date
                                 && e.place == new.place
+                                && e.description == new.description
+                                && e.age == new.age
+                                && e.cause == new.cause
+                                && e.negative == new.negative
                                 && e.participants.iter().any(|p| p.target == target)
                         })
                         .map(|e| e.common.id)
@@ -632,10 +701,12 @@ impl Session {
                         .iter()
                         .copied()
                         .filter(|id| {
-                            self.tree
-                                .citations
-                                .get(id)
-                                .is_some_and(|c| c.source == new.source && c.page == new.page)
+                            self.tree.citations.get(id).is_some_and(|c| {
+                                c.source == new.source
+                                    && c.page == new.page
+                                    && c.text == new.text
+                                    && c.date == new.date
+                            })
                         })
                         .collect(),
                 )
@@ -647,6 +718,72 @@ impl Session {
             } => Ok(self
                 .find_by_number(source_file, number)
                 .filter(|found| found == person)),
+            EditCommand::SaveSource { source } if source.id.is_none() => {
+                let Some(new) = added(cs, |r| match r {
+                    Record::Source(x) => Some(x),
+                    _ => None,
+                }) else {
+                    return Ok(None);
+                };
+                if new.title.is_none() {
+                    return Ok(None);
+                }
+                Ok(self
+                    .tree
+                    .sources
+                    .values()
+                    .find(|x| {
+                        x.title == new.title
+                            && x.author == new.author
+                            && x.publication == new.publication
+                            && x.abbreviation == new.abbreviation
+                            && x.text == new.text
+                            && x.repositories == new.repositories
+                    })
+                    .map(|x| x.common.id))
+            }
+            EditCommand::SaveName { person, name } if name.id.is_none() => {
+                let Some(existing) = self.tree.persons.get(person) else {
+                    return Ok(None);
+                };
+                let planned = cs.changes.iter().find_map(|c| match &c.after {
+                    Some(Record::Person(p)) if c.id == *person => Some(p),
+                    _ => None,
+                });
+                let new = planned.and_then(|p| {
+                    p.names
+                        .iter()
+                        .find(|n| !existing.names.iter().any(|old| old.id == n.id))
+                });
+                Ok(new.and_then(|new| {
+                    existing
+                        .names
+                        .iter()
+                        .find(|old| same_name(old, new))
+                        .map(|old| old.id)
+                }))
+            }
+            EditCommand::SaveFamily { id: None, .. } => {
+                let Some(new) = added(cs, |r| match r {
+                    Record::Family(f) => Some(f),
+                    _ => None,
+                }) else {
+                    return Ok(None);
+                };
+                if new.partner1.is_none() && new.partner2.is_none() {
+                    return Ok(None);
+                }
+                Ok(self
+                    .tree
+                    .families
+                    .values()
+                    .find(|f| {
+                        f.kind == new.kind
+                            && ((f.partner1 == new.partner1 && f.partner2 == new.partner2)
+                                || (f.partner1 == new.partner2 && f.partner2 == new.partner1))
+                    })
+                    .map(|f| f.common.id))
+            }
             _ => Ok(None),
         }
     }
@@ -674,9 +811,10 @@ impl Session {
                 });
                 if has_one {
                     return Err(refused(format!(
-                        "{} already has this event, and a person has only one. Add a note giving \
-                         both versions and the source.",
-                        self.person_name(person)
+                        "{} already has a {}, and a person has only one. Add a note giving both \
+                         versions and the source.",
+                        self.person_name(person),
+                        kind_word(&e.kind)
                     )));
                 }
             }
@@ -684,59 +822,122 @@ impl Session {
         Ok(())
     }
 
-    /// Step 4 on the plan: a link by birth where the child has a parent in that role, by any route:
-    /// as a parent, from the parent's side as a child, or a partner joining a family with
-    /// children. Someone whose sex is not known takes whichever role is free, so at most two.
+    /// Step 4 on the plan: a child gets one birth family, by any route. A child already in two in
+    /// the owner's data stays there: only a link that was not a birth link before counts. So does
+    /// a birth parent's new couple with a step-parent, which brings the child no new parent.
+    fn check_birth_family(&self, cs: &ChangeSet) -> Result<(), ApiError> {
+        let changed = changed_families(cs);
+        for ch in &cs.changes {
+            let Some(Record::Family(f)) = &ch.after else {
+                continue;
+            };
+            let was = match &ch.before {
+                Some(Record::Family(old)) => Some(old),
+                _ => None,
+            };
+            for link in f.children.iter().filter(|l| is_birth_link(f, l)) {
+                if was.is_some_and(|old| has_birth_link(old, link.person)) {
+                    continue;
+                }
+                let held = role_holders(self.tree.families.values(), link.person);
+                let parents: Vec<Uuid> = [(f.partner1, &link.rel1), (f.partner2, &link.rel2)]
+                    .into_iter()
+                    .filter_map(|(slot, rel)| slot.filter(|_| birth_like(rel)))
+                    .collect();
+                if !parents.is_empty() && parents.iter().all(|p| held.contains(p)) {
+                    continue;
+                }
+                let untouched = self
+                    .tree
+                    .families
+                    .values()
+                    .filter(|o| !changed.contains_key(&o.common.id));
+                let elsewhere = untouched
+                    .chain(changed.values().copied().flatten())
+                    .any(|o| o.common.id != f.common.id && has_birth_link(o, link.person));
+                if elsewhere {
+                    return Err(refused(format!(
+                        "{} already has a birth family. Add a note giving both versions and the \
+                         source, or link as a step, adoptive or foster parent if that is what the \
+                         source says.",
+                        self.person_name(link.person)
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Step 4 on the plan: a parent by birth or with the link unknown, where the child has a parent
+    /// in that role, by any route: as a parent, from the parent's side as a child, a partner
+    /// joining a family with children, or a change of sex afterwards. Someone whose sex is not
+    /// known takes whichever role is free, so at most two. What the owner's data already holds
+    /// stays: only a clash this plan brings counts.
     fn check_parent_roles(&self, cs: &ChangeSet) -> Result<(), ApiError> {
-        let changed: HashMap<Uuid, Option<&Family>> = cs
-            .changes
-            .iter()
-            .filter(|c| c.kind == RecordKind::Family)
-            .map(|c| {
-                let after = match &c.after {
-                    Some(Record::Family(f)) => Some(f),
-                    _ => None,
-                };
-                (c.id, after)
-            })
-            .collect();
-        let sex_of = |id: Uuid| -> Option<&Sex> {
+        let changed = changed_families(cs);
+        let sex_before = |id: Uuid| self.tree.persons.get(&id).map(|p| &p.sex);
+        let sex_after = |id: &Uuid| {
             let planned = cs.changes.iter().find_map(|c| match &c.after {
-                Some(Record::Person(p)) if c.id == id => Some(&p.sex),
+                Some(Record::Person(p)) if c.id == *id => Some(&p.sex),
                 _ => None,
             });
-            planned.or_else(|| self.tree.persons.get(&id).map(|p| &p.sex))
+            planned.or_else(|| sex_before(*id))
         };
+        let after_families = || {
+            self.tree
+                .families
+                .values()
+                .filter(|f| !changed.contains_key(&f.common.id))
+                .chain(changed.values().copied().flatten())
+        };
+        let new_sex: HashSet<Uuid> = cs
+            .changes
+            .iter()
+            .filter_map(|c| match (&c.before, &c.after) {
+                (Some(Record::Person(b)), Some(Record::Person(a))) if b.sex != a.sex => Some(c.id),
+                _ => None,
+            })
+            .collect();
+        let of_new_sex = after_families().filter(|f| {
+            [f.partner1, f.partner2]
+                .into_iter()
+                .flatten()
+                .any(|p| new_sex.contains(&p))
+        });
         let children: HashSet<Uuid> = changed
             .values()
+            .copied()
             .flatten()
+            .chain(of_new_sex)
             .flat_map(|f| f.children.iter().map(|c| c.person))
             .collect();
         for child in children {
             let before = role_holders(self.tree.families.values(), child);
-            let untouched = self
-                .tree
-                .families
-                .values()
-                .filter(|f| !changed.contains_key(&f.common.id));
-            let after = role_holders(untouched.chain(changed.values().copied().flatten()), child);
-            for (parent, by_birth) in after {
-                if !by_birth || before.contains_key(&parent) {
-                    continue;
-                }
-                let clash = before
-                    .keys()
-                    .any(|held| match (sex_of(parent), sex_of(*held)) {
-                        (Some(a), Some(b)) => same_role(a, b),
+            let after = role_holders(after_families(), child);
+            let clashes_now = |a: &Uuid, b: &Uuid| match (sex_after(a), sex_after(b)) {
+                (Some(x), Some(y)) => same_role(x, y),
+                _ => false,
+            };
+            let clashed_before = |a: &Uuid, b: &Uuid| {
+                before.contains(a)
+                    && before.contains(b)
+                    && match (sex_before(*a), sex_before(*b)) {
+                        (Some(x), Some(y)) => same_role(x, y),
                         _ => false,
-                    });
-                if clash || before.len() >= 2 {
-                    return Err(refused(format!(
-                        "{} already has a parent in that role. A second one cannot be added by \
-                         birth. Add a note giving both versions and the source.",
-                        self.person_name(child)
-                    )));
-                }
+                    }
+            };
+            let too_many = before.len() >= 2 && after.iter().any(|p| !before.contains(p));
+            let clash = after.iter().any(|a| {
+                after
+                    .iter()
+                    .any(|b| a != b && clashes_now(a, b) && !clashed_before(a, b))
+            });
+            if too_many || clash {
+                return Err(refused(format!(
+                    "{} already has a parent in that role. A second one cannot be added by birth. \
+                     Add a note giving both versions and the source.",
+                    self.person_name(child)
+                )));
             }
         }
         Ok(())
@@ -780,17 +981,20 @@ impl Session {
     }
 
     /// Step 6: tries the plan on the tree and takes it off again. The test is whether anyone who
-    /// exists before this write counts differently after it, whatever the command was.
+    /// exists before this write counts differently after it, whatever the command was. Both maps:
+    /// the owner's mark hides what the rule says, and taking the mark off would show the change.
+    /// Both sides are read now, so a date the rule passes overnight is not blamed on this write.
+    // A birth date just inside the age limit that later passes it is time passing, not this write.
     fn check_living(&mut self, cs: &ChangeSet) -> Result<(), ApiError> {
+        let (effective_before, computed_before) = self.living_maps();
         let mut removed_at = HashMap::new();
         apply_to_tree_tracked(&mut self.tree, cs, &mut removed_at);
-        let (effective, _) = self.living_maps();
+        let (effective, computed) = self.living_maps();
         apply_to_tree_tracked(&mut self.tree, &cs.inverse(), &mut removed_at);
-        let flipped = self
-            .tree
-            .persons
-            .keys()
-            .find(|id| self.living.get(id) != effective.get(id));
+        let flipped = self.tree.persons.keys().find(|id| {
+            effective_before.get(id) != effective.get(id)
+                || computed_before.get(id) != computed.get(id)
+        });
         match flipped {
             Some(id) => Err(refused(format!(
                 "This would change whether {} counts as alive or dead. Only the owner can do \

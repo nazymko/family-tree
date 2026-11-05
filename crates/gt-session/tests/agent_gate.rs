@@ -1375,3 +1375,499 @@ fn reuse_citation_refused_and_last_citation_left_alone() {
     done(s.apply_as_agent(cite(eva, "Recording 2", "12:30"), &me(), b));
     assert_eq!(s.reuse_citation().cloned(), last, "still the owner's");
 }
+
+// ---- review round 1 -------------------------------------------------------------------------
+
+/// Ivan has a father recorded alone; Oksana a mother recorded alone. No dates: both count as alive.
+const TWO_LINES: &str = "0 @I1@ INDI\n1 NAME Ivan /Koval/\n1 SEX M\n1 FAMC @F1@\n\
+0 @I2@ INDI\n1 NAME Petro /Koval/\n1 SEX M\n1 FAMS @F1@\n\
+0 @I3@ INDI\n1 NAME Olena /Koval/\n1 SEX F\n1 FAMS @F2@\n\
+0 @I4@ INDI\n1 NAME Oksana /Koval/\n1 SEX F\n1 FAMC @F2@\n\
+0 @F1@ FAM\n1 HUSB @I2@\n1 CHIL @I1@\n\
+0 @F2@ FAM\n1 WIFE @I3@\n1 CHIL @I4@\n";
+
+fn set_override(s: &mut Session, id: Uuid, patch: LivingPatch) {
+    s.apply(EditCommand::UpdatePerson {
+        id,
+        sex: None,
+        sex_text: None,
+        living_override: patch,
+        private: None,
+    })
+    .unwrap();
+}
+
+fn already(r: Result<AgentWrite, ApiError>) -> Uuid {
+    match r.unwrap() {
+        AgentWrite::AlreadyThere { record } => record,
+        AgentWrite::Done(x) => panic!("stored, not folded: {x:?}"),
+    }
+}
+
+#[test]
+fn death_under_an_owners_living_mark_refused() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    set_override(&mut s, ivan, LivingPatch::Set(LivingOverrideDto::Living));
+    let msg = refuse(&mut s, event(ivan, "death", Some("1990")), &me(), b);
+    assert!(msg.contains("alive or dead"), "{msg}");
+    set_override(&mut s, ivan, LivingPatch::Clear);
+    assert!(living_of(&s, ivan), "taking the mark off leaves him alive");
+}
+
+#[test]
+fn death_under_an_owners_deceased_mark_refused() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    set_override(&mut s, ivan, LivingPatch::Set(LivingOverrideDto::Deceased));
+    refuse(&mut s, event(ivan, "death", Some("1990")), &me(), b);
+    set_override(&mut s, ivan, LivingPatch::Clear);
+    assert!(living_of(&s, ivan));
+}
+
+#[test]
+fn late_baptism_under_an_owners_deceased_mark_refused() {
+    // No relatives: only her own status can change.
+    let alone = "0 @I1@ INDI\n1 NAME Eva /Meyer/\n1 SEX F\n1 BIRT\n2 DATE 1850\n";
+    let (_d, mut s) = open_tree(&tree_of(alone));
+    let b = batch(&mut s, &me());
+    let eva = find(s.tree(), "Eva");
+    assert!(!living_of(&s, eva), "born 1850");
+    set_override(&mut s, eva, LivingPatch::Set(LivingOverrideDto::Deceased));
+    refuse(&mut s, event(eva, "baptism", Some("2000")), &me(), b);
+    set_override(&mut s, eva, LivingPatch::Clear);
+    assert!(!living_of(&s, eva), "taking the mark off leaves her dead");
+}
+
+#[test]
+fn a_write_that_leaves_the_rule_alone_passes_under_a_mark() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    set_override(&mut s, ivan, LivingPatch::Set(LivingOverrideDto::Deceased));
+    done(s.apply_as_agent(note(ivan, "From the recording"), &me(), b));
+}
+
+#[test]
+fn negative_death_cannot_be_made_positive() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    let negative = EditCommand::SaveEvent {
+        owner: person_owner(ivan),
+        event: EventInput {
+            negative: true,
+            ..event_input("death", Some("1991"))
+        },
+    };
+    done(s.apply_as_agent(negative, &me(), b));
+    let id = s
+        .tree()
+        .events
+        .values()
+        .find(|e| e.negative)
+        .unwrap()
+        .common
+        .id;
+    let positive = EditCommand::SaveEvent {
+        owner: person_owner(ivan),
+        event: EventInput {
+            id: Some(id),
+            ..event_input("death", Some("1991"))
+        },
+    };
+    refuse(&mut s, positive, &me(), b);
+    assert!(living_of(&s, ivan));
+}
+
+#[test]
+fn second_father_with_the_link_unknown_refused() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    refuse(
+        &mut s,
+        EditCommand::QuickAdd {
+            anchor: ivan,
+            relation: Relation::Father,
+            draft: draft("Second", SexKind::Male),
+            family: None,
+            new_parent_set: None,
+            parent_rel: Some(ParentRelId::Unknown),
+        },
+        &me(),
+        b,
+    );
+    let second = done(s.apply_as_agent(
+        EditCommand::CreatePerson {
+            draft: draft("Second", SexKind::Male),
+        },
+        &me(),
+        b,
+    ))
+    .focus
+    .unwrap();
+    refuse(
+        &mut s,
+        EditCommand::LinkExisting {
+            anchor: ivan,
+            relation: Relation::Father,
+            person: second,
+            family: None,
+            new_parent_set: None,
+            parent_rel: Some(ParentRelId::Unknown),
+        },
+        &me(),
+        b,
+    );
+}
+
+#[test]
+fn partner_joining_as_a_second_father_refused_when_the_free_slot_is_unknown() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let (ivan, petro) = (find(s.tree(), "Ivan"), find(s.tree(), "Petro"));
+    let family = *s
+        .tree()
+        .families
+        .iter()
+        .find(|(_, f)| f.children.iter().any(|c| c.person == ivan))
+        .unwrap()
+        .0;
+    // The owner says nothing is known about how Ivan relates to anyone in this family.
+    s.apply(EditCommand::UpdateChildLink {
+        family,
+        child: ivan,
+        rel: (ParentRelId::Unknown, ParentRelId::Unknown),
+        preferred: true,
+    })
+    .unwrap();
+    // The new partner takes the free slot, and an Unknown link holds a role as a birth link does.
+    refuse(
+        &mut s,
+        EditCommand::QuickAdd {
+            anchor: petro,
+            relation: Relation::Partner,
+            draft: draft("Second", SexKind::Male),
+            family: Some(family),
+            new_parent_set: None,
+            parent_rel: None,
+        },
+        &me(),
+        b,
+    );
+}
+
+#[test]
+fn link_child_refused_when_the_birth_family_link_is_unknown() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let (ivan, olena) = (find(s.tree(), "Ivan"), find(s.tree(), "Olena"));
+    let (first, second) = {
+        let t = s.tree();
+        let of = |p: Uuid| {
+            *t.families
+                .iter()
+                .find(|(_, f)| f.children.iter().any(|c| c.person == p))
+                .unwrap()
+                .0
+        };
+        let second = *t
+            .families
+            .iter()
+            .find(|(_, f)| f.partner2 == Some(olena) || f.partner1 == Some(olena))
+            .unwrap()
+            .0;
+        (of(ivan), second)
+    };
+    s.apply(EditCommand::UpdateChildLink {
+        family: first,
+        child: ivan,
+        rel: (ParentRelId::Unknown, ParentRelId::Unknown),
+        preferred: true,
+    })
+    .unwrap();
+    refuse(
+        &mut s,
+        EditCommand::LinkChild {
+            family: second,
+            child: ivan,
+            rel: (ParentRelId::Birth, ParentRelId::Birth),
+            preferred: false,
+        },
+        &me(),
+        b,
+    );
+}
+
+#[test]
+fn second_father_through_a_later_sex_change_refused() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    let xeno = done(s.apply_as_agent(
+        EditCommand::CreatePerson {
+            draft: draft("Xeno", SexKind::Unknown),
+        },
+        &me(),
+        b,
+    ))
+    .focus
+    .unwrap();
+    done(s.apply_as_agent(link_existing(ivan, Relation::Mother, xeno), &me(), b));
+    refuse(&mut s, update_sex(xeno, SexKind::Male), &me(), b);
+    done(s.apply_as_agent(update_sex(xeno, SexKind::Female), &me(), b));
+}
+
+#[test]
+fn second_birth_family_refused_by_every_route() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let (ivan, oksana, olena) = (
+        find(s.tree(), "Ivan"),
+        find(s.tree(), "Oksana"),
+        find(s.tree(), "Olena"),
+    );
+    refuse(
+        &mut s,
+        link_existing(oksana, Relation::Sibling, ivan),
+        &me(),
+        b,
+    );
+    refuse(
+        &mut s,
+        link_existing(olena, Relation::Child, ivan),
+        &me(),
+        b,
+    );
+    // Not by birth: she is his step-mother, and he keeps his own family.
+    done(s.apply_as_agent(
+        EditCommand::LinkExisting {
+            anchor: olena,
+            relation: Relation::Child,
+            person: ivan,
+            family: None,
+            new_parent_set: None,
+            parent_rel: Some(ParentRelId::Step),
+        },
+        &me(),
+        b,
+    ));
+}
+
+#[test]
+fn two_birth_families_in_the_owners_data_still_take_a_note() {
+    let two = "0 @I1@ INDI\n1 NAME Ivan /Koval/\n1 SEX M\n1 FAMC @F1@\n1 FAMC @F2@\n\
+               0 @I2@ INDI\n1 NAME Petro /Koval/\n1 SEX M\n1 FAMS @F1@\n\
+               0 @I3@ INDI\n1 NAME Olena /Koval/\n1 SEX F\n1 FAMS @F2@\n\
+               0 @F1@ FAM\n1 HUSB @I2@\n1 CHIL @I1@\n\
+               0 @F2@ FAM\n1 WIFE @I3@\n1 CHIL @I1@\n";
+    let (_d, mut s) = open_tree(&tree_of(two));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    let family = *s.tree().families.keys().next().unwrap();
+    done(s.apply_as_agent(note(ivan, "The sources disagree"), &me(), b));
+    done(s.apply_as_agent(
+        EditCommand::SaveNote {
+            target: OwnerRef {
+                kind: OwnerKind::Family,
+                id: family,
+            },
+            note: NoteInput {
+                id: None,
+                kind: NoteKindDto::General,
+                text: "The sources disagree".into(),
+            },
+        },
+        &me(),
+        b,
+    ));
+}
+
+#[test]
+fn events_differing_in_any_detail_are_all_stored() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    let occupation = |d: &str| EditCommand::SaveEvent {
+        owner: person_owner(ivan),
+        event: EventInput {
+            description: Some(d.into()),
+            ..event_input("occupation", None)
+        },
+    };
+    done(s.apply_as_agent(occupation("Farmer"), &me(), b));
+    done(s.apply_as_agent(occupation("Smith"), &me(), b));
+    already(s.apply_as_agent(occupation("Smith"), &me(), b));
+    let jobs = s
+        .tree()
+        .events
+        .values()
+        .filter(|e| e.kind == EventKind::Occupation)
+        .count();
+    assert_eq!(jobs, 2);
+
+    let emigration = |negative: bool| EditCommand::SaveEvent {
+        owner: person_owner(ivan),
+        event: EventInput {
+            negative,
+            ..event_input("emigration", Some("1950"))
+        },
+    };
+    done(s.apply_as_agent(emigration(false), &me(), b));
+    done(s.apply_as_agent(emigration(true), &me(), b));
+
+    let aged = |age: Option<&str>, cause: Option<&str>| EditCommand::SaveEvent {
+        owner: person_owner(ivan),
+        event: EventInput {
+            age: age.map(str::to_string),
+            cause: cause.map(str::to_string),
+            ..event_input("emigration", Some("1960"))
+        },
+    };
+    done(s.apply_as_agent(aged(None, None), &me(), b));
+    done(s.apply_as_agent(aged(Some("30"), None), &me(), b));
+    done(s.apply_as_agent(aged(None, Some("War")), &me(), b));
+}
+
+#[test]
+fn citations_differing_in_text_or_date_are_all_stored() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    let quote = |text: &str, date: Option<&str>| EditCommand::AddCitation {
+        target: person_ref(ivan),
+        citation: CitationArg::New(CitationInput {
+            source: SourceRef::New(NewSource {
+                title: "Recording".into(),
+            }),
+            page: None,
+            date_raw: date.map(str::to_string),
+            text: Some(text.into()),
+            quality: None,
+            evidence: None,
+        }),
+    };
+    done(s.apply_as_agent(quote("Quote one", None), &me(), b));
+    done(s.apply_as_agent(quote("Quote two", None), &me(), b));
+    done(s.apply_as_agent(quote("Quote two", Some("1990")), &me(), b));
+    already(s.apply_as_agent(quote("Quote two", Some("1990")), &me(), b));
+    assert_eq!(s.tree().citations.len(), 3);
+}
+
+#[test]
+fn identical_source_is_folded_and_any_difference_stored() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let source = |author: Option<&str>| EditCommand::SaveSource {
+        source: SourceInput {
+            id: None,
+            title: Some("Recording 2".into()),
+            author: author.map(str::to_string),
+            publication: None,
+            abbreviation: None,
+            text: None,
+        },
+    };
+    let first = done(s.apply_as_agent(source(None), &me(), b)).touched[0];
+    assert_eq!(already(s.apply_as_agent(source(None), &me(), b)), first);
+    assert_eq!(s.tree().sources.len(), 1);
+    done(s.apply_as_agent(source(Some("Olena Koval")), &me(), b));
+    assert_eq!(s.tree().sources.len(), 2);
+}
+
+#[test]
+fn identical_name_is_folded_and_any_difference_stored() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    let name = |nick: Option<&str>| EditCommand::SaveName {
+        person: ivan,
+        name: NameInput {
+            nickname: nick.map(str::to_string),
+            ..extra_name("Vanya", false)
+        },
+    };
+    done(s.apply_as_agent(name(None), &me(), b));
+    let id = s.tree().persons[&ivan].names[1].id;
+    assert_eq!(already(s.apply_as_agent(name(None), &me(), b)), id);
+    assert_eq!(s.tree().persons[&ivan].names.len(), 2);
+    done(s.apply_as_agent(name(Some("Vanka")), &me(), b));
+    assert_eq!(s.tree().persons[&ivan].names.len(), 3);
+}
+
+#[test]
+fn identical_family_is_folded_and_any_difference_stored() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let (ivan, oksana) = (find(s.tree(), "Ivan"), find(s.tree(), "Oksana"));
+    let family = |one: Uuid, two: Option<Uuid>, kind: UnionKindId| EditCommand::SaveFamily {
+        id: None,
+        partner1: Some(one),
+        partner2: two,
+        kind,
+    };
+    let count = s.tree().families.len();
+    let first = done(s.apply_as_agent(family(ivan, Some(oksana), UnionKindId::Unknown), &me(), b))
+        .touched[0];
+    assert_eq!(
+        already(s.apply_as_agent(family(ivan, Some(oksana), UnionKindId::Unknown), &me(), b)),
+        first
+    );
+    assert_eq!(
+        already(s.apply_as_agent(family(oksana, Some(ivan), UnionKindId::Unknown), &me(), b)),
+        first,
+        "the same two people in the other order"
+    );
+    assert_eq!(s.tree().families.len(), count + 1);
+    done(s.apply_as_agent(family(ivan, Some(oksana), UnionKindId::Married), &me(), b));
+    done(s.apply_as_agent(family(ivan, None, UnionKindId::Unknown), &me(), b));
+    assert_eq!(s.tree().families.len(), count + 3);
+}
+
+#[test]
+fn note_repeat_ignores_surrounding_space() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    done(s.apply_as_agent(note(ivan, "Same words"), &me(), b));
+    let again = already(s.apply_as_agent(note(ivan, "  Same words\n"), &me(), b));
+    assert_eq!(again, newest_note_on(&s, ivan));
+}
+
+#[test]
+fn second_one_of_a_kind_refusal_names_the_kind() {
+    let (_d, mut s) = open_tree(&tree_of(SAMPLE));
+    let b = batch(&mut s, &me());
+    let anna = find(s.tree(), "Anna");
+    let msg = refuse(&mut s, event(anna, "birth", Some("1851")), &me(), b);
+    assert!(msg.contains("birth"), "{msg}");
+}
+
+#[test]
+fn a_birthday_crossing_the_rule_does_not_stop_every_write() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicI32, Ordering};
+    // Alive today at 98. Five years on the rule says dead, but the session has not recomputed.
+    let tree = tree_of(
+        "0 @I1@ INDI\n1 NAME Eva /Meyer/\n1 SEX F\n1 BIRT\n2 DATE 1928\n\
+         0 @I2@ INDI\n1 NAME Ivan /Koval/\n1 SEX M\n",
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let proj = dir.path().join("project");
+    let mut p = gt_store::Project::create(&proj).unwrap();
+    p.save_tree(&tree, today()).unwrap();
+    drop(p);
+    let day = Arc::new(AtomicI32::new(today()));
+    let shared = Arc::clone(&day);
+    let clock = SessionClock(Box::new(move || (shared.load(Ordering::Relaxed), NOW_MS)));
+    let mut s = Session::open(&proj, clock).unwrap();
+    let b = batch(&mut s, &me());
+    let ivan = find(s.tree(), "Ivan");
+    let eva = find(s.tree(), "Eva");
+    assert!(living_of(&s, eva));
+    day.store(today() + 5 * 366, Ordering::Relaxed);
+    done(s.apply_as_agent(note(ivan, "From the recording"), &me(), b));
+}
