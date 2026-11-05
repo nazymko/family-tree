@@ -22,6 +22,7 @@ pub mod relation;
 pub mod revert;
 pub mod session;
 pub mod settings;
+mod touched;
 pub mod undo;
 
 pub use agent::{AgentCtx, AgentWrite};
@@ -40,6 +41,7 @@ pub use log::{
 pub use names::{display_name, lifespan};
 pub use session::{Session, SessionClock};
 pub use settings::SettingsPatch;
+pub use touched::people_reached;
 
 pub mod lookup;
 pub use lookup::parse_date_preview;

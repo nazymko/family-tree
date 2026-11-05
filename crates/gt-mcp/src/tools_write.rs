@@ -324,8 +324,9 @@ fn write<H: Host>(
     batch: Uuid,
     new_id: impl Fn(&Session, &EditResult) -> Option<Uuid>,
 ) -> ToolResult {
-    let (answered, touched) = host.with_session(&mut |s| {
-        Ok(match s.apply_as_agent(cmd.clone(), ctx, batch)? {
+    let (answered, reached) = host.with_session(&mut |s| {
+        let (write, reached) = s.apply_as_agent_reaching(cmd.clone(), ctx, batch)?;
+        let answered = match write {
             AgentWrite::Done(result) => {
                 let mut fields = json!({"id": new_id(s, &result), "touched": result.touched});
                 let family = result
@@ -335,15 +336,14 @@ fn write<H: Host>(
                 if let Some(family) = family {
                     fields["family"] = json!(family);
                 }
-                (fields, result.touched)
+                fields
             }
-            AgentWrite::AlreadyThere { record } => {
-                (json!({"id": record, "alreadyThere": true}), Vec::new())
-            }
-        })
+            AgentWrite::AlreadyThere { record } => json!({"id": record, "alreadyThere": true}),
+        };
+        Ok((answered, reached))
     })?;
-    if !touched.is_empty() {
-        host.changed(&touched);
+    if !reached.is_empty() {
+        host.changed(&reached, ctx);
     }
     answer(&answered)
 }

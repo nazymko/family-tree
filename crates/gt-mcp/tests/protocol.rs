@@ -84,7 +84,7 @@ fn initialize_old_client_gets_rules() {
             result["protocolVersion"], version,
             "the client's version is kept"
         );
-        assert_eq!(result["instructions"], RULES);
+        assert_eq!(result["instructions"], gt_mcp::INSTRUCTIONS);
         assert!(result["capabilities"]["tools"].is_object());
         assert_eq!(result["serverInfo"]["name"], "gene-tree");
         assert!(
@@ -108,7 +108,7 @@ fn discover_new_client_gets_rules() {
     let r = reply(&modern_request("server/discover", json!({})));
     let result = &r["result"];
     assert_eq!(result["resultType"], "complete");
-    assert_eq!(result["instructions"], RULES);
+    assert_eq!(result["instructions"], gt_mcp::INSTRUCTIONS);
     assert!(result["capabilities"]["tools"].is_object());
     assert_eq!(
         result["supportedVersions"],

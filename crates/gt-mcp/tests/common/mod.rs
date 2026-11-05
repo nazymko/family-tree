@@ -17,9 +17,9 @@ pub const KEY: &str = "gt_test_key_not_a_secret";
 pub struct TestHost {
     pub session: Mutex<Option<Session>>,
     pub keys: Mutex<HashMap<[u8; 32], AgentCtx>>,
-    pub _dir: Option<TempDir>,
     /// What each `changed` call was told.
-    pub changes: Mutex<Vec<Vec<Uuid>>>,
+    pub changes: Mutex<Vec<(Vec<Uuid>, AgentCtx)>>,
+    pub _dir: Option<TempDir>,
     /// Whether any `changed` call found the session locked.
     pub changed_under_lock: Mutex<bool>,
 }
@@ -51,11 +51,14 @@ impl Host for TestHost {
         self.keys.lock().unwrap().get(key_sha256).cloned()
     }
 
-    fn changed(&self, touched: &[Uuid]) {
+    fn changed(&self, touched: &[Uuid], agent: &AgentCtx) {
         if matches!(self.session.try_lock(), Err(TryLockError::WouldBlock)) {
             *self.changed_under_lock.lock().unwrap() = true;
         }
-        self.changes.lock().unwrap().push(touched.to_vec());
+        self.changes
+            .lock()
+            .unwrap()
+            .push((touched.to_vec(), agent.clone()));
     }
 }
 
@@ -64,8 +67,8 @@ pub fn no_tree_host() -> TestHost {
     TestHost {
         session: Mutex::new(None),
         keys: Mutex::new(HashMap::from([(hash(KEY), ctx())])),
+        changes: Mutex::new(Vec::new()),
         _dir: None,
-        changes: Mutex::default(),
         changed_under_lock: Mutex::default(),
     }
 }
@@ -79,8 +82,8 @@ pub fn empty_host() -> TestHost {
     TestHost {
         session: Mutex::new(Some(session)),
         keys: Mutex::new(HashMap::from([(hash(KEY), ctx())])),
+        changes: Mutex::new(Vec::new()),
         _dir: Some(dir),
-        changes: Mutex::default(),
         changed_under_lock: Mutex::default(),
     }
 }

@@ -11,7 +11,6 @@
 use crate::Host;
 use crate::protocol::{self, HttpMeta, Reply, ToolGate};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::io::{self, ErrorKind, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -549,5 +548,5 @@ fn bearer_hash(head: &Head) -> Option<[u8; 32]> {
     if !scheme.eq_ignore_ascii_case("bearer") || key.is_empty() {
         return None;
     }
-    Some(Sha256::digest(key.as_bytes()).into())
+    Some(crate::key_hash(key))
 }

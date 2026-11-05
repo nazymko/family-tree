@@ -208,8 +208,9 @@ fn changed_called_after_write() {
     let id: Uuid = serde_json::from_value(answer["id"].clone()).unwrap();
     let changes = host.changes.lock().unwrap().clone();
     assert_eq!(changes.len(), 1);
-    assert!(changes[0].contains(&id));
-    assert_eq!(answer["touched"], json!(changes[0]));
+    assert!(changes[0].0.contains(&id));
+    assert_eq!(changes[0].1, ctx());
+    assert_eq!(answer["touched"], json!(changes[0].0));
     assert!(
         !*host.changed_under_lock.lock().unwrap(),
         "changed ran with the session lock held"
@@ -232,7 +233,7 @@ impl Host for LockingHost {
         self.0.authenticate(key_sha256)
     }
 
-    fn changed(&self, _touched: &[Uuid]) {
+    fn changed(&self, _touched: &[Uuid], _agent: &gt_mcp::AgentCtx) {
         drop(self.0.session.lock().unwrap());
     }
 }

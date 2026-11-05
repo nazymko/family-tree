@@ -8,6 +8,7 @@
   import { getApi } from '../api/context';
   import type { AgentAccessState, ConnectionDto, NewConnectionDto } from '../api/api';
   import { currentLocale, t } from '../i18n';
+  import { agentErrorText } from '../i18n/backend';
 
   const api = getApi();
 
@@ -43,7 +44,8 @@
     };
   });
 
-  const message = (e: unknown) => (e instanceof Error ? e.message : typeof e === 'object' && e && 'message' in e ? String((e as { message: unknown }).message) : String(e));
+  const raw = (e: unknown) => (e instanceof Error ? e.message : typeof e === 'object' && e && 'message' in e ? String((e as { message: unknown }).message) : String(e));
+  const message = (e: unknown) => agentErrorText(raw(e));
 
   async function apply(nextEnabled: boolean, nextPort: number) {
     error = '';
@@ -109,6 +111,8 @@
       take(await api.agentAccessState());
     } catch (e) {
       error = message(e);
+      // Part of it may have worked, or the connection may be gone: show what is true now.
+      await api.agentAccessState().then(take, () => {});
     }
     revoking = null;
     // The button that opened the dialog is gone with its row: put focus on a stable spot in this screen.
@@ -150,7 +154,7 @@
       bind:value={port}
       onchange={commitPort}
     />
-    {#if agent?.error}<Banner kind="error">{agent.error}</Banner>{/if}
+    {#if agent?.error && agentErrorText(agent.error) !== error}<Banner kind="error">{agentErrorText(agent.error)}</Banner>{/if}
     <p class="status" role="status">{agent?.running ? t('agent.listening', { port: agent.port }) : t('agent.stopped')}</p>
   </div>
 
