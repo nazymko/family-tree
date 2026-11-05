@@ -63,10 +63,10 @@ describe('Welcome', () => {
     expect(screen.queryByText('Weber tree')).toBeNull();
   });
 
-  it('open_recent_goes_to_family', async () => {
+  it('open_recent_goes_to_the_whole_tree', async () => {
     const { user } = setup();
     await user.click(await screen.findByRole('link', { name: /Schmidt family/ }));
-    await waitFor(() => expect(nav.route.name).toBe('family'));
+    await waitFor(() => expect(nav.route.name).toBe('whole'));
     expect(project.info?.name).toBe('Schmidt family');
     expect(nav.focusPerson).toBeTruthy();
     expect(nav.canBack).toBe(false);

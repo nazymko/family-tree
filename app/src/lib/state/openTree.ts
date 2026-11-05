@@ -15,7 +15,7 @@ const BY_SURNAME = {
   privateOnly: false,
 } as const;
 
-/** Makes `info` the open project and routes to the family view of its home person (or People when it is empty). */
+/** Makes `info` the open project and routes to the whole tree around its home person (or People when it is empty). */
 export async function enterProject(api: Api, info: ProjectInfo): Promise<void> {
   project.open(info);
   nav.reset();
@@ -38,7 +38,8 @@ export async function enterProject(api: Api, info: ProjectInfo): Promise<void> {
     id = first.items[0]?.id ?? null;
   }
   nav.focus(id);
-  nav.go({ name: 'family' });
+  // The whole tree is the overview people expect first; Family is one click away.
+  nav.go({ name: 'whole' });
   startHistoryHere();
 }
 
