@@ -22,9 +22,12 @@ fn today() -> i32 {
 }
 
 fn state_in(root: &Path) -> AppState {
+    let config = root.join("config");
+    let hashes = gt_app_lib::agent_access::FileHashes::new(&config);
     AppState::with_clock(
-        root.join("config"),
+        config,
         Box::new(|| SessionClock::fixed(today(), NOW_MS)),
+        Box::new(hashes),
     )
 }
 

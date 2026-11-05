@@ -1,4 +1,5 @@
 import { t, type MessageKey } from '.';
+import { en } from './en';
 
 /**
  * Names of the changes the backend reports ("Add person", "Undo: Edit name"). The set is closed, so the
@@ -54,6 +55,25 @@ export function editLabel(label: string): string {
 export function editDoneText(label: string): string {
   const keys = EDIT_KEYS[label];
   return keys ? t(keys[1]) : t('edit.doneFallback', { label: editLabel(label) });
+}
+
+/** What agent access answers. The English catalogue holds the backend's words, so it is also the pattern. */
+const AGENT_ERRORS = (Object.keys(en.agent) as (keyof typeof en.agent)[])
+  .filter((name) => name.startsWith('err'))
+  .map((name) => {
+    const pattern = en.agent[name]
+      .replace(/[.*+?^$()[\]\\|]/g, '\\$&')
+      .replace(/\{(\w+)\}/g, '(?<$1>[\\s\\S]*)');
+    return { key: `agent.${name}` as MessageKey, pattern: new RegExp(`^${pattern}$`) };
+  });
+
+/** An error of agent access in the active language; other text is shown as the backend wrote it. */
+export function agentErrorText(text: string): string {
+  for (const { key, pattern } of AGENT_ERRORS) {
+    const m = pattern.exec(text);
+    if (m) return t(key, m.groups);
+  }
+  return text;
 }
 
 const EVENT_KINDS = new Set([

@@ -12,18 +12,13 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+/// The agent behind a request, known from its key.
+pub use gt_session::AgentCtx;
 pub use http::{ServerHandle, ServerLimits, serve, serve_with};
 pub use protocol::handle_message;
 
 /// What the agent must follow: the first thing it gets, and the `get_rules` tool.
 pub const RULES: &str = include_str!("rules.md");
-
-/// The agent behind a request, known from its key.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentCtx {
-    pub id: Uuid,
-    pub name: String,
-}
 
 /// What the server needs from the app. Used as a generic bound only.
 pub trait Host: Send + Sync + 'static {
@@ -36,23 +31,15 @@ pub trait Host: Send + Sync + 'static {
     /// The agent owning a key, by the SHA-256 of the key. `None` for an unknown or revoked key.
     fn authenticate(&self, key_sha256: &[u8; 32]) -> Option<AgentCtx>;
 
-    /// Records changed: the app refreshes its views. Write tools reach this through
-    /// [`notify_changed`], which adds the people those records belong to.
+    /// Records changed: the app refreshes its views. A write tool passes on what
+    /// `Session::apply_as_agent_reaching` returned, after `with_session` has returned, and does not
+    /// call this for a repeat that wrote nothing.
     fn changed(&self, touched: &[Uuid], agent: &AgentCtx);
 }
 
 /// The SHA-256 of a key, as [`Host::authenticate`] receives it.
 pub fn key_hash(key: &str) -> [u8; 32] {
     Sha256::digest(key.as_bytes()).into()
-}
-
-/// Tells the app what `agent` just committed: `records` and the people they belong to. Call it
-/// right after `with_session` returns, never inside it. It takes the session lock itself.
-pub fn notify_changed<H: Host>(host: &H, records: &[Uuid], agent: &AgentCtx) {
-    let touched = host
-        .with_session(&mut |s| Ok(s.touched_with_people(records)))
-        .unwrap_or_else(|_| records.to_vec());
-    host.changed(&touched, agent);
 }
 
 /// One tool, whichever module it comes from.

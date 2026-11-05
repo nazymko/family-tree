@@ -41,6 +41,9 @@ pub struct AgentAccessSettings {
     pub enabled: bool,
     pub port: u16,
     pub connections: Vec<ConnectionDto>,
+    /// Revoked connections whose key hash may still be stored: a later start removes it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub revoked: Vec<Uuid>,
 }
 
 impl Default for AgentAccessSettings {
@@ -49,6 +52,7 @@ impl Default for AgentAccessSettings {
             enabled: false,
             port: 8765,
             connections: Vec::new(),
+            revoked: Vec::new(),
         }
     }
 }

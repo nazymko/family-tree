@@ -53,13 +53,21 @@ pub fn run() {
             // A test run gets its own folder and keeps agent key hashes there, not in the keychain.
             #[cfg(debug_assertions)]
             let state = match e2e_hooks::config_dir_override() {
-                Some(dir) => AppState::with_clock(dir, Box::new(gt_session::SessionClock::system)),
+                Some(dir) => {
+                    let hashes = agent_access::FileHashes::new(&dir);
+                    AppState::with_clock(
+                        dir,
+                        Box::new(gt_session::SessionClock::system),
+                        Box::new(hashes),
+                    )
+                }
                 None => AppState::new(dir),
             };
             #[cfg(not(debug_assertions))]
             let state = AppState::new(dir);
             app.manage(state);
-            agent_access::resume(app.handle());
+            let handle = app.handle().clone();
+            std::thread::spawn(move || agent_access::resume(&handle));
             Ok(())
         });
     let builder = protocol::register(builder);

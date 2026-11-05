@@ -1,9 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 //! Agent access in the app: the five commands through real IPC, the server through a real socket.
-//! `AppState::with_clock` keeps hashes in a file in the config folder, so the OS keychain is never
-//! touched here.
+//! Hashes are kept in a file in the config folder, so the OS keychain is never touched here.
 
-use gt_app_lib::agent_access::{self, AppHost, HASH_FILE, KeychainHashes};
+use gt_app_lib::agent_access::{self, AppHost, FileHashes, HASH_FILE, HashStore, KeychainHashes};
 use gt_app_lib::commands;
 use gt_app_lib::settings_file::{self, SETTINGS_FILE};
 use gt_app_lib::state::AppState;
@@ -14,6 +13,7 @@ use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::ipc::{CallbackFn, InvokeBody};
@@ -23,7 +23,9 @@ use tauri::{App, Listener, Manager, WebviewWindow};
 use uuid::Uuid;
 
 fn state_in(root: &Path) -> AppState {
-    AppState::with_clock(root.join("config"), Box::new(SessionClock::system))
+    let config = root.join("config");
+    let hashes = FileHashes::new(&config);
+    AppState::with_clock(config, Box::new(SessionClock::system), Box::new(hashes))
 }
 
 fn app_with(state: AppState) -> (App<MockRuntime>, WebviewWindow<MockRuntime>) {
@@ -69,13 +71,17 @@ fn create(w: &WebviewWindow<MockRuntime>, name: &str) -> (String, String, String
     )
 }
 
-/// A port nobody holds right now.
+/// A port nobody holds right now. Below the range the system picks from, because a port it picked
+/// can be taken as the source of any test's next connection before the server binds it.
 fn free_port() -> u16 {
-    TcpListener::bind(("127.0.0.1", 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+    static NEXT: AtomicU16 = AtomicU16::new(0);
+    let base = 20_000 + (std::process::id() % 2_000) as u16 * 10;
+    loop {
+        let port = base + NEXT.fetch_add(1, Ordering::Relaxed);
+        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            return port;
+        }
+    }
 }
 
 fn head(port: u16, key: &str, length: usize) -> String {
@@ -719,4 +725,397 @@ fn changes_reach_the_page_as_an_event_at_once() {
             "agent": "Reader",
         })
     );
+}
+
+// ---- when a store cannot be written: a folder where the temp file goes makes every save fail ----
+
+const REVOKE_FAILED: &str = "Access stopped for now, but this could not be recorded; it may return after restart. Try again.";
+const OFF_NOT_SAVED: &str = "Agent access is off now, but this could not be saved, so it will come back on at the next start.";
+
+fn break_settings(root: &Path) {
+    std::fs::create_dir_all(root.join("config").join("settings.json.tmp")).unwrap();
+}
+
+fn heal_settings(root: &Path) {
+    std::fs::remove_dir(root.join("config").join("settings.json.tmp")).unwrap();
+}
+
+fn break_hashes(root: &Path) {
+    std::fs::create_dir_all(root.join("config").join("agent-hashes.json.tmp")).unwrap();
+}
+
+fn heal_hashes(root: &Path) {
+    std::fs::remove_dir(root.join("config").join("agent-hashes.json.tmp")).unwrap();
+}
+
+fn state_of(w: &WebviewWindow<MockRuntime>) -> Value {
+    invoke(w, "agent_access_state", json!({})).unwrap()
+}
+
+fn revoke(w: &WebviewWindow<MockRuntime>, id: &str) -> Result<Value, Value> {
+    invoke(w, "agent_connection_revoke", json!({ "id": id }))
+}
+
+fn saved(root: &Path) -> settings_file::AppSettings {
+    settings_file::load_settings(&root.join("config"))
+}
+
+fn hash_is_kept(root: &Path, id: &str) -> bool {
+    FileHashes::new(&root.join("config"))
+        .get(&id.parse().unwrap())
+        .is_some()
+}
+
+fn ids_listed(state: &Value) -> Vec<String> {
+    state["connections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+fn refused_connecting(port: u16) -> bool {
+    TcpStream::connect(("127.0.0.1", port)).is_err()
+}
+
+#[test]
+fn turning_off_stops_the_server_even_if_it_cannot_be_saved() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let (_, key, _) = create(&w, "Reader");
+    assert_eq!(ping(port, &key), 200);
+
+    break_settings(dir.path());
+    let off = set(&w, false, port);
+    assert_eq!(off["enabled"], false);
+    assert_eq!(off["running"], false);
+    assert_eq!(off["error"], OFF_NOT_SAVED);
+    assert!(refused_connecting(port));
+    assert!(
+        saved(dir.path()).agent_access.enabled,
+        "the file is as it was"
+    );
+}
+
+#[test]
+fn off_that_could_not_be_saved_is_saved_by_a_later_action() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    break_settings(dir.path());
+    set(&w, false, port);
+    heal_settings(dir.path());
+
+    let state = state_of(&w);
+    assert_eq!(state["error"], Value::Null);
+    assert!(!saved(dir.path()).agent_access.enabled);
+}
+
+#[test]
+fn off_that_could_not_be_saved_is_saved_at_shutdown() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    break_settings(dir.path());
+    set(&w, false, port);
+    heal_settings(dir.path());
+
+    agent_access::shutdown(&app.state::<AppState>());
+    assert!(!saved(dir.path()).agent_access.enabled);
+}
+
+#[test]
+fn revoking_with_both_stores_failing_stops_the_key_and_can_be_tried_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let (id, key, _) = create(&w, "Reader");
+
+    break_settings(dir.path());
+    break_hashes(dir.path());
+    let e = revoke(&w, &id).unwrap_err();
+    assert_eq!(e["message"], REVOKE_FAILED);
+    assert_eq!(ping(port, &key), 401, "stopped at once");
+
+    // The row stays, so there is something to try again on, and the state says why.
+    let state = state_of(&w);
+    assert_eq!(ids_listed(&state), std::slice::from_ref(&id));
+    assert_eq!(state["error"], REVOKE_FAILED);
+
+    // Still failing: the same answer, not "no such connection".
+    let again = revoke(&w, &id).unwrap_err();
+    assert_eq!(again["message"], REVOKE_FAILED);
+
+    heal_settings(dir.path());
+    heal_hashes(dir.path());
+    revoke(&w, &id).unwrap();
+    let state = state_of(&w);
+    assert!(ids_listed(&state).is_empty());
+    assert_eq!(state["error"], Value::Null);
+    assert!(saved(dir.path()).agent_access.connections.is_empty());
+    assert!(saved(dir.path()).agent_access.revoked.is_empty());
+    assert!(!hash_is_kept(dir.path(), &id));
+    assert_eq!(ping(port, &key), 401);
+
+    // Finished now, so a third time is a plain "not found".
+    let e = revoke(&w, &id).unwrap_err();
+    assert_eq!(e["code"], json!(ErrorCode::NotFound));
+}
+
+#[test]
+fn a_key_stays_refused_when_the_server_is_moved_after_a_failed_revoke() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    set(&w, true, free_port());
+    let (id, key, _) = create(&w, "Reader");
+    break_settings(dir.path());
+    break_hashes(dir.path());
+    revoke(&w, &id).unwrap_err();
+
+    heal_settings(dir.path());
+    let port = free_port();
+    set(&w, true, port);
+    assert_eq!(
+        ping(port, &key),
+        401,
+        "a restart of the server keeps it out"
+    );
+}
+
+#[test]
+fn revoking_with_only_settings_failing_keeps_the_key_out_after_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let key;
+    {
+        let (app, w) = app_with(state_in(dir.path()));
+        set(&w, true, port);
+        let (id, k, _) = create(&w, "Reader");
+        key = k;
+        break_settings(dir.path());
+        let e = revoke(&w, &id).unwrap_err();
+        assert_eq!(e["message"], REVOKE_FAILED);
+        assert!(!hash_is_kept(dir.path(), &id), "this store did work");
+        agent_access::shutdown(&app.state::<AppState>());
+    }
+    // Still broken at the restart: the file lists it, but its hash is gone.
+    let (app, w) = app_with(state_in(dir.path()));
+    agent_access::resume(app.handle());
+    let state = state_of(&w);
+    assert_eq!(ids_listed(&state).len(), 1);
+    assert!(
+        state["error"].as_str().unwrap().contains("Reader"),
+        "{state}"
+    );
+    assert_eq!(ping(port, &key), 401);
+    agent_access::shutdown(&app.state::<AppState>());
+}
+
+#[test]
+fn revoking_with_only_the_keychain_failing_is_retried_at_the_next_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let id;
+    {
+        let (app, w) = app_with(state_in(dir.path()));
+        set(&w, true, free_port());
+        id = create(&w, "Reader").0;
+        break_hashes(dir.path());
+        let e = revoke(&w, &id).unwrap_err();
+        assert_eq!(e["message"], REVOKE_FAILED);
+        assert!(saved(dir.path()).agent_access.connections.is_empty());
+        assert_eq!(
+            saved(dir.path()).agent_access.revoked,
+            [id.parse::<Uuid>().unwrap()],
+            "the id is on disk, so a later start can finish"
+        );
+        agent_access::shutdown(&app.state::<AppState>());
+        assert!(hash_is_kept(dir.path(), &id), "still failing at shutdown");
+    }
+    heal_hashes(dir.path());
+    let (app, w) = app_with(state_in(dir.path()));
+    agent_access::resume(app.handle());
+    assert!(!hash_is_kept(dir.path(), &id));
+    assert!(saved(dir.path()).agent_access.revoked.is_empty());
+    assert_eq!(state_of(&w)["error"], Value::Null);
+    agent_access::shutdown(&app.state::<AppState>());
+}
+
+#[test]
+fn a_failed_revoke_is_finished_by_later_actions() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let id = create(&w, "Reader").0;
+    break_settings(dir.path());
+    break_hashes(dir.path());
+    revoke(&w, &id).unwrap_err();
+    heal_settings(dir.path());
+    heal_hashes(dir.path());
+
+    // Nothing was asked of this connection: another action is enough.
+    let other = create(&w, "Second").0;
+    let state = state_of(&w);
+    assert_eq!(ids_listed(&state), [other]);
+    assert_eq!(state["error"], Value::Null);
+    assert!(!hash_is_kept(dir.path(), &id));
+}
+
+#[test]
+fn a_failed_revoke_is_finished_at_shutdown() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, w) = app_with(state_in(dir.path()));
+    set(&w, true, free_port());
+    let id = create(&w, "Reader").0;
+    break_settings(dir.path());
+    break_hashes(dir.path());
+    revoke(&w, &id).unwrap_err();
+    heal_settings(dir.path());
+    heal_hashes(dir.path());
+
+    agent_access::shutdown(&app.state::<AppState>());
+    assert!(saved(dir.path()).agent_access.connections.is_empty());
+    assert!(!hash_is_kept(dir.path(), &id));
+}
+
+#[test]
+fn revoking_the_connection_an_error_names_clears_the_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let (id, other) = {
+        let (app, w) = app_with(state_in(dir.path()));
+        let ids = (create(&w, "Reader").0, create(&w, "Second").0);
+        set(&w, true, port);
+        agent_access::shutdown(&app.state::<AppState>());
+        ids
+    };
+    let hashes = dir.path().join("config").join(HASH_FILE);
+    let map: serde_json::Map<String, Value> =
+        serde_json::from_str(&std::fs::read_to_string(&hashes).unwrap()).unwrap();
+    let kept: serde_json::Map<String, Value> =
+        map.into_iter().filter(|(k, _)| *k == other).collect();
+    std::fs::write(&hashes, Value::Object(kept).to_string()).unwrap();
+
+    let (app, w) = app_with(state_in(dir.path()));
+    agent_access::resume(app.handle());
+    assert!(
+        state_of(&w)["error"].as_str().unwrap().contains("Reader"),
+        "the error names it"
+    );
+    revoke(&w, &id).unwrap();
+    assert_eq!(state_of(&w)["error"], Value::Null);
+    assert_eq!(state_of(&w)["running"], true);
+    agent_access::shutdown(&app.state::<AppState>());
+}
+
+#[test]
+fn moving_to_a_taken_port_keeps_the_working_server() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let (_, key, _) = create(&w, "Reader");
+    let holder = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let taken = holder.local_addr().unwrap().port();
+
+    let state = set(&w, true, taken);
+    assert_eq!(state["running"], true);
+    assert_eq!(state["port"], port, "still where it works");
+    assert!(
+        state["error"]
+            .as_str()
+            .unwrap()
+            .contains(&taken.to_string())
+    );
+    assert_eq!(ping(port, &key), 200);
+    assert_eq!(saved(dir.path()).agent_access.port, port);
+}
+
+#[test]
+fn moving_when_the_move_cannot_be_saved_keeps_the_working_server() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let port = free_port();
+    set(&w, true, port);
+    let (_, key, _) = create(&w, "Reader");
+    let next = free_port();
+
+    break_settings(dir.path());
+    let e = invoke(
+        &w,
+        "agent_access_set",
+        json!({ "enabled": true, "port": next }),
+    )
+    .unwrap_err();
+    assert!(
+        e["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("Could not save settings")
+    );
+    assert_eq!(ping(port, &key), 200);
+    assert!(refused_connecting(next), "nothing left on the new port");
+    assert_eq!(state_of(&w)["port"], port);
+}
+
+#[test]
+fn connection_names_are_trimmed_short_and_plain_and_not_repeated() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let make = |name: String| invoke(&w, "agent_connection_create", json!({ "name": name }));
+    let message = |e: Value| e["message"].as_str().unwrap().to_string();
+
+    let made = make("  Reader  ".into()).unwrap();
+    assert_eq!(made["connection"]["name"], "Reader");
+
+    assert_eq!(
+        message(make("x".repeat(101)).unwrap_err()),
+        "Keep the connection name to 100 characters or fewer."
+    );
+    // Characters, not bytes: 100 Cyrillic letters are 200 bytes.
+    make("я".repeat(100)).unwrap();
+
+    for bad in ["Two\nlines", "Tab\tinside", "Bell\u{7}"] {
+        assert_eq!(
+            message(make(bad.into()).unwrap_err()),
+            "The connection name cannot contain line breaks or other control characters."
+        );
+    }
+    for repeat in ["Reader", " reader ", "READER"] {
+        assert_eq!(
+            message(make(repeat.into()).unwrap_err()),
+            format!(
+                "A connection named \"{}\" already exists. Choose another name.",
+                repeat.trim()
+            )
+        );
+    }
+    assert_eq!(state_of(&w)["connections"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn a_stored_hash_with_a_sign_is_not_a_hash() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path()).unwrap();
+    let id = Uuid::from_u128(5);
+    let signed = "+a".repeat(32);
+    std::fs::write(
+        dir.path().join(HASH_FILE),
+        json!({ id.to_string(): signed }).to_string(),
+    )
+    .unwrap();
+    assert_eq!(FileHashes::new(dir.path()).get(&id), None);
+
+    std::fs::write(
+        dir.path().join(HASH_FILE),
+        json!({ id.to_string(): "0a".repeat(32) }).to_string(),
+    )
+    .unwrap();
+    assert_eq!(FileHashes::new(dir.path()).get(&id), Some([0x0a; 32]));
 }

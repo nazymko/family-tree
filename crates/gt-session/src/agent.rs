@@ -27,6 +27,7 @@ use crate::error::{ApiError, ErrorCode};
 use crate::ops::{agent_number, apply_to_tree_tracked, plan_with};
 use crate::revert::{identity, same_ignoring_stamp, stripped};
 use crate::session::Session;
+use crate::touched::people_reached;
 use gt_core::model::*;
 use gt_store::{Actor, Batch, Change, ChangeOp, ChangeSet, Record, RecordKind};
 use serde_json::Value;
@@ -483,21 +484,34 @@ impl Session {
         ctx: &AgentCtx,
         batch: Uuid,
     ) -> Result<AgentWrite, ApiError> {
+        self.apply_as_agent_reaching(cmd, ctx, batch)
+            .map(|(write, _)| write)
+    }
+
+    /// [`Session::apply_as_agent`], and whom the write reached: the changed ids and the people they
+    /// belonged to before it or belong to after it, so that someone it unlinked is told too. Empty
+    /// when nothing was written. Pass the list to `Host::changed` once the session lock is released.
+    pub fn apply_as_agent_reaching(
+        &mut self,
+        cmd: EditCommand,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
         self.check_batch(ctx, batch)?;
         check_allowed(&cmd)?;
         let cmd = self.keep_preferred(cmd);
         self.check_links_and_numbers(&cmd)?;
         // The planner refuses a second marker; for an agent's rerun that is a repeat, not an error.
-        if let EditCommand::AddSiblingMarker { family } = &cmd {
-            if let Some(record) = self.marker_of(*family) {
-                return Ok(AgentWrite::AlreadyThere { record });
-            }
+        if let EditCommand::AddSiblingMarker { family } = &cmd
+            && let Some(record) = self.marker_of(*family)
+        {
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
         }
         let (_, now) = (self.clock.0)();
         // No last citation: that is the owner's, and `check_allowed` refused asking for it.
         let (cs, focus) = plan_with(&self.tree, &cmd, now, self.day_order(), None)?;
         if let Some(record) = self.repeat_of(&cmd, &cs, ctx.id)? {
-            return Ok(AgentWrite::AlreadyThere { record });
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
         }
         self.check_one_of_a_kind(&cs)?;
         self.check_birth_family(&cs)?;
@@ -507,14 +521,23 @@ impl Session {
             self.check_change(ch, ctx.id)?;
         }
         self.check_living(&cs)?;
+        let mut reached = Vec::new();
         if !cs.changes.is_empty() {
             let actor = Actor::Agent {
                 id: ctx.id,
                 name: ctx.name.clone(),
             };
+            let changed: Vec<Uuid> = cs.changes.iter().map(|c| c.id).collect();
+            reached = people_reached(&self.tree, &changed);
             self.commit(&cs, actor, Some(batch))?;
+            for id in people_reached(&self.tree, &changed) {
+                if !reached.contains(&id) {
+                    reached.push(id);
+                }
+            }
         }
-        Ok(AgentWrite::Done(self.result(&cs, cs.label.clone(), focus)))
+        let result = self.result(&cs, cs.label.clone(), focus);
+        Ok((AgentWrite::Done(result), reached))
     }
 
     fn marker_of(&self, family: Uuid) -> Option<Uuid> {

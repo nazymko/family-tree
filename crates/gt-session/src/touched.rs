@@ -65,59 +65,64 @@ fn partners(f: &Family) -> impl Iterator<Item = Uuid> + '_ {
     f.partner1.iter().chain(&f.partner2).copied()
 }
 
-impl Session {
-    /// `changed`, then every person those records belong to. A record reaches whatever shows it: a
-    /// note its owner, a citation whoever cites it, a source the users of its citations, a place
-    /// the people at its events. Ids the tree does not know are kept and reach nobody.
-    pub fn touched_with_people(&self, changed: &[Uuid]) -> Vec<Uuid> {
-        let tree = &self.tree;
-        let mut reached: HashSet<Uuid> = changed.iter().copied().collect();
-        // Chains are short (a note on a citation on an event), so this settles in a few rounds.
-        loop {
-            let owners = owners_of(tree, &reached);
-            if owners.is_empty() {
-                break;
-            }
-            reached.extend(owners);
+/// `changed`, then every person those records belong to in `tree`. A record reaches whatever shows
+/// it: a note its owner, a citation whoever cites it, a source the users of its citations, a place
+/// the people at its events. Ids the tree does not know are kept and reach nobody.
+pub fn people_reached(tree: &Tree, changed: &[Uuid]) -> Vec<Uuid> {
+    let mut reached: HashSet<Uuid> = changed.iter().copied().collect();
+    // Chains are short (a note on a citation on an event), so this settles in a few rounds.
+    loop {
+        let owners = owners_of(tree, &reached);
+        if owners.is_empty() {
+            break;
         }
+        reached.extend(owners);
+    }
 
-        let mut out: Vec<Uuid> = Vec::new();
-        let mut seen: HashSet<Uuid> = HashSet::new();
-        let mut add = |id: Uuid| {
-            if seen.insert(id) {
-                out.push(id);
-            }
-        };
-        changed.iter().for_each(|id| add(*id));
-        // The maps keep insertion order, so the list comes out the same each time.
-        tree.persons
-            .keys()
-            .filter(|id| reached.contains(*id))
-            .for_each(|id| add(*id));
-        for f in tree
-            .families
-            .values()
-            .filter(|f| reached.contains(&f.common.id))
-        {
-            partners(f).for_each(&mut add);
-            f.children.iter().for_each(|c| add(c.person));
+    let mut out: Vec<Uuid> = Vec::new();
+    let mut seen: HashSet<Uuid> = HashSet::new();
+    let mut add = |id: Uuid| {
+        if seen.insert(id) {
+            out.push(id);
         }
-        for e in tree
-            .events
-            .values()
-            .filter(|e| reached.contains(&e.common.id))
-        {
-            for p in &e.participants {
-                match p.target {
-                    ParticipantRef::Person(id) => add(id),
-                    ParticipantRef::Family(id) => {
-                        if let Some(f) = tree.families.get(&id) {
-                            partners(f).for_each(&mut add);
-                        }
+    };
+    changed.iter().for_each(|id| add(*id));
+    // The maps keep insertion order, so the list comes out the same each time.
+    tree.persons
+        .keys()
+        .filter(|id| reached.contains(*id))
+        .for_each(|id| add(*id));
+    for f in tree
+        .families
+        .values()
+        .filter(|f| reached.contains(&f.common.id))
+    {
+        partners(f).for_each(&mut add);
+        f.children.iter().for_each(|c| add(c.person));
+    }
+    for e in tree
+        .events
+        .values()
+        .filter(|e| reached.contains(&e.common.id))
+    {
+        for p in &e.participants {
+            match p.target {
+                ParticipantRef::Person(id) => add(id),
+                ParticipantRef::Family(id) => {
+                    if let Some(f) = tree.families.get(&id) {
+                        partners(f).for_each(&mut add);
                     }
                 }
             }
         }
-        out
+    }
+    out
+}
+
+impl Session {
+    /// [`people_reached`] in the tree as it is now. For a write that just happened, this misses who
+    /// the write unlinked: use [`Session::apply_as_agent_reaching`].
+    pub fn touched_with_people(&self, changed: &[Uuid]) -> Vec<Uuid> {
+        people_reached(&self.tree, changed)
     }
 }

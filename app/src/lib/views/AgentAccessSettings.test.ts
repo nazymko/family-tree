@@ -117,6 +117,87 @@ describe('AgentAccessSettings', () => {
     expect(screen.getByText('Not running.')).toBeInTheDocument();
   });
 
+  it('port_error_reads_in_ukrainian', async () => {
+    setLanguage('uk');
+    const user = userEvent.setup();
+    const api = mount();
+    api.agentTakenPorts.add(9100);
+    await screen.findByRole('checkbox', { name: 'Дозволити агентам на цьому комп’ютері підключатися' });
+    const port = screen.getByRole('spinbutton', { name: 'Порт' });
+    await user.clear(port);
+    await user.type(port, '9100');
+    await user.tab();
+    await user.click(screen.getByRole('checkbox', { name: 'Дозволити агентам на цьому комп’ютері підключатися' }));
+    expect(await screen.findByText('Порт 9100 вже використовує інша програма. Виберіть інший порт.')).toBeInTheDocument();
+  });
+
+  it('moving_to_a_taken_port_keeps_the_working_server', async () => {
+    const user = userEvent.setup();
+    const api = mount();
+    api.agentTakenPorts.add(9100);
+    await user.click(await screen.findByRole('checkbox', { name: TOGGLE }));
+    await screen.findByText('Listening on 127.0.0.1:8765.');
+    const port = screen.getByRole('spinbutton', { name: 'Port' });
+    await user.clear(port);
+    await user.type(port, '9100');
+    await user.tab();
+    expect(await screen.findByText('Port 9100 is already used by another program. Choose another port.')).toBeInTheDocument();
+    expect(screen.getByText('Listening on 127.0.0.1:8765.')).toBeInTheDocument();
+    expect(port).toHaveValue(8765);
+  });
+
+  it('failed_revoke_shows_the_state_and_can_be_tried_again', async () => {
+    setLanguage('uk');
+    const user = userEvent.setup();
+    const api = mount();
+    await screen.findByRole('heading', { name: 'Доступ для агентів' });
+    const made = await api.agentConnectionCreate('Reader');
+    const text = 'Access stopped for now, but this could not be recorded; it may return after restart. Try again.';
+    const translated = 'Доступ поки що зупинено, але цього не вдалося записати; після перезапуску він може повернутися. Спробуйте ще раз.';
+    const realRevoke = api.agentConnectionRevoke.bind(api);
+    const realState = api.agentAccessState.bind(api);
+    let failing = true;
+    api.agentConnectionRevoke = async (id) => {
+      if (failing) throw { code: 'io', message: text };
+      return realRevoke(id);
+    };
+    api.agentAccessState = async () => {
+      const state = await realState();
+      return failing ? { ...state, error: text } : state;
+    };
+
+    // The row came in after this screen first read the state.
+    const name = screen.getByRole('textbox', { name: 'Назва нового підключення' });
+    await user.type(name, 'Second');
+    await user.click(screen.getByRole('button', { name: 'Створити підключення' }));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Готово' }));
+
+    await user.click(screen.getByRole('button', { name: `Скасувати доступ: ${made.connection.name}` }));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Скасувати доступ' }));
+
+    // Once, though both the answer and the refreshed state say it.
+    await waitFor(() => expect(screen.getAllByText(translated)).toHaveLength(1));
+    expect(screen.getByText(made.connection.name)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(text);
+
+    failing = false;
+    await user.click(screen.getByRole('button', { name: `Скасувати доступ: ${made.connection.name}` }));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Скасувати доступ' }));
+    await waitFor(() => expect(screen.queryByText(made.connection.name)).toBeNull());
+    expect(screen.queryByText(translated)).toBeNull();
+  });
+
+  it('name_rules_answer_in_the_language_of_the_screen', async () => {
+    setLanguage('uk');
+    const user = userEvent.setup();
+    const api = mount();
+    await screen.findByRole('heading', { name: 'Доступ для агентів' });
+    await api.agentConnectionCreate('Reader');
+    await user.type(screen.getByRole('textbox', { name: 'Назва нового підключення' }), 'reader');
+    await user.click(screen.getByRole('button', { name: 'Створити підключення' }));
+    expect(await screen.findByText('Підключення з назвою «reader» вже є. Виберіть іншу назву.')).toBeInTheDocument();
+  });
+
   it('rules_readable', async () => {
     const user = userEvent.setup();
     const api = mount();
@@ -140,5 +221,23 @@ describe('AgentAccessSettings', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Правила, які отримують агенти' })).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/дерев/i);
+  });
+});
+
+describe('MockApi connection names', () => {
+  const refusal = (api: MockApi, name: string) =>
+    api.agentConnectionCreate(name).then(
+      () => 'made',
+      (e: { message: string }) => e.message,
+    );
+
+  it('follows_the_backend_rules', async () => {
+    const api = new MockApi(fixtureTree(1));
+    expect((await api.agentConnectionCreate('  Reader  ')).connection.name).toBe('Reader');
+    expect(await refusal(api, 'x'.repeat(101))).toBe('Keep the connection name to 100 characters or fewer.');
+    expect(await refusal(api, 'я'.repeat(100))).toBe('made');
+    expect(await refusal(api, 'Two\nlines')).toBe('The connection name cannot contain line breaks or other control characters.');
+    expect(await refusal(api, ' READER ')).toBe('A connection named "READER" already exists. Choose another name.');
+    expect(await refusal(api, '   ')).toBe('Give the connection a name.');
   });
 });
