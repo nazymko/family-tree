@@ -66,6 +66,10 @@ pub fn run() {
             #[cfg(not(debug_assertions))]
             let state = AppState::new(dir);
             app.manage(state);
+            // Scratch copies of a merge that did not finish hold a whole, unfiltered tree.
+            std::thread::spawn(|| {
+                gt_session::merge::remove_stale_scratch_now();
+            });
             let handle = app.handle().clone();
             std::thread::spawn(move || agent_access::resume(&handle));
             Ok(())

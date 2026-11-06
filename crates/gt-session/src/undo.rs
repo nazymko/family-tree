@@ -43,7 +43,7 @@ pub struct EditState {
     /// The citation most recently created or cloned; survives undo.
     last_citation: Option<Citation>,
     /// Where removed records sat in the tree order, so that undoing a delete puts them back.
-    removed_at: HashMap<Uuid, usize>,
+    pub(crate) removed_at: HashMap<Uuid, usize>,
 }
 
 fn core_order(o: WireDayOrder) -> DayOrder {

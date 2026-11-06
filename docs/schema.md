@@ -1,4 +1,4 @@
-# Project database schema (version 1)
+# Project database schema (version 5)
 
 A gene-tree project is a folder:
 
@@ -10,7 +10,7 @@ MyFamily.genetree/
   backups/    timestamped copies of tree.db
 ```
 
-`tree.db` is plain SQLite and can be read with any SQLite tool. The schema version is stored in `PRAGMA user_version` (currently `1`), and migrations are applied in order when a project is opened. A project written by a newer version of the app is refused.
+`tree.db` is plain SQLite and can be read with any SQLite tool. The schema version is stored in `PRAGMA user_version` (currently `5`), and migrations are applied in order when a project is opened. A project written by a newer version of the app is refused.
 
 ## Conventions
 
@@ -232,13 +232,13 @@ History of edits, used for undo and the per-record history. Rows get increasing 
 - `after_json`: the record as it is after the change, as JSON; null for a delete.
 - `before_seq`: for a delete, the record's `seq`; undoing the delete restores it when still free, so record order survives delete and undo.
 - `reverts_group`: for an undo, the `group_id` of the edit it reverts; otherwise null.
-- `actor_kind`: who made the edit, `user` or `agent`; null for rows written before schema 3.
+- `actor_kind`: who made the edit, `user`, `agent` or `copy` (a relative's edit taken in by merging their copy of the tree, schema 5); null for rows written before schema 3.
 - `actor_id`: for an agent, the UUID of its connection; otherwise null.
-- `actor_name`: for an agent, its name at that time (kept so a revoked connection stays named); otherwise null.
+- `actor_name`: for an agent, its name at that time (kept so a revoked connection stays named); for `copy`, whose copy it was ("Olena"); otherwise null.
 - `batch_id`: the `agent_batch` the edit belongs to, if any.
 
 ### `agent_batch`
-A named run of agent edits, such as one imported file (schema 3).
+A named run of agent edits, such as one imported file (schema 3). A merge of a relative's copy is a batch too (schema 5): `actor_name` is whose copy, `source_file` the copy's folder or file name, `report` the counts.
 - `id`: UUID.
 - `title`: what the run is.
 - `source_file`: the file the run works from, if any.
@@ -250,6 +250,20 @@ A named run of agent edits, such as one imported file (schema 3).
 The people a change group is about, one row per group and person (schema 3). The change log shows them for every edit; only agent edits count as unreviewed.
 - `group_id`, `person_id`: together the key.
 - `reviewed_ts`: when the user reviewed the change for this person (Unix ms); null until then. An edit that was later undone no longer counts as unreviewed.
+
+### `merged_group`
+The ledger of a merge (schema 5): one row for each change group taken from a relative's copy, written in the same transaction as the merge itself. A group in the ledger counts as known, like a group already in this tree's own log, so merging the same copy again finds nothing new and the next round takes only what came after.
+- `source_group`: the group id in the copy's change log (primary key).
+- `merge_group`: the group this tree's own log wrote for it; null when nothing needed writing.
+- `batch_id`: the `agent_batch` of the merge.
+- `source_name`: whose copy it was.
+- `source_ts`: when the relative made the group, on their clock (Unix ms). Shown to the owner, never used to decide anything.
+- `merged_ts`: when it was merged (Unix ms).
+
+### `merge_alias`
+Reserved (schema 5): will map a person's id in a relative's copy to the same person under another id here, when the owner joins the two. Nothing writes it yet.
+- `their_id`: the id in the copy (primary key).
+- `our_id`: the id in this tree.
 
 ## Search
 

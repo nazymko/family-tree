@@ -165,6 +165,10 @@ fn export_all(dir: &Path) {
         RecordHomeDto,
         LogFilterDto,
         ReviewScopeDto,
+        MergePreviewDto,
+        MergeResultDto,
+        CopyZipDto,
+        CopySizeDto,
     );
     let mut names: Vec<String> = read_dir_files(dir)
         .keys()

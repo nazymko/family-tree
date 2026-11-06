@@ -54,6 +54,8 @@ pub struct Session {
     pub(crate) edit: crate::undo::EditState,
     /// Image sizes read so far (see `media.rs`).
     pub(crate) media_dims: crate::media::DimsCache,
+    /// The merge preview waiting for Apply (see `merge`).
+    pub(crate) pending_merge: Option<Box<crate::merge::Plan>>,
 }
 
 impl Session {
@@ -74,6 +76,7 @@ impl Session {
             charts: crate::chart::Charts::default(),
             edit: Default::default(),
             media_dims: Default::default(),
+            pending_merge: None,
         };
         s.rebuild();
         Ok(s)
