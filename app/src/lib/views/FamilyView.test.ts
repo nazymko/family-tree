@@ -75,9 +75,31 @@ describe('FamilyView', () => {
     ]);
     await screen.findByRole('heading', { level: 1, name: 'Karl Schmidt' });
     expect(within(region('Parents')).getAllByRole('button')).toHaveLength(2);
-    expect(within(region('Partners')).getAllByRole('button')).toHaveLength(2); // the partner card + Edit family
+    expect(within(region('Partners')).getAllByRole('button')).toHaveLength(3); // the partner card, Family page, Edit family
     expect(within(region('Children')).getAllByRole('listitem')).toHaveLength(3);
     expect(within(region('Children')).getAllByRole('button')).toHaveLength(3);
+  });
+
+  it('shows_the_notes_of_the_persons_families_to_read_with_no_edit_buttons', async () => {
+    const focus = ref('Ivan Petrovych Koval');
+    const partner = ref('Olena Koval');
+    const u = union(partner);
+    const note = { id: 'n1', kind: 'general', text: 'They moved to Lviv together.', media: [] };
+    setup([view(focus, { partnerships: [u] })], undefined, {
+      getFamily: vi.fn(async () => ({ notes: [note] })) as never,
+    });
+    const section = await screen.findByRole('region', { name: 'Shared family notes, with Olena Koval' });
+    expect(within(section).getByText('They moved to Lviv together.')).toBeInTheDocument();
+    // To read: the only button leads to the family page, nothing edits the note.
+    expect(within(section).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['Family page']);
+  });
+
+  it('shows_no_notes_block_when_the_family_has_no_notes', async () => {
+    const focus = ref('Ivan Petrovych Koval');
+    const getFamily = vi.fn(async () => ({ notes: [] }));
+    setup([view(focus, { partnerships: [union(ref('Olena Koval'))] })], undefined, { getFamily: getFamily as never });
+    await waitFor(() => expect(getFamily).toHaveBeenCalled());
+    expect(screen.queryByRole('region', { name: /Shared family notes/ })).toBeNull();
   });
 
   it('card_accessible_name_has_name_lifespan_relationship', async () => {

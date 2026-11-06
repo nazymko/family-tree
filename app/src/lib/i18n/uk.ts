@@ -1283,6 +1283,7 @@ export const uk: Messages = {
     aroundTools: 'Інструменти діаграми навколо особи',
     centreOnMe: 'Центрувати на мені',
     showAunts: 'Показати дядьків і тіток',
+    showSiblings: 'Брати й сестри',
   },
   whole: {
     title: 'Увесь родовід',
@@ -1833,6 +1834,17 @@ export const uk: Messages = {
       onlyAgent: 'Через журнал змін можна скасувати лише зміну агента.',
       notFound: 'Цієї зміни вже немає в журналі змін.',
     },
+  },
+  familyPage: {
+    title: 'Родина: {a} і {b}',
+    titleOne: 'Родина: {a}',
+    titleNone: 'Родина',
+    open: 'Сторінка родини',
+    openWith: 'Сторінка родини, партнер: {name}',
+    events: 'Події',
+    noEvents: 'Подій не вказано.',
+    noNotes: 'Спільних нотаток немає.',
+    gone: 'Цієї родини більше немає в родоводі.',
   },
   be: {
     kind: {

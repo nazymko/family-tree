@@ -5,4 +5,8 @@ export type ChartRequest = { kind: ChartKind, root: string, generations: number,
 /**
  * Relatives chart only: show the parents' brothers and sisters (default on).
  */
-auntsUncles?: boolean, };
+auntsUncles?: boolean, 
+/**
+ * Chart built around a person only: also show their brothers and sisters and those families (default off).
+ */
+siblings?: boolean, };

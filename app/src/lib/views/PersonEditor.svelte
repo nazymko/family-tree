@@ -584,6 +584,7 @@
       {#each familyNotes as fam (fam.familyId)}
         <div class="sec-head">
           <h3>{fam.partner ? t('person.familyNotesWith', { name: fam.partner }) : t('person.familyNotes')}</h3>
+          <Button onclick={() => nav.go({ name: 'familyPage', id: fam.familyId })} aria-label={fam.partner ? t('familyPage.openWith', { name: fam.partner }) : t('familyPage.open')}>{t('familyPage.open')}</Button>
           <Button onclick={() => (dialog = { kind: 'family', family: fam.familyId })}>{t('person.openFamily')}</Button>
         </div>
         {#each fam.notes as n (n.id)}

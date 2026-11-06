@@ -6,7 +6,9 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 use common::MapSource;
-use gt_layout::{EdgeKind, Key, Layout, Metrics, Node, PartnerOf, Rel, around};
+use gt_layout::{
+    EdgeKind, Key, Layout, Metrics, Node, PartnerOf, Rel, around, around_with_siblings,
+};
 
 const ALL: u8 = 255;
 
@@ -88,6 +90,27 @@ fn shows_exactly_the_line_and_the_partners() {
         assert!(!keys(&l).contains(&absent), "{absent} must not be shown");
     }
     assert_eq!(l.nodes.len(), want.len());
+}
+
+#[test]
+fn asked_for_it_shows_brothers_and_sisters_with_their_children_but_no_aunts_or_cousins() {
+    let mut s = family();
+    // Sister 4 has a partner 70 and a child 71, who has a child 72.
+    s.family(Some(4), Some(70), &[71]);
+    s.family(Some(71), None, &[72]);
+    let l = around_with_siblings(&s, 1, ALL, &Metrics::default(), 100_000);
+    for k in [1, 2, 3, 20, 30, 50, 4, 5, 70, 71] {
+        assert!(keys(&l).contains(&k), "{k} is shown");
+    }
+    // Their children, not further: the same depth the relatives chart gives a nephew or niece.
+    for absent in [10, 11, 60, 61, 72] {
+        assert!(!keys(&l).contains(&absent), "{absent} must not be shown");
+    }
+    assert_no_overlap(&l);
+    let me = node_of(&l, 1);
+    assert_eq!(node_of(&l, 4).rect.y, me.rect.y);
+    assert!(node_of(&l, 71).rect.y > me.rect.y);
+    assert!(node_of(&l, 2).rect.y < me.rect.y);
 }
 
 #[test]

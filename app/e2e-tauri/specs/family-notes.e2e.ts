@@ -45,5 +45,24 @@ describe('Family notes on the person page', () => {
     await click('Open family');
     await $(dialog).waitForDisplayed({ timeout: 20000 });
     await browser.keys('Escape');
+    await $(dialog).waitForDisplayed({ reverse: true, timeout: 20000 });
+
+    // The Family screen shows the same note to read.
+    await goTo('Family');
+    const onFamily = await $('//h2[contains(.,"Shared family notes")]');
+    await onFamily.waitForDisplayed({ timeout: 20000 });
+    await onFamily.scrollIntoView({ block: 'center' });
+    await expect($(`//article//*[normalize-space(.)="${NOTE}"]`)).toBeDisplayed();
+    await shot('family-notes-read-en.png');
+
+    // Its own page to read, with a way back.
+    const open = await $('//button[normalize-space(.)="Family page"][ancestor::section[contains(@aria-label,"Shared family notes")]]');
+    await open.scrollIntoView({ block: 'center' });
+    await open.click();
+    await $('//h1[starts-with(normalize-space(.),"Family:")]').waitForDisplayed({ timeout: 20000 });
+    await expect($(`//*[normalize-space(.)="${NOTE}"]`)).toBeDisplayed();
+    await shot('family-page-en.png');
+    await click('Back');
+    await $('//h2[contains(.,"Shared family notes")]').waitForDisplayed({ timeout: 20000 });
   });
 });

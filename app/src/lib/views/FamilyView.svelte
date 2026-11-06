@@ -8,7 +8,8 @@
   import EmptyState from '../ui/EmptyState.svelte';
   import Lock from '../ui/Lock.svelte';
   import { getApi } from '../api/context';
-  import type { ChildDto, FamilyViewDto, ParentRelId, PartnershipDto, PersonRef, UnionKindId } from '../api/types';
+  import type { ChildDto, FamilyViewDto, NoteDto, ParentRelId, PartnershipDto, PersonRef, UnionKindId } from '../api/types';
+  import VoiceSamples from '../media/VoiceSamples.svelte';
   import { nav } from '../state/nav.svelte';
   import { project } from '../state/project.svelte';
   import { settings } from '../state/settings.svelte';
@@ -24,6 +25,8 @@
   const api = getApi();
 
   let view = $state<FamilyViewDto | null>(null);
+  /** Notes on the focus person's own families, to read here; they are edited on the person's page or in the family. */
+  let familyNotes = $state<{ familyId: string; partner: string | null; notes: NoteDto[] }[]>([]);
   let empty = $state(false);
   let error = $state('');
   let root = $state<HTMLElement>();
@@ -85,6 +88,7 @@
         view = v;
         error = '';
         empty = false;
+        void loadFamilyNotes(v, mine);
         await tick();
         if (mine === token && before.size > 0 && root) flipMove(root, before, 260, reduced());
       })
@@ -95,6 +99,17 @@
         }
       });
   });
+
+  async function loadFamilyNotes(v: FamilyViewDto, mine: number) {
+    const found = await Promise.all(
+      v.partnerships.map(async (p) => ({
+        familyId: p.familyId,
+        partner: p.partner?.name ?? null,
+        notes: (await api.getFamily(p.familyId).catch(() => null))?.notes ?? [],
+      })),
+    );
+    if (mine === token) familyNotes = found.filter((f) => f.notes.length > 0);
+  }
 
   /** The unnamed-siblings marker is deleted like any person; the view reloads with the edit. */
   async function deleteMarker(id: string) {
@@ -337,7 +352,7 @@
                 <div class="missing"><span>{t('family.partnerMissing')}</span></div>
               {/if}
               {#if partnerSummary(union)}<p class="usum">{partnerSummary(union)}</p>{/if}
-              <div class="uacts"><Button variant="quiet" onclick={() => (familyDialog = union!.familyId)}>{t('family.editFamily')}</Button></div>
+              <div class="uacts"><Button variant="quiet" onclick={() => nav.go({ name: 'familyPage', id: union!.familyId })}>{t('familyPage.open')}</Button><Button variant="quiet" onclick={() => (familyDialog = union!.familyId)}>{t('family.editFamily')}</Button></div>
             </div>
           {/if}
         {/if}
@@ -402,6 +417,23 @@
       </details>
     {/if}
     {/if}
+
+    {#each familyNotes as fam (fam.familyId)}
+      {@const heading = fam.partner ? t('person.familyNotesWith', { name: fam.partner }) : t('person.familyNotes')}
+      <section class="band fam-notes" aria-label={heading}>
+        <div class="fam-notes-head">
+          <h2>{heading}</h2>
+          <Button onclick={() => nav.go({ name: 'familyPage', id: fam.familyId })} aria-label={fam.partner ? t('familyPage.openWith', { name: fam.partner }) : t('familyPage.open')}>{t('familyPage.open')}</Button>
+        </div>
+        {#each fam.notes as n (n.id)}
+          <article class="fam-note">
+            <p class="fam-note-kind">{t(`noteKind.${n.kind}`)}</p>
+            <p class="fam-note-text">{n.text}</p>
+            <VoiceSamples items={n.media} />
+          </article>
+        {/each}
+      </section>
+    {/each}
   {/if}
 </div>
 
@@ -562,6 +594,31 @@
   }
   .none {
     color: var(--ink-1);
+  }
+  .fam-notes {
+    margin-top: var(--s-4);
+    max-width: 72ch;
+  }
+  .fam-notes-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+  }
+  .fam-note {
+    display: grid;
+    gap: var(--s-2);
+  }
+  .fam-note-kind {
+    color: var(--ink-1);
+    font-size: var(--t-sm);
+  }
+  .fam-note-text {
+    white-space: pre-wrap;
+    font-family: var(--font-serif);
+    font-size: var(--t-md);
+    line-height: var(--rule-step);
   }
   .gap {
     margin-top: var(--s-4);

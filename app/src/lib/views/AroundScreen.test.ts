@@ -69,12 +69,28 @@ describe('the button on the whole tree', () => {
   });
 });
 
+describe('the brothers and sisters checkbox', () => {
+  it('starts_off_and_asks_for_them_when_ticked_only_on_this_screen', async () => {
+    const { api, fx } = makeApi();
+    const id = await richestRoot(api, fx, 'relatives');
+    const s = await mountAround(id);
+    const box = screen.getByRole('checkbox', { name: 'Брати й сестри' });
+    expect(box).not.toBeChecked();
+    await waitFor(() => expect(s.spy).toHaveBeenCalled());
+    expect(s.spy.mock.lastCall?.[0].siblings).toBe(false);
+    await fireEvent.click(box);
+    await waitFor(() => expect(s.spy.mock.lastCall?.[0].siblings).toBe(true));
+    await fireEvent.click(box);
+    await waitFor(() => expect(s.spy.mock.lastCall?.[0].siblings).toBe(false));
+  });
+});
+
 describe('the screen built around a person', () => {
   it('asks_for_every_generation_names_the_person_and_has_a_back_button_to_the_whole_tree', async () => {
     const { api, fx } = makeApi();
     const root = await richestRoot(api, fx, 'relatives');
     const s = await mountAround(root);
-    await waitFor(() => expect(s.spy).toHaveBeenCalledWith({ kind: 'around', root, generations: 255 }));
+    await waitFor(() => expect(s.spy).toHaveBeenCalledWith({ kind: 'around', root, generations: 255, siblings: false }));
     const name = (await s.api.getPerson(root)).ref.name;
     expect(await screen.findByRole('heading', { name: `Побудовано навколо: ${name}` })).toBeInTheDocument();
     expect(screen.getByRole('application', { name: 'Діаграма навколо особи' })).toBeInTheDocument();
@@ -94,7 +110,7 @@ describe('the screen built around a person', () => {
     const second = fx.persons.find((p) => p.id !== root)!.id;
     const open = vi.spyOn(s.api, 'chartOpen');
     nav.go({ name: 'around', id: second });
-    await waitFor(() => expect(open).toHaveBeenCalledWith({ kind: 'around', root: second, generations: 255 }));
+    await waitFor(() => expect(open).toHaveBeenCalledWith({ kind: 'around', root: second, generations: 255, siblings: false }));
     // The label no longer promises the whole tree: the step back is the first person's screen.
     expect(await screen.findByRole('button', { name: 'Назад' })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Назад' }));

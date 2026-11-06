@@ -32,6 +32,8 @@
     onGenerations,
     auntsUncles = true,
     onAunts,
+    siblings = false,
+    onSiblings,
     onOpened,
     onSelect,
     onBuildAround,
@@ -52,6 +54,9 @@
     auntsUncles?: boolean;
     /** Shows the "Show aunts and uncles" checkbox in the toolbar when given. */
     onAunts?: (show: boolean) => void;
+    siblings?: boolean;
+    /** Shows the "Brothers and sisters" checkbox in the toolbar when given (the chart built around a person). */
+    onSiblings?: (show: boolean) => void;
     /** Called with the chart meta each time a chart is (re)opened. */
     onOpened?: (meta: ChartMeta) => void;
     /** Called whenever the selected node changes (also from the keyboard). */
@@ -288,7 +293,7 @@
     if (!keepCam) selNode = null;
     let m: ChartMeta;
     try {
-      const req: ChartRequest = kind === 'relatives' ? { kind, root, generations, auntsUncles } : { kind, root, generations };
+      const req: ChartRequest = kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? { kind, root, generations, siblings } : { kind, root, generations };
       m = await api.chartOpen(req);
     } catch (e) {
       if (seq !== openSeq) return;
@@ -500,6 +505,7 @@
     void root;
     void generations;
     void auntsUncles;
+    void siblings;
     const flipped = reversed !== lastReversed;
     lastReversed = reversed;
     untrack(() => {
@@ -968,6 +974,9 @@
     {/if}
     {#if onAunts}
       <Checkbox label={t('chartCanvas.showAunts')} checked={auntsUncles} onchange={onAunts} />
+    {/if}
+    {#if onSiblings}
+      <Checkbox label={t('chartCanvas.showSiblings')} checked={siblings} onchange={onSiblings} />
     {/if}
     <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
     <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
