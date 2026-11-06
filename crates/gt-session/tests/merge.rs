@@ -702,3 +702,289 @@ fn the_zip_holds_the_database_and_media_and_names_its_size() {
     let s = open_at(&dest, NOW_MS);
     assert_eq!(s.tree().persons.len(), 2);
 }
+
+// ---- a swap is a loss; a plain edit is not -----------------------------------------------------
+
+fn event_input(id: Option<Uuid>, kind: &str, date: &str, place: Option<&str>) -> EventInput {
+    EventInput {
+        id,
+        kind: kind.into(),
+        date_raw: Some(date.into()),
+        place_text: place.map(Into::into),
+        place_id: None,
+        description: None,
+        age: None,
+        cause: None,
+        negative: false,
+        private: false,
+        preferred: true,
+        participants: None,
+    }
+}
+
+fn save_event(s: &mut Session, person: Uuid, ev: EventInput) {
+    s.apply(EditCommand::SaveEvent {
+        owner: EventOwner {
+            kind: EventOwnerKind::Person,
+            id: person,
+        },
+        event: ev,
+    })
+    .unwrap();
+}
+
+fn name_input(
+    id: Option<Uuid>,
+    given: &str,
+    surnames: &[&str],
+    patronymic: Option<&str>,
+) -> NameInput {
+    NameInput {
+        id,
+        kind: NameKindDto::Birth,
+        kind_text: None,
+        preferred: false,
+        private: false,
+        prefix: None,
+        given: Some(given.into()),
+        call: None,
+        surname_prefix: None,
+        surnames: surnames.iter().map(|s| (*s).into()).collect(),
+        patronymic: patronymic.map(Into::into),
+        suffix: None,
+        nickname: None,
+        lang: None,
+        date_raw: None,
+    }
+}
+
+fn why_of(p: &MergePreviewDto) -> Vec<MergeWhy> {
+    p.undecided.iter().filter_map(|l| l.why).collect()
+}
+
+#[test]
+fn a_name_swapped_for_another_is_a_loss_not_a_change() {
+    let mut f = family();
+    let ivan = f.ivan;
+    let old_name = f.owner.tree().persons[&ivan].names[0].id;
+    let mut rel = f.relative("rel", LATER_MS);
+    rel.apply(EditCommand::SaveName {
+        person: ivan,
+        name: name_input(None, "Ivan", &["Kovalenko"], None),
+    })
+    .unwrap();
+    rel.apply(EditCommand::DeleteName {
+        person: ivan,
+        name: old_name,
+    })
+    .unwrap();
+    let zip = send(&rel, &f, "back.zip");
+    let p = preview(&mut f.owner, &zip);
+    assert_eq!(why_of(&p), vec![MergeWhy::TakesAway], "{p:?}");
+    assert_eq!(p.to_apply, 0, "{p:?}");
+    f.owner.merge_apply(p.token).unwrap();
+    let names = &f.owner.tree().persons[&ivan].names;
+    assert!(
+        names.iter().any(|n| n.id == old_name),
+        "the owner's name stays"
+    );
+}
+
+#[test]
+fn a_child_link_swapped_for_another_is_a_loss_not_a_change() {
+    let mut f = family();
+    let ivan = f.ivan;
+    let petro = f
+        .owner
+        .apply(EditCommand::QuickAdd {
+            anchor: ivan,
+            relation: Relation::Child,
+            draft: koval("Petro", None),
+            family: None,
+            new_parent_set: None,
+            parent_rel: None,
+        })
+        .unwrap()
+        .focus
+        .unwrap();
+    let taras = add(&mut f.owner, "Taras");
+    let fam = *f.owner.tree().families.keys().next().unwrap();
+    let mut rel = f.relative("rel", LATER_MS);
+    rel.apply(EditCommand::UnlinkChild {
+        family: fam,
+        child: petro,
+    })
+    .unwrap();
+    rel.apply(EditCommand::LinkChild {
+        family: fam,
+        child: taras,
+        rel: (ParentRelId::Birth, ParentRelId::Birth),
+        preferred: true,
+    })
+    .unwrap();
+    let zip = send(&rel, &f, "back.zip");
+    let p = preview(&mut f.owner, &zip);
+    assert!(why_of(&p).contains(&MergeWhy::TakesAway), "{p:?}");
+    f.owner.merge_apply(p.token).unwrap();
+    assert!(
+        f.owner.tree().families[&fam]
+            .children
+            .iter()
+            .any(|c| c.person == petro),
+        "the owner's child link stays"
+    );
+}
+
+#[test]
+fn clearing_a_place_is_a_loss_not_a_change() {
+    let mut f = family();
+    let ivan = f.ivan;
+    save_event(
+        &mut f.owner,
+        ivan,
+        event_input(None, "birth", "1 Jan 1990", Some("Lviv")),
+    );
+    let ev = *f.owner.tree().events.keys().next().unwrap();
+    let mut rel = f.relative("rel", LATER_MS);
+    save_event(
+        &mut rel,
+        ivan,
+        event_input(Some(ev), "birth", "1 Jan 1990", Some("")),
+    );
+    assert!(rel.tree().events[&ev].place.is_none());
+    let zip = send(&rel, &f, "back.zip");
+    let p = preview(&mut f.owner, &zip);
+    assert_eq!(why_of(&p), vec![MergeWhy::TakesAway], "{p:?}");
+    f.owner.merge_apply(p.token).unwrap();
+    assert!(
+        f.owner.tree().events[&ev].place.is_some(),
+        "the place stays"
+    );
+}
+
+#[test]
+fn correcting_a_surname_and_a_date_still_applies() {
+    let mut f = family();
+    let ivan = f.ivan;
+    save_event(
+        &mut f.owner,
+        ivan,
+        event_input(None, "birth", "1 Jan 1990", None),
+    );
+    let ev = *f.owner.tree().events.keys().next().unwrap();
+    let name = f.owner.tree().persons[&ivan].names[0].id;
+    let mut rel = f.relative("rel", LATER_MS);
+    rel.apply(EditCommand::SaveName {
+        person: ivan,
+        name: name_input(Some(name), "Ivan", &["Kovalenko"], Some("Petrovych")),
+    })
+    .unwrap();
+    save_event(
+        &mut rel,
+        ivan,
+        event_input(Some(ev), "birth", "2 Jan 1990", None),
+    );
+    let zip = send(&rel, &f, "back.zip");
+    let p = preview(&mut f.owner, &zip);
+    assert!(p.undecided.is_empty(), "{p:?}");
+    assert_eq!(p.changed.len(), 2, "{p:?}");
+    f.owner.merge_apply(p.token).unwrap();
+    assert_eq!(
+        f.owner.tree().persons[&ivan].names[0].surnames,
+        vec!["Kovalenko".to_string()]
+    );
+    assert_eq!(f.owner.tree().events[&ev].date, rel.tree().events[&ev].date);
+}
+
+// ---- who stops being living -----------------------------------------------------------------------
+
+fn with_birth() -> (Family, Uuid) {
+    let mut f = family();
+    let ivan = f.ivan;
+    save_event(
+        &mut f.owner,
+        ivan,
+        event_input(None, "birth", "1 Jan 1990", None),
+    );
+    let ev = *f.owner.tree().events.keys().next().unwrap();
+    (f, ev)
+}
+
+#[test]
+fn a_birth_date_that_makes_a_living_person_dead_is_held() {
+    let (mut f, ev) = with_birth();
+    let ivan = f.ivan;
+    let mut rel = f.relative("rel", LATER_MS);
+    save_event(
+        &mut rel,
+        ivan,
+        event_input(Some(ev), "birth", "1 Jan 1850", None),
+    );
+    let zip = send(&rel, &f, "back.zip");
+    let p = preview(&mut f.owner, &zip);
+    assert_eq!(why_of(&p), vec![MergeWhy::MoreVisible], "{p:?}");
+    assert_eq!(p.to_apply, 0);
+    let kept = f.owner.tree().events[&ev].date.clone();
+    f.owner.merge_apply(p.token).unwrap();
+    assert_eq!(
+        f.owner.tree().events[&ev].date,
+        kept,
+        "the owner's date stays"
+    );
+}
+
+#[test]
+fn a_death_event_added_to_a_living_person_is_held() {
+    let (mut f, _) = with_birth();
+    let ivan = f.ivan;
+    let mut rel = f.relative("rel", LATER_MS);
+    save_event(
+        &mut rel,
+        ivan,
+        event_input(None, "death", "1 Jan 2020", None),
+    );
+    let zip = send(&rel, &f, "back.zip");
+    let p = preview(&mut f.owner, &zip);
+    assert!(
+        why_of(&p).iter().all(|w| *w == MergeWhy::MoreVisible),
+        "{p:?}"
+    );
+    assert!(!p.undecided.is_empty(), "{p:?}");
+    assert_eq!(p.to_apply, 0, "{p:?}");
+    f.owner.merge_apply(p.token).unwrap();
+    assert_eq!(f.owner.tree().events.len(), 1, "no death event came across");
+    assert!(f.owner.tree().persons.contains_key(&ivan));
+}
+
+#[test]
+fn another_change_to_the_same_person_still_applies() {
+    // The date flips them, the sex change does not: only the date is held.
+    let (mut f, ev) = with_birth();
+    let ivan = f.ivan;
+    let mut rel = f.relative("rel", LATER_MS);
+    set_sex(&mut rel, ivan, SexKind::Male);
+    save_event(
+        &mut rel,
+        ivan,
+        event_input(Some(ev), "birth", "1 Jan 1850", None),
+    );
+    let zip = send(&rel, &f, "back.zip");
+    let p = preview(&mut f.owner, &zip);
+    assert_eq!(why_of(&p), vec![MergeWhy::MoreVisible], "{p:?}");
+    assert_eq!(p.changed.len(), 1, "{p:?}");
+    f.owner.merge_apply(p.token).unwrap();
+    assert_eq!(sex_of(&f.owner, ivan), gt_core::model::Sex::Male);
+    // A date that leaves them living is an ordinary change.
+    let (mut f, ev) = with_birth();
+    let ivan = f.ivan;
+    let mut rel = f.relative("rel2", LATER_MS);
+    save_event(
+        &mut rel,
+        ivan,
+        event_input(Some(ev), "birth", "1 Jan 1991", None),
+    );
+    let zip = send(&rel, &f, "back2.zip");
+    let p = preview(&mut f.owner, &zip);
+    assert!(p.undecided.is_empty(), "{p:?}");
+    assert_eq!(p.changed.len(), 1, "{p:?}");
+}

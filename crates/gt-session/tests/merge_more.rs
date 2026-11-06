@@ -351,10 +351,33 @@ enum Op {
     Note(usize),
     Add,
     Delete(usize),
+    /// Saves a new name and removes the first one, in one go.
+    SwapName(usize),
+}
+
+fn name_input(given: &str) -> NameInput {
+    NameInput {
+        id: None,
+        kind: NameKindDto::Birth,
+        kind_text: None,
+        preferred: false,
+        private: false,
+        prefix: None,
+        given: Some(given.into()),
+        call: None,
+        surname_prefix: None,
+        surnames: vec!["Koval".into()],
+        patronymic: None,
+        suffix: None,
+        nickname: None,
+        lang: None,
+        date_raw: None,
+    }
 }
 
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
+        (0usize..4).prop_map(Op::SwapName),
         (0usize..4, 0u8..3).prop_map(|(i, s)| Op::Sex(i, s)),
         (0usize..4, any::<bool>()).prop_map(|(i, p)| Op::Private(i, p)),
         (0usize..4).prop_map(Op::Note),
@@ -393,6 +416,21 @@ fn run(s: &mut Session, ids: &[Uuid], ops: &[Op]) {
             }
             Op::Add => {
                 add(s, &format!("New{n}"));
+            }
+            Op::SwapName(i) if alive(*i, s) => {
+                let first = s.tree().persons[&ids[*i]].names.first().map(|n| n.id);
+                s.apply(EditCommand::SaveName {
+                    person: ids[*i],
+                    name: name_input(&format!("Swap{n}")),
+                })
+                .unwrap();
+                if let Some(first) = first {
+                    s.apply(EditCommand::DeleteName {
+                        person: ids[*i],
+                        name: first,
+                    })
+                    .unwrap();
+                }
             }
             Op::Delete(i) if alive(*i, s) => {
                 s.apply(EditCommand::DeletePerson { id: ids[*i] }).unwrap();
@@ -457,6 +495,10 @@ proptest! {
                         prop_assert!(a.common.private == b.common.private, "listed, not taken");
                     }
                 }
+            }
+            // The owner's names all remain: a swap in the copy is a loss, so it is listed.
+            for n in &o.names {
+                prop_assert!(a.names.iter().any(|m| m.id == n.id), "name {} of {}", n.id, id);
             }
             // The owner's notes all remain.
             for n in &o.common.notes {

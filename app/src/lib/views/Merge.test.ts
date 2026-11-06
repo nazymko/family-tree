@@ -34,7 +34,7 @@ describe('SendCopyDialog', () => {
     renderWith(SendCopyDialog, { onClose: vi.fn() }, { api });
     expect(screen.getByText('Living people, with their names and details.')).toBeInTheDocument();
     expect(screen.getByText('Records you marked private.')).toBeInTheDocument();
-    expect(screen.getByText(/edit history, including old text and text you have since removed/)).toBeInTheDocument();
+    expect(screen.getByText(/edit history, including old text and text you have since removed, reports from assistants, and the names of relatives/)).toBeInTheDocument();
     await screen.findByText(/Size of the file: about 3.3 MB/);
     expect(api.sentZips).toEqual([]);
   });
@@ -57,7 +57,7 @@ describe('SendCopyDialog', () => {
     setLanguage('uk');
     renderWith(SendCopyDialog, { onClose: vi.fn() }, { api: new MockApi(fixtureTree(30)) });
     expect(screen.getByText('Живі люди з іменами та відомостями про них.')).toBeInTheDocument();
-    expect(screen.getByText(/Історія змін, разом зі старим текстом/)).toBeInTheDocument();
+    expect(screen.getByText(/Історія змін, разом зі старим текстом.*звіти помічників та імена родичів/)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/дерев/i);
   });
 });

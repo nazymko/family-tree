@@ -15,7 +15,7 @@ use super::dto::{
 use crate::error::{ApiError, ErrorCode};
 use crate::field_diff::record_field_changes;
 use crate::log::LogWords;
-use crate::revert::{Reverted, identity, revert_change, same_ignoring_stamp, stripped};
+use crate::revert::{Reverted, revert_change, same_ignoring_stamp, stripped};
 use crate::session::Session;
 use gt_core::model::{LivingOverride, Media, Person};
 use gt_core::tree::Tree;
@@ -211,27 +211,63 @@ fn more_visible(old: &Record, new: &Record) -> bool {
     }
 }
 
+fn is_empty_value(v: &Value) -> bool {
+    match v {
+        Value::Null => true,
+        Value::String(s) => s.is_empty(),
+        Value::Array(a) => a.is_empty(),
+        Value::Object(o) => o.is_empty(),
+        _ => false,
+    }
+}
+
+/// What names an array element as a thing of its own (a name, a child link, a witness, a link to
+/// a record). `None`: a plain value such as a surname, which can be corrected.
+fn link_identity(item: &Value) -> Option<Value> {
+    match item {
+        Value::Object(o) => ["id", "person", "target"]
+            .iter()
+            .find_map(|k| o.get(*k).cloned()),
+        Value::String(s) if Uuid::parse_str(s).is_ok() => Some(item.clone()),
+        _ => None,
+    }
+}
+
+/// Whether the new value takes away something the old one held. An edit (a changed value, a
+/// corrected text) is not a loss; a removed element with an identity is, even when another was
+/// added in the same edit, and so is a non-empty field that is now empty or gone.
 fn lost(o: &Value, n: &Value) -> bool {
     match (o, n) {
-        (Value::Object(a), Value::Object(b)) => a
-            .iter()
-            .any(|(k, av)| b.get(k).is_some_and(|bv| lost(av, bv))),
+        (Value::Object(a), Value::Object(b)) => a.iter().any(|(k, av)| match b.get(k) {
+            Some(bv) => (!is_empty_value(av) && is_empty_value(bv)) || lost(av, bv),
+            None => !is_empty_value(av),
+        }),
         (Value::Array(a), Value::Array(b)) => {
-            let ia: Vec<Value> = a.iter().map(identity).collect();
-            let ib: Vec<Value> = b.iter().map(identity).collect();
-            let missing = ia.iter().filter(|i| !ib.contains(i)).count();
-            let fresh = ib.iter().filter(|i| !ia.contains(i)).count();
-            if missing > fresh {
-                return true;
+            let mut plain_missing = 0usize;
+            for x in a {
+                match link_identity(x) {
+                    Some(id) => match b.iter().find(|y| link_identity(y).as_ref() == Some(&id)) {
+                        None => return true,
+                        Some(y) => {
+                            if lost(x, y) {
+                                return true;
+                            }
+                        }
+                    },
+                    None => {
+                        if !b.contains(x) {
+                            plain_missing += 1;
+                        }
+                    }
+                }
             }
-            a.iter().any(|x| {
-                let id = identity(x);
-                b.iter()
-                    .find(|y| identity(y) == id)
-                    .is_some_and(|y| lost(x, y))
-            })
+            let plain_fresh = b
+                .iter()
+                .filter(|y| link_identity(y).is_none() && !a.contains(y))
+                .count();
+            plain_missing > plain_fresh
         }
-        _ => false,
+        (a, b) => !is_empty_value(a) && is_empty_value(b),
     }
 }
 
@@ -539,7 +575,145 @@ fn cap32(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
+/// The change an act would write, if it writes one.
+fn write_of(id: Uuid, kind: RecordKind, act: &Act) -> Option<Change> {
+    match act {
+        Act::Add(r) => Some(Change {
+            kind,
+            id,
+            before: None,
+            after: Some(r.clone()),
+        }),
+        Act::Change { old, new, .. } => Some(Change {
+            kind,
+            id,
+            before: Some(old.clone()),
+            after: Some(new.clone()),
+        }),
+        _ => None,
+    }
+}
+
+/// Blocks every write that would point at a record that is not coming across.
+fn block_dangling(tree: &Tree, acts: &mut [(Uuid, RecordKind, Act)]) {
+    let writes: Vec<Change> = acts
+        .iter()
+        .filter_map(|(id, kind, act)| write_of(*id, *kind, act))
+        .collect();
+    let dropped = crate::revert::dangling_writes(tree, &writes);
+    for (id, _, act) in acts.iter_mut() {
+        if !dropped.contains(id) {
+            continue;
+        }
+        *act = match std::mem::replace(act, Act::Nothing) {
+            Act::Add(r) => Act::Blocked {
+                why: MergeWhy::NeedsMissing,
+                before: None,
+                after: Some(r),
+            },
+            Act::Change { old, new, .. } => Act::Blocked {
+                why: MergeWhy::NeedsMissing,
+                before: Some(old),
+                after: Some(new),
+            },
+            other => other,
+        };
+    }
+}
+
+/// More candidates than this are all held when someone would stop counting as living, instead of
+/// trying each one alone.
+const LIVING_TRIAL_MAX: usize = 300;
+
 impl Session {
+    fn living_of(&self, tree: &Tree) -> HashMap<Uuid, bool> {
+        let (today, _) = (self.clock.0)();
+        let rule = gt_core::living::LivingRule {
+            max_age_years: self.settings.living_max_age,
+        };
+        gt_core::living::compute_living(tree, &rule, today)
+    }
+
+    /// Holds the planned changes that would make someone who counts as living now stop counting as
+    /// living (a birth date long ago, a death). Returns whether anything was held.
+    fn hold_living_flips(&self, acts: &mut [(Uuid, RecordKind, Act)]) -> bool {
+        let candidates: Vec<usize> = acts
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, kind, act))| {
+                matches!(
+                    kind,
+                    RecordKind::Person | RecordKind::Event | RecordKind::Family
+                ) && matches!(act, Act::Add(_) | Act::Change { .. })
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if candidates.is_empty() {
+            return false;
+        }
+        let before = self.living_of(&self.tree);
+        let flipped_by = |ixs: &[usize]| -> HashSet<Uuid> {
+            let changes: Vec<Change> = ixs
+                .iter()
+                .filter_map(|i| acts.get(*i))
+                .filter_map(|(id, kind, act)| write_of(*id, *kind, act))
+                .collect();
+            let cs = ChangeSet {
+                group: Uuid::nil(),
+                reverts: None,
+                label: String::new(),
+                ts: 0,
+                changes,
+            };
+            let mut t = self.tree.clone();
+            crate::ops::apply_to_tree(&mut t, &cs);
+            let after = self.living_of(&t);
+            before
+                .iter()
+                .filter(|(id, v)| **v && after.get(*id) == Some(&false))
+                .map(|(id, _)| *id)
+                .collect()
+        };
+        let flipped = flipped_by(&candidates);
+        if flipped.is_empty() {
+            return false;
+        }
+        let mut hold: Vec<usize> = Vec::new();
+        if candidates.len() <= LIVING_TRIAL_MAX {
+            for &i in &candidates {
+                if !flipped_by(&[i]).is_disjoint(&flipped) {
+                    hold.push(i);
+                }
+            }
+        }
+        // Nobody flips alone (two changes together do it), or too many to try: hold them all.
+        if hold.is_empty() {
+            hold = candidates;
+        }
+        for i in hold {
+            if let Some((_, _, act)) = acts.get_mut(i) {
+                *act = match std::mem::replace(act, Act::Nothing) {
+                    Act::Add(r) => Act::Hold {
+                        why: MergeWhy::MoreVisible,
+                        base: None,
+                        ours: None,
+                        before: None,
+                        after: Some(r),
+                    },
+                    Act::Change { old, base, new } => Act::Hold {
+                        why: MergeWhy::MoreVisible,
+                        base,
+                        ours: Some(old.clone()),
+                        before: Some(old),
+                        after: Some(new),
+                    },
+                    other => other,
+                };
+            }
+        }
+        true
+    }
+
     /// Reads the copy at `source` (a folder or a zip), works out what merging it would do, and
     /// keeps the plan for `merge_apply`. Writes nothing to the tree, its database or its folder.
     pub fn merge_preview(
@@ -707,43 +881,15 @@ impl Session {
             }
         }
 
-        // A record is not written when it would point at one that is not coming across.
-        let writes: Vec<Change> = acts
-            .iter()
-            .filter_map(|(id, kind, act)| match act {
-                Act::Add(r) => Some(Change {
-                    kind: *kind,
-                    id: *id,
-                    before: None,
-                    after: Some(r.clone()),
-                }),
-                Act::Change { old, new, .. } => Some(Change {
-                    kind: *kind,
-                    id: *id,
-                    before: Some(old.clone()),
-                    after: Some(new.clone()),
-                }),
-                _ => None,
-            })
-            .collect();
-        let dropped = crate::revert::dangling_writes(&self.tree, &writes);
-        for (id, _, act) in &mut acts {
-            if !dropped.contains(id) {
-                continue;
+        // A record is not written when it would point at one that is not coming across; and
+        // nothing is written that would make a living person stop counting as living. Holding a
+        // record can leave another pointing at it, so repeat until nothing more changes.
+        block_dangling(&self.tree, &mut acts);
+        loop {
+            if !self.hold_living_flips(&mut acts) {
+                break;
             }
-            *act = match std::mem::replace(act, Act::Nothing) {
-                Act::Add(r) => Act::Blocked {
-                    why: MergeWhy::NeedsMissing,
-                    before: None,
-                    after: Some(r),
-                },
-                Act::Change { old, new, .. } => Act::Blocked {
-                    why: MergeWhy::NeedsMissing,
-                    before: Some(old),
-                    after: Some(new),
-                },
-                other => other,
-            };
+            block_dangling(&self.tree, &mut acts);
         }
 
         // Who owns each applied write: the last new group that touched the record.

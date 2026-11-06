@@ -29,6 +29,7 @@ async function sendCopy(zip: string) {
   expect(body).toContain('Living people');
   expect(body).toContain('Records you marked private.');
   expect(body).toContain('old text and text you have since removed');
+  expect(body).toContain('reports from assistants');
   expect(body).toMatch(/Size of the file: about/);
   await pushDialog(zip);
   await click('Make the zip…');
