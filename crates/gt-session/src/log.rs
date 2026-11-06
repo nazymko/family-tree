@@ -32,6 +32,8 @@ const FIELD_PREVIEW: usize = 200;
 pub enum ActorDto {
     User,
     Agent { id: Uuid, name: String },
+    /// A relative's edit taken in by merging their copy; `name` is whose copy.
+    Copy { name: String },
     BeforeTracking,
 }
 
@@ -535,11 +537,12 @@ impl Session {
         batches: &mut HashMap<Uuid, Option<Batch>>,
         whole: bool,
     ) -> Result<LogRowDto, ApiError> {
-        let is_agent = matches!(g.actor, Some(Actor::Agent { .. }));
+        let is_agent = matches!(g.actor, Some(Actor::Agent { .. } | Actor::Copy { .. }));
         let actor = match g.actor {
             None => ActorDto::BeforeTracking,
             Some(Actor::User) => ActorDto::User,
             Some(Actor::Agent { id, name }) => ActorDto::Agent { id, name },
+            Some(Actor::Copy { name }) => ActorDto::Copy { name },
         };
         let batch = match g.batch {
             None => None,
@@ -870,7 +873,7 @@ impl Session {
 
     /// Refuses anything but an agent's group: the owner's changes are undone with Ctrl+Z.
     pub(crate) fn refuse_unless_agent(g: &LogGroup) -> Result<(), ApiError> {
-        if matches!(g.actor, Some(Actor::Agent { .. })) {
+        if matches!(g.actor, Some(Actor::Agent { .. } | Actor::Copy { .. })) {
             return Ok(());
         }
         Err(ApiError::new(

@@ -236,14 +236,14 @@ fn fts_code(kind: RecordKind) -> Option<i64> {
 
 /// Everything whose search text may have changed, collected from the changed records.
 #[derive(Default)]
-struct Affected {
+pub(crate) struct Affected {
     persons: HashSet<Uuid>,
     families: HashSet<Uuid>,
     places: HashSet<Uuid>,
 }
 
 impl Affected {
-    fn note(&mut self, rec: &Record) {
+    pub(crate) fn note(&mut self, rec: &Record) {
         match rec {
             Record::Person(p) => {
                 self.persons.insert(p.common.id);
@@ -425,6 +425,117 @@ fn refresh_person_search(tx: &Transaction, id: &Uuid) -> Result<(), StoreError> 
     add_search(tx, "person", rowid, id, &label, &body)
 }
 
+/// Writes one change set inside `tx`: the records, one `change_log` row per change, and the
+/// people it is about. The search rows of what it affected are refreshed by `finish_apply`.
+pub(crate) fn apply_set(
+    tx: &Transaction,
+    cs: &ChangeSet,
+    meta: &LogMeta,
+    affected: &mut Affected,
+) -> Result<(), StoreError> {
+    let group = cs.group.to_string();
+    let (actor_kind, actor_id, actor_name) = actor_columns(&meta.actor);
+    let batch = meta.batch.map(|b| b.to_string());
+    for ch in &cs.changes {
+        for rec in [&ch.before, &ch.after].into_iter().flatten() {
+            affected.note(rec);
+        }
+        let op = match (&ch.before, &ch.after) {
+            (None, Some(_)) => ChangeOp::Create,
+            (Some(_), Some(_)) => ChangeOp::Update,
+            (Some(_), None) => ChangeOp::Delete,
+            (None, None) => return Err(corrupt("a change has neither before nor after")),
+        };
+        let before_seq = match &ch.after {
+            Some(rec) => {
+                write_record(tx, rec)?;
+                None
+            }
+            None => delete_record(tx, ch.kind, &ch.id)?,
+        };
+        let before_json = ch.before.as_ref().map(json).transpose()?;
+        let after_json = ch.after.as_ref().map(json).transpose()?;
+        tx.prepare_cached(
+            "INSERT INTO change_log(ts, target_type, target_id, op, before_json, group_id, \
+             label, after_json, before_seq, reverts_group, actor_kind, actor_id, actor_name, batch_id) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+        )?
+        .execute(params![
+            cs.ts,
+            ch.kind.as_str(),
+            ch.id.to_string(),
+            op.as_str(),
+            before_json,
+            group,
+            cs.label,
+            after_json,
+            before_seq,
+            cs.reverts.map(|u| u.to_string()),
+            actor_kind,
+            actor_id,
+            actor_name,
+            batch,
+        ])?;
+    }
+    // The people the change is about, for every group (the log shows them); only agent
+    // groups count as unreviewed.
+    for person in &meta.people {
+        tx.prepare_cached(
+            "INSERT OR IGNORE INTO change_person(group_id, person_id) VALUES (?1, ?2)",
+        )?
+        .execute(params![group, person.to_string()])?;
+    }
+    Ok(())
+}
+
+/// Refreshes the search rows of everything `affected` reaches and stores the living flags.
+pub(crate) fn finish_apply(
+    tx: &Transaction,
+    mut affected: Affected,
+    living: &[(Uuid, bool)],
+) -> Result<(), StoreError> {
+    // Place edits reach everyone with an event there; family events reach both spouses.
+    for place in &affected.places {
+        let events = strings(
+            tx,
+            "SELECT id FROM event WHERE place_id = ?1",
+            &place.to_string(),
+        )?;
+        for event in events {
+            let mut st = tx.prepare_cached(
+                "SELECT target_type, target_id FROM participant WHERE event_id = ?1",
+            )?;
+            let mut rows = st.query([&event])?;
+            while let Some(r) = rows.next()? {
+                let target = parse_uuid(&r.get::<_, String>(1)?)?;
+                match r.get::<_, String>(0)?.as_str() {
+                    "person" => affected.persons.insert(target),
+                    _ => affected.families.insert(target),
+                };
+            }
+        }
+    }
+    for fam in &affected.families {
+        let partners: Option<(Option<String>, Option<String>)> = tx
+            .prepare_cached("SELECT partner1_id, partner2_id FROM family WHERE id = ?1")?
+            .query_row([fam.to_string()], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
+        if let Some((a, b)) = partners {
+            affected
+                .persons
+                .extend(uuids(a.into_iter().chain(b).collect())?);
+        }
+    }
+    for id in &affected.persons {
+        refresh_person_search(tx, id)?;
+    }
+    for (id, value) in living {
+        tx.prepare_cached("UPDATE person SET living_cached = ?2 WHERE id = ?1")?
+            .execute(params![id.to_string(), value])?;
+    }
+    Ok(())
+}
+
 impl Project {
     /// Applies `cs` in ONE transaction (references are checked at commit, so the changes
     /// may come in any order). For each change: `after` present -> the record is written in
@@ -446,98 +557,8 @@ impl Project {
         let tx = self.conn.transaction()?;
         tx.pragma_update(None, "defer_foreign_keys", true)?;
         let mut affected = Affected::default();
-        let group = cs.group.to_string();
-        let (actor_kind, actor_id, actor_name) = actor_columns(&meta.actor);
-        let batch = meta.batch.map(|b| b.to_string());
-        for ch in &cs.changes {
-            for rec in [&ch.before, &ch.after].into_iter().flatten() {
-                affected.note(rec);
-            }
-            let op = match (&ch.before, &ch.after) {
-                (None, Some(_)) => ChangeOp::Create,
-                (Some(_), Some(_)) => ChangeOp::Update,
-                (Some(_), None) => ChangeOp::Delete,
-                (None, None) => return Err(corrupt("a change has neither before nor after")),
-            };
-            let before_seq = match &ch.after {
-                Some(rec) => {
-                    write_record(&tx, rec)?;
-                    None
-                }
-                None => delete_record(&tx, ch.kind, &ch.id)?,
-            };
-            let before_json = ch.before.as_ref().map(json).transpose()?;
-            let after_json = ch.after.as_ref().map(json).transpose()?;
-            tx.prepare_cached(
-                "INSERT INTO change_log(ts, target_type, target_id, op, before_json, group_id, \
-                 label, after_json, before_seq, reverts_group, actor_kind, actor_id, actor_name, batch_id) \
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
-            )?
-            .execute(params![
-                cs.ts,
-                ch.kind.as_str(),
-                ch.id.to_string(),
-                op.as_str(),
-                before_json,
-                group,
-                cs.label,
-                after_json,
-                before_seq,
-                cs.reverts.map(|u| u.to_string()),
-                actor_kind,
-                actor_id,
-                actor_name,
-                batch,
-            ])?;
-        }
-        // The people the change is about, for every group (the log shows them); only agent
-        // groups count as unreviewed.
-        for person in &meta.people {
-            tx.prepare_cached(
-                "INSERT OR IGNORE INTO change_person(group_id, person_id) VALUES (?1, ?2)",
-            )?
-            .execute(params![group, person.to_string()])?;
-        }
-
-        // Place edits reach everyone with an event there; family events reach both spouses.
-        for place in &affected.places {
-            let events = strings(
-                &tx,
-                "SELECT id FROM event WHERE place_id = ?1",
-                &place.to_string(),
-            )?;
-            for event in events {
-                let mut st = tx.prepare_cached(
-                    "SELECT target_type, target_id FROM participant WHERE event_id = ?1",
-                )?;
-                let mut rows = st.query([&event])?;
-                while let Some(r) = rows.next()? {
-                    let target = parse_uuid(&r.get::<_, String>(1)?)?;
-                    match r.get::<_, String>(0)?.as_str() {
-                        "person" => affected.persons.insert(target),
-                        _ => affected.families.insert(target),
-                    };
-                }
-            }
-        }
-        for fam in &affected.families {
-            let partners: Option<(Option<String>, Option<String>)> = tx
-                .prepare_cached("SELECT partner1_id, partner2_id FROM family WHERE id = ?1")?
-                .query_row([fam.to_string()], |r| Ok((r.get(0)?, r.get(1)?)))
-                .optional()?;
-            if let Some((a, b)) = partners {
-                affected
-                    .persons
-                    .extend(uuids(a.into_iter().chain(b).collect())?);
-            }
-        }
-        for id in &affected.persons {
-            refresh_person_search(&tx, id)?;
-        }
-        for (id, value) in living {
-            tx.prepare_cached("UPDATE person SET living_cached = ?2 WHERE id = ?1")?
-                .execute(params![id.to_string(), value])?;
-        }
+        apply_set(&tx, cs, meta, &mut affected)?;
+        finish_apply(&tx, affected, living)?;
         tx.commit()?;
         Ok(())
     }

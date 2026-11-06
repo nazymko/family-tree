@@ -12,6 +12,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
         "0004_log_index",
         include_str!("migrations/0004_log_index.sql"),
     ),
+    ("0005_merge", include_str!("migrations/0005_merge.sql")),
 ];
 
 pub(crate) fn user_version(conn: &Connection) -> Result<i32, StoreError> {

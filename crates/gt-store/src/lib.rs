@@ -9,6 +9,7 @@ mod edit;
 mod load;
 mod location;
 mod media;
+mod merge;
 pub mod migrate;
 mod project;
 mod save;
@@ -18,6 +19,7 @@ pub use authors::{Actor, Batch, LogFilter, LogGroup, LogMeta, LogPerson, ReviewS
 pub use backup::BackupReason;
 pub use collation::COLLATION_NAME;
 pub use edit::{Change, ChangeOp, ChangeSet, HistoryEntry, Record, RecordKind};
+pub use merge::{LogRow, MergedGroup};
 pub use location::{LocationWarning, check_location};
 pub use media::add_media_file_in;
 pub use project::{Project, SCHEMA_VERSION, StoreError};

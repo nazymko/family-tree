@@ -15,6 +15,8 @@ use std::collections::HashSet;
 pub enum Actor {
     User,
     Agent { id: Uuid, name: String },
+    /// A relative's edit taken in by merging their copy of the tree; `name` is whose copy.
+    Copy { name: String },
 }
 
 /// Author data stored with one change set.
@@ -88,6 +90,7 @@ pub(crate) fn actor_columns(a: &Actor) -> (&'static str, Option<String>, Option<
     match a {
         Actor::User => ("user", None, None),
         Actor::Agent { id, name } => ("agent", Some(id.to_string()), Some(name)),
+        Actor::Copy { name } => ("copy", None, Some(name)),
     }
 }
 
@@ -101,6 +104,9 @@ fn read_actor(
         Some("user") => Some(Actor::User),
         Some("agent") => Some(Actor::Agent {
             id: parse_uuid(&id.ok_or_else(|| corrupt("agent row without actor_id"))?)?,
+            name: name.unwrap_or_default(),
+        }),
+        Some("copy") => Some(Actor::Copy {
             name: name.unwrap_or_default(),
         }),
         Some(other) => return Err(corrupt(format!("bad change_log actor_kind {other:?}"))),
