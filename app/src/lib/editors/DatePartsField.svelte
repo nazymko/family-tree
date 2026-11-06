@@ -81,7 +81,7 @@
 
 <div class="wrap" bind:this={root}>
   {#if typing}
-    <DateField {label} {value} onChange={send} {order} />
+    <DateField {label} {value} onChange={send} {order} picker={false} />
     {#if canPick}
       <button type="button" class="switch" onclick={() => switchTo(false)}>{t('fields.dateChoose')}</button>
     {/if}
