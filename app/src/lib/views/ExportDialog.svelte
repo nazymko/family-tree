@@ -10,7 +10,7 @@
   import type { ExportOptions, PrivacyPreview } from '../api/api';
   import { t, formatNumber } from '../i18n';
 
-  let { onClose }: { onClose: () => void } = $props();
+  let { onClose, onSendCopy }: { onClose: () => void; onSendCopy?: () => void } = $props();
 
   const api = getApi();
   const platform = getPlatform();
@@ -187,7 +187,10 @@
       <h3>{t('exp.copyTitle')}</h3>
       <p class="hint">{t('exp.copyHint1')}</p>
       <p class="hint">{t('exp.copyHint2')}</p>
-      <div><Button disabled={saving} onclick={saveCopy}>{t('exp.saveCopy')}</Button></div>
+      <div class="copyButtons">
+        <Button disabled={saving} onclick={saveCopy}>{t('exp.saveCopy')}</Button>
+        {#if onSendCopy}<Button disabled={saving} onclick={onSendCopy}>{t('exp.sendCopy')}</Button>{/if}
+      </div>
     </section>
   </div>
   {#snippet footer()}
@@ -262,6 +265,11 @@
   ul {
     margin: 0;
     padding-inline-start: var(--s-5);
+  }
+  .copyButtons {
+    display: flex;
+    gap: var(--s-3);
+    flex-wrap: wrap;
   }
   .copy {
     display: grid;

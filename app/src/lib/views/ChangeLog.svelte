@@ -158,6 +158,7 @@
 
   function who(r: LogRowDto): string {
     if (r.actor.kind === 'user') return t('changeLog.you');
+    if (r.actor.kind === 'copy') return t('merge.byCopy', { name: r.actor.name });
     return r.actor.kind === 'agent' ? agentLabel(r.actor.id, r.actor.name) : t('changeLog.beforeTracking');
   }
 
