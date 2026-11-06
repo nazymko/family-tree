@@ -220,7 +220,7 @@ fn a_repeated_ancestor_appears_earlier_instead_of_twice() {
     );
     for d in dups {
         assert!(matches!(d.key, 6 | 7));
-        let first = &l.nodes[d.dup_of.unwrap() as usize];
+        let first = &l.nodes[d.dup_of.expect("a reference names its first card") as usize];
         assert_eq!(first.key, d.key);
         assert!(first.dup_of.is_none());
     }
