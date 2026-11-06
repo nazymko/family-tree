@@ -2,6 +2,8 @@
   import type { FieldChangeDto } from '../api/types';
   import { plural, t, type MessageKey } from '../i18n';
   import { dateText, eventKindLabel } from '../i18n/backend';
+  import { withSexIcon } from './sex';
+  import type { SexKind } from '../api/types';
 
   /** A table of a person's changed fields: the field, its value before and its value after. */
   let { fields }: { fields: FieldChangeDto[] } = $props();
@@ -96,9 +98,10 @@
     if (YES_NO.has(field)) return t(v === 'yes' ? 'fieldChange.yes' : 'fieldChange.no');
     if (field === 'proof') return t(v === 'proven' ? 'fieldChange.proven' : 'fieldChange.disproven');
     if (field === 'kind' || field === 'sex') {
-      if (v.startsWith('other:')) return v.slice(6) || t(field === 'kind' ? 'nameKind.other' : 'sex.other');
+      if (field === 'sex' && v.startsWith('other:')) return withSexIcon('other', v.slice(6) || t('sex.other'));
+      if (v.startsWith('other:')) return v.slice(6) || t('nameKind.other');
       if (field === 'kind' && KINDS.includes(v)) return t(`nameKind.${v}` as MessageKey);
-      if (field === 'sex' && SEXES.includes(v)) return t(`sex.${v}` as MessageKey);
+      if (field === 'sex' && SEXES.includes(v)) return withSexIcon(v as SexKind, t(`sex.${v}` as MessageKey));
     }
     if (field === 'eventKind') return eventKindLabel(v);
     if (field === 'when') return dateText(v);

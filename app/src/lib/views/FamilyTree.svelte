@@ -297,6 +297,27 @@
     });
   });
 
+  // The tree takes the whole pane rather than the reading column, so it scrolls sideways only when
+  // it is wider than the window allows. The other sections of the page keep their column.
+  const PANE_GUTTER = 16;
+  let paneFit = $state<{ width: number; shift: number } | null>(null);
+  $effect(() => {
+    const el = treeEl;
+    const pane = el?.closest<HTMLElement>('#content');
+    const column = el?.parentElement;
+    if (!pane || !column || typeof ResizeObserver === 'undefined') return;
+    const fit = () => {
+      paneFit = {
+        width: pane.clientWidth - 2 * PANE_GUTTER,
+        shift: PANE_GUTTER - (column.getBoundingClientRect().left - pane.getBoundingClientRect().left),
+      };
+    };
+    fit();
+    const seen = new ResizeObserver(fit);
+    seen.observe(pane);
+    return () => seen.disconnect();
+  });
+
   // A tree wider than the page opens scrolled to the person, not to its left edge.
   $effect(() => {
     void view.focus.id;
@@ -614,9 +635,9 @@
   </button>
 {/snippet}
 
-<div class="treebar"><FlipTreeButton /></div>
+<div class="treebar" class:fitted={paneFit} style:width={paneFit && `${paneFit.width}px`} style:margin-inline-start={paneFit && `${paneFit.shift}px`}><FlipTreeButton /></div>
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<div class="tree" class:reversed data-direction={reversed ? 'reversed' : 'normal'} bind:this={treeEl} role="group" aria-label={t('family.treeLabel', { who: focus.name })} onkeydown={keys}>
+<div class="tree" class:reversed class:fitted={paneFit} style:width={paneFit && `${paneFit.width}px`} style:margin-inline-start={paneFit && `${paneFit.shift}px`} data-direction={reversed ? 'reversed' : 'normal'} bind:this={treeEl} role="group" aria-label={t('family.treeLabel', { who: focus.name })} onkeydown={keys}>
   <!-- Every row keeps to one line (wrapped rows would lose their lines); the tree scrolls sideways when wider. -->
   <div class="inner" style:--dx="{dx}px">
   {#if view.parentSets.length > 1 || hasParent}
@@ -804,6 +825,11 @@
     max-width: 100%;
     overflow-x: auto;
     padding-block: var(--s-3);
+  }
+  /* Stretched to the whole pane by `paneFit`; it scrolls sideways only when wider than that. */
+  .tree.fitted,
+  .treebar.fitted {
+    max-width: none;
   }
   /*
    * As wide as the widest row, so every row centres on the same axis; centred in the page by its auto margins, which
