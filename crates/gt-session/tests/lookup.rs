@@ -249,3 +249,22 @@ fn places_after_edit_include_new_chain() {
     s.undo().unwrap();
     assert!(s.suggest_places("zug", 5).is_empty());
 }
+
+/// What the date picker writes into the raw text must be understood by the real parser, not only the mock.
+#[test]
+fn every_kind_the_date_picker_writes_is_understood() {
+    for (raw, understood) in [
+        ("7 Mar 1850", "7 Mar 1850"),
+        ("Mar 1850", "Mar 1850"),
+        ("1704", "1704"),
+        ("about 1850", "about 1850"),
+        ("before Mar 1850", "before Mar 1850"),
+        ("after 7 Mar 1850", "after 7 Mar 1850"),
+        ("between 1704 and 1712", "between 1704 and 1712"),
+        ("between 1 Jan 1850 and Mar 1860", "between 1 Jan 1850 and Mar 1860"),
+    ] {
+        let p = parse_date_preview(raw, DayOrder::Dmy);
+        assert_eq!(p.status, DateStatus::Ok, "{raw}");
+        assert_eq!(p.understood_as, understood, "{raw}");
+    }
+}
