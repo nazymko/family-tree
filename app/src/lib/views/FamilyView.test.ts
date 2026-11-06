@@ -75,7 +75,7 @@ describe('FamilyView', () => {
     ]);
     await screen.findByRole('heading', { level: 1, name: 'Karl Schmidt' });
     expect(within(region('Parents')).getAllByRole('button')).toHaveLength(2);
-    expect(within(region('Partners')).getAllByRole('button')).toHaveLength(2); // the partner card + Edit family
+    expect(within(region('Partners')).getAllByRole('button')).toHaveLength(3); // the partner card, Family page, Edit family
     expect(within(region('Children')).getAllByRole('listitem')).toHaveLength(3);
     expect(within(region('Children')).getAllByRole('button')).toHaveLength(3);
   });
@@ -90,7 +90,8 @@ describe('FamilyView', () => {
     });
     const section = await screen.findByRole('region', { name: 'Shared family notes, with Olena Koval' });
     expect(within(section).getByText('They moved to Lviv together.')).toBeInTheDocument();
-    expect(within(section).queryByRole('button')).toBeNull();
+    // To read: the only button leads to the family page, nothing edits the note.
+    expect(within(section).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['Family page']);
   });
 
   it('shows_no_notes_block_when_the_family_has_no_notes', async () => {

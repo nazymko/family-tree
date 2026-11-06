@@ -1842,6 +1842,17 @@ export const en = {
    * value inside stays as it is; a value named `e` or `reason` is itself a backend sentence and is translated too.
    * `be.test.ts` in this folder checks that every error message in the Rust sources has an entry here.
    */
+  familyPage: {
+    title: 'Family: {a} and {b}',
+    titleOne: 'Family: {a}',
+    titleNone: 'Family',
+    open: 'Family page',
+    openWith: 'Family page, with {name}',
+    events: 'Events',
+    noEvents: 'No events.',
+    noNotes: 'No shared notes.',
+    gone: 'This family is not in the family tree any more.',
+  },
   be: {
     // The words `notFound` puts in front of an id: the Rust name of a kind of record, in the nominative.
     kind: {

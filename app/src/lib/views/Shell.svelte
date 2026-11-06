@@ -21,6 +21,7 @@
   import Descendants from './Descendants.svelte';
   import Relatives from './Relatives.svelte';
   import Around from './Around.svelte';
+  import FamilyPage from './FamilyPage.svelte';
   import ExportDialog from './ExportDialog.svelte';
   import SendCopyDialog from './SendCopyDialog.svelte';
   import MergeDialog from './MergeDialog.svelte';
@@ -418,6 +419,10 @@
           <Relatives onOpenPerson={openPerson} />
         {:else if nav.route.name === 'around'}
           <Around onOpenPerson={openPerson} />
+        {:else if nav.route.name === 'familyPage'}
+          {#key nav.route.id}
+            <FamilyPage id={nav.route.id} />
+          {/key}
         {:else if nav.route.name === 'person'}
           {#key nav.route.id}
             <PersonEditor id={nav.route.id} {mediaSection} {sourcesSection} />

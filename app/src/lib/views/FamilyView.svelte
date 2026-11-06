@@ -352,7 +352,7 @@
                 <div class="missing"><span>{t('family.partnerMissing')}</span></div>
               {/if}
               {#if partnerSummary(union)}<p class="usum">{partnerSummary(union)}</p>{/if}
-              <div class="uacts"><Button variant="quiet" onclick={() => (familyDialog = union!.familyId)}>{t('family.editFamily')}</Button></div>
+              <div class="uacts"><Button variant="quiet" onclick={() => nav.go({ name: 'familyPage', id: union!.familyId })}>{t('familyPage.open')}</Button><Button variant="quiet" onclick={() => (familyDialog = union!.familyId)}>{t('family.editFamily')}</Button></div>
             </div>
           {/if}
         {/if}
@@ -421,7 +421,10 @@
     {#each familyNotes as fam (fam.familyId)}
       {@const heading = fam.partner ? t('person.familyNotesWith', { name: fam.partner }) : t('person.familyNotes')}
       <section class="band fam-notes" aria-label={heading}>
-        <h2>{heading}</h2>
+        <div class="fam-notes-head">
+          <h2>{heading}</h2>
+          <Button onclick={() => nav.go({ name: 'familyPage', id: fam.familyId })} aria-label={fam.partner ? t('familyPage.openWith', { name: fam.partner }) : t('familyPage.open')}>{t('familyPage.open')}</Button>
+        </div>
         {#each fam.notes as n (n.id)}
           <article class="fam-note">
             <p class="fam-note-kind">{t(`noteKind.${n.kind}`)}</p>
@@ -595,6 +598,13 @@
   .fam-notes {
     margin-top: var(--s-4);
     max-width: 72ch;
+  }
+  .fam-notes-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
   }
   .fam-note {
     display: grid;
