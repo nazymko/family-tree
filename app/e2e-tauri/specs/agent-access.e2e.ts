@@ -115,6 +115,16 @@ async function focusHome() {
 
 const badges = async () => (await $$(BADGE)).length;
 
+/** The agent panel on the person page: scrolled to, and how its count reads. */
+async function panelCount(): Promise<string> {
+  const count = await $('[data-testid="agent-count"]');
+  await count.waitForExist({ timeout: 20000 });
+  await count.scrollIntoView({ block: 'center' });
+  return (await $('[data-testid="agent-count"] [aria-hidden]').getText()).trim();
+}
+
+const panelOpen = () => browser.execute(() => document.querySelector('[data-testid="agent-count"]')!.closest('details')!.open);
+
 describe('Agent access end to end', () => {
   let client: Client;
   let home = '';
@@ -215,6 +225,11 @@ describe('Agent access end to end', () => {
     await shot('agent-family-uk-dark.png');
     expect(await browser.execute(() => document.documentElement.getAttribute('data-theme'))).toBe('dark');
 
+    await click('Змінити особу');
+    expect(await panelCount()).toMatch(/^\d+\/\d+$/);
+    await browser.pause(400);
+    await shot('agent-panel-uk-dark.png');
+
     // Back to English and the light theme for the rest.
     await open('Налаштування');
     await choose('Тема', 'light');
@@ -230,6 +245,24 @@ describe('Agent access end to end', () => {
     expect(await client.logTotal()).toBe(rows);
   });
 
+  it('folds the panel on the person page and counts what is left to review', async () => {
+    await open('Family');
+    await click('Edit person');
+    const count = await panelCount();
+    const [left, total] = count.split('/').map(Number);
+    expect(count).toMatch(/^\d+\/\d+$/);
+    expect(left).toBe(total);
+    expect(await panelOpen()).toBe(false);
+    await browser.pause(400);
+    await shot('agent-panel-folded-en.png');
+
+    await $('//summary[contains(.,"What an agent changed")]').click();
+    expect(await panelOpen()).toBe(true);
+    await browser.waitUntil(async () => (await text()).includes(CHILD), { timeoutMsg: 'the open panel does not list the change' });
+    await browser.pause(400);
+    await shot('agent-panel-open-en.png');
+  });
+
   it('clears the badges when the batch is marked reviewed', async () => {
     await open('Change log');
     await $(`h2*=${TITLE}`).waitForDisplayed();
@@ -243,6 +276,12 @@ describe('Agent access end to end', () => {
     // The person first: on a page still loading there are no badges either, which proves nothing.
     await browser.waitUntil(async () => (await text()).includes(CHILD), { timeoutMsg: 'the daughter is not on the family page' });
     await browser.waitUntil(async () => (await badges()) === 0, { timeoutMsg: 'badges stayed after the review' });
+
+    // All reviewed: the panel gives just the total.
+    await click('Edit person');
+    expect(await panelCount()).toMatch(/^\d+$/);
+    await browser.pause(400);
+    await shot('agent-panel-reviewed-en.png');
   });
 
   it('puts the tree back when the batch is undone', async () => {
