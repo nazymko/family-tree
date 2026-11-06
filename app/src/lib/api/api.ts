@@ -104,12 +104,6 @@ export interface Api {
   chartOpenWhole(): Promise<WholeMeta>;
   /** The chart of chosen people: them, their ancestors and their partners; with `allDescendants` also everyone below them. `not_found` when none of them is in the project. */
   chartOpenSelection(people: Id[], allDescendants: boolean): Promise<WholeMeta>;
-  /**
-   * The same people as the whole chart (or, with `people`, as the chart of chosen people) in another order: `around`'s
-   * closest relatives sit near them. A view only; nothing is saved. `not_found` when `around` is not on that chart
-   * (or none of the chosen people is in the project).
-   */
-  chartOpenArranged(around: Id, people?: Id[], allDescendants?: boolean): Promise<WholeMeta>;
   /** The node, its ancestors and its descendants in a whole-tree chart. */
   chartLineage(chartId: number, nodeId: number): Promise<number[]>;
   /** Where a person sits in a whole-tree chart; null when the person is not in the project. */

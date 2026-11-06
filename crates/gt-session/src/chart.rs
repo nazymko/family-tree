@@ -285,8 +285,6 @@ struct Whole {
     /// `None` for the chart of everyone; for a chart of chosen people, who they are (sorted) and whether
     /// all their descendants are on it.
     selection: Option<Selection>,
-    /// Set when the chart is arranged around this person: the same people, in another order.
-    around: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -297,7 +295,7 @@ struct Selection {
 
 impl Whole {
     fn is_plain(&self) -> bool {
-        self.selection.is_none() && self.around.is_none()
+        self.selection.is_none()
     }
 }
 
@@ -615,7 +613,7 @@ impl Session {
             !(c.kind == ChartKind::Whole && c.whole.as_ref().is_some_and(Whole::is_plain))
         });
         let input = self.whole_input();
-        Ok(self.lay_out_whole(&input, None, None, revision, reversed))
+        Ok(self.lay_out_whole(&input, None, revision, reversed))
     }
 
     /// The chart of chosen people: each of them, all their ancestors and the partners of the chosen
@@ -644,92 +642,20 @@ impl Session {
         if let Some(c) = self.charts.open.iter().find(|c| {
             c.version == revision
                 && c.reversed == reversed
-                && c.whole.as_ref().is_some_and(|w| {
-                    w.around.is_none() && w.selection.as_ref().is_some_and(|s| *s == want)
-                })
+                && c.whole
+                    .as_ref()
+                    .is_some_and(|w| w.selection.as_ref().is_some_and(|s| *s == want))
         }) {
             self.charts.touch(c);
             return Ok(whole_meta(c));
         }
         // One chart of chosen people at a time.
-        self.charts.open.retain(|c| {
-            !c.whole
-                .as_ref()
-                .is_some_and(|w| w.selection.is_some() && w.around.is_none())
-        });
-        let mut input = self.whole_input();
-        input.include = Some(include);
-        Ok(self.lay_out_whole(&input, Some(want), None, revision, reversed))
-    }
-
-    /// The whole-tree chart (or, with `people`, the chart of chosen people and whether all their descendants are on
-    /// it) with the same people in another order: `around`'s closest relatives sit near them. Nothing is changed or
-    /// saved. `NotFound` when `around` is not a person of the chart. Kept for the current tree revision; only one
-    /// arranged chart is held at a time, and it never replaces or is served in place of the plain or the
-    /// chosen-people chart.
-    pub fn chart_open_arranged(
-        &mut self,
-        around: Uuid,
-        people: Option<(&[Uuid], bool)>,
-    ) -> Result<WholeMeta, ApiError> {
-        let revision = self.charts.revision;
-        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
-        let gone = || {
-            ApiError::new(
-                ErrorCode::NotFound,
-                "The person to arrange the chart around is not on the chart any more.",
-            )
-        };
-        let slot = self
-            .index
-            .slot(around)
-            .filter(|&k| {
-                self.index
-                    .summaries
-                    .get(k as usize)
-                    .is_some_and(|s| !s.sibling_marker)
-            })
-            .ok_or_else(gone)?;
-        let (include, selection) = match people {
-            Some((chosen, all_descendants)) => {
-                let (include, kept) = self.selection_subset(chosen, all_descendants);
-                if kept.is_empty() {
-                    return Err(ApiError::new(
-                        ErrorCode::NotFound,
-                        "None of the chosen people is in the project any more.",
-                    ));
-                }
-                let want = Selection {
-                    people: kept,
-                    descendants: all_descendants,
-                };
-                (Some(include), Some(want))
-            }
-            None => (None, None),
-        };
-        if include
-            .as_ref()
-            .is_some_and(|on| !on.get(slot as usize).copied().unwrap_or(false))
-        {
-            return Err(gone());
-        }
-        if let Some(c) = self.charts.open.iter().find(|c| {
-            c.version == revision
-                && c.reversed == reversed
-                && c.whole
-                    .as_ref()
-                    .is_some_and(|w| w.around == Some(around) && w.selection == selection)
-        }) {
-            self.charts.touch(c);
-            return Ok(whole_meta(c));
-        }
-        // One arranged chart at a time.
         self.charts
             .open
-            .retain(|c| !c.whole.as_ref().is_some_and(|w| w.around.is_some()));
+            .retain(|c| !c.whole.as_ref().is_some_and(|w| w.selection.is_some()));
         let mut input = self.whole_input();
-        input.include = include;
-        Ok(self.lay_out_whole(&input, selection, Some((around, slot)), revision, reversed))
+        input.include = Some(include);
+        Ok(self.lay_out_whole(&input, Some(want), revision, reversed))
     }
 
     /// Who is on the chart of `people`: a flag per index slot, and the chosen people that exist (sorted, once each).
@@ -847,12 +773,11 @@ impl Session {
         &mut self,
         input: &WholeInput,
         selection: Option<Selection>,
-        around: Option<(Uuid, Key)>,
         revision: u64,
         reversed: bool,
     ) -> WholeMeta {
         let gt_layout::WholeLayout { layout, extras } =
-            gt_layout::whole_around(input, &Metrics::default(), reversed, around.map(|(_, k)| k));
+            gt_layout::whole_directed(input, &Metrics::default(), reversed);
         // The markers are laid out like people but are not counted as people.
         let marker_at: Vec<(f32, f32)> = layout
             .nodes
@@ -918,7 +843,6 @@ impl Session {
                 blocks,
                 markers,
                 selection,
-                around: around.map(|(id, _)| id),
             }),
         };
         charts.touch(&chart);

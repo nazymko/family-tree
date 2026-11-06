@@ -81,7 +81,14 @@ fn only_the_line_is_shown_ancestors_above_and_descendants_below() {
         assert!(names.contains(&want), "{want} is shown: {names:?}");
     }
     // The brother, his daughter, the in-laws and the stranger are not.
-    for absent in ["Hryhorii Koval", "Sofia Koval", "Dmytro Bondar", "Stepan Moroz", "Nina Moroz", "Zed Solo"] {
+    for absent in [
+        "Hryhorii Koval",
+        "Sofia Koval",
+        "Dmytro Bondar",
+        "Stepan Moroz",
+        "Nina Moroz",
+        "Zed Solo",
+    ] {
         assert!(!names.contains(&absent), "{absent} is not shown");
     }
     assert_eq!(v.len(), 8);
@@ -118,7 +125,10 @@ fn a_person_alone_still_shows_and_a_limit_marks_the_cut() {
     // One row each way: the parents and the children, not the grandparents or grandchildren.
     assert_eq!(m.node_count, 7);
     let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
-    assert!(w.nodes.iter().any(|n| n.more_down), "Taras has a child below the cut");
+    assert!(
+        w.nodes.iter().any(|n| n.more_down),
+        "Taras has a child below the cut"
+    );
 }
 
 #[test]

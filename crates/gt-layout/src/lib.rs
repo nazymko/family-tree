@@ -20,6 +20,5 @@ pub use types::{
     Axis, ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Nav, Node, PartnerOf, Rect, Rel,
 };
 pub use whole::{
-    Block, BlockKind, WholeExtras, WholeFamily, WholeInput, WholeLayout, whole, whole_around,
-    whole_directed,
+    Block, BlockKind, WholeExtras, WholeFamily, WholeInput, WholeLayout, whole, whole_directed,
 };

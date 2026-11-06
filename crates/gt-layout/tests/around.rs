@@ -118,7 +118,10 @@ fn the_person_stands_between_their_parents_and_their_children() {
     let me = cx(node_of(&l, 1));
     let parents = (cx(node_of(&l, 2)) + cx(node_of(&l, 3))) / 2.0;
     let kids = (cx(node_of(&l, 30)) + cx(node_of(&l, 32))) / 2.0;
-    assert!((me - parents).abs() < 0.01, "parents centre {parents} vs {me}");
+    assert!(
+        (me - parents).abs() < 0.01,
+        "parents centre {parents} vs {me}"
+    );
     assert!((me - kids).abs() < 0.01, "children centre {kids} vs {me}");
     // Father on the left, mother on the right, and both lines spread to the sides.
     assert!(cx(node_of(&l, 2)) < me && me < cx(node_of(&l, 3)));
@@ -145,7 +148,10 @@ fn the_person_stays_over_their_parents_with_a_partner() {
     let l = run(&family(), 1);
     let me = cx(node_of(&l, 1));
     let parents = (cx(node_of(&l, 2)) + cx(node_of(&l, 3))) / 2.0;
-    assert!((me - parents).abs() < 0.01, "parents {parents} vs person {me}");
+    assert!(
+        (me - parents).abs() < 0.01,
+        "parents {parents} vs person {me}"
+    );
 }
 
 #[test]
@@ -160,7 +166,10 @@ fn partners_are_adjacent_and_children_sit_under_the_couple() {
     // The first child has a partner, so their couple (not just their box) is what is centred.
     let first = (node_of(&l, 30).rect.x + node_of(&l, 40).rect.x + node_of(&l, 40).rect.w) / 2.0;
     let kids = (first + cx(node_of(&l, 31))) / 2.0;
-    assert!((couple - kids).abs() < 0.01, "couple {couple} vs kids {kids}");
+    assert!(
+        (couple - kids).abs() < 0.01,
+        "couple {couple} vs kids {kids}"
+    );
     // A descendant's partner stands beside them, and their child under that couple.
     let (c, cp, g) = (node_of(&l, 30), node_of(&l, 40), node_of(&l, 50));
     assert_eq!(cp.rel, Some(Rel::Partner(PartnerOf::Descendant(1))));
@@ -204,7 +213,11 @@ fn a_repeated_ancestor_appears_earlier_instead_of_twice() {
     s.family(Some(2), Some(3), &[1]);
     let l = run(&s, 1);
     let dups: Vec<&Node> = l.nodes.iter().filter(|n| n.dup_of.is_some()).collect();
-    assert_eq!(dups.len(), 2, "grandparents are drawn once more as references");
+    assert_eq!(
+        dups.len(),
+        2,
+        "grandparents are drawn once more as references"
+    );
     for d in dups {
         assert!(matches!(d.key, 6 | 7));
         let first = &l.nodes[d.dup_of.unwrap() as usize];
