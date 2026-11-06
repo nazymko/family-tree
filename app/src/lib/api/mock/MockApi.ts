@@ -619,6 +619,7 @@ export class MockApi implements Api {
         const cp = this.db.persons.get(c.person);
         return cp ? [{ person: this.ref(cp), rel: c.rel, birth: this.birth(cp)?.date?.display ?? '', preferred: c.preferred }] : [];
       }),
+      notes: f.notes,
     });
   }
 

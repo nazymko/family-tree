@@ -831,6 +831,8 @@ export const uk: Messages = {
     notes: 'Нотатки',
     editNote: 'Змінити нотатку: {kind}',
     deleteNote: 'Видалити нотатку: {kind}',
+    familyNotes: 'Нотатки родини',
+    familyNotesWith: 'Нотатки родини, партнер: {name}',
     noNotes: 'Нотаток ще немає.',
     attachedCount: 'Прикріплено: {n}.',
     citedCount: 'Посилань: {n}.',

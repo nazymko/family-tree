@@ -833,6 +833,8 @@ export const en = {
     editNote: 'Edit {kind} note',
     deleteNote: 'Delete {kind} note',
     noNotes: 'No notes yet.',
+    familyNotes: 'Family notes',
+    familyNotesWith: 'Family notes, with {name}',
     attachedCount: '{n} attached.',
     citedCount: '{n} cited.',
     history: 'History',

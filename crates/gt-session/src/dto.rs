@@ -641,6 +641,7 @@ pub struct FamilyDto {
     pub summary: Option<String>,
     pub events: Vec<EventDto>,
     pub children: Vec<FamilyChildDto>,
+    pub notes: Vec<NoteDto>,
 }
 
 /// One entry of the recent-projects list (`Api.recentProjects`).

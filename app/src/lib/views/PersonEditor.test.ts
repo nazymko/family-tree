@@ -30,6 +30,20 @@ async function open() {
 }
 
 describe('PersonEditor', () => {
+  it('a_family_note_shows_on_the_partners_page_and_can_be_edited', async () => {
+    const user = userEvent.setup();
+    const person = await api.getPerson(id);
+    const family = person.partnerships[0].familyId;
+    await api.apply({ type: 'saveNote', target: { kind: 'family', id: family }, note: { kind: 'general', text: 'They moved to the village in spring.' } });
+    await open();
+    const text = await screen.findByText('They moved to the village in spring.');
+    expect(screen.getByRole('heading', { level: 3, name: /Family notes/ })).toBeInTheDocument();
+    expect(screen.queryByText('No notes yet.')).toBeNull();
+    const article = text.closest('article') as HTMLElement;
+    await user.click(within(article).getByRole('button', { name: /Edit/ }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+
   it('event_rows_show_what_the_description_says', async () => {
     const person = await findPerson(api, (d) => d.events.some((e) => !!e.description));
     const text = person.events.find((e) => !!e.description)!.description!;
