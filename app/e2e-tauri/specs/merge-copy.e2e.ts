@@ -4,7 +4,7 @@
  * adds a note to the home person, sends that tree back as a zip, reopens the owner's tree and merges the zip.
  * The note must show in the preview, come across on Merge, and go again on "Undo this merge".
  *
- * Synthetic data only. NOT RUN by the author of this spec: window tests were not allowed in that session.
+ * Synthetic data only.
  */
 import path from 'node:path';
 import fs from 'node:fs';
@@ -94,7 +94,9 @@ describe('Send a copy, edit, send back, merge, undo', () => {
     await $('//*[contains(.,"Nothing has been changed yet.")]').waitForDisplayed({ timeout: 60000 });
     expect(await text()).toContain(NOTE);
     await shot('merge-preview-en.png');
-    await click('Merge 1');
+    // The note, and the home person it is attached to.
+    expect(await text()).toContain('Only what is attached to this record changed');
+    await click('Merge 2');
     await $('//*[contains(.,"A backup of your tree was made first")]').waitForDisplayed({ timeout: 60000 });
   });
 

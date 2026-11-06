@@ -111,6 +111,7 @@
 {#snippet line(l: MergeLineDto)}
   <li class="line">
     <LogChanges changes={[l.change]} />
+    {#if l.change.op === 'update' && l.change.fields.length === 0}<p class="why">{t('merge.onlyLinks')}</p>{/if}
     {#if l.why}<p class="why">{t(`merge.why.${l.why}` as MessageKey)}</p>{/if}
     {#if l.alsoEditedHere}<p class="why">{t('merge.alsoEdited')}</p>{/if}
     {#if l.yours.length > 0}

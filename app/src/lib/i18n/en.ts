@@ -1090,6 +1090,7 @@ export const en = {
     yours: 'What you changed here',
     maybeSame: 'Might be someone already in your tree:',
     openPerson: 'Open this person',
+    onlyLinks: 'Only what is attached to this record changed, such as a note, a source or a photo.',
     why: {
       both_changed: 'Both of you changed this.',
       removed_here: 'You removed this here.',

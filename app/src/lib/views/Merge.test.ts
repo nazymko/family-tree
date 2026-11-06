@@ -63,6 +63,19 @@ describe('SendCopyDialog', () => {
 });
 
 describe('MergeDialog', () => {
+  it('says_what_changed_when_only_an_attachment_did', async () => {
+    const user = userEvent.setup();
+    const api = new MockApi(fixtureTree(30));
+    const sample = structuredClone(await api.mergePreview('C:/Mock/x.zip', 'Olena Koval'));
+    sample.changed = sample.changed.slice(0, 1);
+    sample.changed[0].change.op = 'update';
+    sample.changed[0].change.fields = [];
+    api.mergeFixture = sample;
+    const { platform } = renderWith(MergeDialog, mergeProps(), { api });
+    await toPreview(user, platform);
+    expect(screen.getByText(/Only what is attached to this record changed/)).toBeInTheDocument();
+  });
+
   it('shows_the_preview_and_changes_nothing_until_merge_is_pressed', async () => {
     const user = userEvent.setup();
     const api = new MockApi(fixtureTree(30));
