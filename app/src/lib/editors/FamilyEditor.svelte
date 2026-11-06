@@ -5,6 +5,7 @@
   import Select from '../ui/Select.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
   import Button from '../ui/Button.svelte';
+  import EventSummary from './EventSummary.svelte';
   import Dialog from '../ui/Dialog.svelte';
   import PersonPicker from './PersonPicker.svelte';
   import EventEditor from './EventEditor.svelte';
@@ -306,11 +307,11 @@
       {#if events.length === 0}
         <p class="empty">{t('famEd.noUnionEvents')}</p>
       {:else}
-        <ul class="rows">
+        <ul class="rows events">
           {#each events as e (e.id)}
             <li>
               <span class="kind">{eventKindLabel(e.kind, e.label)}</span>
-              <span class="grow">{[e.date?.display, e.place?.full].filter(Boolean).join(', ') || t('person.noDateOrPlace')}</span>
+              <EventSummary event={e} />
               <Button onclick={() => (sub = { kind: 'event', event: e })} aria-label={t('person.editNamed', { label: eventKindLabel(e.kind, e.label) })}>{t('common.edit')}</Button>
             </li>
           {/each}
@@ -487,8 +488,8 @@
     min-height: 2.5rem;
     border-top: 1px solid var(--rule);
   }
-  .grow {
-    flex: 1;
+  .events li {
+    align-items: baseline;
   }
   .kind {
     min-width: 7rem;

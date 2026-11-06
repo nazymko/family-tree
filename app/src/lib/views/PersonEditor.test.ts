@@ -30,6 +30,14 @@ async function open() {
 }
 
 describe('PersonEditor', () => {
+  it('event_rows_show_what_the_description_says', async () => {
+    const person = await findPerson(api, (d) => d.events.some((e) => !!e.description));
+    const text = person.events.find((e) => !!e.description)!.description!;
+    id = person.ref.id;
+    await open();
+    expect(screen.getAllByText(text).length).toBeGreaterThan(0);
+  });
+
   it('sex_change_commits_one_command', async () => {
     const user = userEvent.setup();
     const spy = vi.spyOn(api, 'apply');

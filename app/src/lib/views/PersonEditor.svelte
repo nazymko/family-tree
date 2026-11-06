@@ -29,6 +29,7 @@
   import IndexCard from '../ui/IndexCard.svelte';
   import Ribbon from '../ui/Ribbon.svelte';
   import Button from '../ui/Button.svelte';
+  import EventSummary from '../editors/EventSummary.svelte';
   import Select from '../ui/Select.svelte';
   import TextField from '../ui/TextField.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
@@ -487,11 +488,11 @@
       {#if detail.events.length === 0}
         <p class="empty">{t('person.noEvents')}</p>
       {:else}
-        <ul class="rows">
+        <ul class="rows events">
           {#each detail.events as e (e.id)}
             <li>
               <span class="kind">{eventKindLabel(e.kind, e.label)}</span>
-              <span class="grow">{eventLine(e) || t('person.noDateOrPlace')}</span>
+              <EventSummary event={e} />
               <Button onclick={() => (dialog = { kind: 'event', event: e })} aria-label={t('person.editNamed', { label: eventKindLabel(e.kind, e.label) })}>{t('common.edit')}</Button>
             </li>
           {/each}
@@ -752,6 +753,9 @@
   .changed {
     flex-basis: 100%;
     padding-bottom: var(--s-2);
+  }
+  .events li {
+    align-items: baseline;
   }
   .grow {
     flex: 1;
