@@ -34,6 +34,8 @@
     onAunts,
     onOpened,
     onSelect,
+    onBuildAround,
+    onGone,
     selectId = null,
     hidden = false,
     reversed = false,
@@ -54,6 +56,10 @@
     onOpened?: (meta: ChartMeta) => void;
     /** Called whenever the selected node changes (also from the keyboard). */
     onSelect?: (nodeId: number) => void;
+    /** Chart built around a person: shows the "Build around this person" and "Open person" buttons for the selected person. */
+    onBuildAround?: (id: Id) => void;
+    /** Chart built around a person: the person is not in the project any more. */
+    onGone?: () => void;
     /** Selection driven from outside (the outline); the canvas scrolls to it. */
     selectId?: number | null;
     /** Keeps the chart open but not drawn (the outline view is showing). */
@@ -91,6 +97,9 @@
   /** Relatives: the centred person with partners, parents and children, for the first view. */
   let frameRect: Rect | null = null;
   let parentsRect: Rect | null = null;
+  /** Chart built around a person: the person's own box and the children's boxes. */
+  let centreRect: Rect | null = null;
+  let kidsRect: Rect | null = null;
   let childCount = 0;
   let hint = $state('');
   let rootRect: Rect | null = null;
@@ -106,11 +115,25 @@
   let lastRoot: Id | null = null;
 
   const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** The charts that name people by how they are related to the centred person, with ancestors above and descendants below. */
+  const related = $derived(kind === 'relatives' || kind === 'around');
   const chartLabel = $derived(
-    kind === 'pedigree' ? t('chartCanvas.pedigreeChart') : kind === 'relatives' ? t('chartCanvas.relativesChart') : t('chartCanvas.descendantChart'),
+    kind === 'pedigree'
+      ? t('chartCanvas.pedigreeChart')
+      : kind === 'relatives'
+        ? t('chartCanvas.relativesChart')
+        : kind === 'around'
+          ? t('chartCanvas.aroundChart')
+          : t('chartCanvas.descendantChart'),
   );
   const toolsLabel = $derived(
-    kind === 'pedigree' ? t('chartCanvas.pedigreeTools') : kind === 'relatives' ? t('chartCanvas.relativesTools') : t('chartCanvas.descendantTools'),
+    kind === 'pedigree'
+      ? t('chartCanvas.pedigreeTools')
+      : kind === 'relatives'
+        ? t('chartCanvas.relativesTools')
+        : kind === 'around'
+          ? t('chartCanvas.aroundTools')
+          : t('chartCanvas.descendantTools'),
   );
 
   function invalidate(): void {
@@ -170,6 +193,22 @@
         cam = { zoom: 0.55, x: rootRect.x + rootRect.w / 2 - size.w / 0.55 / 2, y };
         hint = plural('chartCanvas.wide', childCount);
       }
+    } else if (kind === 'around' && centreRect) {
+      // The person exactly in the middle of the view, at the largest zoom (up to 100%) that still shows their parents and
+      // children and their partners; never below a readable zoom.
+      const c = centreRect;
+      const cx = c.x + c.w / 2;
+      const cy = c.y + c.h / 2;
+      let halfW = c.w / 2;
+      let halfH = c.h / 2;
+      for (const r of [parentsRect, kidsRect, rootRect]) {
+        if (!r) continue;
+        halfW = Math.max(halfW, Math.abs(r.x - cx), Math.abs(r.x + r.w - cx));
+        halfH = Math.max(halfH, Math.abs(r.y - cy), Math.abs(r.y + r.h - cy));
+      }
+      const m = 32;
+      const z = Math.max(0.55, Math.min(1, (size.w / 2 - m) / halfW, (size.h / 2 - m) / halfH));
+      cam = { zoom: z, x: cx - size.w / z / 2, y: cy - size.h / z / 2 };
     } else if (kind === 'relatives') {
       // The centred person with parents and children, fully visible and centred at a readable zoom (about 1:1).
       // If that is too wide, keep the parents and at least the person; if even that is wider than the
@@ -252,7 +291,10 @@
       const req: ChartRequest = kind === 'relatives' ? { kind, root, generations, auntsUncles } : { kind, root, generations };
       m = await api.chartOpen(req);
     } catch (e) {
-      if (seq === openSeq) errorText = errMessage(e, t('chartCanvas.openFailed'));
+      if (seq !== openSeq) return;
+      // The person was deleted while the screen was open: leave it quietly instead of showing an error.
+      if (kind === 'around' && onGone && (e as { code?: string } | null)?.code === 'not_found') onGone();
+      else errorText = errMessage(e, t('chartCanvas.openFailed'));
       return;
     }
     if (seq !== openSeq) {
@@ -286,7 +328,7 @@
     // Find the root node with a thin query, then place the camera.
     // Relatives: the starting person can be anywhere, so ask for the whole chart once.
     const probe: Rect =
-      kind === 'relatives'
+      related
         ? { x: 0, y: 0, w: Math.max(1, m.bounds.w), h: Math.max(1, m.bounds.h) }
         : kind === 'pedigree'
           ? { x: reversed ? m.bounds.w - 177 : -1, y: 0, w: 178, h: Math.max(1, m.bounds.h) }
@@ -318,7 +360,9 @@
     childCount = 0;
     frameRect = null;
     parentsRect = null;
-    if (kind === 'relatives' && rn && rootRect) {
+    centreRect = null;
+    kidsRect = null;
+    if (related && rn && rootRect) {
       const byId = new Map(first.nodes.map((n) => [n.id, n]));
       const box = (ns: ChartNode[], extra: Rect | null): Rect | null => {
         if (!ns.length) return extra;
@@ -333,8 +377,10 @@
       const partners = of((e) => e.kind === 'partner' && e.from === rn.id, (e) => e.to);
       const parents = of((e) => e.kind === 'parent' && e.to === rn.id, (e) => e.from);
       const kids = of((e) => e.kind === 'parent' && e.from === rn.id, (e) => e.to);
+      centreRect = { x: rn.x, y: rn.y, w: rn.w, h: rn.h };
       rootRect = box(partners, rootRect) ?? rootRect;
       parentsRect = box(parents, null);
+      kidsRect = box(kids, null);
       frameRect = box(kids, box(parents, rootRect));
     }
     if (kind === 'descendants' && rn && rootRect) {
@@ -840,7 +886,7 @@
     // A reversed tree swaps the two arrows along its growing axis, so an arrow still moves the way it points.
     const swap: Record<string, string> = { ArrowUp: 'ArrowDown', ArrowDown: 'ArrowUp', ArrowLeft: 'ArrowRight', ArrowRight: 'ArrowLeft' };
     const k = reversed ? (swap[key] ?? key) : key;
-    if (kind === 'relatives') {
+    if (related) {
       return k === 'ArrowUp' ? 'parent' : k === 'ArrowDown' ? 'child' : key === 'ArrowLeft' ? 'up' : key === 'ArrowRight' ? 'down' : null;
     }
     if (kind === 'pedigree') {
@@ -891,15 +937,17 @@
 
   /** "Show all" in the pedigree: the most the backend takes, far beyond any real family line. */
   const ALL_GENERATIONS = 255;
-  const genRange = $derived(kind === 'relatives' ? { min: 1, max: 6 } : { min: 3, max: 8 });
+  const genRange = $derived(kind === 'relatives' ? { min: 1, max: 6 } : kind === 'around' ? { min: 1, max: 8 } : { min: 3, max: 8 });
+  /** Pedigree and the chart built around a person can show every generation. */
+  const canShowAll = $derived(kind === 'pedigree' || kind === 'around');
   const genOptions = $derived(
     Array.from({ length: genRange.max - genRange.min + 1 }, (_, i) => genRange.min + i).map((n) => ({
       value: String(n),
       label: plural('chartCanvas.nGenerations', n),
-    })).concat(kind === 'pedigree' ? [{ value: String(ALL_GENERATIONS), label: t('chartCanvas.showAll') }] : []),
+    })).concat(canShowAll ? [{ value: String(ALL_GENERATIONS), label: t('chartCanvas.showAll') }] : []),
   );
   let genValue = $derived(
-    String(kind === 'pedigree' && generations >= ALL_GENERATIONS ? ALL_GENERATIONS : Math.min(genRange.max, Math.max(genRange.min, generations))),
+    String(canShowAll && generations >= ALL_GENERATIONS ? ALL_GENERATIONS : Math.min(genRange.max, Math.max(genRange.min, generations))),
   );
 </script>
 
@@ -909,6 +957,10 @@
     <Button onclick={() => zoomBy(0.8)}>{t('chartCanvas.zoomOut')}</Button>
     <Button onclick={fitAll}>{t('chartCanvas.fit')}</Button>
     <FlipTreeButton />
+    {#if onBuildAround}
+      <Button disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onBuildAround(realPerson(selNode)!.id)}>{t('whole.buildAround')}</Button>
+      <Button disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id)}>{t('whole.openPerson')}</Button>
+    {/if}
     {#if kind === 'relatives'}
       <Button disabled={!homeId} onclick={() => homeId && onRecentre(homeId)}>{t('chartCanvas.centreOnMe')}</Button>
     {:else}

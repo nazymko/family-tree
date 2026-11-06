@@ -79,7 +79,7 @@ import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
 import { mirrorLayout, type Layout } from './mockLayout';
 import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } from './layout';
-import { GROUP_BASE, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
+import { GROUP_BASE, layoutAround, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
 import { layoutWhole, lineageOf, type WholeResult } from './wholeLayout';
 import { kinshipFinder } from './kinship';
 import { toDateDto, yearOf } from './mockParse';
@@ -985,15 +985,22 @@ export class MockApi implements Api {
   async chartOpen(req: ChartRequest): Promise<ChartMeta> {
     if (req.kind === 'whole') throw invalid('The whole tree has no starting person. Open it with the whole-tree command.');
     if (this.person(req.root).siblingMarker) throw markerEntry(req.root);
-    const generations = Math.max(1, Math.min(req.generations, req.kind === 'pedigree' ? 255 : 20));
+    const generations = Math.max(1, Math.min(req.generations, req.kind === 'pedigree' || req.kind === 'around' ? 255 : 20));
     const src: RustLayoutSource = {
       ref: (id) => this.ref(this.person(id)),
       birth: (id) => this.birthSort(this.person(id)),
       parents: (id) => this.preferredParents(id),
       unions: (id) => this.unionsOf(id),
     };
+    // The line of one person has no unnamed-siblings markers in it.
+    const line: RustLayoutSource = {
+      ...src,
+      unions: (id) => src.unions(id).map((u) => ({ ...u, children: u.children.filter((c) => !this.person(c).siblingMarker) })),
+    };
     const laid =
-      req.kind === 'pedigree'
+      req.kind === 'around'
+        ? layoutAround(req.root, generations, line)
+        : req.kind === 'pedigree'
         ? layoutPedigree(req.root, generations, src)
         : req.kind === 'descendants'
           ? layoutDescendants(req.root, generations, src)
@@ -1194,7 +1201,7 @@ export class MockApi implements Api {
     const c = this.chart(chartId);
     if (c.kind === 'whole') throw invalid('The whole tree has no outline. Use Find a person to move around it.');
     const lim = Math.max(0, Math.min(limit, MAX_PAGE));
-    if (c.kind === 'relatives') {
+    if (c.kind === 'relatives' || c.kind === 'around') {
       const rl = c.layout as RelLayout;
       if (parentNode !== null && parentNode < GROUP_BASE && !rl.nodes[parentNode]) throw missing('chart node', String(parentNode));
       return relativesOutline(rl, parentNode, lim);
