@@ -4,7 +4,7 @@
  * opens the combined tree, "Show all descendants" lays it out again, and the button in the header goes back.
  * Screenshots in English and Ukrainian.
  *
- * Synthetic data only. NOT YET RUN: the owner's app held the single-instance lock when this was written.
+ * Synthetic data only.
  */
 import { expect } from '@wdio/globals';
 import { $, browser, click, importSynthetic, meta, openTreeFromReport, ready, shot } from './helpers';
@@ -19,7 +19,7 @@ async function choose(label: string, value: string) {
 }
 
 async function toWholeTree(label: string, title: string) {
-  const a = await $(`//nav[@aria-label="Main"]//a[normalize-space(.)="${label}"]`);
+  const a = await $(`//nav//a[normalize-space(.)="${label}"]`);
   await a.waitForClickable();
   await a.click();
   await $(`h1=${title}`).waitForDisplayed({ timeout: 30000 });
@@ -27,14 +27,21 @@ async function toWholeTree(label: string, title: string) {
 
 /** Finds a person in the whole-tree search: the chart flies to them and selects them, their card in the middle of the canvas. */
 async function flyTo(findLabel: string, name: string) {
-  const box = await $(`input[role="combobox"][aria-label="${findLabel}"], [role="combobox"][aria-label="${findLabel}"]`);
+  const box = await $(`//input[@role="combobox"][@id=//label[starts-with(normalize-space(.),"${findLabel}")]/@for]`);
   await box.waitForDisplayed();
   await box.setValue(name);
-  const option = await $('[role="listbox"] [role="option"]');
+  // By name: for a moment the list still holds the results of the search before.
+  const option = await $(`//ul[@role="listbox"][@aria-label="${findLabel}"]//*[@role="option"][contains(.,"${name}")]`);
   await option.waitForDisplayed({ timeout: 10000 });
   await option.click();
   // The camera flies for a third of a second.
   await browser.pause(900);
+}
+
+/** Space on the selected card, from the chart: picking a search result leaves the focus in the search box. */
+async function markWithSpace() {
+  await browser.execute(() => (document.querySelector('canvas[role="application"]') as HTMLElement).focus());
+  await browser.keys(' ');
 }
 
 /** A click in the middle of the chart with the Shift key held. */
@@ -45,18 +52,23 @@ async function shiftClickCentre() {
   const px = Math.round(x + width / 2);
   const py = Math.round(y + height / 2);
   await browser.performActions([
-    { type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: SHIFT }] },
+    {
+      type: 'key',
+      id: 'keyboard',
+      actions: [{ type: 'keyDown', value: SHIFT }, { type: 'pause' }, { type: 'pause' }, { type: 'pause' }, { type: 'keyUp', value: SHIFT }],
+    },
     {
       type: 'pointer',
       id: 'mouse',
       parameters: { pointerType: 'mouse' },
       actions: [
+        { type: 'pause' },
         { type: 'pointerMove', duration: 0, x: px, y: py, origin: 'viewport' },
         { type: 'pointerDown', button: 0 },
         { type: 'pointerUp', button: 0 },
+        { type: 'pause' },
       ],
     },
-    { type: 'key', id: 'keyboard', actions: [{ type: 'keyUp', value: SHIFT }] },
   ]);
   await browser.releaseActions();
 }
@@ -74,6 +86,13 @@ describe('A tree of several chosen people', () => {
     await ready();
   });
 
+  // The settings outlive this spec: the next one starts in English.
+  after(async () => {
+    await $('//nav//a[normalize-space(.)="Налаштування"]').click();
+    await choose('Мова', 'en');
+    await $('h1=Settings').waitForDisplayed({ timeout: 20000 });
+  });
+
   it('marks two people, shows them in one tree and adds all descendants', async () => {
     const { first, second } = names();
 
@@ -82,7 +101,7 @@ describe('A tree of several chosen people', () => {
     await toWholeTree('Whole tree', 'Whole tree');
 
     await flyTo('Find a person…', first);
-    await browser.keys(' ');
+    await markWithSpace();
     await $('[data-testid="marked-count"]').waitForDisplayed();
     await expect($('[data-testid="marked-count"]')).toHaveText('1 person selected');
 
@@ -114,7 +133,7 @@ describe('A tree of several chosen people', () => {
     await $('h1=Налаштування').waitForDisplayed({ timeout: 20000 });
     await toWholeTree('Увесь родовід', 'Увесь родовід');
     await flyTo('Знайти особу…', names().first);
-    await browser.keys(' ');
+    await markWithSpace();
     await flyTo('Знайти особу…', names().second);
     await shiftClickCentre();
     await $('[data-testid="marked-count"]').waitForDisplayed();

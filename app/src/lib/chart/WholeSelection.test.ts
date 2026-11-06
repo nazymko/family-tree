@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import type { MockApi } from '../api/mock/MockApi';
 import type { ChartNode } from '../api/types';
+import { project } from '../state/project.svelte';
 import WholeCanvas from './WholeCanvas.svelte';
 import Host from './testing/Host.svelte';
 import { attachContext, fakeRaf, lastCamera, makeApi } from './testing/helpers';
@@ -169,6 +170,32 @@ describe('WholeCanvas multi-selection', () => {
     await fireEvent.keyDown(s.canvas, { key: 'P' });
     expect(s.onShowSelection).toHaveBeenCalledTimes(2);
     expect(s.onOpenInPedigree).not.toHaveBeenCalled();
+  });
+
+  it('with_one_mark_left_the_button_follows_the_selected_card', async () => {
+    const s = await setup();
+    const [a, b] = await cardsInView(s);
+    await click(s, a);
+    await click(s, b, { shift: true });
+    await click(s, b, { shift: true });
+    expect(chip()).toHaveTextContent('1 person selected');
+    await fireEvent.click(screen.getByRole('button', { name: 'Show in Pedigree' }));
+    expect(s.onOpenInPedigree).toHaveBeenCalledWith(b.person!.id);
+  });
+
+  it('a_marked_person_who_left_the_tree_is_no_longer_counted_after_an_edit', async () => {
+    const s = await setup();
+    const [a, b, c] = await cardsInView(s);
+    await click(s, a);
+    await click(s, b, { shift: true });
+    await click(s, c, { shift: true });
+    expect(chip()).toHaveTextContent('3 people selected');
+    const real = s.api.chartLocate.bind(s.api);
+    vi.spyOn(s.api, 'chartLocate').mockImplementation(async (id, p) => (p === b.person!.id ? null : real(id, p)));
+    project.rev++;
+    await waitFor(() => expect(chip()).toHaveTextContent('2 people selected'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Show in Pedigree' }));
+    expect(s.onShowSelection).not.toHaveBeenCalledWith(expect.arrayContaining([b.person!.id]));
   });
 
   it('shift_arrows_keep_panning_and_leave_the_selection_alone', async () => {

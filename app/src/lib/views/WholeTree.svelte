@@ -31,9 +31,10 @@
       .finally(() => (ready = true));
   });
 
-  // The all-descendants box is off whenever a new choice of people is made from the whole tree.
+  // The all-descendants box is off whenever the chosen people change.
   $effect(() => {
-    if (!inSelection) descendants = false;
+    void peopleKey;
+    descendants = false;
   });
 
   // Who was chosen, by name, for the heading.

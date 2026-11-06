@@ -59,6 +59,17 @@ describe('WholeTree with chosen people', () => {
     await waitFor(() => expect(s.selSpy).toHaveBeenLastCalledWith(people, false));
   });
 
+  it('the_descendants_box_goes_off_when_other_people_are_chosen', async () => {
+    const people = pair();
+    const s = await open(people);
+    const box = await screen.findByRole('checkbox', { name: 'Show all descendants' });
+    await fireEvent.click(box);
+    await waitFor(() => expect(s.selSpy).toHaveBeenLastCalledWith(people, true));
+    nav.go({ name: 'whole', people: [people[0]] });
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Show all descendants' })).not.toBeChecked());
+    await waitFor(() => expect(s.selSpy).toHaveBeenLastCalledWith([people[0]], false));
+  });
+
   it('speaks_ukrainian_with_родовід_and_the_right_plural', async () => {
     setLanguage('uk');
     const s = await open(pair());

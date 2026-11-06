@@ -270,6 +270,7 @@
     }
     if (seq !== openSeq) return;
     if (!keepView) markedIds = inSel ? chosen : [];
+    else void dropGoneMarks(m.meta.chartId, seq);
     const id = m.meta.chartId;
     const c = new WindowCache(async (r, z) => {
       try {
@@ -695,6 +696,16 @@
     if (n) select(n);
   }
 
+  /** After an edit or undo: someone marked may no longer be in the tree. */
+  async function dropGoneMarks(chartId: number, seq: number): Promise<void> {
+    const marked = markedIds;
+    if (marked.length === 0) return;
+    const found = await Promise.all(marked.map((p) => api.chartLocate(chartId, p).catch(() => null)));
+    if (seq !== openSeq) return;
+    const gone = new Set(marked.filter((_, i) => found[i] === null));
+    if (gone.size > 0) markedIds = markedIds.filter((p) => !gone.has(p));
+  }
+
   /** Shift+click: adds the person to the multi-selection, or takes them out of it. */
   function toggleMark(n: ChartNode): void {
     const person = realPerson(n);
@@ -730,7 +741,7 @@
       onShowSelection?.([...markedIds]);
       return;
     }
-    const id = markedIds.length === 1 ? markedIds[0] : realPerson(selNode)?.id;
+    const id = realPerson(selNode)?.id ?? markedIds[0];
     if (id) onOpenInPedigree(id);
   }
 
