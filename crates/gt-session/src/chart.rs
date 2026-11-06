@@ -505,10 +505,15 @@ impl Session {
             }
             ChartKind::Around => {
                 // "All generations" asks for u8::MAX. Each person is placed once, so the chart is bounded by the
-                // tree and by MAX_NODES; unnamed-siblings markers are not part of anyone's line.
+                // tree and by MAX_NODES; unnamed-siblings markers are not part of anyone's line, but they
+                // are brothers and sisters, so they appear when those are asked for.
                 let g =
                     u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
-                gt_layout::around(&LineSource(&src), root, g, &m, MAX_NODES)
+                if req.siblings.unwrap_or(false) {
+                    gt_layout::around_with_siblings(&src, root, g, &m, MAX_NODES)
+                } else {
+                    gt_layout::around(&LineSource(&src), root, g, &m, MAX_NODES)
+                }
             }
             ChartKind::Whole => {
                 return Err(ApiError::new(

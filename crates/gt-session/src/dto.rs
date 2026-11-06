@@ -413,6 +413,10 @@ pub struct ChartRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub aunts_uncles: Option<bool>,
+    /// Chart built around a person only: also show their brothers and sisters and those families (default off).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub siblings: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]

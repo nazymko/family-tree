@@ -46,6 +46,7 @@ fn request(s: &Session, given: &str, generations: u32) -> ChartRequest {
         root: find(s.tree(), given),
         generations,
         aunts_uncles: None,
+        siblings: None,
     }
 }
 
@@ -97,6 +98,30 @@ fn only_the_line_is_shown_ancestors_above_and_descendants_below() {
     assert!(y("Taras Koval") > y("Ivan Petrovych Koval"));
     assert!(y("Andriy Koval") > y("Taras Koval"));
     assert_eq!(y("Olena Koval"), y("Ivan Petrovych Koval"));
+}
+
+#[test]
+fn the_brothers_and_sisters_option_adds_them_and_their_children_only() {
+    let (_d, mut s) = open_tree(&tree_of(KOVAL));
+    let mut req = request(&s, "Ivan Petrovych", 255);
+    req.siblings = Some(true);
+    let m = s.chart_open(&req).unwrap();
+    let v = shown(&s, &m);
+    let names: Vec<&str> = v.iter().map(|(n, _)| n.as_str()).collect();
+    for want in [
+        "Hryhorii Koval",
+        "Sofia Koval",
+        "Taras Koval",
+        "Petro Koval",
+    ] {
+        assert!(names.contains(&want), "{want} is shown: {names:?}");
+    }
+    for absent in ["Stepan Moroz", "Nina Moroz", "Dmytro Bondar", "Zed Solo"] {
+        assert!(!names.contains(&absent), "{absent} is not shown");
+    }
+    let y = |name: &str| v.iter().find(|(n, _)| n == name).unwrap().1;
+    assert_eq!(y("Hryhorii Koval"), y("Ivan Petrovych Koval"));
+    assert!(y("Sofia Koval") > y("Hryhorii Koval"));
 }
 
 #[test]

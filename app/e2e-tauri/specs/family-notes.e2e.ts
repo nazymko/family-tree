@@ -45,5 +45,14 @@ describe('Family notes on the person page', () => {
     await click('Open family');
     await $(dialog).waitForDisplayed({ timeout: 20000 });
     await browser.keys('Escape');
+    await $(dialog).waitForDisplayed({ reverse: true, timeout: 20000 });
+
+    // The Family screen shows the same note to read.
+    await goTo('Family');
+    const onFamily = await $('//h2[contains(.,"Shared family notes")]');
+    await onFamily.waitForDisplayed({ timeout: 20000 });
+    await onFamily.scrollIntoView({ block: 'center' });
+    await expect($(`//article//*[normalize-space(.)="${NOTE}"]`)).toBeDisplayed();
+    await shot('family-notes-read-en.png');
   });
 });

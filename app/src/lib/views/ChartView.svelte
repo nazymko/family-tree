@@ -2,6 +2,7 @@
   // The settings store has no per-chart field, so the choice lives for the session.
   const chosenGenerations = $state<Record<string, number>>({});
   const chosenAunts = $state({ on: true });
+  const chosenSiblings = $state({ on: false });
 </script>
 
 <script lang="ts">
@@ -219,6 +220,8 @@
         onGenerations={(n) => (chosenGenerations[genKey] = n)}
         auntsUncles={chosenAunts.on}
         onAunts={kind === 'relatives' ? (v) => (chosenAunts.on = v) : undefined}
+        siblings={chosenSiblings.on}
+        onSiblings={around ? (v) => (chosenSiblings.on = v) : undefined}
         onOpened={opened}
         selectId={selectedNode}
         onSelect={select}
