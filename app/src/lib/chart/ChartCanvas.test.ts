@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import type { ChartKind, ChartNode } from '../api/types';
 import { MockApi } from '../api/mock/MockApi';
+import { tick } from 'svelte';
+import { setLanguage } from '../i18n';
 import { agentChanges } from '../state/agentChanges.svelte';
 import ChartCanvas from './ChartCanvas.svelte';
 import Host from './testing/Host.svelte';
@@ -58,6 +60,16 @@ describe('ChartCanvas', () => {
     const after = s.ctx.calls.length;
     s.raf.pump(10);
     expect(s.ctx.calls.length).toBe(after);
+  });
+
+  it('redraws_when_the_language_changes', async () => {
+    const s = await setup();
+    s.raf.pump(10);
+    const before = s.ctx.calls.length;
+    setLanguage('uk');
+    await tick();
+    s.raf.pump(10);
+    expect(s.ctx.calls.length).toBeGreaterThan(before);
   });
 
   it('wheel_zoom_calls_window_only_after_leaving_cache', async () => {

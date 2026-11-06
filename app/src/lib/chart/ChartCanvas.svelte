@@ -18,7 +18,7 @@
   import ChartPictureMenu from './ChartPictureMenu.svelte';
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
-  import { t, plural } from '../i18n';
+  import { t, plural, localeStore } from '../i18n';
   import { nodeLabel, relationText } from '../i18n/relation';
   import { agentChanges } from '../state/agentChanges.svelte';
 
@@ -130,6 +130,7 @@
 
   $effect(() => {
     void agentChanges.unreviewed;
+    void localeStore.locale; // words drawn on the canvas (a nameless person's name, relations) follow the language
     invalidate();
   });
 

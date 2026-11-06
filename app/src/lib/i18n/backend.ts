@@ -236,3 +236,38 @@ export function wholeBlockTitle(b: Pick<WholeBlockDto, 'surname' | 'people' | 'u
   const people = plural('common.people', b.people);
   return b.surname ? t('whole.blockFamily', { surname: b.surname, people }) : t('whole.blockNoSurname', { people });
 }
+
+const LIFESPAN_WORDS: Record<string, MessageKey> = {
+  c: 'lifespan.about',
+  bef: 'lifespan.before',
+  aft: 'lifespan.after',
+  b: 'lifespan.born',
+  d: 'lifespan.died',
+  m: 'lifespan.married',
+};
+
+/** The backend's lifespan ("c. 1968 – 2021", "b. 1970", "bef. 44 BCE – ?") in the active language. */
+export function lifespanText(s: string): string {
+  if (!s) return s;
+  return s
+    .replace(/(^|– )(c|bef|aft|b|d)\. /g, (_, lead: string, word: string) => `${lead}${t(LIFESPAN_WORDS[word])} `)
+    .replace(/ BCE\b/g, ` ${t('changeLog.bce')}`);
+}
+
+/** The backend's one-line summary of events ("b. 1 Jan 1950, Lviv; d. 2001", "m. 1 Jun 1878, Hamburg") in the active language. */
+export function eventSummaryText(s: string): string {
+  return s
+    .split('; ')
+    .map((part) => {
+      const m = /^(m|b|d)\. (.*)$/s.exec(part);
+      if (!m) return part;
+      const rest = m[2];
+      const comma = rest.indexOf(', ');
+      const head = comma < 0 ? rest : rest.slice(0, comma);
+      const shown = dateText(head);
+      // A date alone, or a date then the place; a place alone stays as written.
+      const text = comma < 0 ? shown : shown + rest.slice(comma);
+      return `${t(LIFESPAN_WORDS[m[1]])} ${text}`;
+    })
+    .join('; ');
+}
