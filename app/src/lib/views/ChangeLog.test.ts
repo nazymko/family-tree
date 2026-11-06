@@ -715,7 +715,7 @@ describe('in Ukrainian', () => {
     expect(all).not.toContain('about');
     expect(all).toContain('близько 3 квіт');
     expect(all).toContain('Lviv');
-    expect(all).toContain('Ivan Koval і Невідомо');
+    expect(all).toContain('Ivan Koval і Ім’я невідоме');
     expect(all).toContain('Подія');
     expect(all).toContain('Додано');
     expect(all).toContain('Вилучено');

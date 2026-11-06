@@ -15,7 +15,7 @@
   import { WindowCache } from './window';
   import { drawWhole, wholeThemeFromCss, type WholeTheme } from './wholeRenderer';
   import { nodeLabel } from '../i18n/relation';
-  import { plural, t } from '../i18n';
+  import { plural, t, localeStore } from '../i18n';
   import { founderOf } from './wholeStart';
   import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
@@ -32,8 +32,11 @@
     reversed = false,
     people = [],
     descendants = false,
+    around = null,
     onShowSelection,
     onSelectionGone,
+    onArrange,
+    onArrangeGone,
   }: {
     homeId?: Id | null;
     /** The person the rest of the app is centred on; the first view starts on them, else on the home person. */
@@ -47,10 +50,16 @@
     /** Chosen people: when there are any, the chart holds only them, their ancestors and partners (and with `descendants` everyone below them). */
     people?: Id[];
     descendants?: boolean;
+    /** The same chart in another order: this person's close relatives are drawn near them, and they are in the middle of the view. */
+    around?: Id | null;
     /** Called with two or more Shift-picked people when "Show in Pedigree" (or P) is used on them. */
     onShowSelection?: (ids: Id[]) => void;
     /** None of the chosen people is in the project any more: go back to the whole tree. */
     onSelectionGone?: () => void;
+    /** "Arrange around this person" on the selected person. */
+    onArrange?: (id: Id) => void;
+    /** The person the chart was arranged around is not in the project any more: back to the usual order. */
+    onArrangeGone?: () => void;
   } = $props();
 
   const api = getApi();
@@ -128,6 +137,7 @@
 
   $effect(() => {
     void agentChanges.unreviewed;
+    void localeStore.locale; // words drawn on the canvas follow the language
     invalidate();
   });
 
@@ -258,13 +268,21 @@
     startNote = '';
     const chosen = [...people];
     const inSel = chosen.length > 0;
+    const arr = around;
     let m: WholeMeta;
     try {
-      m = inSel ? await api.chartOpenSelection(chosen, descendants) : await api.chartOpenWhole();
+      m = arr
+        ? await api.chartOpenArranged(arr, inSel ? chosen : undefined, descendants)
+        : inSel
+          ? await api.chartOpenSelection(chosen, descendants)
+          : await api.chartOpenWhole();
     } catch (e) {
       if (seq !== openSeq) return;
+      const missing = (e as { code?: string } | null)?.code === 'not_found';
+      // The person it was arranged around is gone: the usual order (if everybody chosen is gone too, the next open says so).
+      if (arr && missing) onArrangeGone?.();
       // Everybody chosen was deleted: back to the whole tree.
-      if (inSel && (e as { code?: string } | null)?.code === 'not_found') onSelectionGone?.();
+      else if (inSel && missing) onSelectionGone?.();
       else errorText = e instanceof Error ? e.message : t('whole.openFailed');
       return;
     }
@@ -293,7 +311,7 @@
     });
     meta = m;
     // Boxes say how each person is related to the selected person (at first the focus or home person).
-    refId = keptPerson ?? flipKeep ?? (inSel ? chosen[0] : (focusId ?? homeId)) ?? null;
+    refId = keptPerson ?? flipKeep ?? arr ?? (inSel ? chosen[0] : (focusId ?? homeId)) ?? null;
     if (refId) {
       try {
         await api.chartSetReference(id, refId);
@@ -315,6 +333,15 @@
       // A chart of chosen people starts on the whole of it, not on one card.
       if (focusId && !inSel) {
         const loc = await api.chartLocate(id, focusId);
+        if (seq !== openSeq) return;
+        if (loc) {
+          startRect = loc.rect;
+          startId = loc.nodeId;
+        }
+      }
+      // Arranged around someone: they are selected and in the middle of the view.
+      if (arr) {
+        const loc = await api.chartLocate(id, arr);
         if (seq !== openSeq) return;
         if (loc) {
           startRect = loc.rect;
@@ -428,6 +455,7 @@
     void focusId;
     void peopleKey;
     void descendants;
+    void around;
     const flipped = reversed !== lastReversed;
     lastReversed = reversed;
     untrack(() => {
@@ -733,6 +761,12 @@
     announceMarked();
   }
 
+  /** The selected person's closest relatives are drawn near them (a view only; the route remembers it). */
+  function arrangeAround(): void {
+    const p = realPerson(selNode);
+    if (p) onArrange?.(p.id);
+  }
+
   const canShow = $derived(markedIds.length > 0 || realPerson(selNode) !== null);
 
   /** One person: their pedigree. Two or more picked with Shift: one chart of all of them. */
@@ -963,6 +997,7 @@
     <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={homeNode === null} onclick={goHome} />
     <FlipTreeButton />
     <Button aria-pressed={lineageOn} onclick={() => (lineageOn = !lineageOn)}>{t('whole.lineage')}</Button>
+    <Button disabled={!realPerson(selNode)} onclick={arrangeAround}>{t('whole.arrangeAround')}</Button>
     <Button disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id)}>{t('whole.openPerson')}</Button>
     <IconButton label={t('whole.showInPedigree')} icon="pedigree" disabled={!canShow} onclick={showInPedigree} />
     {#if markedIds.length > 0}

@@ -19,7 +19,7 @@
   import { project } from '../state/project.svelte';
   import { toasts } from '../state/toast.svelte';
   import Button from '../ui/Button.svelte';
-  import { currentLocale, t } from '../i18n';
+  import { currentLocale, plural, t } from '../i18n';
   import { agentLabel, editLabel, factText, recordKindLabel } from '../i18n/backend';
   import LogChanges, { type ChangeAction } from './LogChanges.svelte';
   import UndoDialog, { type Pending } from './UndoDialog.svelte';
@@ -46,6 +46,10 @@
   const uid = $props.id();
   let rows = $state<LogRowDto[]>([]);
   let total = $state(0);
+  /** How many of them the owner has not reviewed yet: the rows are paged, so this is asked for on its own. */
+  let unreviewedCount = $state(0);
+  /** Folded for each person the page opens on. */
+  let open = $state(false);
   /** The edit buttons each change gets, found by `resolve`; a record with no entry has no editor to open. */
   let targets = $state<Record<string, ActionTarget[]>>({});
   let heading = $state<HTMLElement>();
@@ -57,16 +61,21 @@
   async function load(person: Id) {
     const mine = ++seq;
     try {
-      const r = await loadRows((o, l) => api.personAgentChanges(person, o, l), untrack(() => rows.length));
+      const [r, waiting] = await Promise.all([
+        loadRows((o, l) => api.personAgentChanges(person, o, l), untrack(() => rows.length)),
+        api.changeLog({ person, actorKind: 'agent', unreviewedOnly: true }, 0, 1),
+      ]);
       if (mine === seq) {
         rows = r.items;
         total = r.total;
+        unreviewedCount = waiting.total;
       }
     } catch {
       // The person page works without this list; the change log still has every entry.
       if (mine === seq) {
         rows = [];
         total = 0;
+        unreviewedCount = 0;
       }
     }
   }
@@ -82,6 +91,11 @@
       toasts.push({ text: errMessage(e), kind: 'error' });
     }
   }
+
+  $effect(() => {
+    void id;
+    open = false;
+  });
 
   $effect(() => {
     const person = id;
@@ -121,6 +135,10 @@
     onundo?.('closed');
     await settle();
   }
+
+  const countWords = $derived(
+    unreviewedCount > 0 ? t('changeLog.panelCount', { unreviewed: unreviewedCount, total }) : plural('changeLog.panelTotal', total),
+  );
 
   const who = (r: LogRowDto) => (r.actor.kind === 'agent' ? agentLabel(r.actor.id, r.actor.name) : '');
   const when = (r: LogRowDto) => new Date(r.ts).toLocaleString(currentLocale());
@@ -224,12 +242,18 @@
 
 {#if rows.length > 0}
   <section class="panel" aria-labelledby="{uid}-h" bind:this={section}>
-    <div class="head">
-      <h2 id="{uid}-h" tabindex="-1" bind:this={heading}>{t('changeLog.panelTitle')}</h2>
-      {#if agentChanges.unreviewed.has(id)}
-        <Button onclick={review}>{t('changeLog.reviewed')}</Button>
-      {/if}
-    </div>
+    <details bind:open>
+      <summary>
+        <h2 id="{uid}-h" tabindex="-1" bind:this={heading}>{t('changeLog.panelTitle')}</h2>
+        <span class="count tnum" data-testid="agent-count" title={countWords}>
+          <span aria-hidden="true">{unreviewedCount > 0 ? `${unreviewedCount}/${total}` : total}</span>
+          <span class="sr">{countWords}</span>
+        </span>
+      </summary>
+      <div class="body">
+    {#if agentChanges.unreviewed.has(id)}
+      <div class="head"><Button onclick={review}>{t('changeLog.reviewed')}</Button></div>
+    {/if}
     <ul>
       {#each rows as r (r.group)}
         <li>
@@ -250,6 +274,8 @@
     {#if rows.length < total}
       <div class="more"><Button onclick={more}>{t('changeLog.showMore')}</Button></div>
     {/if}
+      </div>
+    </details>
   </section>
 {/if}
 
@@ -263,12 +289,40 @@
     border: 1px solid var(--rule);
     border-radius: 4px;
   }
-  .head {
+  summary {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--s-4);
+    align-items: baseline;
+    gap: var(--s-3);
+    cursor: pointer;
+  }
+  summary::before {
+    content: '▸';
+    color: var(--ink-1);
+  }
+  details[open] > summary::before {
+    content: '▾';
+  }
+  .count {
+    color: var(--ink-1);
+    font-size: var(--t-sm);
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .body {
+    display: grid;
+    gap: var(--s-3);
+    margin-block-start: var(--s-3);
+  }
+  .head {
+    display: flex;
+    justify-content: flex-end;
   }
   h2 {
     margin: 0;

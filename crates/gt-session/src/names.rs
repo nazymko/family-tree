@@ -73,7 +73,8 @@ pub fn compose(n: &Name, order: NameOrder, full: bool) -> String {
         .unwrap_or_default()
 }
 
-/// Preferred name, else the first, else "Unknown".
+/// Preferred name, else the first, else "Unknown". The word stays English here (MCP agents, exports and the
+/// change log read it); the app words it in its own language in `app/src/lib/api/localize.ts`.
 pub fn display_name(p: &Person, order: NameOrder) -> String {
     preferred_name(p)
         .map(|n| compose(n, order, false))

@@ -1199,6 +1199,9 @@ export const en = {
     clearMarked: 'Clear selection',
     backToAll: 'Back to the whole tree',
     showDescendants: 'Show all descendants',
+    arrangeAround: 'Arrange around this person',
+    arrangedFor: 'Arranged around {name}',
+    usualOrder: 'Usual order',
   },
   trace: {
     title: 'Trace a tree picture',
@@ -1570,6 +1573,15 @@ export const en = {
     n14: "mother's mother's father",
     n15: "mother's mother's mother",
   },
+  /** The short words in the backend's lifespans and summaries ("c. 1968 – 2021", "m. 1 Jun 1878, Hamburg"). */
+  lifespan: {
+    about: 'c.',
+    before: 'bef.',
+    after: 'aft.',
+    born: 'b.',
+    died: 'd.',
+    married: 'm.',
+  },
   changeLog: {
     title: 'Change log',
     intro: 'Every change to this tree and who made it. What an agent changed stays marked until you have reviewed it.',
@@ -1689,6 +1701,8 @@ export const en = {
     badgeTitle: 'An agent changed this person. Not yet reviewed.',
     badgeLabel: 'Changed by an agent',
     panelTitle: 'What an agent changed',
+    panelCount: '{unreviewed} not reviewed, of {total}',
+    panelTotal: { one: '{n} change', other: '{n} changes' },
     edit: 'Edit',
     editWhat: 'Edit {what}',
     undoWhat: 'Undo {what}',

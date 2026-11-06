@@ -791,7 +791,7 @@ export const uk: Messages = {
     birthDate: 'Дата народження',
     birthPlace: 'Місце народження',
     openAfter: 'Потім відкрити нову особу',
-    unnamed: 'Імені не введено: буде збережено як «Невідомо»',
+    unnamed: 'Імені не введено: буде збережено як «Ім’я невідоме»',
   },
   person: {
     siblingMarker: '<Ще сестри/брати>',
@@ -1198,6 +1198,9 @@ export const uk: Messages = {
     clearMarked: 'Скасувати вибір',
     backToAll: 'Назад до всього родоводу',
     showDescendants: 'Показати всіх нащадків',
+    arrangeAround: 'Побудувати навколо цієї особи',
+    arrangedFor: 'Побудовано навколо: {name}',
+    usualOrder: 'Звичайний порядок',
   },
   trace: {
     title: 'Відтворення родоводу зі світлини',
@@ -1569,6 +1572,15 @@ export const uk: Messages = {
     n14: 'батько матері матері',
     n15: 'мати матері матері',
   },
+  /** Короткі слова в роках життя й підсумках від бекенду («c. 1968 – 2021», «m. 1 Jun 1878, Hamburg»). */
+  lifespan: {
+    about: 'бл.',
+    before: 'до',
+    after: 'після',
+    born: 'нар.',
+    died: 'пом.',
+    married: 'одр.',
+  },
   changeLog: {
     title: 'Журнал змін',
     intro: 'Усі зміни в цьому родоводі і хто їх зробив. Те, що змінив агент, лишається позначеним, доки ви не переглянете.',
@@ -1614,7 +1626,7 @@ export const uk: Messages = {
     },
     sources: 'Джерело: {list}',
     couple: '{a} і {b}',
-    unknownPerson: 'Невідомо',
+    unknownPerson: 'Ім’я невідоме',
     date: {
       about: 'близько {date}',
       calculated: 'обчислено {date}',
@@ -1688,6 +1700,8 @@ export const uk: Messages = {
     badgeTitle: 'Агент змінив цю особу. Ще не переглянуто.',
     badgeLabel: 'Змінено агентом',
     panelTitle: 'Що змінив агент',
+    panelCount: '{unreviewed} не переглянуто, усього {total}',
+    panelTotal: { one: '{n} зміна', few: '{n} зміни', many: '{n} змін', other: '{n} зміни' },
     edit: 'Редагувати',
     editWhat: 'Редагувати: {what}',
     undoWhat: 'Скасувати: {what}',

@@ -51,6 +51,17 @@ describe('Ukrainian interface', () => {
     await waitFor(() => expect(within(box).queryAllByRole('option').length).toBeGreaterThan(0));
   });
 
+  it('a_person_without_a_name_is_named_in_ukrainian_and_follows_a_language_switch', async () => {
+    const { api, ctx } = await open('people');
+    await api.apply({ type: 'createPerson', draft: { sex: 'unknown', surnames: [] } as never });
+    render(People, { context: ctx });
+    const box = await screen.findByRole('listbox', { name: 'Особи' });
+    await waitFor(() => expect(within(box).queryAllByText('Ім’я невідоме').length).toBeGreaterThan(0));
+    expect(within(box).queryByText('Unknown')).toBeNull();
+    setLanguage('en');
+    await waitFor(() => expect(within(box).queryAllByText('Unknown').length).toBeGreaterThan(0));
+  });
+
   it('export_dialog_is_in_ukrainian', async () => {
     renderWith(ExportDialog, { onClose: () => {} }, { api: new PrivacyMockApi(fixtureTree(30)), platform: new MockPlatform() });
     expect(await screen.findByRole('dialog', { name: 'Експорт' })).toBeInTheDocument();
