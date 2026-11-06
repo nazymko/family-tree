@@ -24,6 +24,8 @@ export interface WholeDrawOpts {
   /** Ancestors, descendants and the selected person; everything else is faded. Null shows everyone normally. */
   lineage: ReadonlySet<number> | null;
   theme: WholeTheme;
+  /** People picked with Shift+click: a wash, a thick outline and a check mark (so it never relies on colour alone). */
+  marked?: ReadonlySet<string>;
   /** People an agent changed and nobody has reviewed; their boxes carry a dot. A saved picture leaves this out. */
   badged?: ReadonlySet<string>;
 }
@@ -209,6 +211,37 @@ export function drawWhole(
     ctx.strokeStyle = theme.ribbon;
     ctx.lineWidth = Math.max(2, 3 / z);
     ctx.stroke();
+  }
+
+  if (opts.marked && opts.marked.size > 0) {
+    const mine = win.nodes.filter((n) => n.person && !n.person.siblingMarker && opts.marked!.has(n.person.id));
+    for (const n of mine) {
+      ctx.beginPath();
+      ctx.rect(n.x, n.y, n.w, n.h);
+      if (lod !== 'dots') {
+        ctx.fillStyle = theme.wash;
+        ctx.fill();
+      }
+      ctx.strokeStyle = theme.ribbon;
+      ctx.lineWidth = Math.max(2, 3 / z);
+      ctx.stroke();
+      if (lod === 'dots') continue;
+      // A round check-mark badge in the top right corner.
+      const r = 8;
+      const cx = n.x + n.w - r - 4;
+      const cy = n.y + r + 4;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = theme.ribbon;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cx - 4, cy);
+      ctx.lineTo(cx - 1, cy + 3);
+      ctx.lineTo(cx + 4, cy - 3);
+      ctx.strokeStyle = theme.paper;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
   }
 
   if (home !== null && lod !== 'dots') {

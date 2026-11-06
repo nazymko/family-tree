@@ -572,6 +572,9 @@ pub struct WholeBlockDto {
 pub struct WholeMeta {
     pub meta: ChartMeta,
     pub blocks: Vec<WholeBlockDto>,
+    /// A chart of chosen people: how many of them are still in the project (never the markers).
+    /// 0 for the chart of everyone.
+    pub chosen: u32,
 }
 
 /// Where a person sits in a whole-tree chart.

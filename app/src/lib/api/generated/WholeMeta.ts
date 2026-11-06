@@ -5,4 +5,9 @@ import type { WholeBlockDto } from "./WholeBlockDto";
 /**
  * The whole-tree chart: the usual chart meta plus the block headings.
  */
-export type WholeMeta = { meta: ChartMeta, blocks: Array<WholeBlockDto>, };
+export type WholeMeta = { meta: ChartMeta, blocks: Array<WholeBlockDto>, 
+/**
+ * A chart of chosen people: how many of them are still in the project (never the markers).
+ * 0 for the chart of everyone.
+ */
+chosen: number, };
