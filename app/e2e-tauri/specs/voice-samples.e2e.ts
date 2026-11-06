@@ -87,13 +87,6 @@ describe('Voice samples on a note', () => {
     await ready();
   });
 
-  // The settings outlive this spec: the next one starts in English.
-  after(async () => {
-    await $('//nav//a[normalize-space(.)="Налаштування"]').click();
-    await choose('Мова', 'en');
-    await $('h1=Settings').waitForDisplayed({ timeout: 20000 });
-  });
-
   it('attaches a generated wav to a note and plays it on the person page', async () => {
     const wav = makeWav(path.join(work(), 'voice-e2e', 'Olena Koval - story.wav'));
     await importSynthetic('Voice tree');
