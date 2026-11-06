@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
+import FamilyTree from './FamilyTree.svelte';
 import FamilyView from './FamilyView.svelte';
 import { apiContext } from '../api/context';
 import type { Api, ChildDto, FamilyViewDto, PartnershipDto, PersonRef } from '../api/api';
@@ -696,5 +697,54 @@ describe('FamilyTree a remarried parent', () => {
     await tree();
     expect(await screen.findAllByRole('button', { name: /^Ivan Koval/ })).toHaveLength(1);
     expect(screen.getByRole('group', { name: /Petro Koval/ })).toHaveTextContent('Ivan Koval');
+  });
+});
+
+describe('FamilyTree page width', () => {
+  /** A pane 1000 wide at x=200 holding the page, with the column the tree sits in at x=248. */
+  function pane(): { content: HTMLElement; column: HTMLElement } {
+    const content = document.createElement('main');
+    content.id = 'content';
+    Object.defineProperty(content, 'clientWidth', { value: 1000, configurable: true });
+    content.getBoundingClientRect = () => ({ left: 200 }) as DOMRect;
+    const column = document.createElement('div');
+    column.getBoundingClientRect = () => ({ left: 248 }) as DOMRect;
+    content.append(column);
+    document.body.append(content);
+    return { content, column };
+  }
+  const props = () => ({ view: view(ref('Taras Koval', 'male')), onopen() {}, onadd() {} });
+  const context = () => apiContext(base as unknown as Api, new MockPlatform());
+
+  it('takes the whole pane, less a gutter, and starts at the pane rather than the column', async () => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    const { content, column } = pane();
+    render(FamilyTree, { target: column, props: props(), context: context() });
+    const el = await screen.findByRole('group', { name: /^Family tree of/ });
+    await waitFor(() => expect(el.style.width).toBe('968px'));
+    expect(el.style.marginInlineStart).toBe('-32px');
+    expect(el.classList.contains('fitted')).toBe(true);
+    content.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it('follows the pane when the window changes', async () => {
+    let notify = () => {};
+    vi.stubGlobal('ResizeObserver', class { constructor(cb: () => void) { notify = cb; } observe() {} disconnect() {} });
+    const { content, column } = pane();
+    render(FamilyTree, { target: column, props: props(), context: context() });
+    const el = await screen.findByRole('group', { name: /^Family tree of/ });
+    await waitFor(() => expect(el.style.width).toBe('968px'));
+    Object.defineProperty(content, 'clientWidth', { value: 600 });
+    notify();
+    await waitFor(() => expect(el.style.width).toBe('568px'));
+    content.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it('stays in its column outside the app pane', async () => {
+    render(FamilyTree, { props: props(), context: context() });
+    const el = await screen.findByRole('group', { name: /^Family tree of/ });
+    expect(el.style.width).toBe('');
   });
 });
