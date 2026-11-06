@@ -1199,6 +1199,9 @@ export const en = {
     clearMarked: 'Clear selection',
     backToAll: 'Back to the whole tree',
     showDescendants: 'Show all descendants',
+    arrangeAround: 'Arrange around this person',
+    arrangedFor: 'Arranged around {name}',
+    usualOrder: 'Usual order',
   },
   trace: {
     title: 'Trace a tree picture',
