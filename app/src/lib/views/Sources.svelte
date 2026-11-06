@@ -80,7 +80,7 @@
       notices.show({ message: t('sources.saved') });
       await reload(filter);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errMessage(e, t('edit.wentWrong'));
     }
   }
 
@@ -94,7 +94,7 @@
       filter = '';
       await reload('');
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errMessage(e, t('edit.wentWrong'));
     }
   }
 </script>

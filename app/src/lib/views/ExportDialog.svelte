@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errMessage } from '../editors/errors';
   import { untrack } from 'svelte';
   import Dialog from '../ui/Dialog.svelte';
   import Button from '../ui/Button.svelte';
@@ -9,6 +10,7 @@
   import { notices } from '../ui/notices.svelte';
   import type { ExportOptions, PrivacyPreview } from '../api/api';
   import { t, formatNumber } from '../i18n';
+  import { backendError } from '../i18n/backend';
 
   let { onClose, onSendCopy }: { onClose: () => void; onSendCopy?: () => void } = $props();
 
@@ -52,7 +54,7 @@
       (e) => {
         if (mine !== seq) return;
         loading = false;
-        previewError = e instanceof Error ? e.message : String(e);
+        previewError = errMessage(e, t('edit.wentWrong'));
       },
     );
   });
@@ -73,7 +75,7 @@
         onaction: () => void platform.reveal(dest),
       });
     } catch (e) {
-      exportError = e instanceof Error ? e.message : String(e);
+      exportError = errMessage(e, t('edit.wentWrong'));
     } finally {
       exporting = false;
     }
@@ -88,7 +90,7 @@
       await api.saveCopy(dest);
       notices.show({ message: t('exp.copySaved', { file: fileOf(dest) }), actionLabel: t('exp.reveal'), onaction: () => void platform.reveal(dest) });
     } catch (e) {
-      exportError = e instanceof Error ? e.message : String(e);
+      exportError = errMessage(e, t('edit.wentWrong'));
     } finally {
       saving = false;
     }
@@ -173,7 +175,7 @@
           {/if}
           {#if preview.losslessNotes.length}
             <ul class="notes">
-              {#each preview.losslessNotes as n (n)}<li>{n}</li>{/each}
+              {#each preview.losslessNotes as n (n)}<li>{backendError(n)}</li>{/each}
             </ul>
           {/if}
         </div>

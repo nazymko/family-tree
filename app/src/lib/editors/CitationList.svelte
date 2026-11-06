@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errMessage } from './errors';
   import Button from '../ui/Button.svelte';
   import Banner from '../ui/Banner.svelte';
   import CitationEditor from './CitationEditor.svelte';
@@ -18,7 +19,7 @@
     try {
       return await api.apply(cmd);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errMessage(e, t('edit.wentWrong'));
       return null;
     }
   }

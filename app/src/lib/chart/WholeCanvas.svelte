@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errMessage } from '../editors/errors';
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
   import type { ChartNode, ChartWindow, Id, Rect, SearchHitDto, WholeMeta } from '../api/types';
@@ -283,7 +284,7 @@
       if (arr && missing) onArrangeGone?.();
       // Everybody chosen was deleted: back to the whole tree.
       else if (inSel && missing) onSelectionGone?.();
-      else errorText = e instanceof Error ? e.message : t('whole.openFailed');
+      else errorText = errMessage(e, t('whole.openFailed'));
       return;
     }
     if (seq !== openSeq) return;

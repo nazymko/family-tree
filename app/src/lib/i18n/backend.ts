@@ -143,11 +143,87 @@ const ERROR_KEYS: Record<string, MessageKey> = {
   "Only an agent's change can be undone from the change log.": 'changeLog.errors.onlyAgent',
 };
 
-/** A backend error message in the active language; anything not known is shown as the backend wrote it. */
+interface Rule {
+  key: MessageKey;
+  pattern: RegExp;
+  /** How many characters of the sentence are fixed words: the longer, the more specific. */
+  fixed: number;
+}
+
+/**
+ * Every backend sentence with a catalogue entry: `be.*` and the agent-access errors. The English entry is the
+ * backend's own wording with `{name}` for the values it fills in, so it is also the pattern. The most specific
+ * sentence is tried first, so a short pattern with a wide placeholder cannot swallow a longer sentence.
+ */
+const RULES: Rule[] = [
+  ...(Object.keys(en.be) as (keyof typeof en.be)[]).filter((name) => typeof en.be[name] === 'string').map((name) => ({ key: `be.${name}`, text: en.be[name] as string })),
+  ...(Object.keys(en.agent) as (keyof typeof en.agent)[]).filter((name) => name.startsWith('err')).map((name) => ({ key: `agent.${name}`, text: en.agent[name] as string })),
+  // What the undo and change-log commands answer (the backend's exact words, like the entries above).
+  ...(['agentChanged', 'stepDropped', 'stepOutdated', 'onlyAgent'] as const).map((name) => ({ key: `changeLog.errors.${name}`, text: en.changeLog.errors[name] })),
+]
+  .map(({ key, text }) => {
+    const pattern = text.replace(/[.*+?^$()[\]\\|]/g, '\\$&').replace(/\{(\w+)\}/g, '(?<$1>[\\s\\S]*?)');
+    return { key: key as MessageKey, pattern: new RegExp(`^${pattern}$`), fixed: text.replace(/\{\w+\}/g, '').length };
+  })
+  .sort((a, b) => b.fixed - a.fixed);
+
+/** The words of `be.kind` by the name the backend gives a kind of record ("media item"). */
+export const KIND_KEYS: Record<string, keyof typeof en.be.kind> = {
+  person: 'person',
+  family: 'family',
+  event: 'event',
+  place: 'place',
+  source: 'source',
+  repository: 'repository',
+  citation: 'citation',
+  'media item': 'mediaItem',
+  note: 'note',
+  name: 'name',
+  'child link': 'childLink',
+  'chart node': 'chartNode',
+  batch: 'batch',
+  chart: 'chart',
+  change: 'change',
+  merge: 'merge',
+  media: 'media',
+  'media file': 'mediaFile',
+  'media link': 'mediaLink',
+};
+
+/** The heading of a group of repairs in the import report ("dangling_pointer" as words); an unknown kind reads as its name. */
+export function repairKindLabel(kind: string): string {
+  return kind in en.be.repairKind ? t(`be.repairKind.${kind as keyof typeof en.be.repairKind}`) : kind.replace(/_/g, ' ');
+}
+
+/** The catalogue entry that words `message`, or null. Exported for the test that keeps the catalogue complete. */
+export function backendRule(message: string): { key: MessageKey; groups: Record<string, string> } | null {
+  for (const { key, pattern } of RULES) {
+    const m = pattern.exec(message);
+    if (m) return { key, groups: { ...m.groups } };
+  }
+  return null;
+}
+
+/**
+ * A backend error message in the active language; anything not known is shown as the backend wrote it.
+ * This is the one place the backend's English is worded: `toApiError` calls it for every rejection, so a screen
+ * that shows `e.message` already has the translated text. Text already in the active language matches no pattern
+ * and passes through, so calling it twice does no harm. Paths, ids and operating-system errors keep their words.
+ */
 export function backendError(message: string): string {
   const key = ERROR_KEYS[message];
   if (key) return t(key);
-  return /^No (change|batch) with id /.test(message) ? t('changeLog.errors.notFound') : message;
+  if (/^No (change|batch) with id /.test(message)) return t('changeLog.errors.notFound');
+  const rule = backendRule(message);
+  if (!rule) return message;
+  const params = rule.groups;
+  // A reason or an underlying error is itself a backend sentence ("... as a Gramps file: the XML could not be parsed: ...").
+  for (const name of ['e', 'reason']) if (params[name]) params[name] = backendError(params[name]);
+  if (params.what) {
+    const kind = KIND_KEYS[params.what];
+    if (kind) params.what = t(`be.kind.${kind}`);
+  }
+  return t(rule.key, params);
 }
 
 const DATE_WORDS: Record<string, MessageKey> = {
@@ -206,6 +282,7 @@ const DATE_WARNINGS: Record<string, MessageKey> = {
   'Day and month are ambiguous; read as DMY': 'fields.dateAmbiguousDmy',
   'Day and month are ambiguous; read as MDY': 'fields.dateAmbiguousMdy',
   'Double year: the first year is Old Style, the second New Style.': 'fields.dateDualYear',
+  'Not understood as a date. It will be saved exactly as you typed it.': 'fields.notUnderstood',
 };
 
 /** A warning from the date parser in the active language. */

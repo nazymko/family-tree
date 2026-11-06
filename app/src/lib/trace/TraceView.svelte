@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errMessage } from '../editors/errors';
   import { onDestroy, onMount } from 'svelte';
   import Banner from '../ui/Banner.svelte';
   import Button from '../ui/Button.svelte';
@@ -88,7 +89,7 @@
       .finally(() => (loaded = true));
   });
 
-  const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+  const message = (e: unknown) => (errMessage(e, t('edit.wentWrong')));
 
   // The draft is kept inside the tree a moment after every change.
   $effect(() => {

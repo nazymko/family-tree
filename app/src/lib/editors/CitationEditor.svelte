@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errMessage } from './errors';
   import Dialog from '../ui/Dialog.svelte';
   import Button from '../ui/Button.svelte';
   import Banner from '../ui/Banner.svelte';
@@ -116,7 +117,7 @@
       }
       onDone(r);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errMessage(e, t('edit.wentWrong'));
     } finally {
       saving = false;
     }
