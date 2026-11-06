@@ -87,7 +87,6 @@ command_list!(
     chart_open,
     chart_open_whole,
     chart_open_selection,
-    chart_open_arranged,
     chart_lineage,
     chart_locate,
     chart_set_reference,
@@ -609,24 +608,6 @@ pub async fn chart_open_selection<R: Runtime>(
 ) -> ApiResult<WholeMeta> {
     blocking(&app, move |s| {
         s.with_session(|se| se.chart_open_selection(&people, all_descendants))
-    })
-    .await
-}
-
-/// The whole-tree chart, or with `people` the chart of chosen people, with the same people in another order: the
-/// closest relatives of `around` sit near them. A view only; nothing is saved.
-#[tauri::command]
-pub async fn chart_open_arranged<R: Runtime>(
-    app: AppHandle<R>,
-    around: Uuid,
-    people: Option<Vec<Uuid>>,
-    all_descendants: Option<bool>,
-) -> ApiResult<WholeMeta> {
-    blocking(&app, move |s| {
-        s.with_session(|se| {
-            let all = all_descendants.unwrap_or(false);
-            se.chart_open_arranged(around, people.as_deref().map(|p| (p, all)))
-        })
     })
     .await
 }

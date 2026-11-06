@@ -20,6 +20,7 @@ const KIND_WORD: Record<ChartKind, MessageKey> = {
   pedigree: 'picture.kindPedigree',
   descendants: 'picture.kindDescendants',
   relatives: 'picture.kindRelatives',
+  around: 'picture.kindAround',
   whole: 'picture.kindWhole',
 };
 

@@ -20,11 +20,8 @@
   const people = $derived(nav.route.name === 'whole' ? (nav.route.people ?? []) : []);
   const peopleKey = $derived(people.join(','));
   const inSelection = $derived(people.length > 0);
-  /** The person the chart is arranged around, when it is (part of the route too). */
-  const around = $derived(nav.route.name === 'whole' ? (nav.route.around ?? null) : null);
   let descendants = $state(false);
   let names = $state<string[]>([]);
-  let aroundName = $state('');
 
   $effect(() => {
     api
@@ -52,23 +49,6 @@
     };
   });
 
-  // Whose arrangement it is, by name, for the heading.
-  $effect(() => {
-    const id = around;
-    let stale = false;
-    aroundName = '';
-    if (id)
-      void api.getPerson(id).then(
-        (d) => {
-          if (!stale) aroundName = d.ref.name;
-        },
-        () => {},
-      );
-    return () => {
-      stale = true;
-    };
-  });
-
   const openPerson = (id: Id) => (onOpenPerson ? onOpenPerson(id) : nav.go({ name: 'person', id }));
   function inPedigree(id: Id): void {
     nav.focus(id);
@@ -76,10 +56,11 @@
   }
   const showSelection = (ids: Id[]) => nav.go({ name: 'whole', people: ids });
   const allPeople = () => nav.go({ name: 'whole' });
-  const arrangeAround = (id: Id) => nav.go({ name: 'whole', ...(inSelection ? { people } : {}), around: id });
-  const usualOrder = () => nav.go({ name: 'whole', ...(inSelection ? { people } : {}) });
-  // The person is gone: the arranged chart no longer exists, so it leaves no history entry behind.
-  const arrangeGone = () => nav.replace({ name: 'whole', ...(inSelection ? { people } : {}) });
+  // The new screen is built around the selected person; the focus is set first so Back brings the same person back.
+  function buildAround(id: Id): void {
+    nav.focus(id);
+    nav.go({ name: 'around', id });
+  }
   // Everybody chosen was deleted: the chart of some people no longer exists, so it leaves no history entry behind.
   const selectionGone = () => nav.replace({ name: 'whole' });
   const empty = $derived(meta !== null && meta.meta.nodeCount === 0 && !inSelection);
@@ -99,10 +80,6 @@
       <Checkbox label={t('whole.showDescendants')} bind:checked={descendants} />
       <Button onclick={allPeople}>{t('whole.backToAll')}</Button>
     {/if}
-    {#if around}
-      <p class="chosen" data-testid="arranged">{t('whole.arrangedFor', { name: aroundName })}</p>
-      <Button onclick={usualOrder}>{t('whole.usualOrder')}</Button>
-    {/if}
   </header>
   {#if empty}
     <EmptyState title={t('whole.emptyTitle')}>{t('whole.emptyBody')}</EmptyState>
@@ -118,11 +95,9 @@
         reversed={settings.value.treeDirection === 'reversed'}
         {people}
         {descendants}
-        {around}
         onShowSelection={showSelection}
         onSelectionGone={selectionGone}
-        onArrange={arrangeAround}
-        onArrangeGone={arrangeGone}
+        onBuildAround={buildAround}
       />
     </div>
   {/if}

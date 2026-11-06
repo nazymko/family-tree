@@ -20,6 +20,7 @@
   import WholeTree from './WholeTree.svelte';
   import Descendants from './Descendants.svelte';
   import Relatives from './Relatives.svelte';
+  import Around from './Around.svelte';
   import ExportDialog from './ExportDialog.svelte';
   import SendCopyDialog from './SendCopyDialog.svelte';
   import MergeDialog from './MergeDialog.svelte';
@@ -402,7 +403,7 @@
       </div>
     </header>
     <main id="content" class="main">
-      <div class="page" class:chart={current === 'pedigree' || current === 'descendants' || current === 'relatives' || current === 'whole' || current === 'trace'}>
+      <div class="page" class:chart={current === 'pedigree' || current === 'descendants' || current === 'relatives' || current === 'around' || current === 'whole' || current === 'trace'}>
         {#if nav.route.name === 'family'}
           <FamilyView />
         {:else if nav.route.name === 'people'}
@@ -415,6 +416,8 @@
           <Descendants onOpenPerson={openPerson} />
         {:else if nav.route.name === 'relatives'}
           <Relatives onOpenPerson={openPerson} />
+        {:else if nav.route.name === 'around'}
+          <Around onOpenPerson={openPerson} />
         {:else if nav.route.name === 'person'}
           {#key nav.route.id}
             <PersonEditor id={nav.route.id} {mediaSection} {sourcesSection} />

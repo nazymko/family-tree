@@ -79,7 +79,7 @@ import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
 import { mirrorLayout, type Layout } from './mockLayout';
 import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } from './layout';
-import { GROUP_BASE, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
+import { GROUP_BASE, layoutAround, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
 import { layoutWhole, lineageOf, type WholeResult } from './wholeLayout';
 import { kinshipFinder } from './kinship';
 import { toDateDto, yearOf } from './mockParse';
@@ -216,7 +216,7 @@ interface ChartState {
   reference?: Id | null;
   kin?: { ref: Id; find: (to: Id) => Kinship | null };
   /** Whole-tree charts only. */
-  whole?: { result: WholeResult; surnames: string[]; meta: WholeMeta; reversed: boolean; selection?: { people: Id[]; descendants: boolean }; around?: Id };
+  whole?: { result: WholeResult; surnames: string[]; meta: WholeMeta; reversed: boolean; selection?: { people: Id[]; descendants: boolean } };
 }
 
 interface OwnerBag {
@@ -985,15 +985,22 @@ export class MockApi implements Api {
   async chartOpen(req: ChartRequest): Promise<ChartMeta> {
     if (req.kind === 'whole') throw invalid('The whole tree has no starting person. Open it with the whole-tree command.');
     if (this.person(req.root).siblingMarker) throw markerEntry(req.root);
-    const generations = Math.max(1, Math.min(req.generations, req.kind === 'pedigree' ? 255 : 20));
+    const generations = Math.max(1, Math.min(req.generations, req.kind === 'pedigree' || req.kind === 'around' ? 255 : 20));
     const src: RustLayoutSource = {
       ref: (id) => this.ref(this.person(id)),
       birth: (id) => this.birthSort(this.person(id)),
       parents: (id) => this.preferredParents(id),
       unions: (id) => this.unionsOf(id),
     };
+    // The line of one person has no unnamed-siblings markers in it.
+    const line: RustLayoutSource = {
+      ...src,
+      unions: (id) => src.unions(id).map((u) => ({ ...u, children: u.children.filter((c) => !this.person(c).siblingMarker) })),
+    };
     const laid =
-      req.kind === 'pedigree'
+      req.kind === 'around'
+        ? layoutAround(req.root, generations, line)
+        : req.kind === 'pedigree'
         ? layoutPedigree(req.root, generations, src)
         : req.kind === 'descendants'
           ? layoutDescendants(req.root, generations, src)
@@ -1014,26 +1021,14 @@ export class MockApi implements Api {
   }
 
   async chartOpenWhole(): Promise<WholeMeta> {
-    return this.openWholeChart(null, null, null);
-  }
-
-  /** The same people in another order: `around`'s closest relatives sit near them. */
-  async chartOpenArranged(around: Id, people?: Id[], allDescendants = false): Promise<WholeMeta> {
-    const p = this.db.persons.get(around);
-    const gone = () => new MockApiError('not_found', 'The person to arrange the chart around is not on the chart any more.');
-    if (!p || p.siblingMarker) throw gone();
-    if (people === undefined) return this.openWholeChart(null, null, around);
-    const { on, kept } = this.selectionSubset(people, allDescendants);
-    if (kept.length === 0) throw new MockApiError('not_found', 'None of the chosen people is in the project any more.');
-    if (!on.has(around)) throw gone();
-    return this.openWholeChart({ people: kept, descendants: allDescendants }, on, around);
+    return this.openWholeChart(null, null);
   }
 
   /** The chart of chosen people: them, their ancestors and their partners; with `allDescendants` also everyone below them. */
   async chartOpenSelection(people: Id[], allDescendants: boolean): Promise<WholeMeta> {
     const { on, kept } = this.selectionSubset(people, allDescendants);
     if (kept.length === 0) throw new MockApiError('not_found', 'None of the chosen people is in the project any more.');
-    return this.openWholeChart({ people: kept, descendants: allDescendants }, on, null);
+    return this.openWholeChart({ people: kept, descendants: allDescendants }, on);
   }
 
   /** Who is on the chart of `people`, and the chosen people that exist (sorted, once each). Every walk marks before it follows. */
@@ -1079,17 +1074,17 @@ export class MockApi implements Api {
     return { on, kept };
   }
 
-  private async openWholeChart(selection: { people: Id[]; descendants: boolean } | null, subset: Set<Id> | null, around: Id | null): Promise<WholeMeta> {
+  private async openWholeChart(selection: { people: Id[]; descendants: boolean } | null, subset: Set<Id> | null): Promise<WholeMeta> {
     const reversed = this.settings.treeDirection === 'reversed';
-    // Three kinds are held side by side, one chart each: everyone, chosen people, and an arranged one (of either).
-    const kindOf = (c: ChartState) => (c.whole!.around ? 'arranged' : c.whole!.selection ? 'selection' : 'plain');
-    const kind = around ? 'arranged' : selection ? 'selection' : 'plain';
+    // Two kinds are held side by side, one chart each: everyone and chosen people.
+    const kindOf = (c: ChartState) => (c.whole!.selection ? 'selection' : 'plain');
+    const kind = selection ? 'selection' : 'plain';
     const sameKind = (c: ChartState) => c.whole && kindOf(c) === kind;
     for (const c of this.charts.values()) {
       if (!sameKind(c) || c.version !== this.version || c.whole!.reversed !== reversed) continue;
       const have = c.whole!.selection;
       const sameSel = selection === null ? !have : !!have && have.descendants === selection.descendants && have.people.join() === selection.people.join();
-      if (sameSel && (c.whole!.around ?? null) === around) return structuredClone(c.whole!.meta);
+      if (sameSel) return structuredClone(c.whole!.meta);
     }
     for (const [id, c] of [...this.charts]) if (sameKind(c)) this.charts.delete(id);
     const persons = [...this.db.persons.values()].filter((p) => subset === null || subset.has(p.id));
@@ -1098,7 +1093,7 @@ export class MockApi implements Api {
       persons: persons.map((p) => ({ id: p.id, surname: rows.get(p.id)?.surname ?? '', birth: this.birthSort(p) })),
       families: [...this.db.families.values()].map((f) => ({ partners: [f.partner1, f.partner2], children: f.children.map((c) => c.person) })),
       ref: (id) => this.ref(this.person(id)),
-    }, reversed, around ?? undefined);
+    }, reversed);
     const surnames = result.nodes.map((n) => rows.get(n.person!.id)?.surname ?? '');
     for (const n of result.nodes) {
       const p = n.person!;
@@ -1126,7 +1121,7 @@ export class MockApi implements Api {
       chosen: selection ? selection.people.length : 0,
     };
     const layout: Layout = { nodes: result.nodes, edges: result.edges, bounds: result.bounds, truncated: false, kids: [], labels: [] };
-    this.charts.set(chartId, { kind: 'whole', layout, version: this.version, reference: null, whole: { result, surnames, meta, reversed, ...(selection ? { selection } : {}), ...(around ? { around } : {}) } });
+    this.charts.set(chartId, { kind: 'whole', layout, version: this.version, reference: null, whole: { result, surnames, meta, reversed, ...(selection ? { selection } : {}) } });
     return structuredClone(meta);
   }
 
@@ -1194,7 +1189,7 @@ export class MockApi implements Api {
     const c = this.chart(chartId);
     if (c.kind === 'whole') throw invalid('The whole tree has no outline. Use Find a person to move around it.');
     const lim = Math.max(0, Math.min(limit, MAX_PAGE));
-    if (c.kind === 'relatives') {
+    if (c.kind === 'relatives' || c.kind === 'around') {
       const rl = c.layout as RelLayout;
       if (parentNode !== null && parentNode < GROUP_BASE && !rl.nodes[parentNode]) throw missing('chart node', String(parentNode));
       return relativesOutline(rl, parentNode, lim);

@@ -51,7 +51,7 @@ interface CompOut {
   h: number;
 }
 
-function layoutComponent(members: number[], fams: Fam[], partnerIn: number[][], childIn: number[][], around?: number): CompOut {
+function layoutComponent(members: number[], fams: Fam[], partnerIn: number[][], childIn: number[][]): CompOut {
   const level = new Map<number, number>();
   const famLevel = new Map<number, number>();
   const queue: [boolean, number][] = [[false, members[0]]];
@@ -141,29 +141,6 @@ function layoutComponent(members: number[], fams: Fam[], partnerIn: number[][], 
   const byRow: number[][] = Array.from({ length: rows }, () => []);
   units.forEach((u, i) => byRow[u.row].push(i));
   for (const r of byRow) r.sort((a, b) => disc[a] - disc[b]);
-  if (around !== undefined && unitOf.has(around)) {
-    // Arranged around one person: in every row the units closest to them (by parents / children links) go in the
-    // middle and the farther ones alternate outwards, so close relatives end up near each other.
-    const dist = new Array<number>(units.length).fill(Infinity);
-    const start = unitOf.get(around)!;
-    dist[start] = 0;
-    const queue = [start];
-    for (let head = 0; head < queue.length; head++) {
-      const u = queue[head];
-      for (const v of [...parentsOf[u], ...kidsOf[u]])
-        if (dist[v] === Infinity) {
-          dist[v] = dist[u] + 1;
-          queue.push(v);
-        }
-    }
-    for (const r of byRow) {
-      const sorted = [...r].sort((a, b) => dist[a] - dist[b] || disc[a] - disc[b]);
-      const left: number[] = [];
-      const right: number[] = [];
-      sorted.forEach((u, i) => (i === 0 ? right.push(u) : i % 2 === 1 ? left.push(u) : right.push(u)));
-      r.splice(0, r.length, ...left.reverse(), ...right);
-    }
-  }
   const pack = (r: number[], wanted: (u: number) => number | null) => {
     let right = -Infinity;
     for (const u of r) {
@@ -231,7 +208,7 @@ function layoutComponent(members: number[], fams: Fam[], partnerIn: number[][], 
   return out;
 }
 
-export function layoutWhole(src: WholeSource, reversed = false, aroundId?: Id): WholeResult {
+export function layoutWhole(src: WholeSource, reversed = false): WholeResult {
   const index = new Map(src.persons.map((p, i) => [p.id, i]));
   const n = src.persons.length;
   const fams: Fam[] = [];
@@ -276,10 +253,9 @@ export function layoutWhole(src: WholeSource, reversed = false, aroundId?: Id): 
       comps.get(r)!.push(p);
     }
   }
-  const around = aroundId === undefined ? undefined : index.get(aroundId);
   const placed = [...comps.values()]
     .map((members) => {
-      const out = layoutComponent(members, fams, partnerIn, childIn, around);
+      const out = layoutComponent(members, fams, partnerIn, childIn);
       const count = new Map<string, number>();
       for (const p of members) {
         const s = src.persons[p].surname;
@@ -288,9 +264,9 @@ export function layoutWhole(src: WholeSource, reversed = false, aroundId?: Id): 
       let surname = '';
       let best = 0;
       for (const [s, c] of count) if (c > best || (c === best && s < surname)) [surname, best] = [s, c];
-      return { members, out, surname, w: Math.max(out.w, MIN_BLOCK_W), first: around !== undefined && members.includes(around) };
+      return { members, out, surname, w: Math.max(out.w, MIN_BLOCK_W) };
     })
-    .sort((a, b) => Number(b.first) - Number(a.first) || b.members.length - a.members.length);
+    .sort((a, b) => b.members.length - a.members.length);
 
   const area =
     placed.reduce((s, p) => s + (p.w + BLOCK_GAP) * (p.out.h + HEADING_H + HEADING_GAP + BLOCK_GAP), 0) +

@@ -35,6 +35,46 @@ pub struct TreeSource<'a> {
     pub index: &'a PersonIndex,
 }
 
+/// The people of one line: [`TreeSource`] without the unnamed-siblings markers among the children.
+struct LineSource<'a, 'b>(&'a TreeSource<'b>);
+
+impl ChartSource for LineSource<'_, '_> {
+    fn parents(&self, p: Key) -> [Option<Key>; 2] {
+        self.0.parents(p)
+    }
+
+    fn birth_sort(&self, p: Key) -> Option<i32> {
+        self.0.birth_sort(p)
+    }
+
+    fn unions(&self, p: Key) -> Vec<(Option<Key>, Vec<Key>)> {
+        let marker = |k: &Key| {
+            self.0
+                .index
+                .summaries
+                .get(*k as usize)
+                .is_some_and(|s| s.sibling_marker)
+        };
+        let mut u = self.0.unions(p);
+        for (_, kids) in &mut u {
+            kids.retain(|k| !marker(k));
+        }
+        u
+    }
+}
+
+/// What a chart kind has in common with the relatives chart.
+trait ChartKindExt {
+    /// People are named by how they are related to the centred person (and the outline is by relation).
+    fn has_relations(self) -> bool;
+}
+
+impl ChartKindExt for ChartKind {
+    fn has_relations(self) -> bool {
+        matches!(self, ChartKind::Relatives | ChartKind::Around)
+    }
+}
+
 impl TreeSource<'_> {
     fn sex(&self, k: Key) -> Option<SexKind> {
         self.index.summaries.get(k as usize).map(|s| s.sex)
@@ -245,8 +285,6 @@ struct Whole {
     /// `None` for the chart of everyone; for a chart of chosen people, who they are (sorted) and whether
     /// all their descendants are on it.
     selection: Option<Selection>,
-    /// Set when the chart is arranged around this person: the same people, in another order.
-    around: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -257,7 +295,7 @@ struct Selection {
 
 impl Whole {
     fn is_plain(&self) -> bool {
-        self.selection.is_none() && self.around.is_none()
+        self.selection.is_none()
     }
 }
 
@@ -465,6 +503,13 @@ impl Session {
                 };
                 gt_layout::relatives(&src, root, &o, &m, MAX_NODES)
             }
+            ChartKind::Around => {
+                // "All generations" asks for u8::MAX. Each person is placed once, so the chart is bounded by the
+                // tree and by MAX_NODES; unnamed-siblings markers are not part of anyone's line.
+                let g =
+                    u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
+                gt_layout::around(&LineSource(&src), root, g, &m, MAX_NODES)
+            }
             ChartKind::Whole => {
                 return Err(ApiError::new(
                     ErrorCode::Invalid,
@@ -498,7 +543,7 @@ impl Session {
         let (partners, partner_owner) = partner_maps(&layout);
         let mut parents_of: HashMap<u32, Vec<u32>> = HashMap::new();
         let mut kids_of: HashMap<u32, Vec<u32>> = HashMap::new();
-        if req.kind == ChartKind::Relatives {
+        if req.kind.has_relations() {
             for e in layout.edges.iter().filter(|e| e.kind == EdgeKind::Parent) {
                 parents_of.entry(e.to).or_default().push(e.from);
                 kids_of.entry(e.from).or_default().push(e.to);
@@ -568,7 +613,7 @@ impl Session {
             !(c.kind == ChartKind::Whole && c.whole.as_ref().is_some_and(Whole::is_plain))
         });
         let input = self.whole_input();
-        Ok(self.lay_out_whole(&input, None, None, revision, reversed))
+        Ok(self.lay_out_whole(&input, None, revision, reversed))
     }
 
     /// The chart of chosen people: each of them, all their ancestors and the partners of the chosen
@@ -597,92 +642,20 @@ impl Session {
         if let Some(c) = self.charts.open.iter().find(|c| {
             c.version == revision
                 && c.reversed == reversed
-                && c.whole.as_ref().is_some_and(|w| {
-                    w.around.is_none() && w.selection.as_ref().is_some_and(|s| *s == want)
-                })
+                && c.whole
+                    .as_ref()
+                    .is_some_and(|w| w.selection.as_ref().is_some_and(|s| *s == want))
         }) {
             self.charts.touch(c);
             return Ok(whole_meta(c));
         }
         // One chart of chosen people at a time.
-        self.charts.open.retain(|c| {
-            !c.whole
-                .as_ref()
-                .is_some_and(|w| w.selection.is_some() && w.around.is_none())
-        });
-        let mut input = self.whole_input();
-        input.include = Some(include);
-        Ok(self.lay_out_whole(&input, Some(want), None, revision, reversed))
-    }
-
-    /// The whole-tree chart (or, with `people`, the chart of chosen people and whether all their descendants are on
-    /// it) with the same people in another order: `around`'s closest relatives sit near them. Nothing is changed or
-    /// saved. `NotFound` when `around` is not a person of the chart. Kept for the current tree revision; only one
-    /// arranged chart is held at a time, and it never replaces or is served in place of the plain or the
-    /// chosen-people chart.
-    pub fn chart_open_arranged(
-        &mut self,
-        around: Uuid,
-        people: Option<(&[Uuid], bool)>,
-    ) -> Result<WholeMeta, ApiError> {
-        let revision = self.charts.revision;
-        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
-        let gone = || {
-            ApiError::new(
-                ErrorCode::NotFound,
-                "The person to arrange the chart around is not on the chart any more.",
-            )
-        };
-        let slot = self
-            .index
-            .slot(around)
-            .filter(|&k| {
-                self.index
-                    .summaries
-                    .get(k as usize)
-                    .is_some_and(|s| !s.sibling_marker)
-            })
-            .ok_or_else(gone)?;
-        let (include, selection) = match people {
-            Some((chosen, all_descendants)) => {
-                let (include, kept) = self.selection_subset(chosen, all_descendants);
-                if kept.is_empty() {
-                    return Err(ApiError::new(
-                        ErrorCode::NotFound,
-                        "None of the chosen people is in the project any more.",
-                    ));
-                }
-                let want = Selection {
-                    people: kept,
-                    descendants: all_descendants,
-                };
-                (Some(include), Some(want))
-            }
-            None => (None, None),
-        };
-        if include
-            .as_ref()
-            .is_some_and(|on| !on.get(slot as usize).copied().unwrap_or(false))
-        {
-            return Err(gone());
-        }
-        if let Some(c) = self.charts.open.iter().find(|c| {
-            c.version == revision
-                && c.reversed == reversed
-                && c.whole
-                    .as_ref()
-                    .is_some_and(|w| w.around == Some(around) && w.selection == selection)
-        }) {
-            self.charts.touch(c);
-            return Ok(whole_meta(c));
-        }
-        // One arranged chart at a time.
         self.charts
             .open
-            .retain(|c| !c.whole.as_ref().is_some_and(|w| w.around.is_some()));
+            .retain(|c| !c.whole.as_ref().is_some_and(|w| w.selection.is_some()));
         let mut input = self.whole_input();
-        input.include = include;
-        Ok(self.lay_out_whole(&input, selection, Some((around, slot)), revision, reversed))
+        input.include = Some(include);
+        Ok(self.lay_out_whole(&input, Some(want), revision, reversed))
     }
 
     /// Who is on the chart of `people`: a flag per index slot, and the chosen people that exist (sorted, once each).
@@ -800,12 +773,11 @@ impl Session {
         &mut self,
         input: &WholeInput,
         selection: Option<Selection>,
-        around: Option<(Uuid, Key)>,
         revision: u64,
         reversed: bool,
     ) -> WholeMeta {
         let gt_layout::WholeLayout { layout, extras } =
-            gt_layout::whole_around(input, &Metrics::default(), reversed, around.map(|(_, k)| k));
+            gt_layout::whole_directed(input, &Metrics::default(), reversed);
         // The markers are laid out like people but are not counted as people.
         let marker_at: Vec<(f32, f32)> = layout
             .nodes
@@ -871,7 +843,6 @@ impl Session {
                 blocks,
                 markers,
                 selection,
-                around: around.map(|(id, _)| id),
             }),
         };
         charts.touch(&chart);
@@ -978,7 +949,7 @@ impl Session {
                     None
                 };
                 let relation = match (c.kind, s, n.rel) {
-                    (ChartKind::Relatives, Some(s), Some(r)) if text => {
+                    (ChartKind::Relatives | ChartKind::Around, Some(s), Some(r)) if text => {
                         Some(relation_label(r, s.sex))
                     }
                     _ => None,
@@ -987,7 +958,7 @@ impl Session {
                     let sex = s.sex;
                     if whole {
                         RoleDto::new(RoleKind::Generation, i32::from(n.r#gen) + 1, sex)
-                    } else if let (ChartKind::Relatives, Some(r)) = (c.kind, n.rel) {
+                    } else if let (true, Some(r)) = (c.kind.has_relations(), n.rel) {
                         relation_role(r, sex)
                     } else if c.partner_owner.contains_key(&n.id) {
                         RoleDto::new(RoleKind::Partner, 0, sex)
@@ -1103,7 +1074,7 @@ impl Session {
             ));
         }
         let limit = limit.min(MAX_OUTLINE);
-        if c.kind == ChartKind::Relatives {
+        if c.kind.has_relations() {
             return self.relatives_outline(c, parent, limit);
         }
         let nodes = &c.layout.nodes;

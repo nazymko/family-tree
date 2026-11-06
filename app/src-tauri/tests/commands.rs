@@ -142,7 +142,7 @@ fn every_api_method_has_a_command() {
             "no command {snake}"
         );
     }
-    assert_eq!(COMMAND_NAMES.len(), 75);
+    assert_eq!(COMMAND_NAMES.len(), 74);
     let unique: std::collections::HashSet<&&str> = COMMAND_NAMES.iter().collect();
     assert_eq!(unique.len(), COMMAND_NAMES.len(), "a command listed twice");
 }

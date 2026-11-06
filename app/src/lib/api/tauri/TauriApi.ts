@@ -187,9 +187,6 @@ export class TauriApi implements Api {
   chartOpenSelection(people: Id[], allDescendants: boolean): Promise<WholeMeta> {
     return call('chart_open_selection', { people, allDescendants });
   }
-  chartOpenArranged(around: Id, people?: Id[], allDescendants = false): Promise<WholeMeta> {
-    return call('chart_open_arranged', { around, people: people ?? null, allDescendants });
-  }
   chartLineage(chartId: number, nodeId: number): Promise<number[]> {
     return call('chart_lineage', { chartId, nodeId });
   }
