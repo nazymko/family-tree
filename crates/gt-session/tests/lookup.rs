@@ -261,7 +261,10 @@ fn every_kind_the_date_picker_writes_is_understood() {
         ("before Mar 1850", "before Mar 1850"),
         ("after 7 Mar 1850", "after 7 Mar 1850"),
         ("between 1704 and 1712", "between 1704 and 1712"),
-        ("between 1 Jan 1850 and Mar 1860", "between 1 Jan 1850 and Mar 1860"),
+        (
+            "between 1 Jan 1850 and Mar 1860",
+            "between 1 Jan 1850 and Mar 1860",
+        ),
     ] {
         let p = parse_date_preview(raw, DayOrder::Dmy);
         assert_eq!(p.status, DateStatus::Ok, "{raw}");

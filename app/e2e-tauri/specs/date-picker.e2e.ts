@@ -10,6 +10,7 @@ import { $, $$, browser, click, importSynthetic, meta, openTreeFromReport, ready
 
 const select = (label: string) => $(`//select[@id=//label[starts-with(normalize-space(.),"${label}")]/@for]`);
 const dateBox = (label: string) => $(`//input[@id=//label[starts-with(normalize-space(.),"${label}")]/@for]`);
+const EVENTS_EN = 'Events and facts';
 const nav = (name: string) => $(`//nav//a[normalize-space(.)="${name}"]`);
 
 async function openHome() {
@@ -19,9 +20,9 @@ async function openHome() {
   await $(`//h1[contains(.,"${meta().home.given}")]`).waitForDisplayed();
 }
 
-/** The Edit button in the row of this event on the person page. */
-async function editEvent(kind: string, edit: string) {
-  const b = await $(`//*[normalize-space(text())="${kind}"]/ancestor::*[.//button[normalize-space(.)="${edit}"]][1]//button[normalize-space(.)="${edit}"]`);
+/** The Edit button in the row of this event, in the events section of the person page. */
+async function editEvent(section: string, kind: string, edit: string) {
+  const b = await $(`//h2[normalize-space(.)="${section}"]/following::*[normalize-space(text())="${kind}"][1]/following::button[normalize-space(.)="${edit}"][1]`);
   await b.scrollIntoView({ block: 'center' });
   await b.waitForClickable();
   await b.click();
@@ -37,7 +38,7 @@ describe('Date picker on a death date', () => {
     await openTreeFromReport();
     await openHome();
     await click('Edit person');
-    await editEvent('Death', 'Edit');
+    await editEvent(EVENTS_EN, 'Death', 'Edit');
 
     await click('Pick a date or a range');
     await (await select('Kind of date')).selectByAttribute('value', 'between');
@@ -56,7 +57,7 @@ describe('Date picker on a death date', () => {
   });
 
   it('keeps typing in the raw text working, and the picker follows it', async () => {
-    await editEvent('Death', 'Edit');
+    await editEvent(EVENTS_EN, 'Death', 'Edit');
     const box = await dateBox('Date');
     await browser.waitUntil(async () => (await box.getValue()) === 'between 1704 and 1712', { timeoutMsg: 'opening the editor changed the stored value' });
 
@@ -81,7 +82,9 @@ describe('Date picker on a death date', () => {
     await openHome();
     await click('Змінити особу');
     await browser.waitUntil(async () => (await text()).includes('між 1704 і 1712'), { timeoutMsg: 'the saved range is not in Ukrainian on the person page' });
-    await editEvent('Смерть', 'Змінити');
+    await editEvent('Події та факти', 'Смерть', 'Змінити');
+    // Opening the editor shows the stored text as it is, not its translation, which could not be read back.
+    expect(await (await dateBox('Дата')).getValue()).toBe('between 1704 and 1712');
     await click('Вибрати дату або проміжок');
     await $('//*[@role="status"][contains(.,"Розпізнано як: між 1704 і 1712 (1704 – 1712)")]').waitForDisplayed({ timeout: 10000 });
     await browser.pause(300);
@@ -90,6 +93,9 @@ describe('Date picker on a death date', () => {
   });
 
   after(async () => {
+    // A failed step can leave a dialog open over the sidebar.
+    await browser.keys('Escape');
+    await browser.pause(300);
     await (await nav('Налаштування')).click();
     await (await select('Мова')).selectByAttribute('value', 'en');
     await $('h1=Settings').waitForDisplayed({ timeout: 20000 });
