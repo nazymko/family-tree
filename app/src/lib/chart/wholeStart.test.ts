@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { WholeBlockDto } from '../api/types';
 import { founderOf } from './wholeStart';
 
-const block = (x: number, y: number, w: number, unconnected = false): WholeBlockDto => ({ title: 't', people: 1, unconnected, rect: { x, y, w, h: 28 }, bodyH: 400 });
+const block = (x: number, y: number, w: number, unconnected = false): WholeBlockDto => ({ title: 't', surname: '', people: 1, unconnected, rect: { x, y, w, h: 28 }, bodyH: 400 });
 const card = (id: number, x: number, y: number) => ({ id, x, y, w: 176, h: 56 });
 
 describe('founderOf', () => {

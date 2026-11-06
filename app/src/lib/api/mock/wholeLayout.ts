@@ -310,7 +310,7 @@ export function layoutWhole(src: WholeSource, reversed = false): WholeResult {
       shelfH = 0;
     }
     const title = p.surname ? `${p.surname} family (${p.members.length} people)` : `Family (${p.members.length} people)`;
-    blocks.push({ title, people: p.members.length, unconnected: false, rect: { x, y, w: p.w, h: HEADING_H }, bodyH: p.out.h });
+    blocks.push({ title, surname: p.surname, people: p.members.length, unconnected: false, rect: { x, y, w: p.w, h: HEADING_H }, bodyH: p.out.h });
     const oy = y + HEADING_H + HEADING_GAP;
     // Reversed: each family is flipped inside its own block, so its heading stays above its people.
     const flipY = (v: number) => (reversed ? p.out.h - v : v);
@@ -324,6 +324,7 @@ export function layoutWhole(src: WholeSource, reversed = false): WholeResult {
     const cols = Math.max(1, Math.min(loose.length, Math.floor((shelfW + GAP_X) / (NODE_W + GAP_X))));
     blocks.push({
       title: `Unconnected people (${loose.length})`,
+      surname: '',
       people: loose.length,
       unconnected: true,
       rect: { x: 0, y, w: Math.max(MIN_BLOCK_W, cols * (NODE_W + GAP_X) - GAP_X), h: HEADING_H },

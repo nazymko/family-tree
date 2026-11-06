@@ -1,5 +1,5 @@
-import { t, type MessageKey } from '.';
-import type { LogFactDto } from '../api/types';
+import { plural, t, type MessageKey } from '.';
+import type { LogFactDto, WholeBlockDto } from '../api/types';
 import { en } from './en';
 
 /**
@@ -228,4 +228,11 @@ const LOG_KINDS = new Set(['person', 'family', 'event', 'place', 'source', 'repo
 /** The word for a record kind in the change log. */
 export function recordKindLabel(kind: string): string {
   return LOG_KINDS.has(kind) ? t(`changeLog.kind.${kind}` as MessageKey) : kind;
+}
+
+/** The heading of a group on the whole-tree chart, in the app's language. */
+export function wholeBlockTitle(b: Pick<WholeBlockDto, 'surname' | 'people' | 'unconnected'>): string {
+  if (b.unconnected) return t('whole.blockUnconnected', { n: b.people });
+  const people = plural('common.people', b.people);
+  return b.surname ? t('whole.blockFamily', { surname: b.surname, people }) : t('whole.blockNoSurname', { people });
 }
