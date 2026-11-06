@@ -1,9 +1,11 @@
 //! Shared state behind every command.
 
 use crate::agent_access::{AgentAccess, HashStore, KeychainHashes};
+use crate::ai::{KeyStore, Keychain};
 use crate::settings_file::{self, AppSettings};
 use gt_session::{ApiError, ErrorCode, ImportReportDto, Session, SessionClock};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 pub struct AppState {
@@ -14,6 +16,8 @@ pub struct AppState {
     /// Makes the clock a session opens with; tests pin the date.
     pub clock: Box<dyn Fn() -> SessionClock + Send + Sync>,
     pub agent: AgentAccess,
+    /// Where the Anthropic key is kept: the OS keychain, or (test runs) a file in the config folder.
+    pub keys: Arc<dyn KeyStore>,
 }
 
 impl AppState {
@@ -41,7 +45,14 @@ impl AppState {
             config_dir,
             clock,
             agent: AgentAccess::new(hashes),
+            keys: Arc::new(Keychain),
         }
+    }
+
+    /// Replaces the key store; a test run uses it to stay away from the owner's keychain.
+    pub fn with_keys(mut self, keys: Arc<dyn KeyStore>) -> AppState {
+        self.keys = keys;
+        self
     }
 
     /// A panic while a lock was held must not take every later command down with it.
