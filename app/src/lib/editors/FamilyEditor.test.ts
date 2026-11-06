@@ -37,6 +37,16 @@ async function loaded() {
 }
 
 describe('FamilyEditor', () => {
+  it('family_notes_are_shown_added_and_deleted', async () => {
+    const user = userEvent.setup();
+    await api.apply({ type: 'saveNote', target: { kind: 'family', id: ps.familyId }, note: { kind: 'general', text: 'They moved in spring.' } });
+    show();
+    const text = await screen.findByText('They moved in spring.');
+    await user.click(within(text.closest('article') as HTMLElement).getByRole('button', { name: /Delete/ }));
+    await waitFor(() => expect(screen.queryByText('They moved in spring.')).toBeNull());
+    expect((await api.getFamily(ps.familyId)).notes).toEqual([]);
+  });
+
   it('same_sex_couple_allowed', async () => {
     const user = userEvent.setup();
     await mkPerson('Alpha', 'Zzmaleone', 'male');

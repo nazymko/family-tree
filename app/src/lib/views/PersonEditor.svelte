@@ -29,6 +29,7 @@
   import IndexCard from '../ui/IndexCard.svelte';
   import Ribbon from '../ui/Ribbon.svelte';
   import Button from '../ui/Button.svelte';
+  import EventSummary from '../editors/EventSummary.svelte';
   import Select from '../ui/Select.svelte';
   import TextField from '../ui/TextField.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
@@ -99,6 +100,8 @@
   let loadSeq = 0;
   /** The agent event count when `detail` was read; an editor built from `detail` counts from here. */
   let detailAt = 0;
+  /** Notes on this person's own families: they belong to the family, and are read here too. */
+  let familyNotes = $state<{ familyId: string; partner: string | null; notes: NoteDto[] }[]>([]);
   let basics = $state<HTMLElement>();
   /** What was last written into the "describe" field, so anything else there is text not yet committed. */
   let sexTextShown = '';
@@ -135,8 +138,16 @@
       const d = await api.getPerson(id);
       const h = await loadRows((o, l) => api.personHistory(id, o, l), untrack(() => history.length));
       const fv = await api.getFamilyView(id).catch(() => null);
+      const fn = await Promise.all(
+        d.partnerships.map(async (p) => ({
+          familyId: p.familyId,
+          partner: p.partner?.name ?? null,
+          notes: (await api.getFamily(p.familyId).catch(() => null))?.notes ?? [],
+        })),
+      );
       if (mine !== loadSeq) return false; // a newer load is in flight
       detail = d;
+      familyNotes = fn.filter((f) => f.notes.length > 0);
       detailAt = at;
       familyView = fv;
       syncBasics(d);
@@ -487,11 +498,11 @@
       {#if detail.events.length === 0}
         <p class="empty">{t('person.noEvents')}</p>
       {:else}
-        <ul class="rows">
+        <ul class="rows events">
           {#each detail.events as e (e.id)}
             <li>
               <span class="kind">{eventKindLabel(e.kind, e.label)}</span>
-              <span class="grow">{eventLine(e) || t('person.noDateOrPlace')}</span>
+              <EventSummary event={e} />
               <Button onclick={() => (dialog = { kind: 'event', event: e })} aria-label={t('person.editNamed', { label: eventKindLabel(e.kind, e.label) })}>{t('common.edit')}</Button>
             </li>
           {/each}
@@ -568,7 +579,32 @@
           </div>
         </article>
       {:else}
-        <p class="empty">{t('person.noNotes')}</p>
+        {#if familyNotes.length === 0}<p class="empty">{t('person.noNotes')}</p>{/if}
+      {/each}
+      {#each familyNotes as fam (fam.familyId)}
+        <div class="sec-head">
+          <h3>{fam.partner ? t('person.familyNotesWith', { name: fam.partner }) : t('person.familyNotes')}</h3>
+          <Button onclick={() => (dialog = { kind: 'family', family: fam.familyId })}>{t('person.openFamily')}</Button>
+        </div>
+        {#each fam.notes as n (n.id)}
+          <article class="note">
+            <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
+            <p class="note-text">{n.text}</p>
+            <VoiceSamples items={n.media} />
+            <div class="btns">
+              <Button
+                onclick={() => (dialog = { kind: 'note', note: n, owner: { kind: 'family', id: fam.familyId } })}
+                aria-label={t('person.editNote', { kind: t(`noteKind.${n.kind}`) })}>{t('common.edit')}</Button
+              >
+              <Button
+                variant="quiet"
+                aria-label={t('person.deleteNote', { kind: t(`noteKind.${n.kind}`) })}
+                onclick={() => remove({ type: 'deleteNote', target: { kind: 'family', id: fam.familyId }, note: n.id })}
+                >{t('common.delete')}</Button
+              >
+            </div>
+          </article>
+        {/each}
       {/each}
     </section>
 
@@ -752,6 +788,9 @@
   .changed {
     flex-basis: 100%;
     padding-bottom: var(--s-2);
+  }
+  .events li {
+    align-items: baseline;
   }
   .grow {
     flex: 1;

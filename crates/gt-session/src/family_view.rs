@@ -210,5 +210,6 @@ pub fn family(s: &Session, id: Uuid) -> Result<FamilyDto, ApiError> {
         summary: union_summary(s, id),
         events: events.into_iter().map(|e| s.event_dto(e)).collect(),
         children: children.into_iter().map(|(_, c)| c).collect(),
+        notes: s.note_dtos(&f.common.notes),
     })
 }

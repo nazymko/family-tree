@@ -1,10 +1,12 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import type { EditResult, EventDto, Id, ParentRelId, PersonRef, UnionKindId } from '../api/types';
+  import type { EditResult, EventDto, Id, NoteDto, ParentRelId, PersonRef, UnionKindId } from '../api/types';
   import { getApi } from '../api/context';
   import Select from '../ui/Select.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
   import Button from '../ui/Button.svelte';
+  import EventSummary from './EventSummary.svelte';
+  import NoteEditor from './NoteEditor.svelte';
   import Dialog from '../ui/Dialog.svelte';
   import PersonPicker from './PersonPicker.svelte';
   import EventEditor from './EventEditor.svelte';
@@ -67,6 +69,7 @@
   let slot2 = $state<PersonRef | null>(null);
   let kind = $state<string>('married');
   let events = $state<EventDto[]>([]);
+  let notes = $state<NoteDto[]>([]);
   let children = $state<ChildRow[]>([]);
   let init = $state({ s1: '', s2: '', kind: 'married' });
   let loading = $state(true);
@@ -74,7 +77,7 @@
   let error = $state('');
   let childPick = $state(0);
   let dragFrom = $state<number | null>(null);
-  let sub = $state<null | { kind: 'event'; event?: EventDto } | { kind: 'child' } | { kind: 'delete' }>(null);
+  let sub = $state<null | { kind: 'event'; event?: EventDto } | { kind: 'note'; note?: NoteDto } | { kind: 'child' } | { kind: 'delete' }>(null);
 
   async function readFamily() {
     if (!family) return null;
@@ -85,6 +88,7 @@
         second: f.partners[1],
         kind: f.kind,
         events: f.events,
+        notes: f.notes,
         rows: f.children.map((c) => ({ person: c.person, rel: c.rel, preferred: c.preferred }) satisfies ChildRow),
       };
     } catch (e) {
@@ -122,7 +126,7 @@
         return { person: c.person, rel: c.rel, preferred: ps?.preferred ?? false } satisfies ChildRow;
       }),
     );
-    return { first, second: own.partner, kind: own.kind, events: own.events, rows };
+    return { first, second: own.partner, kind: own.kind, events: own.events, notes: [] as NoteDto[], rows };
   }
 
   async function reload(initial: boolean) {
@@ -133,6 +137,7 @@
         const f = await readFamily();
         if (f) {
           events = f.events;
+          notes = f.notes;
           children = f.rows;
           if (initial) {
             slot1 = f.first;
@@ -306,16 +311,35 @@
       {#if events.length === 0}
         <p class="empty">{t('famEd.noUnionEvents')}</p>
       {:else}
-        <ul class="rows">
+        <ul class="rows events">
           {#each events as e (e.id)}
             <li>
               <span class="kind">{eventKindLabel(e.kind, e.label)}</span>
-              <span class="grow">{[e.date?.display, e.place?.full].filter(Boolean).join(', ') || t('person.noDateOrPlace')}</span>
+              <EventSummary event={e} />
               <Button onclick={() => (sub = { kind: 'event', event: e })} aria-label={t('person.editNamed', { label: eventKindLabel(e.kind, e.label) })}>{t('common.edit')}</Button>
             </li>
           {/each}
         </ul>
       {/if}
+    </section>
+
+    <section aria-labelledby="{uid}-no">
+      <div class="sec-head">
+        <h3 id="{uid}-no">{t('person.notes')}</h3>
+        <Button onclick={() => (sub = { kind: 'note' })}>{t('editor.addNote')}</Button>
+      </div>
+      {#each notes as n (n.id)}
+        <article class="note">
+          <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
+          <p class="note-text">{n.text}</p>
+          <div class="note-btns">
+            <Button onclick={() => (sub = { kind: 'note', note: n })} aria-label={t('person.editNote', { kind: t(`noteKind.${n.kind}`) })}>{t('common.edit')}</Button>
+            <Button variant="quiet" onclick={() => family && immediate({ type: 'deleteNote', target: { kind: 'family', id: family }, note: n.id })} aria-label={t('person.deleteNote', { kind: t(`noteKind.${n.kind}`) })}>{t('common.delete')}</Button>
+          </div>
+        </article>
+      {:else}
+        <p class="empty">{t('person.noNotes')}</p>
+      {/each}
     </section>
 
     <section aria-labelledby="{uid}-ch">
@@ -434,6 +458,19 @@
       }}
     />
   </SubEditors>
+{:else if sub?.kind === 'note' && family}
+  <SubEditors>
+    <NoteEditor
+      target={{ kind: 'family', id: family }}
+      note={sub.note}
+      onCancel={() => (sub = null)}
+      onSaved={(r) => {
+        sub = null;
+        onChanged?.(r);
+        void reload(false);
+      }}
+    />
+  </SubEditors>
 {:else if sub?.kind === 'child' && childAnchor && family}
   <SubEditors>
     <QuickAdd
@@ -487,8 +524,26 @@
     min-height: 2.5rem;
     border-top: 1px solid var(--rule);
   }
-  .grow {
-    flex: 1;
+  .note {
+    padding-block: var(--s-3);
+    border-top: 1px solid var(--rule);
+  }
+  .note-kind {
+    margin: 0 0 var(--s-1);
+    font-size: var(--fs-xs, 0.75rem);
+    color: var(--ink-1);
+  }
+  .note-text {
+    margin: 0 0 var(--s-2);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .note-btns {
+    display: flex;
+    gap: var(--s-2);
+  }
+  .events li {
+    align-items: baseline;
   }
   .kind {
     min-width: 7rem;

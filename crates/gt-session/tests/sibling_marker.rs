@@ -314,6 +314,29 @@ fn marker_belongs_to_its_one_family() {
     s.verify_derived_state().unwrap();
 }
 
+#[test]
+fn a_family_reads_back_with_its_notes() {
+    let (_d, mut s) = open_tree(&tree_of(WITH_SISTER));
+    let hans = find(s.tree(), "Hans");
+    let family = family_of(&s, hans);
+    assert!(s.get_family(family).unwrap().notes.is_empty());
+    s.apply(EditCommand::SaveNote {
+        target: OwnerRef {
+            kind: OwnerKind::Family,
+            id: family,
+        },
+        note: NoteInput {
+            id: None,
+            kind: NoteKindDto::General,
+            text: "They moved in spring.".into(),
+        },
+    })
+    .unwrap();
+    let notes = s.get_family(family).unwrap().notes;
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0].text, "They moved in spring.");
+}
+
 fn marker_of_hans(s: &mut Session) -> (Uuid, Uuid) {
     let hans = find(s.tree(), "Hans");
     let fam = family_of(s, hans);
