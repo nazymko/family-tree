@@ -3,6 +3,7 @@
   import { getApi } from '../api/context';
   import { settings } from '../state/settings.svelte';
   import { t } from '../i18n';
+  import { dateText } from '../i18n/backend';
 
   let { value = $bindable(''), label = 'Date' }: { value?: string; label?: string } = $props();
   const api = getApi();
@@ -19,7 +20,7 @@
     const mine = ++seq;
     void api.parseDate(raw, order).then((p) => {
       if (mine !== seq) return;
-      hint = p.status === 'unparsed' ? t('fields.notUnderstoodHint') : t('fields.understoodHint', { text: p.understoodAs });
+      hint = p.status === 'unparsed' ? t('fields.notUnderstoodHint') : t('fields.understoodHint', { text: dateText(p.understoodAs) });
     });
   });
 </script>

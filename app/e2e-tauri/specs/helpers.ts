@@ -114,6 +114,15 @@ export async function relaunch() {
   await ready();
 }
 
+/** The window itself never scrolls: only the panes inside it do. A document taller than the window is a second scrollbar. */
+export async function expectNoWindowScroll(where: string) {
+  const over = await browser.execute(() => {
+    const d = document.documentElement;
+    return { y: d.scrollHeight - d.clientHeight, x: d.scrollWidth - d.clientWidth };
+  });
+  if (over.y > 0 || over.x > 0) throw new Error(`${where}: the window scrolls by ${over.y} down and ${over.x} across`);
+}
+
 export async function goTo(item: 'Family' | 'People' | 'Pedigree' | 'Descendants' | 'Sources' | 'Media' | 'Settings') {
   const a = await $(`//nav[@aria-label="Main"]//a[normalize-space(.)="${item}"]`);
   await a.waitForClickable();

@@ -42,3 +42,62 @@ export function parseDateParts(raw: string): DateParts | null {
   if (day && (Number(day) < 1 || Number(day) > daysInMonth(Number(year), index + 1))) return null;
   return { year, month: String(index + 1), day: day ? String(Number(day)) : '' };
 }
+
+export type DateKind = 'exact' | 'about' | 'before' | 'after' | 'between';
+
+/** One date or range as the date picker shows it: a kind and one date (two for "between"). */
+export interface DateChoice {
+  kind: DateKind;
+  a: DateParts;
+  b: DateParts;
+}
+
+const EMPTY: DateParts = { year: '', month: '', day: '' };
+const QUALIFIER: Record<string, DateKind> = { about: 'about', abt: 'about', bef: 'before', before: 'before', aft: 'after', after: 'after' };
+
+export const emptyChoice = (): DateChoice => ({ kind: 'exact', a: { ...EMPTY }, b: { ...EMPTY } });
+
+/**
+ * The raw text for a choice, in words the backend parser reads ("about 1850", "between 1 Jan 1850 and 1860"), or null
+ * while a range is still missing a year (nothing is written then, so half a range never replaces the text).
+ */
+export function composeChoice(c: DateChoice): string | null {
+  const a = composeDate(c.a);
+  if (c.kind === 'exact') return a;
+  if (c.kind === 'between') {
+    const b = composeDate(c.b);
+    return a && b ? `between ${a} and ${b}` : null;
+  }
+  return a ? `${c.kind} ${a}` : null;
+}
+
+/** The choice that shows a raw date exactly, or null for anything else (a phrase, 03.04.1901, "from … to …"). */
+export function parseChoice(raw: string): DateChoice | null {
+  const text = raw.trim();
+  const between = /^bet(?:ween)?\.?\s+(.+?)\s+and\s+(.+)$/i.exec(text);
+  if (between) {
+    const a = parseDateParts(between[1]);
+    const b = parseDateParts(between[2]);
+    return a && b ? { kind: 'between', a, b } : null;
+  }
+  const q = /^(about|abt|bef|before|aft|after)\.?\s+(.+)$/i.exec(text);
+  if (q) {
+    const a = parseDateParts(q[2]);
+    return a ? { kind: QUALIFIER[q[1].toLowerCase()], a, b: { ...EMPTY } } : null;
+  }
+  const a = parseDateParts(text);
+  return a ? { kind: 'exact', a, b: { ...EMPTY } } : null;
+}
+
+/** "2024-05-07" (a native date control's value) to parts; null for an empty or malformed value. */
+export function partsFromIso(iso: string): DateParts | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m || Number(m[1]) < 1) return null;
+  return { year: String(Number(m[1])), month: String(Number(m[2])), day: String(Number(m[3])) };
+}
+
+/** Parts to a native date control's value, or '' unless year, month and day are all given. */
+export function isoFromParts({ year, month, day }: DateParts): string {
+  if (!isYear(year) || !month || !day) return '';
+  return `${year.padStart(4, '0')}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+}

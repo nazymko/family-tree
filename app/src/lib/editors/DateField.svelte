@@ -4,7 +4,9 @@
   import { getApi } from '../api/context';
   import TextField from '../ui/TextField.svelte';
   import Icon from '../ui/Icon.svelte';
+  import DateBuilder from './DateBuilder.svelte';
   import { t } from '../i18n';
+  import { dateRangeText, dateText, dateWarningText } from '../i18n/backend';
 
   let {
     label,
@@ -12,13 +14,17 @@
     onChange,
     onPreview,
     order,
+    picker = true,
   }: {
     label: string;
     value: string;
     onChange: (raw: string) => void;
     onPreview?: (p: DatePreview) => void;
     order: DayOrder;
+    /** A date picker (one date, about, before, after, between) that fills the text; off where the parent has its own. */
+    picker?: boolean;
   } = $props();
+  let picking = $state(false);
 
   const api = getApi();
   // svelte-ignore state_referenced_locally
@@ -71,19 +77,37 @@
   <TextField {label} bind:value={text} {oninput} autocomplete="off" />
   <div class="status" role="status" aria-live="polite">
     {#if preview?.status === 'ok'}
-      <span class="ok">{t('fields.understoodAs', { text: preview.understoodAs })}{preview.range ? ` (${preview.range})` : ''}</span>
+      <span class="ok">{t('fields.understoodAs', { text: dateText(preview.understoodAs) })}{preview.range ? ` (${dateRangeText(preview.range)})` : ''}</span>
     {:else if preview?.status === 'phrase'}
-      <span class="ok">Saved as a phrase: "{preview.raw}"</span>
+      <span class="ok">{t('fields.savedAsPhrase', { raw: preview.raw })}</span>
     {:else if preview?.status === 'unparsed'}
       <span class="warn"><Icon name="warning" /> {t('fields.notUnderstood')}</span>
     {/if}
     {#if preview}
-      {#each preview.warnings as w (w)}<span class="note">{w}</span>{/each}
+      {#each preview.warnings as w (w)}<span class="note">{dateWarningText(w)}</span>{/each}
     {/if}
   </div>
+  {#if picker}
+    <button type="button" class="switch" aria-expanded={picking} onclick={() => (picking = !picking)}>
+      {picking ? t('fields.datePickerHide') : t('fields.datePickerShow')}
+    </button>
+    {#if picking}<DateBuilder {value} {onChange} />{/if}
+  {/if}
 </div>
 
 <style>
+  .switch {
+    justify-self: start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: var(--t-sm);
+    line-height: var(--t-sm-lh);
+    text-decoration: underline;
+    cursor: pointer;
+  }
   .date {
     display: grid;
     gap: var(--s-2);

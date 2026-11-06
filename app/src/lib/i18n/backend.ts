@@ -194,6 +194,24 @@ export function dateText(display: string): string {
   return display;
 }
 
+/** The range under a date field ("1704 to 1712", "3 Apr 1901 to 9 Apr 1901") in the active language. */
+export function dateRangeText(range: string): string {
+  const [a, b, ...rest] = range.split(' to ');
+  return b !== undefined && rest.length === 0 ? t('fields.understoodRange', { a: dateText(a), b: dateText(b) }) : range;
+}
+
+const DATE_WARNINGS: Record<string, MessageKey> = {
+  'Day and month are ambiguous; read as DMY': 'fields.dateAmbiguousDmy',
+  'Day and month are ambiguous; read as MDY': 'fields.dateAmbiguousMdy',
+  'Double year: the first year is Old Style, the second New Style.': 'fields.dateDualYear',
+};
+
+/** A warning from the date parser in the active language. */
+export function dateWarningText(warning: string): string {
+  const key = DATE_WARNINGS[warning];
+  return key ? t(key) : warning;
+}
+
 function dateGrammar(display: string): string | null {
   const between = /^between (.+) and (.+)$/.exec(display);
   const fromTo = /^from (.+) to (.+)$/.exec(display);
