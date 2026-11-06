@@ -395,7 +395,7 @@ pub fn relatives(
     m: &Metrics,
     max_nodes: usize,
 ) -> Layout {
-    lay_out(src, root, o, true, m, max_nodes)
+    lay_out(src, root, o, true, false, m, max_nodes)
 }
 
 /// The chart "built around" one person: only their own line. The person stands in the middle, their
@@ -414,7 +414,7 @@ pub fn around(
         generations,
         aunts: false,
     };
-    lay_out(src, root, &o, false, m, max_nodes)
+    lay_out(src, root, &o, false, false, m, max_nodes)
 }
 
 /// [`around`] with the person's brothers and sisters beside them, each with their partners and descendants.
@@ -430,7 +430,7 @@ pub fn around_with_siblings(
         generations,
         aunts: false,
     };
-    lay_out(src, root, &o, true, m, max_nodes)
+    lay_out(src, root, &o, true, true, m, max_nodes)
 }
 
 fn lay_out(
@@ -438,6 +438,7 @@ fn lay_out(
     root: Key,
     o: &RelativesOptions,
     siblings: bool,
+    centred: bool,
     m: &Metrics,
     max_nodes: usize,
 ) -> Layout {
@@ -541,8 +542,8 @@ fn lay_out(
         let ghi = acc.iter().map(|c| c.1).fold(f32::NEG_INFINITY, f32::max);
         // One person alone in the group (the chart of one line): the person's box, not the whole family
         // below, is what the parents stand over, so the group is made symmetric about the box.
+        let pv = -(uw(&units[group[0]]) - m.node_w) / 2.0;
         let (glo, ghi, pivot) = if !siblings && group.len() == 1 {
-            let pv = -(uw(&units[group[0]]) - m.node_w) / 2.0;
             let half = (pv - glo).max(ghi - pv);
             (pv - half, pv + half, pv)
         } else {
@@ -550,25 +551,55 @@ fn lay_out(
         };
         let gw = ghi - glo;
         let gplace: Vec<f32> = places.iter().map(|p| p - glo).collect();
-        let w = up_w.max(gw);
-        let mut x = (w - up_w) / 2.0;
-        let mut offs = Vec::new();
-        let mut centres = Vec::new();
-        for &u in &ups {
-            offs.push(x);
-            centres.push(x + blocks[u].acx);
-            x += blocks[u].w + gap;
-        }
-        let target = if centres.is_empty() {
-            w / 2.0
+        let anchor_k = group.iter().position(|&u| u == blocks[i].anchor);
+        let (w, offs, goff, acx);
+        if centred && siblings {
+            // The anchor's box, not the middle of the whole group, stands under the parents: brothers
+            // and sisters (and their families) spread to either side and the block widens to hold them.
+            let pv = -(uw(&units[blocks[i].anchor]) - m.node_w) / 2.0;
+            let ag = anchor_k.map_or(gw / 2.0, |k| gplace[k] + pv);
+            let mut x = 0.0;
+            let mut centres = Vec::new();
+            for &u in &ups {
+                centres.push(x + blocks[u].acx);
+                x += blocks[u].w + gap;
+            }
+            let t0 = if centres.is_empty() {
+                ag
+            } else {
+                centres.iter().sum::<f32>() / centres.len() as f32
+            };
+            let s = (ag - t0).max(0.0);
+            let mut o = Vec::new();
+            let mut x = s;
+            for &u in &ups {
+                o.push(x);
+                x += blocks[u].w + gap;
+            }
+            offs = o;
+            goff = (t0 + s - ag).max(0.0);
+            w = (up_w + s).max(goff + gw);
+            acx = goff + ag;
         } else {
-            centres.iter().sum::<f32>() / centres.len() as f32
-        };
-        let goff = (target - gw / 2.0).clamp(0.0, (w - gw).max(0.0));
-        let acx = group
-            .iter()
-            .position(|&u| u == blocks[i].anchor)
-            .map_or(0.0, |k| goff + gplace[k] + pivot);
+            let wv = up_w.max(gw);
+            let mut x = (wv - up_w) / 2.0;
+            let mut o = Vec::new();
+            let mut centres = Vec::new();
+            for &u in &ups {
+                o.push(x);
+                centres.push(x + blocks[u].acx);
+                x += blocks[u].w + gap;
+            }
+            let target = if centres.is_empty() {
+                wv / 2.0
+            } else {
+                centres.iter().sum::<f32>() / centres.len() as f32
+            };
+            goff = (target - gw / 2.0).clamp(0.0, (wv - gw).max(0.0));
+            acx = anchor_k.map_or(0.0, |k| goff + gplace[k] + pivot);
+            w = wv;
+            offs = o;
+        }
         let blk = &mut blocks[i];
         blk.gplace = gplace;
         blk.w = w;

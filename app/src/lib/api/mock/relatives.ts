@@ -116,7 +116,7 @@ export function layoutAround(root: Id, generations: number, src: RustLayoutSourc
   return layoutRelatives(root, generations, false, src, false);
 }
 
-export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean, src: RustLayoutSource, siblings = true): RelLayout {
+export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean, src: RustLayoutSource, siblings = true, centred = false): RelLayout {
   const generations = Math.max(1, generationsIn);
   const nodes: N[] = [];
   const rels: Rel[] = [];
@@ -293,19 +293,45 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     }
     const gw = ghi - glo;
     const gplace = places.map((p) => p - glo);
-    const w = Math.max(upW, gw);
-    let x = (w - upW) / 2;
-    const offs: number[] = [];
-    const centres: number[] = [];
-    for (const u of b.ups) {
-      offs.push(x);
-      centres.push(x + blocks[u].acx);
-      x += blocks[u].w + gap;
-    }
-    const target = centres.length ? centres.reduce((s, c) => s + c, 0) / centres.length : w / 2;
-    const goff = Math.min(Math.max(w - gw, 0), Math.max(0, target - gw / 2));
     const ai = b.group.indexOf(b.anchor);
-    const acx = ai >= 0 ? goff + gplace[ai] + pivot : 0;
+    let w: number;
+    let goff: number;
+    let acx: number;
+    let offs: number[] = [];
+    if (centred && siblings) {
+      // The anchor's box, not the middle of the whole group, stands under the parents: brothers and sisters
+      // (and their families) spread to either side and the block widens to hold them.
+      const pv = -(uw(units[b.anchor]) - M.nodeW) / 2;
+      const ag = ai >= 0 ? gplace[ai] + pv : gw / 2;
+      let x0 = 0;
+      const cs: number[] = [];
+      for (const u of b.ups) {
+        cs.push(x0 + blocks[u].acx);
+        x0 += blocks[u].w + gap;
+      }
+      const t0 = cs.length ? cs.reduce((s, c) => s + c, 0) / cs.length : ag;
+      const sh = Math.max(0, ag - t0);
+      let x = sh;
+      for (const u of b.ups) {
+        offs.push(x);
+        x += blocks[u].w + gap;
+      }
+      goff = Math.max(0, t0 + sh - ag);
+      w = Math.max(upW + sh, goff + gw);
+      acx = goff + ag;
+    } else {
+      w = Math.max(upW, gw);
+      let x = (w - upW) / 2;
+      const centres: number[] = [];
+      for (const u of b.ups) {
+        offs.push(x);
+        centres.push(x + blocks[u].acx);
+        x += blocks[u].w + gap;
+      }
+      const target = centres.length ? centres.reduce((s, c) => s + c, 0) / centres.length : w / 2;
+      goff = Math.min(Math.max(w - gw, 0), Math.max(0, target - gw / 2));
+      acx = ai >= 0 ? goff + gplace[ai] + pivot : 0;
+    }
     b.gplace = gplace;
     b.w = w;
     b.upOff = offs;
