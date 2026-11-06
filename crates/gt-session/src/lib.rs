@@ -16,6 +16,7 @@ pub mod index;
 pub mod kinship;
 pub mod log;
 pub mod merge;
+pub use merge::{CopySizeDto, CopyZipDto, MergePreviewDto, MergeResultDto};
 pub mod names;
 pub mod ops;
 pub mod person_detail;
