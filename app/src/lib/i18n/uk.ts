@@ -1688,6 +1688,8 @@ export const uk: Messages = {
     badgeTitle: 'Агент змінив цю особу. Ще не переглянуто.',
     badgeLabel: 'Змінено агентом',
     panelTitle: 'Що змінив агент',
+    panelCount: '{unreviewed} не переглянуто, усього {total}',
+    panelTotal: { one: '{n} зміна', few: '{n} зміни', many: '{n} змін', other: '{n} зміни' },
     edit: 'Редагувати',
     editWhat: 'Редагувати: {what}',
     undoWhat: 'Скасувати: {what}',

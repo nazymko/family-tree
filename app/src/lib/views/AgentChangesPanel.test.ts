@@ -447,7 +447,7 @@ describe('edit reaches every record an agent can change on this page', () => {
 
 describe('paging of the agent rows and the history past the backend page', () => {
   const many = (w: World, n: number) => w.platform.simulateAgentBatch(w.raw, { changes: Array.from({ length: n }, (_, i) => ({ person: w.d.ref.id, note: `Agent note ${i}` })) });
-  const panelRows = () => document.querySelectorAll('section[aria-labelledby$="-h"] > ul > li').length;
+  const panelRows = () => document.querySelectorAll('section[aria-labelledby$="-h"] details > .body > ul > li').length;
   const historyRows = () => document.querySelectorAll('section[aria-labelledby="h-history"] ul.rows li').length;
 
   it('the_panel_shows_twenty_rows_then_show_more', async () => {
@@ -569,7 +569,7 @@ describe('a reload and Show more at the same time', () => {
     w.platform.simulateAgentBatch(w.raw, { changes: Array.from({ length: 25 }, (_, i) => ({ person: w.d.ref.id, note: `Agent note ${i}` })) });
     await open(w);
     const p = await panel();
-    const count = () => document.querySelectorAll('section[aria-labelledby$="-h"] > ul > li').length;
+    const count = () => document.querySelectorAll('section[aria-labelledby$="-h"] details > .body > ul > li').length;
     await waitFor(() => expect(count()).toBe(20));
     const real = w.raw.personAgentChanges.bind(w.raw);
     let release: () => void = () => {};
@@ -589,5 +589,60 @@ describe('a reload and Show more at the same time', () => {
     release();
     await new Promise((r) => setTimeout(r, 50));
     expect(count()).toBe(25);
+  });
+});
+
+describe('the panel is folded and says how many are left', () => {
+  function changed(w: World, n: number) {
+    for (let i = 0; i < n; i++) {
+      w.platform.simulateAgentBatch(w.raw, {
+        changes: [{ person: w.d.ref.id, note: `Note ${i}`, fields: [field('text', null, `Note ${i}`)] }],
+      });
+    }
+  }
+  const count = () => screen.findByTestId('agent-count');
+  const shown = async () => (await count()).querySelector('[aria-hidden]')!.textContent;
+
+  it('starts_folded_with_unreviewed_of_total', async () => {
+    const w = await world();
+    changed(w, 3);
+    await open(w);
+    const p = await panel();
+    expect(p.querySelector('details')!.open).toBe(false);
+    await waitFor(async () => expect(await shown()).toBe('3/3'));
+    expect(await count()).toHaveAttribute('title', '3 not reviewed, of 3');
+  });
+
+  it('shows_only_the_total_when_all_are_reviewed', async () => {
+    const w = await world();
+    changed(w, 2);
+    await open(w);
+    await waitFor(async () => expect(await shown()).toBe('2/2'));
+    await w.api.markReviewed({ kind: 'person', id: w.d.ref.id });
+    await agentChanges.reload();
+    await waitFor(async () => expect(await shown()).toBe('2'));
+    expect(await count()).toHaveAttribute('title', '2 changes');
+  });
+
+  it('opens_on_a_click_and_the_review_button_is_inside', async () => {
+    const w = await world();
+    changed(w, 1);
+    await open(w);
+    const p = await panel();
+    await w.user.click(within(p).getByRole('heading', { name: 'What an agent changed' }));
+    expect(p.querySelector('details')!.open).toBe(true);
+    await w.user.click(await within(p).findByRole('button', { name: 'Reviewed' }));
+    await waitFor(async () => expect(await shown()).toBe('1'));
+  });
+
+  it('counts_in_ukrainian', async () => {
+    const w = await world();
+    changed(w, 5);
+    setLanguage('uk');
+    render(PersonEditor, { props: { id: w.d.ref.id }, context: apiContext(w.api, w.platform) });
+    await waitFor(async () => expect(await count()).toHaveAttribute('title', '5 не переглянуто, усього 5'));
+    await w.api.markReviewed({ kind: 'person', id: w.d.ref.id });
+    await agentChanges.reload();
+    await waitFor(async () => expect(await count()).toHaveAttribute('title', '5 змін'));
   });
 });

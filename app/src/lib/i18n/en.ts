@@ -1689,6 +1689,8 @@ export const en = {
     badgeTitle: 'An agent changed this person. Not yet reviewed.',
     badgeLabel: 'Changed by an agent',
     panelTitle: 'What an agent changed',
+    panelCount: '{unreviewed} not reviewed, of {total}',
+    panelTotal: { one: '{n} change', other: '{n} changes' },
     edit: 'Edit',
     editWhat: 'Edit {what}',
     undoWhat: 'Undo {what}',
