@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 //! More merge cases: photos, records that point at something removed, an older owner tree, an
 //! older schema in the copy, and the property that no change is lost silently.
 

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 //! Merging a relative's copy: the must-never-happen list, the zip, and a full round trip.
 //! Trees are built through the session API, so their change logs are the real ones.
 
@@ -592,7 +593,8 @@ fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
 fn hostile_zips_are_refused_in_plain_words() {
     let mut f = family();
     let dir = tempfile::tempdir().unwrap();
-    let cases: Vec<(&str, Vec<(&str, &[u8])>)> = vec![
+    type Entries<'a> = Vec<(&'a str, &'a [u8])>;
+    let cases: Vec<(&str, Entries)> = vec![
         ("traversal", vec![("tree.db", b"x"), ("../evil.txt", b"x")]),
         ("no database", vec![("readme.txt", b"hi")]),
         (
