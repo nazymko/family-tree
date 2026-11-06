@@ -24,6 +24,11 @@ async function openHome() {
 async function sendCopy(zip: string) {
   await click('Export');
   await click('Send a copy as a zip…');
+  await $('//h2[normalize-space(.)="Send a copy to a relative"]').waitForDisplayed({ timeout: 20000 });
+  await browser.waitUntil(async () => /Size of the file: about/.test(await text()), {
+    timeout: 60000,
+    timeoutMsg: 'the size of the copy was never shown',
+  });
   // The warning must name what the copy holds, and the size, before anything is made.
   const body = await text();
   expect(body).toContain('Living people');
