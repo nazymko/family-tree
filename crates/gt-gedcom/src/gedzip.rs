@@ -672,7 +672,10 @@ mod tests {
         let out = tempfile::tempdir().unwrap();
         extract_zip_file(&z, out.path(), "tree.db").unwrap();
         assert_eq!(std::fs::read(out.path().join("tree.db")).unwrap(), b"db");
-        assert_eq!(std::fs::read(out.path().join("media/ab/abc.jpg")).unwrap(), b"img");
+        assert_eq!(
+            std::fs::read(out.path().join("media/ab/abc.jpg")).unwrap(),
+            b"img"
+        );
         let (_keep2, other) = zip_file(&[("other.db", b"x")]);
         let out2 = tempfile::tempdir().unwrap();
         assert!(matches!(

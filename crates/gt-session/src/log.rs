@@ -31,9 +31,14 @@ const FIELD_PREVIEW: usize = 200;
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ActorDto {
     User,
-    Agent { id: Uuid, name: String },
+    Agent {
+        id: Uuid,
+        name: String,
+    },
     /// A relative's edit taken in by merging their copy; `name` is whose copy.
-    Copy { name: String },
+    Copy {
+        name: String,
+    },
     BeforeTracking,
 }
 

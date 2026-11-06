@@ -65,17 +65,19 @@ pub(crate) struct OpenedCopy {
 /// Plain words for a zip that cannot be used.
 pub(crate) fn zip_refusal(e: GedzipError) -> ApiError {
     match e {
-        GedzipError::Io(e) => ApiError::new(ErrorCode::Io, format!("Cannot read the zip file: {e}")),
+        GedzipError::Io(e) => {
+            ApiError::new(ErrorCode::Io, format!("Cannot read the zip file: {e}"))
+        }
         GedzipError::Zip(_) => refuse("This is not a zip file Gene Tree can read."),
-        GedzipError::MissingEntry(_) | GedzipError::MissingGedcom => refuse(
-            "This zip file is not a copy of a Gene Tree tree: it has no tree.db.",
-        ),
+        GedzipError::MissingEntry(_) | GedzipError::MissingGedcom => {
+            refuse("This zip file is not a copy of a Gene Tree tree: it has no tree.db.")
+        }
         GedzipError::TooManyEntries(_)
         | GedzipError::EntryTooLarge(_)
         | GedzipError::TotalTooLarge
-        | GedzipError::RatioTooHigh(_) => refuse(
-            "This zip file is far larger than a family tree can be, so it was not opened.",
-        ),
+        | GedzipError::RatioTooHigh(_) => {
+            refuse("This zip file is far larger than a family tree can be, so it was not opened.")
+        }
         GedzipError::UnsafePath(_)
         | GedzipError::Symlink(_)
         | GedzipError::Encrypted(_)
@@ -108,7 +110,9 @@ pub(crate) fn open_copy(source: &Path) -> Result<OpenedCopy, ApiError> {
     let meta = std::fs::symlink_metadata(source)
         .map_err(|_| refuse("Cannot find that folder or file. Choose the copy again."))?;
     if meta.file_type().is_symlink() {
-        return Err(refuse("A link is not a copy. Choose the folder or file itself."));
+        return Err(refuse(
+            "A link is not a copy. Choose the folder or file itself.",
+        ));
     }
     let source_name = source
         .file_stem()
@@ -119,8 +123,9 @@ pub(crate) fn open_copy(source: &Path) -> Result<OpenedCopy, ApiError> {
     let media_root;
     if meta.is_dir() {
         let db = source.join(DB_FILE);
-        let db_meta = std::fs::symlink_metadata(&db)
-            .map_err(|_| refuse("This folder is not a copy of a Gene Tree tree: it has no tree.db."))?;
+        let db_meta = std::fs::symlink_metadata(&db).map_err(|_| {
+            refuse("This folder is not a copy of a Gene Tree tree: it has no tree.db.")
+        })?;
         if db_meta.file_type().is_symlink() || !db_meta.is_file() {
             return Err(refuse(
                 "This folder is not a copy of a Gene Tree tree: it has no tree.db.",
@@ -134,7 +139,9 @@ pub(crate) fn open_copy(source: &Path) -> Result<OpenedCopy, ApiError> {
         std::fs::copy(&db, scratch.path().join(DB_FILE)).map_err(|e| io_err("read", &db, &e))?;
         // A copy made while its app was open still has part of its data in the write-ahead file.
         let wal = source.join("tree.db-wal");
-        if wal.is_file() && std::fs::symlink_metadata(&wal).is_ok_and(|m| !m.file_type().is_symlink()) {
+        if wal.is_file()
+            && std::fs::symlink_metadata(&wal).is_ok_and(|m| !m.file_type().is_symlink())
+        {
             std::fs::copy(&wal, scratch.path().join("tree.db-wal"))
                 .map_err(|e| io_err("read", &wal, &e))?;
         }
@@ -238,13 +245,15 @@ impl Session {
             return Err(refuse("Choose a file name for the zip file."));
         }
         if crate::transfer::inside_project(&self.project.dir, dest) {
-            return Err(refuse("Choose a place outside the tree's own folder for the zip file."));
+            return Err(refuse(
+                "Choose a place outside the tree's own folder for the zip file.",
+            ));
         }
         let stage = partial_file(dest);
         let _ = std::fs::remove_file(&stage);
-        let made = self.build_zip(&stage).and_then(|()| {
-            std::fs::rename(&stage, dest).map_err(|e| io_err("create", dest, &e))
-        });
+        let made = self
+            .build_zip(&stage)
+            .and_then(|()| std::fs::rename(&stage, dest).map_err(|e| io_err("create", dest, &e)));
         if made.is_err() {
             let _ = std::fs::remove_file(&stage);
         }
@@ -301,7 +310,11 @@ impl Session {
         };
         add(&mut zw, &db, DB_FILE, deflated)?;
         for (path, name) in media_files(&self.project.dir.join("media")) {
-            let opts = if already_compressed(&name) { stored } else { deflated };
+            let opts = if already_compressed(&name) {
+                stored
+            } else {
+                deflated
+            };
             add(&mut zw, &path, &name, opts)?;
         }
         let mut inner = zw.finish().map_err(zip_err)?;
@@ -317,7 +330,9 @@ pub fn open_received_copy(zip_file: &Path, dest: &Path) -> Result<(), ApiError> 
     if !zip_file.is_file() {
         return Err(refuse("Choose the zip file you received."));
     }
-    if dest.exists() && !(dest.is_dir() && std::fs::read_dir(dest).is_ok_and(|mut d| d.next().is_none())) {
+    if dest.exists()
+        && !(dest.is_dir() && std::fs::read_dir(dest).is_ok_and(|mut d| d.next().is_none()))
+    {
         return Err(ApiError::new(
             ErrorCode::Conflict,
             format!(

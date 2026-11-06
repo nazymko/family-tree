@@ -14,9 +14,14 @@ use std::collections::HashSet;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Actor {
     User,
-    Agent { id: Uuid, name: String },
+    Agent {
+        id: Uuid,
+        name: String,
+    },
     /// A relative's edit taken in by merging their copy of the tree; `name` is whose copy.
-    Copy { name: String },
+    Copy {
+        name: String,
+    },
 }
 
 /// Author data stored with one change set.

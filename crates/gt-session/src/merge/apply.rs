@@ -7,7 +7,7 @@ use crate::command::UndoReport;
 use crate::error::{ApiError, ErrorCode};
 use crate::ops::apply_to_tree_tracked;
 use crate::session::Session;
-use gt_store::{Actor, Batch, BackupReason, ChangeSet, LogFilter, LogMeta};
+use gt_store::{Actor, BackupReason, Batch, ChangeSet, LogFilter, LogMeta};
 use std::io::{Read, Write};
 use std::path::Path;
 use uuid::Uuid;
@@ -80,9 +80,8 @@ impl Session {
         if plan.token != token || plan.stamp != self.project.log_stamp()? {
             return Err(stale());
         }
-        let left_for_you = plan.preview.undecided.len()
-            + plan.preview.removed.len()
-            + plan.preview.blocked.len();
+        let left_for_you =
+            plan.preview.undecided.len() + plan.preview.removed.len() + plan.preview.blocked.len();
         let mut result = MergeResultDto {
             batch: Uuid::nil(),
             name: plan.name.clone(),

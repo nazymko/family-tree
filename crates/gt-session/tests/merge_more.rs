@@ -26,10 +26,12 @@ fn koval(given: &str) -> PersonDraft {
 }
 
 fn add(s: &mut Session, given: &str) -> Uuid {
-    s.apply(EditCommand::CreatePerson { draft: koval(given) })
-        .unwrap()
-        .focus
-        .unwrap()
+    s.apply(EditCommand::CreatePerson {
+        draft: koval(given),
+    })
+    .unwrap()
+    .focus
+    .unwrap()
 }
 
 fn update(s: &mut Session, id: Uuid, sex: Option<SexKind>, private: Option<bool>) {
@@ -247,7 +249,9 @@ fn a_record_pointing_at_someone_the_owner_removed_is_not_written() {
         parent_rel: None,
     })
     .unwrap();
-    owner.apply(EditCommand::DeletePerson { id: olena }).unwrap();
+    owner
+        .apply(EditCommand::DeletePerson { id: olena })
+        .unwrap();
     let zip = send(&rel, &dir, "back.zip");
     let p = preview(&mut owner, &zip);
     assert!(
@@ -273,7 +277,9 @@ fn a_record_the_owner_removed_is_not_brought_back_by_an_old_copy() {
     let ivan = add(&mut owner, "Ivan");
     let olena = add(&mut owner, "Olena");
     let rel = relative_of(&owner, &dir, "rel");
-    owner.apply(EditCommand::DeletePerson { id: olena }).unwrap();
+    owner
+        .apply(EditCommand::DeletePerson { id: olena })
+        .unwrap();
     let zip = send(&rel, &dir, "back.zip");
     let p = preview(&mut owner, &zip);
     assert!(p.added.is_empty(), "{p:?}");
@@ -310,10 +316,7 @@ fn an_owner_who_restored_an_older_backup_still_takes_the_copys_additions() {
     assert_eq!(p.history, MergeHistory::Full, "{p:?}");
     owner.merge_apply(p.token).unwrap();
     assert!(owner.tree().persons.contains_key(&olena));
-    assert_eq!(
-        owner.tree().persons[&ivan].sex,
-        gt_core::model::Sex::Male
-    );
+    assert_eq!(owner.tree().persons[&ivan].sex, gt_core::model::Sex::Male);
 }
 
 #[test]

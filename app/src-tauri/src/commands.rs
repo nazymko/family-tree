@@ -6,14 +6,14 @@ use crate::settings_file;
 use crate::state::{AppState, no_project};
 use gt_session::{
     ApiError, AttachResult, BatchDto, ChartLocation, ChartMeta, ChartRequest, ChartWindow,
-    CopySizeDto, CopyZipDto, MergePreviewDto, MergeResultDto,
-    CitationDto, DatePreview, DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion,
-    ExportOptions, FamilyDto, FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto,
-    ImportRequest, LocationKind, LocationWarningDto, LogAgentDto, LogFilterDto, LogRowDto,
-    MediaDto, OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery, PersonRow, PlaceOption,
-    PrivacyPreview, ProjectInfo, RecentProject, RecordHomeDto, Rect, RelinkResult, ReviewScopeDto,
-    SearchHitDto, Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo,
-    UndoReport, UndoState, WholeMeta,
+    CitationDto, CopySizeDto, CopyZipDto, DatePreview, DayOrder, EditCommand, EditResult,
+    ErrorCode, ExifSuggestion, ExportOptions, FamilyDto, FamilyViewDto, HistoryEntry,
+    ImportProgress, ImportReportDto, ImportRequest, LocationKind, LocationWarningDto, LogAgentDto,
+    LogFilterDto, LogRowDto, MediaDto, MergePreviewDto, MergeResultDto, OutlineItem, OwnerRef,
+    Page, PersonDetail, PersonQuery, PersonRow, PlaceOption, PrivacyPreview, ProjectInfo,
+    RecentProject, RecordHomeDto, Rect, RelinkResult, ReviewScopeDto, SearchHitDto, Session,
+    Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport, UndoState,
+    WholeMeta,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
 use serde::{Deserialize, Deserializer, Serialize};

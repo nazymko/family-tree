@@ -172,7 +172,8 @@ fn a_record_missing_from_the_copy_is_not_a_deletion() {
 fn a_removal_in_the_copy_is_listed_and_never_applied() {
     let mut f = family();
     let mut rel = f.relative("rel", LATER_MS);
-    rel.apply(EditCommand::DeletePerson { id: f.olena }).unwrap();
+    rel.apply(EditCommand::DeletePerson { id: f.olena })
+        .unwrap();
     let zip = send(&rel, &f, "back.zip");
     let p = preview(&mut f.owner, &zip);
     assert_eq!(p.removed.len(), 1, "{p:?}");
@@ -193,7 +194,10 @@ fn a_field_changed_on_both_sides_is_listed_and_the_owners_stays() {
     let p = preview(&mut f.owner, &zip);
     assert_eq!(p.undecided.len(), 1, "{p:?}");
     assert_eq!(p.undecided[0].why, Some(MergeWhy::BothChanged));
-    assert!(!p.undecided[0].yours.is_empty(), "shows what the owner changed");
+    assert!(
+        !p.undecided[0].yours.is_empty(),
+        "shows what the owner changed"
+    );
     f.owner.merge_apply(p.token).unwrap();
     assert_eq!(sex_of(&f.owner, ivan), gt_core::model::Sex::Male);
 }
@@ -212,7 +216,10 @@ fn different_fields_of_one_person_both_survive() {
     f.owner.merge_apply(p.token).unwrap();
     let ivan_rec = &f.owner.tree().persons[&ivan];
     assert_eq!(ivan_rec.sex, gt_core::model::Sex::Male);
-    assert!(ivan_rec.common.private, "the owner's own edit is still there");
+    assert!(
+        ivan_rec.common.private,
+        "the owner's own edit is still there"
+    );
 }
 
 #[test]
@@ -227,7 +234,11 @@ fn the_clock_decides_nothing() {
         let p = preview(&mut f.owner, &zip);
         assert_eq!(p.undecided.len(), 1, "clock {ms}: {p:?}");
         f.owner.merge_apply(p.token).unwrap();
-        assert_eq!(sex_of(&f.owner, ivan), gt_core::model::Sex::Male, "clock {ms}");
+        assert_eq!(
+            sex_of(&f.owner, ivan),
+            gt_core::model::Sex::Male,
+            "clock {ms}"
+        );
     }
 }
 
@@ -250,9 +261,17 @@ fn making_a_private_person_public_is_never_taken_by_itself() {
 fn loosening_a_living_override_is_never_taken_by_itself() {
     let mut f = family();
     let ivan = f.ivan;
-    set_living(&mut f.owner, ivan, LivingPatch::Set(LivingOverrideDto::Living));
+    set_living(
+        &mut f.owner,
+        ivan,
+        LivingPatch::Set(LivingOverrideDto::Living),
+    );
     let mut rel = f.relative("rel", LATER_MS);
-    set_living(&mut rel, ivan, LivingPatch::Set(LivingOverrideDto::Deceased));
+    set_living(
+        &mut rel,
+        ivan,
+        LivingPatch::Set(LivingOverrideDto::Deceased),
+    );
     let zip = send(&rel, &f, "back.zip");
     let p = preview(&mut f.owner, &zip);
     assert_eq!(p.undecided.len(), 1, "{p:?}");
@@ -332,7 +351,11 @@ fn merging_the_same_copy_twice_changes_nothing_and_the_source_is_never_touched()
     assert_eq!(r2.added + r2.changed, 0);
     assert_eq!(f.owner.tree(), &tree_after_first);
     assert_eq!(groups(&f.owner), log_after_first);
-    assert_eq!(std::fs::read(&zip).unwrap(), bytes_before, "the zip is not modified");
+    assert_eq!(
+        std::fs::read(&zip).unwrap(),
+        bytes_before,
+        "the zip is not modified"
+    );
 }
 
 #[test]
@@ -438,9 +461,9 @@ fn send_open_edit_send_back_merge_undo() {
             100,
         )
         .unwrap();
-    assert!(g
-        .iter()
-        .all(|x| matches!(&x.actor, Some(gt_store::Actor::Copy { name }) if name == "Olena's copy")));
+    assert!(g.iter().all(
+        |x| matches!(&x.actor, Some(gt_store::Actor::Copy { name }) if name == "Olena's copy")
+    ));
     // A backup was made first.
     let backups = std::fs::read_dir(f.owner.project().dir.join("backups"))
         .unwrap()
@@ -483,25 +506,41 @@ fn a_copy_without_history_is_shown_for_deciding_and_removes_nothing() {
     let ivan = f.ivan;
     set_sex(&mut rel, ivan, SexKind::Male);
     let taras = add(&mut rel, "Taras");
-    rel.apply(EditCommand::DeletePerson { id: f.olena }).unwrap();
+    rel.apply(EditCommand::DeletePerson { id: f.olena })
+        .unwrap();
     let dir = rel.project().dir.clone();
     drop(rel);
     // Strip the log, as an older app or an import would leave it.
     let c = rusqlite::Connection::open(dir.join("tree.db")).unwrap();
-    c.execute_batch("DELETE FROM change_person; DELETE FROM change_log;").unwrap();
+    c.execute_batch("DELETE FROM change_person; DELETE FROM change_log;")
+        .unwrap();
     drop(c);
     let rel = open_at(&dir, LATER_MS);
     let zip = send(&rel, &f, "stripped.zip");
     let p = preview(&mut f.owner, &zip);
     assert_eq!(p.history, MergeHistory::None);
     assert!(p.removed.is_empty());
-    assert_eq!(p.added.iter().filter(|l| l.change.kind == "person").count(), 1);
-    assert!(p.undecided.iter().all(|l| l.why == Some(MergeWhy::NoHistory)));
+    assert_eq!(
+        p.added.iter().filter(|l| l.change.kind == "person").count(),
+        1
+    );
+    assert!(
+        p.undecided
+            .iter()
+            .all(|l| l.why == Some(MergeWhy::NoHistory))
+    );
     assert!(p.undecided.iter().any(|l| l.change.id == ivan));
     f.owner.merge_apply(p.token).unwrap();
     assert!(f.owner.tree().persons.contains_key(&taras));
-    assert!(f.owner.tree().persons.contains_key(&f.olena), "never a removal");
-    assert_eq!(sex_of(&f.owner, ivan), gt_core::model::Sex::Unknown, "left for the owner");
+    assert!(
+        f.owner.tree().persons.contains_key(&f.olena),
+        "never a removal"
+    );
+    assert_eq!(
+        sex_of(&f.owner, ivan),
+        gt_core::model::Sex::Unknown,
+        "left for the owner"
+    );
 }
 
 #[test]
@@ -542,7 +581,8 @@ fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
     let f = std::fs::File::create(path).unwrap();
     let mut z = zip::ZipWriter::new(f);
     for (name, data) in entries {
-        z.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+        z.start_file(*name, zip::write::SimpleFileOptions::default())
+            .unwrap();
         z.write_all(data).unwrap();
     }
     z.finish().unwrap();
@@ -555,7 +595,10 @@ fn hostile_zips_are_refused_in_plain_words() {
     let cases: Vec<(&str, Vec<(&str, &[u8])>)> = vec![
         ("traversal", vec![("tree.db", b"x"), ("../evil.txt", b"x")]),
         ("no database", vec![("readme.txt", b"hi")]),
-        ("garbage database", vec![("tree.db", b"this is not sqlite at all, not even close")]),
+        (
+            "garbage database",
+            vec![("tree.db", b"this is not sqlite at all, not even close")],
+        ),
     ];
     for (name, entries) in cases {
         let zip = dir.path().join(format!("{name}.zip"));
@@ -569,7 +612,11 @@ fn hostile_zips_are_refused_in_plain_words() {
     let notzip = dir.path().join("plain.zip");
     std::fs::write(&notzip, b"nope").unwrap();
     assert!(f.owner.merge_preview(&notzip, "x").is_err());
-    assert!(f.owner.merge_preview(&dir.path().join("missing.zip"), "x").is_err());
+    assert!(
+        f.owner
+            .merge_preview(&dir.path().join("missing.zip"), "x")
+            .is_err()
+    );
 }
 
 #[test]
@@ -593,10 +640,8 @@ fn a_database_with_triggers_is_refused() {
     let dir = rel.project().dir.clone();
     drop(rel);
     let c = rusqlite::Connection::open(dir.join("tree.db")).unwrap();
-    c.execute_batch(
-        "CREATE TRIGGER sneaky AFTER INSERT ON meta BEGIN SELECT 1; END;",
-    )
-    .unwrap();
+    c.execute_batch("CREATE TRIGGER sneaky AFTER INSERT ON meta BEGIN SELECT 1; END;")
+        .unwrap();
     drop(c);
     assert!(f.owner.merge_preview(&dir, "x").is_err());
 }
@@ -635,7 +680,12 @@ fn the_zip_holds_the_database_and_media_and_names_its_size() {
         .collect();
     names.sort();
     assert!(names.contains(&"tree.db".to_string()), "{names:?}");
-    assert!(names.iter().all(|n| n == "tree.db" || n.starts_with("media/")), "{names:?}");
+    assert!(
+        names
+            .iter()
+            .all(|n| n == "tree.db" || n.starts_with("media/")),
+        "{names:?}"
+    );
     // Not inside the tree's own folder.
     let inside = f.owner.project().dir.join("copy.zip");
     assert!(f.owner.save_copy_zip(&inside).is_err());

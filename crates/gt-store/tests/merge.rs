@@ -90,7 +90,8 @@ fn an_older_app_refuses_a_schema_5_project_instead_of_misreading_it() {
     drop(p);
     {
         let c = Connection::open(dir.join("tree.db")).unwrap();
-        c.pragma_update(None, "user_version", SCHEMA_VERSION + 1).unwrap();
+        c.pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+            .unwrap();
     }
     let err = Project::open(&dir).unwrap_err();
     assert!(
@@ -112,8 +113,14 @@ fn a_merge_is_written_with_its_ledger_and_the_copy_author() {
         source_name: "Olena".into(),
         source_ts: Some(123),
     }];
-    p.apply_merge(&batch(bid), &[set.clone()], &[(pid, false)], &ledger, 99)
-        .unwrap();
+    p.apply_merge(
+        &batch(bid),
+        std::slice::from_ref(&set),
+        &[(pid, false)],
+        &ledger,
+        99,
+    )
+    .unwrap();
     assert!(p.load_tree().unwrap().persons.contains_key(&pid));
     assert_eq!(p.merged_source_groups().unwrap().len(), 1);
     assert_eq!(p.merged_groups_of(bid).unwrap(), ledger);
@@ -151,9 +158,10 @@ fn a_merge_that_fails_part_way_keeps_nothing() {
         },
     ];
     let before = p.load_tree().unwrap();
-    assert!(p
-        .apply_merge(&batch(bid), &[a, b], &[], &ledger, 99)
-        .is_err());
+    assert!(
+        p.apply_merge(&batch(bid), &[a, b], &[], &ledger, 99)
+            .is_err()
+    );
     let after = p.load_tree().unwrap();
     assert_eq!(before, after);
     assert!(!after.persons.contains_key(&a_id) && !after.persons.contains_key(&b_id));

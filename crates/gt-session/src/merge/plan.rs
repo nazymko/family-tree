@@ -54,6 +54,8 @@ pub(crate) struct Plan {
     pub copy: OpenedCopy,
 }
 
+// A short-lived plan value, one per record while a preview is built: boxing would only add noise.
+#[allow(clippy::large_enum_variant)]
 enum Act {
     Nothing,
     /// Not for this merge: the owner's version stands (owner changed it, or removed it).
@@ -152,7 +154,12 @@ fn decode(json: &Option<String>, kind: RecordKind, id: Uuid) -> Option<Option<Re
 /// The state both sides started from, when the copy's new rows on this record can be trusted:
 /// each row starts where the one before ended, every row reads with today's model, and the last
 /// one ends at what the copy holds now. `None`: no base.
-fn base_of(rows: &[LogRow], kind: RecordKind, id: Uuid, theirs: Option<&Record>) -> Option<Option<Record>> {
+fn base_of(
+    rows: &[LogRow],
+    kind: RecordKind,
+    id: Uuid,
+    theirs: Option<&Record>,
+) -> Option<Option<Record>> {
     let mut first: Option<Option<Record>> = None;
     let mut prev: Option<Option<Record>> = None;
     for r in rows {
@@ -187,13 +194,9 @@ fn person_more_visible(old: &Person, new: &Person) -> bool {
     if rank_of(&new.living_override) < rank_of(&old.living_override) {
         return true;
     }
-    old.names.iter().any(|n| {
-        n.private
-            && new
-                .names
-                .iter()
-                .any(|m| m.id == n.id && !m.private)
-    })
+    old.names
+        .iter()
+        .any(|n| n.private && new.names.iter().any(|m| m.id == n.id && !m.private))
 }
 
 /// A change that would make a living or private person easier to see is never taken by itself.
@@ -249,7 +252,9 @@ enum MediaCheck {
 }
 
 fn is_hex64(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 pub(crate) fn sha_of(path: &Path) -> std::io::Result<(String, u64)> {
@@ -351,9 +356,11 @@ impl Ctx<'_> {
             return true;
         };
         let from_copy = |g: Uuid| {
-            project.log_group(g).ok().flatten().is_some_and(|lg| {
-                matches!(lg.actor, Some(gt_store::Actor::Copy { .. }))
-            })
+            project
+                .log_group(g)
+                .ok()
+                .flatten()
+                .is_some_and(|lg| matches!(lg.actor, Some(gt_store::Actor::Copy { .. })))
         };
         rows.iter().any(|r| {
             r.op == gt_store::ChangeOp::Delete
@@ -535,7 +542,11 @@ fn cap32(n: usize) -> u32 {
 impl Session {
     /// Reads the copy at `source` (a folder or a zip), works out what merging it would do, and
     /// keeps the plan for `merge_apply`. Writes nothing to the tree, its database or its folder.
-    pub fn merge_preview(&mut self, source: &Path, name: &str) -> Result<MergePreviewDto, ApiError> {
+    pub fn merge_preview(
+        &mut self,
+        source: &Path,
+        name: &str,
+    ) -> Result<MergePreviewDto, ApiError> {
         self.pending_merge = None;
         let plan = self.make_plan(source, name)?;
         let preview = plan.preview.clone();
@@ -901,9 +912,7 @@ impl Session {
                     list: CHANGED,
                     change: mk(Some(old.clone()), Some(new.clone())),
                     why: None,
-                    also: base
-                        .as_ref()
-                        .is_some_and(|b| !same(Some(b), Some(old))),
+                    also: base.as_ref().is_some_and(|b| !same(Some(b), Some(old))),
                     yours: None,
                     maybe_same: false,
                 }),
