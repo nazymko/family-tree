@@ -417,6 +417,22 @@ pub fn around(
     lay_out(src, root, &o, false, m, max_nodes)
 }
 
+/// [`around`] with the person's brothers and sisters beside them, each with their partners and descendants.
+/// Aunts, uncles and cousins stay out.
+pub fn around_with_siblings(
+    src: &dyn ChartSource,
+    root: Key,
+    generations: u8,
+    m: &Metrics,
+    max_nodes: usize,
+) -> Layout {
+    let o = RelativesOptions {
+        generations,
+        aunts: false,
+    };
+    lay_out(src, root, &o, true, m, max_nodes)
+}
+
 fn lay_out(
     src: &dyn ChartSource,
     root: Key,

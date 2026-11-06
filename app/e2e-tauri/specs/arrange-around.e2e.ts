@@ -40,8 +40,9 @@ async function flyTo(findLabel: string, name: string) {
 type Card = { y: number; relation: string; name: string; me: boolean };
 
 /** The cards of the chart built around `name`, read from the backend through the same commands the page uses. */
-async function aroundCards(name: string): Promise<Card[]> {
-  await browser.execute((who: string) => {
+async function aroundCards(name: string, siblings = false): Promise<Card[]> {
+  await browser.execute((who: string, sibs: boolean) => {
+    delete (window as unknown as { __gtAround?: unknown }).__gtAround;
     type Inv = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
     const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Inv } }).__TAURI_INTERNALS__.invoke;
     const big = { x: -1e7, y: -1e7, w: 2e7, h: 2e7 };
@@ -49,13 +50,13 @@ async function aroundCards(name: string): Promise<Card[]> {
       const whole = (await invoke('chart_open_whole')) as { meta: { chartId: number } };
       const all = (await invoke('chart_window', { chartId: whole.meta.chartId, rect: big, zoom: 1 })) as { nodes: { person?: { id: string; name: string } }[] };
       const root = all.nodes.find((n) => n.person?.name === who)!.person!.id;
-      const m = (await invoke('chart_open', { req: { kind: 'around', root, generations: 255 } })) as { chartId: number; rootNode: number };
+      const m = (await invoke('chart_open', { req: { kind: 'around', root, generations: 255, siblings: sibs } })) as { chartId: number; rootNode: number };
       const w = (await invoke('chart_window', { chartId: m.chartId, rect: big, zoom: 1 })) as { nodes: { id: number; y: number; relation?: string; person?: { name: string } }[] };
       (window as unknown as { __gtAround?: Card[] }).__gtAround = w.nodes
         .filter((n) => n.person)
         .map((n) => ({ y: n.y, relation: n.relation ?? '', name: n.person!.name, me: n.id === m.rootNode }));
     })();
-  }, name);
+  }, name, siblings);
   await browser.waitUntil(() => browser.execute(() => !!(window as unknown as { __gtAround?: unknown }).__gtAround), { timeout: 30000 });
   return browser.execute(() => (window as unknown as { __gtAround: Card[] }).__gtAround);
 }
@@ -102,6 +103,16 @@ describe('A tree built around one person', () => {
     for (const c of below) expect(c.y).toBeGreaterThan(me.y);
     await browser.pause(1200);
     await shot('arrange-after-en.png');
+
+    // The checkbox brings brothers and sisters in, and still no aunts, uncles or cousins.
+    const withSiblings = await aroundCards(name, true);
+    expect(withSiblings.some((c) => /brother|sister/.test(c.relation))).toBe(true);
+    expect(withSiblings.some((c) => /aunt|uncle|cousin/.test(c.relation))).toBe(false);
+    await $('//label[contains(normalize-space(.),"Brothers and sisters")]').click();
+    await browser.pause(1500);
+    await shot('arrange-siblings-en.png');
+    await $('//label[contains(normalize-space(.),"Brothers and sisters")]').click();
+    await browser.pause(800);
 
     // Back to the whole tree.
     await $('//button[normalize-space(.)="Back to the whole tree"]').click();
