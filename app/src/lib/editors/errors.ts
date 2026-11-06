@@ -1,14 +1,14 @@
-
 import { t } from '../i18n';
 import { backendError } from '../i18n/backend';
 
-/** A readable message from an ApiError-like rejection (a plain object or an Error). */
-export function errMessage(e: unknown): string {
-  if (e && typeof e === 'object' && 'message' in e && typeof (e as { message: unknown }).message === 'string') {
-    const m = (e as { message: string }).message;
-    if (m) return backendError(m);
-  }
-  return t('edit.notSaved');
+/**
+ * A readable message, in the app's language, from whatever a call rejected with: an ApiError (a plain object, which is
+ * NOT an `Error`), an `Error`, or a string. `fallback` is shown when there is no text. Use this instead of
+ * `e instanceof Error ? e.message : String(e)`, which prints "[object Object]" for an ApiError.
+ */
+export function errMessage(e: unknown, fallback?: string): string {
+  const text = typeof e === 'string' ? e : e && typeof e === 'object' && typeof (e as { message?: unknown }).message === 'string' ? (e as { message: string }).message : '';
+  return text ? backendError(text) : (fallback ?? t('edit.notSaved'));
 }
 
 /** Drop empty optional strings so commands carry only what the user entered. */

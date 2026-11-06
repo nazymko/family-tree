@@ -1,4 +1,6 @@
 <script lang="ts" module>
+  import { errMessage } from '../editors/errors';
+  import { backendError } from '../i18n/backend';
   import type { MessageKey } from '../i18n';
   import { AUDIO_EXTENSIONS } from './sound';
   /** Pictures and documents: accepted on everything but a note. */
@@ -18,7 +20,7 @@
     if (ext && !MEDIA_EXTENSIONS.includes(ext) && !AUDIO_EXTENSIONS.includes(ext)) {
       return `${name}: ${t(owner === 'note' ? 'voice.unsupported' : 'media.unsupported')}`;
     }
-    return `${name}: ${f.reason}`;
+    return `${name}: ${backendError(f.reason)}`;
   }
 </script>
 
@@ -84,7 +86,7 @@
     try {
       r = await api.attachFiles(target, paths, { silent: true });
     } catch (e) {
-      failures = [e instanceof Error ? e.message : String(e)];
+      failures = [errMessage(e, t('edit.wentWrong'))];
       return;
     }
     // A file can be in both lists: attached, but its preview could not be made. That is a warning, not a failure.

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errMessage } from '../editors/errors';
   import { tick } from 'svelte';
   import Dialog from '../ui/Dialog.svelte';
   import Button from '../ui/Button.svelte';
@@ -83,7 +84,7 @@
       notices.show({ message: t('media.primarySet') });
       onChanged?.();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errMessage(e, t('edit.wentWrong'));
     }
   }
 
@@ -113,7 +114,7 @@
       if (wasOnly) onClose();
       else closeConfirm();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errMessage(e, t('edit.wentWrong'));
     } finally {
       busy = false;
     }
@@ -128,7 +129,7 @@
       await api.apply({ type: 'updateMedia', id: m.id, [field]: value });
       onChanged?.();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errMessage(e, t('edit.wentWrong'));
     }
   }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errMessage } from '../editors/errors';
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
   import type { ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
@@ -251,7 +252,7 @@
       const req: ChartRequest = kind === 'relatives' ? { kind, root, generations, auntsUncles } : { kind, root, generations };
       m = await api.chartOpen(req);
     } catch (e) {
-      if (seq === openSeq) errorText = e instanceof Error ? e.message : t('chartCanvas.openFailed');
+      if (seq === openSeq) errorText = errMessage(e, t('chartCanvas.openFailed'));
       return;
     }
     if (seq !== openSeq) {

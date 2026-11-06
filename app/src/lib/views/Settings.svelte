@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errMessage } from '../editors/errors';
   import Select from '../ui/Select.svelte';
   import TextField from '../ui/TextField.svelte';
   import Combobox from '../ui/Combobox.svelte';
@@ -60,7 +61,7 @@
     try {
       await settings.update(api, patch);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errMessage(e, t('edit.wentWrong'));
     }
   }
 

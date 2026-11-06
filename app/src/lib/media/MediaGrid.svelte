@@ -1,4 +1,5 @@
 <script lang="ts" module>
+  import { errMessage } from '../editors/errors';
   import type { MediaDto } from '../api/api';
   import { notices } from '../ui/notices.svelte';
   import { isSound } from './sound';
@@ -9,7 +10,7 @@
     try {
       await api.openMediaExternally(id);
     } catch (e) {
-      notices.show({ message: e instanceof Error ? e.message : String(e) });
+      notices.show({ message: errMessage(e, t('edit.wentWrong')) });
     }
   }
   export const mediaLabel = (m: MediaDto) => m.title || m.originalName || t('media.untitledFile');

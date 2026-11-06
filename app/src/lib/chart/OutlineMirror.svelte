@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errMessage } from '../editors/errors';
   import { tick, untrack } from 'svelte';
   import { getApi } from '../api/context';
   import type { Id, OutlineItem } from '../api/types';
@@ -59,7 +60,7 @@
         focusId = items[0] ? pathOf('', items[0]) : null;
       })
       .catch((e) => {
-        if (live) failed = e instanceof Error ? e.message : t('chartCanvas.outlineFailed');
+        if (live) failed = errMessage(e, t('chartCanvas.outlineFailed'));
       });
     return () => {
       live = false;
@@ -77,7 +78,7 @@
         }
         kids[path] = items;
       } catch (e) {
-        failed = e instanceof Error ? e.message : t('chartCanvas.outlineFailed');
+        failed = errMessage(e, t('chartCanvas.outlineFailed'));
         return;
       } finally {
         loading[path] = false;
