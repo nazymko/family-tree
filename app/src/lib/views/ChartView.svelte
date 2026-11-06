@@ -16,12 +16,40 @@
   import EmptyState from '../ui/EmptyState.svelte';
   import Tabs from '../ui/Tabs.svelte';
   import { t } from '../i18n';
+  import { toasts } from '../state/toast.svelte';
 
   let { kind, onOpenPerson }: { kind: ChartKind; onOpenPerson?: (id: Id) => void } = $props();
 
   const api = getApi();
   const STORE_KEY = 'gt.chartView';
-  const title = $derived(kind === 'pedigree' ? t('chart.pedigree') : kind === 'descendants' ? t('chart.descendants') : t('chart.relatives'));
+  /** The screen built around one person: the person is part of the route, and the heading names them. */
+  const around = $derived(kind === 'around');
+  let rootName = $state('');
+  const title = $derived(
+    kind === 'pedigree'
+      ? t('chart.pedigree')
+      : kind === 'descendants'
+        ? t('chart.descendants')
+        : around
+          ? t('chart.aroundTitle', { name: rootName || t('chart.thisPerson') })
+          : t('chart.relatives'),
+  );
+  /** Back goes one step in the history; the label says where that is when it is the whole tree. */
+  const previous = $derived(nav.history[nav.index - 1]);
+  const backLabel = $derived(previous?.name === 'whole' ? t('chart.backToWhole') : t('chart.back'));
+  function goBack(): void {
+    if (nav.canBack) nav.back();
+    else nav.go({ name: 'whole' });
+  }
+  /** Build the screen around another person: one more step in the history, so Back returns to the previous person. */
+  const buildAround = (id: Id) => nav.go({ name: 'around', id });
+  // The person was deleted while the screen was open: back to where it was opened from, with a message, no history trap.
+  function gone(): void {
+    toasts.push({ text: t('whole.notInTree'), kind: 'warn' });
+    // Opened from the whole tree: step back to it rather than leave a second copy of it in the history.
+    if (previous?.name === 'whole') nav.back();
+    else nav.replace({ name: 'whole' });
+  }
 
   function initialMode(): 'chart' | 'outline' {
     try {
@@ -36,7 +64,6 @@
   let mode = $state<string>(initialMode());
     let home = $state<Id | null>(null);
   let meta = $state<ChartMeta | null>(null);
-  let rootName = $state('');
   let settingsLoaded = $state(false);
   let selectedNode = $state<number | null>(null);
 
@@ -56,10 +83,11 @@
     }
   });
 
-  const root = $derived(nav.focusPerson ?? home);
+  const root = $derived(nav.route.name === 'around' ? nav.route.id : (nav.focusPerson ?? home));
   // On the relatives chart the choice follows you from person to person.
-  const genKey = $derived(kind === 'relatives' ? kind : `${kind}:${root ?? ''}`);
-  const generations = $derived(chosenGenerations[genKey] ?? (kind === 'pedigree' ? 4 : 3));
+  const genKey = $derived(kind === 'relatives' || kind === 'around' ? kind : `${kind}:${root ?? ''}`);
+  // The chart built around a person shows every generation until the reader chooses fewer.
+  const generations = $derived(chosenGenerations[genKey] ?? (kind === 'pedigree' ? 4 : around ? 255 : 3));
 
   // Relatives chart: the path of people the chart has been centred on, newest last.
   interface Crumb {
@@ -110,6 +138,10 @@
 
   /** Centre the chart on someone. On the relatives chart this is a new history entry, so Back returns to the last person. */
   function recentre(id: Id, relation?: string): void {
+    if (around) {
+      if (id !== root) buildAround(id);
+      return;
+    }
     if (kind !== 'relatives') {
       nav.focus(id);
       return;
@@ -125,6 +157,9 @@
 
 <section class="view" aria-labelledby="chart-title">
   <header>
+    {#if around}
+      <Button onclick={goBack}>{backLabel}</Button>
+    {/if}
     <h1 id="chart-title">{title}</h1>
     {#if root}
       <Tabs
@@ -165,8 +200,8 @@
       </nav>
     {/if}
     {#if isEmpty}
-      <EmptyState title={kind === 'pedigree' ? t('chart.noParentsTitle') : kind === 'descendants' ? t('chart.noChildrenTitle') : t('chart.noRelativesTitle')}>
-        {#if kind === 'pedigree'}{rootName ? t('chart.noParentsFor', { who: rootName }) : t('chart.noParentsThis')}{:else if kind === 'descendants'}{rootName ? t('chart.noChildrenFor', { who: rootName }) : t('chart.noChildrenThis')}{:else}{rootName ? t('chart.noRelativesFor', { who: rootName }) : t('chart.noRelativesThis')}{/if}
+      <EmptyState title={kind === 'pedigree' ? t('chart.noParentsTitle') : kind === 'descendants' ? t('chart.noChildrenTitle') : around ? t('chart.noAroundTitle') : t('chart.noRelativesTitle')}>
+        {#if kind === 'pedigree'}{rootName ? t('chart.noParentsFor', { who: rootName }) : t('chart.noParentsThis')}{:else if kind === 'descendants'}{rootName ? t('chart.noChildrenFor', { who: rootName }) : t('chart.noChildrenThis')}{:else if around}{rootName ? t('chart.noAroundFor', { who: rootName }) : t('chart.noAroundThis')}{:else}{rootName ? t('chart.noRelativesFor', { who: rootName }) : t('chart.noRelativesThis')}{/if}
         {#snippet action()}
           <Button variant="primary" onclick={() => openPerson(root)}>{kind === 'pedigree' ? t('chart.addParent') : kind === 'descendants' ? t('chart.addChild') : t('chart.addRelative')}</Button>
         {/snippet}
@@ -187,6 +222,8 @@
         onOpened={opened}
         selectId={selectedNode}
         onSelect={select}
+        onBuildAround={around ? buildAround : undefined}
+        onGone={around ? gone : undefined}
       />
       {#if mode === 'outline' && meta}
         <div class="outline">

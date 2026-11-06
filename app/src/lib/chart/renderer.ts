@@ -299,7 +299,7 @@ export function draw(
       ctx.font = `600 13px ${theme.serif}`;
       const sub = isDup ? t('role.shownElsewhere') : (n.person?.lifespan ?? '');
       // How this person is related to the centred one, at the right of the second line.
-      const rel = isDup || n.id === focus ? '' : kind === 'relatives' ? relationText(n) : kinshipText(n.kinship);
+      const rel = isDup || n.id === focus ? '' : kind === 'relatives' || kind === 'around' ? relationText(n) : kinshipText(n.kinship);
       const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '' || rel !== '');
       lines.forEach((line, i) => ctx.fillText(line, left, n.y + 23 + i * 18));
       ctx.fillStyle = theme.ink2;

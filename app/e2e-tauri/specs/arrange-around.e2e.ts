@@ -1,8 +1,9 @@
 /**
- * "Arrange around this person" on the whole tree, on the REAL app (debug build, tauri-driver, WebView2): a person
- * is found (the chart flies to them and selects them), the toolbar button rebuilds the chart around them (cards really
- * move: asserted on the layout the backend holds, not just on the camera), the header names them, "Usual order" goes
- * back and Back returns to the arrangement. Screenshots in English and Ukrainian.
+ * "Build around this person" on the whole tree, on the REAL app (debug build, tauri-driver, WebView2): a person is
+ * found (the chart flies to them and selects them), the toolbar button opens a NEW screen built around them (their
+ * name in the heading, a Back button), and the screen shows only their own line: no brothers or sisters, their
+ * ancestors above and their descendants below (asserted on the layout the backend holds, not just on the camera).
+ * Back returns to the whole tree. Screenshots in English and Ukrainian.
  *
  * Synthetic data only.
  */
@@ -36,37 +37,30 @@ async function flyTo(findLabel: string, name: string) {
   await browser.pause(900);
 }
 
-type Card = { x: number; y: number; w: number; h: number; id: string; name: string };
+type Card = { y: number; relation: string; name: string; me: boolean };
 
-/**
- * The cards of the plain whole-tree chart and of the chart arranged around `name`, read from the backend through the
- * same commands the page uses. Asking for the arranged chart returns the one the button opened (it is held per
- * person), so this is the layout on screen.
- */
-async function layouts(name: string): Promise<{ plain: Card[]; arranged: Card[]; target: string }> {
-  type Out = { plain: Card[]; arranged: Card[]; target: string };
+/** The cards of the chart built around `name`, read from the backend through the same commands the page uses. */
+async function aroundCards(name: string): Promise<Card[]> {
   await browser.execute((who: string) => {
     type Inv = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
     const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Inv } }).__TAURI_INTERNALS__.invoke;
     const big = { x: -1e7, y: -1e7, w: 2e7, h: 2e7 };
-    const cards = async (chartId: number): Promise<Card[]> => {
-      const w = (await invoke('chart_window', { chartId, rect: big, zoom: 1 })) as { nodes: { x: number; y: number; w: number; h: number; person?: { id: string; name: string } }[] };
-      return w.nodes.filter((n) => n.person).map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h, id: n.person!.id, name: n.person!.name }));
-    };
     void (async () => {
-      const plainMeta = (await invoke('chart_open_whole')) as { meta: { chartId: number } };
-      const plain = await cards(plainMeta.meta.chartId);
-      const target = plain.find((c) => c.name === who)!.id;
-      const arrMeta = (await invoke('chart_open_arranged', { around: target, people: null, allDescendants: false })) as { meta: { chartId: number } };
-      (window as unknown as { __gtLayouts?: Out }).__gtLayouts = { plain, arranged: await cards(arrMeta.meta.chartId), target };
+      const whole = (await invoke('chart_open_whole')) as { meta: { chartId: number } };
+      const all = (await invoke('chart_window', { chartId: whole.meta.chartId, rect: big, zoom: 1 })) as { nodes: { person?: { id: string; name: string } }[] };
+      const root = all.nodes.find((n) => n.person?.name === who)!.person!.id;
+      const m = (await invoke('chart_open', { req: { kind: 'around', root, generations: 255 } })) as { chartId: number; rootNode: number };
+      const w = (await invoke('chart_window', { chartId: m.chartId, rect: big, zoom: 1 })) as { nodes: { id: number; y: number; relation?: string; person?: { name: string } }[] };
+      (window as unknown as { __gtAround?: Card[] }).__gtAround = w.nodes
+        .filter((n) => n.person)
+        .map((n) => ({ y: n.y, relation: n.relation ?? '', name: n.person!.name, me: n.id === m.rootNode }));
     })();
   }, name);
-  // The page answers asynchronously: poll for the result it leaves.
-  await browser.waitUntil(() => browser.execute(() => !!(window as unknown as { __gtLayouts?: unknown }).__gtLayouts), { timeout: 30000 });
-  return browser.execute(() => (window as unknown as { __gtLayouts: Out }).__gtLayouts);
+  await browser.waitUntil(() => browser.execute(() => !!(window as unknown as { __gtAround?: unknown }).__gtAround), { timeout: 30000 });
+  return browser.execute(() => (window as unknown as { __gtAround: Card[] }).__gtAround);
 }
 
-describe('A tree arranged around one person', () => {
+describe('A tree built around one person', () => {
   before(async () => {
     await ready();
   });
@@ -78,43 +72,44 @@ describe('A tree arranged around one person', () => {
     await $('h1=Settings').waitForDisplayed({ timeout: 20000 });
   });
 
-  it('arranges around the found person, names them in the header and goes back to the usual order', async () => {
+  it('opens a new screen with only their own line and goes back to the whole tree', async () => {
     const name = meta().home.name;
 
-    await importSynthetic('Arranged tree');
+    await importSynthetic('Around tree');
     await openTreeFromReport();
     await toWholeTree('Whole tree', 'Whole tree');
 
-    // Nobody is selected yet, or somebody is: after a search the button works.
     await flyTo('Find a person…', name);
     await shot('arrange-before-en.png');
-    const button = await $('//button[normalize-space(.)="Arrange around this person"]');
+    const button = await $('//button[normalize-space(.)="Build around this person"]');
     await button.waitForEnabled({ timeout: 10000 });
     await button.click();
 
-    await $('[data-testid="arranged"]').waitForDisplayed({ timeout: 30000 });
-    await expect($('[data-testid="arranged"]')).toHaveText(expect.stringContaining(name));
+    // The new screen: named after them, with a Back button, and a chart.
+    await $(`h1=Built around ${name}`).waitForDisplayed({ timeout: 30000 });
+    await $('//button[normalize-space(.)="Back to the whole tree"]').waitForDisplayed();
     await $('canvas[role="application"]').waitForDisplayed();
 
-    // The chart is REBUILT around them: the same people, many cards in other places, nobody on top of anybody.
-    const { plain, arranged } = await layouts(name);
-    expect(arranged.length).toBe(plain.length);
-    const before = new Map(plain.map((c) => [c.id, c]));
-    const moved = arranged.filter((c) => Math.abs(before.get(c.id)!.x - c.x) > 1 || Math.abs(before.get(c.id)!.y - c.y) > 1).length;
-    expect(moved).toBeGreaterThan(Math.min(10, plain.length / 4));
-    const overlap = arranged.some((a, i) => arranged.slice(i + 1).some((b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h));
-    expect(overlap).toBe(false);
-    // The chart is centred on them at a readable zoom.
+    // Only their own line: nobody who is a brother, sister, aunt, uncle, cousin, nephew or niece; ancestors above, descendants below.
+    const cards = await aroundCards(name);
+    const me = cards.find((c) => c.me)!;
+    expect(me.name).toBe(name);
+    expect(cards.some((c) => /brother|sister|sibling|aunt|uncle|cousin|nephew|niece/.test(c.relation))).toBe(false);
+    const above = cards.filter((c) => /father|mother|parent/.test(c.relation));
+    const below = cards.filter((c) => /\b(son|daughter|child|grandson|granddaughter|grandchild)\b/.test(c.relation));
+    expect(above.length + below.length).toBeGreaterThan(0);
+    for (const c of above) expect(c.y).toBeLessThan(me.y);
+    for (const c of below) expect(c.y).toBeGreaterThan(me.y);
     await browser.pause(1200);
     await shot('arrange-after-en.png');
 
-    // Back to the usual order.
-    await $('//button[normalize-space(.)="Usual order"]').click();
+    // Back to the whole tree.
+    await $('//button[normalize-space(.)="Back to the whole tree"]').click();
     await $('h1=Whole tree').waitForDisplayed({ timeout: 30000 });
-    await browser.waitUntil(async () => !(await $('[data-testid="arranged"]').isExisting()), { timeout: 10000 });
+    await expect($('h1*=Built around')).not.toExist();
   });
 
-  it('shows the same page in Ukrainian', async () => {
+  it('shows the same screen in Ukrainian', async () => {
     await $('//nav//a[normalize-space(.)="Settings"]').click();
     await choose('Language', 'uk');
     await $('h1=Налаштування').waitForDisplayed({ timeout: 20000 });
@@ -123,10 +118,11 @@ describe('A tree arranged around one person', () => {
     const button = await $('//button[normalize-space(.)="Побудувати навколо цієї особи"]');
     await button.waitForEnabled({ timeout: 10000 });
     await button.click();
-    await $('[data-testid="arranged"]').waitForDisplayed({ timeout: 30000 });
-    await expect($('[data-testid="arranged"]')).toHaveText(expect.stringContaining('Побудовано навколо'));
-    await expect($('//button[normalize-space(.)="Звичайний порядок"]')).toBeDisplayed();
+    await $(`h1=Побудовано навколо: ${meta().home.name}`).waitForDisplayed({ timeout: 30000 });
+    await expect($('//button[normalize-space(.)="Назад до всього родоводу"]')).toBeDisplayed();
     await browser.pause(1200);
     await shot('arrange-after-uk.png');
+    await $('//button[normalize-space(.)="Назад до всього родоводу"]').click();
+    await $('h1=Увесь родовід').waitForDisplayed({ timeout: 30000 });
   });
 });

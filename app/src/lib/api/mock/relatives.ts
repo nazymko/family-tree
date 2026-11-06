@@ -107,7 +107,16 @@ function siblingsOf(src: RustLayoutSource, x: Id): Sib[] {
   return out.sort((a, c) => (b(a.key) === b(c.key) ? 0 : b(a.key) < b(c.key) ? -1 : 1));
 }
 
-export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean, src: RustLayoutSource): RelLayout {
+/**
+ * The chart built around one person: only their own line. Ancestors in rows above, descendants (with the partners of
+ * each) below, the person's partners beside them; no brothers or sisters, aunts, uncles, cousins or in-laws' families.
+ * `generations` rows each way (255 = all).
+ */
+export function layoutAround(root: Id, generations: number, src: RustLayoutSource): RelLayout {
+  return layoutRelatives(root, generations, false, src, false);
+}
+
+export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean, src: RustLayoutSource, siblings = true): RelLayout {
   const generations = Math.max(1, generationsIn);
   const nodes: N[] = [];
   const rels: Rel[] = [];
@@ -196,7 +205,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     }
     const dup = visited.has(key);
     const focus = row === 0;
-    const withSibs = !dup && (focus || (row === -1 && aunts));
+    const withSibs = !dup && siblings && (focus || (row === -1 && aunts));
     const sibs: Sib[] = withSibs ? siblingsOf(src, key) : [{ key, hang: [true, true], half: false }];
     // The parent stands next to the other parent: last on the left side, first on the right.
     const at = sibs.findIndex((s) => s.key === key);
@@ -271,8 +280,17 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     const b = blocks[i];
     const upW = b.ups.reduce((s, u) => s + blocks[u].w, 0) + gap * Math.max(0, b.ups.length - 1);
     const { places, acc } = pack(b.group.map((u) => units[u].ctr), gap);
-    const glo = Math.min(...acc.map((c) => c[0]));
-    const ghi = Math.max(...acc.map((c) => c[1]));
+    let glo = Math.min(...acc.map((c) => c[0]));
+    let ghi = Math.max(...acc.map((c) => c[1]));
+    // One person alone in the group (the chart of one line): the person's box, not the whole family below, is what
+    // the parents stand over, so the group is made symmetric about the box.
+    let pivot = 0;
+    if (!siblings && b.group.length === 1) {
+      pivot = -(uw(units[b.group[0]]) - M.nodeW) / 2;
+      const half = Math.max(pivot - glo, ghi - pivot);
+      glo = pivot - half;
+      ghi = pivot + half;
+    }
     const gw = ghi - glo;
     const gplace = places.map((p) => p - glo);
     const w = Math.max(upW, gw);
@@ -287,7 +305,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     const target = centres.length ? centres.reduce((s, c) => s + c, 0) / centres.length : w / 2;
     const goff = Math.min(Math.max(w - gw, 0), Math.max(0, target - gw / 2));
     const ai = b.group.indexOf(b.anchor);
-    const acx = ai >= 0 ? goff + gplace[ai] : 0;
+    const acx = ai >= 0 ? goff + gplace[ai] + pivot : 0;
     b.gplace = gplace;
     b.w = w;
     b.upOff = offs;

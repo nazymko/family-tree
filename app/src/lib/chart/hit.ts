@@ -28,7 +28,7 @@ export function handlePos(n: ChartNode, kind: ChartKind, reversed = false): { x:
  * children are hidden. Relatives: top edge for hidden ancestors and bottom edge for hidden children.
  */
 export function handleSpots(n: ChartNode, kind: ChartKind, reversed = false): { x: number; y: number }[] {
-  if (kind === 'relatives') {
+  if (kind === 'relatives' || kind === 'around') {
     const out: { x: number; y: number }[] = [];
     const top = { x: n.x + n.w / 2, y: n.y };
     const bottom = { x: n.x + n.w / 2, y: n.y + n.h };

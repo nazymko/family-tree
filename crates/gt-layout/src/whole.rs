@@ -205,13 +205,6 @@ struct Scratch {
     pos_in_unit: Vec<usize>,
     px: Vec<f64>,
     row: Vec<usize>,
-    /// The person the chart is arranged around, if any (set for the whole input).
-    target: Option<usize>,
-    /// For the component being laid out: the unit the walk starts from (the top of the target's line).
-    line_root: Option<usize>,
-    /// For that component: (family, unit) pairs on the line down to the target. Such a unit stays in the middle of
-    /// its row of brothers and sisters even when it married in.
-    line: HashSet<(usize, usize)>,
 }
 
 struct CompOut {
@@ -345,13 +338,7 @@ fn arrange(
     let n = kids.len();
     let rises: Vec<Option<usize>> = kids
         .iter()
-        .map(|&(u, _)| {
-            if sc.line.contains(&(fam, u)) {
-                None
-            } else {
-                rising(&units[u], fam_seen, sh)
-            }
-        })
+        .map(|&(u, _)| rising(&units[u], fam_seen, sh))
         .collect();
     let pinned = |unit: usize| forced.get(&(fam, unit)).filter(|_| only.is_none());
     let count = kids
@@ -359,26 +346,11 @@ fn arrange(
         .zip(&rises)
         .filter(|((u, _), r)| r.is_some() && pinned(*u).is_none())
         .count();
-    // The line down to the arranged-around person: when the unit on it has in-laws with parents, those hang off one
-    // side of it, so every other child of the family goes to the opposite side and nothing stands in between.
-    let others_go_right = kids
-        .iter()
-        .find(|&&(u, _)| sc.line.contains(&(fam, u)))
-        .and_then(|&(u, person)| {
-            units[u]
-                .members
-                .iter()
-                .copied()
-                .find(|&m| m != person && sh.child_in[m].iter().any(|&f| !fam_seen[f]))
-                .map(|m| sc.pos_in_unit[m] < sc.pos_in_unit[person])
-        })
-        .filter(|_| only.is_none());
     let (mut left, mut middle, mut right) = (Vec::new(), Vec::new(), Vec::new());
     let mut nth = 0;
     for (i, &(unit, person)) in kids.iter().enumerate() {
         let pin = pinned(unit).copied();
-        let beside = others_go_right.filter(|_| !sc.line.contains(&(fam, unit)));
-        if rises[i].is_none() && pin.is_none() && beside.is_none() {
+        if rises[i].is_none() && pin.is_none() {
             middle.push(Kid {
                 unit,
                 person,
@@ -388,9 +360,6 @@ fn arrange(
         }
         let to_right = pin.map_or_else(
             || {
-                if let Some(side) = beside {
-                    return side;
-                }
                 let free = only.unwrap_or(if count == 1 { i * 2 >= n - 1 } else { nth > 0 });
                 nth += 1;
                 free
@@ -427,216 +396,13 @@ fn arrange(
     }
     // Stable: the far end of a loop stays outside the near end, the others keep their order.
     right.sort_by_key(|k: &Kid| pinned(k.unit).map_or(0, |&(_, rank)| rank));
-    // The child on the line down to the arranged-around person stands in the exact middle of the brothers and
-    // sisters who stay in birth order, so their parents are straight above and the rest spread to both sides.
-    if let Some(at) = middle
-        .iter()
-        .position(|k| sc.line.contains(&(fam, k.unit)))
-        .filter(|_| only.is_none())
-    {
-        let line_kid = middle.remove(at);
-        middle.insert(middle.len().div_ceil(2), line_kid);
-    }
     left.append(&mut middle);
     left.append(&mut right);
     left
 }
 
-/// How many ancestors a person has (each counted once), up to a limit.
-fn ancestors(p: usize, sh: &Shared) -> usize {
-    let mut seen: HashSet<usize> = HashSet::from([p]);
-    let mut stack = vec![p];
-    while let Some(v) = stack.pop() {
-        for &f in &sh.child_in[v] {
-            for &q in &sh.fams[f].partners {
-                if seen.len() < 4000 && seen.insert(q) {
-                    stack.push(q);
-                }
-            }
-        }
-    }
-    seen.len()
-}
-
-/// The line up from `target` to the topmost ancestor, through the first set of parents of each person. At every step
-/// `mode` picks the parent: 0 the one with more ancestors (the lower key on a tie), 1 the same with the higher key,
-/// 2 the first partner of the family, 3 the last.
-/// Returns that ancestor and, for each person on the line below them, the family they are a child in.
-fn climb(target: usize, sh: &Shared, mode: u8) -> (usize, Vec<(usize, usize)>) {
-    let mut seen: HashSet<usize> = HashSet::from([target]);
-    let mut line = Vec::new();
-    let mut cur = target;
-    while let Some(&f) = sh.child_in[cur].first() {
-        let mut free = sh.fams[f]
-            .partners
-            .iter()
-            .copied()
-            .filter(|q| !seen.contains(q));
-        let up = match mode {
-            0 => free.max_by_key(|&q| (ancestors(q, sh), std::cmp::Reverse(q))),
-            1 => free.max_by_key(|&q| (ancestors(q, sh), q)),
-            2 => free.next(),
-            _ => free.next_back(),
-        };
-        let Some(q) = up else { break };
-        line.push((cur, f));
-        seen.insert(q);
-        cur = q;
-    }
-    (cur, line)
-}
-
-/// The people closest to `t`: partners, children, brothers and sisters, parents and grandparents.
-fn close_kin(t: usize, sh: &Shared) -> Vec<usize> {
-    let mut out: Vec<usize> = Vec::new();
-    for &f in &sh.partner_in[t] {
-        out.extend(sh.fams[f].partners.iter().copied().filter(|&q| q != t));
-        out.extend(sh.fams[f].kids.iter().copied());
-    }
-    for &f in &sh.child_in[t] {
-        out.extend(sh.fams[f].kids.iter().copied().filter(|&q| q != t));
-        for &q in &sh.fams[f].partners {
-            out.push(q);
-            for &g in &sh.child_in[q] {
-                out.extend(sh.fams[g].partners.iter().copied());
-            }
-        }
-    }
-    out.sort_unstable();
-    out.dedup();
-    out.retain(|&q| q != t);
-    out
-}
-
-/// Places a component with `t` as its centre: the line up from `t` ends at the walk's root, the line's units keep the
-/// middle of their row, `t` the middle of their partners, and several ways up are tried; the placement that puts the
-/// close kin of `t` nearest wins, the first on a tie. The usual root is not a candidate: the chart is rebuilt.
-fn place_around(
-    t: usize,
-    units: &mut [Unit],
-    rows_n: usize,
-    sh: &Shared,
-    sc: &mut Scratch,
-) -> Vec<f64> {
-    let kin = close_kin(t, sh);
-    let step = f64::from(sh.m.node_w + sh.m.couple_gap);
-    centre_in_unit(t, units, sh, sc);
-    let start: Vec<Vec<usize>> = units.iter().map(|u| u.members.clone()).collect();
-    let restore = |units: &mut [Unit], sc: &mut Scratch| {
-        for (u, m) in units.iter_mut().zip(&start) {
-            u.members.clone_from(m);
-            for (k, &p) in m.iter().enumerate() {
-                sc.pos_in_unit[p] = k;
-            }
-        }
-    };
-    // Candidates: (root unit or None for the usual pick, units of the line).
-    type Line = HashSet<(usize, usize)>;
-    let mut tries: Vec<(Option<usize>, Line)> = Vec::new();
-    let mut seen_tries: Vec<(usize, Vec<(usize, usize)>)> = Vec::new();
-    for mode in 0..4u8 {
-        let (top, line) = climb(t, sh, mode);
-        if line.is_empty() {
-            continue;
-        }
-        let set: Line = line.iter().map(|&(p, f)| (f, sc.unit_of[p])).collect();
-        let root = sc.unit_of[top];
-        if seen_tries.iter().any(|(r, l)| *r == root && *l == line) {
-            continue;
-        }
-        seen_tries.push((root, line));
-        tries.push((Some(root), set.clone()));
-        tries.push((None, set));
-    }
-    // The usual pick is never a candidate: the chart is rebuilt around `t`, not left as it was. A person with no
-    // parents is the top of their own line, so the walk starts from them.
-    if tries.is_empty() {
-        tries.push((Some(sc.unit_of[t]), Line::new()));
-    }
-    if units.len() > MAX_UNITS_TO_TRY {
-        tries.truncate(2);
-    }
-    let mut best: Option<(f64, usize)> = None;
-    for (i, (root, line)) in tries.iter().enumerate() {
-        restore(units, sc);
-        sc.line_root = *root;
-        sc.line.clone_from(line);
-        let xs = place_units(units, rows_n, sh, sc);
-        let x_of = |p: usize| xs[sc.unit_of[p]] + sc.pos_in_unit[p] as f64 * step;
-        let score: f64 = kin.iter().map(|&q| (x_of(q) - x_of(t)).abs()).sum();
-        if best.is_none_or(|(b, _)| score < b - 0.5) {
-            best = Some((score, i));
-        }
-    }
-    let (_, i) = best.unwrap_or((0.0, 0));
-    restore(units, sc);
-    sc.line_root = tries[i].0;
-    sc.line.clone_from(&tries[i].1);
-    place_units(units, rows_n, sh, sc)
-}
-
-/// Puts `t` in the middle of their own unit of partners: half of their partners (each with the partners beyond
-/// them) on one side, the rest on the other. A person with one partner or none is left as they are.
-fn centre_in_unit(t: usize, units: &mut [Unit], sh: &Shared, sc: &mut Scratch) {
-    let u = sc.unit_of[t];
-    let members = units[u].members.clone();
-    let near = |p: usize| -> Vec<usize> {
-        let mut out: Vec<usize> = Vec::new();
-        for &f in &sh.partner_in[p] {
-            for &q in &sh.fams[f].partners {
-                if q != p && members.contains(&q) && !out.contains(&q) {
-                    out.push(q);
-                }
-            }
-        }
-        out.sort_by_key(|q| members.iter().position(|m| m == q));
-        out
-    };
-    let mine = near(t);
-    if mine.len() < 2 {
-        return;
-    }
-    let mut taken: HashSet<usize> = HashSet::from([t]);
-    let mut groups: Vec<Vec<usize>> = Vec::new();
-    for &q in &mine {
-        if taken.contains(&q) {
-            continue;
-        }
-        let mut group = Vec::new();
-        let mut stack = vec![q];
-        while let Some(p) = stack.pop() {
-            if !taken.insert(p) {
-                continue;
-            }
-            group.push(p);
-            stack.extend(near(p).into_iter().rev());
-        }
-        groups.push(group);
-    }
-    let half = groups.len() / 2;
-    let mut order: Vec<usize> = Vec::with_capacity(members.len());
-    for g in groups[..half].iter().rev() {
-        order.extend(g.iter().rev());
-    }
-    order.push(t);
-    for g in &groups[half..] {
-        order.extend(g);
-    }
-    order.extend(members.iter().filter(|m| !taken.contains(m)));
-    if order.len() != members.len() {
-        return;
-    }
-    for (k, &p) in order.iter().enumerate() {
-        sc.pos_in_unit[p] = k;
-    }
-    units[u].members = order;
-}
-
 /// The unit to start from: on the top row, with the most people below it.
 fn pick_root(units: &[Unit], sh: &Shared, sc: &Scratch) -> usize {
-    if let Some(r) = sc.line_root {
-        return r;
-    }
     let mut by_row: Vec<usize> = (0..units.len()).collect();
     by_row.sort_by_key(|&u| std::cmp::Reverse(units[u].row));
     let mut below = vec![0.0f64; units.len()];
@@ -721,7 +487,7 @@ fn walk(
                 let kids = arrange((f, kids), units, &fam_seen, None, forced, sh, sc);
                 for k in &kids {
                     prefers_right[k.unit] = k.end.unwrap_or(true);
-                    if let Some(side) = k.end.filter(|_| !sc.line.iter().any(|&(lf, _)| lf == f)) {
+                    if let Some(side) = k.end {
                         ends.push((f, k.unit, side));
                     }
                 }
@@ -1045,11 +811,7 @@ fn place_once(
             };
             let lo = sib_ends.iter().copied().fold(member_at, f64::min);
             let hi = sib_ends.iter().copied().fold(member_at, f64::max);
-            let over = if sc.line.iter().any(|&(_, lu)| lu == u) {
-                member_at
-            } else {
-                f64::midpoint(lo, hi)
-            };
+            let over = f64::midpoint(lo, hi);
             let mut parents = Shape::empty(rows_n);
             let mut xs: Vec<f64> = Vec::new();
             for &q in &up.parents {
@@ -1378,18 +1140,13 @@ fn layout_component(members: &[usize], sh: &Shared, sc: &mut Scratch) -> CompOut
     }
     generations(members, sh, sc);
     let mut units = make_units(members, sh, sc);
-    sc.line_root = None;
-    sc.line.clear();
     let rows_n = members
         .iter()
         .map(|&p| sc.level[p] as usize)
         .max()
         .unwrap_or(0)
         + 1;
-    let xs = match sc.target.filter(|t| members.contains(t)) {
-        Some(t) => place_around(t, &mut units, rows_n, sh, sc),
-        None => place_units(&mut units, rows_n, sh, sc),
-    };
+    let xs = place_units(&mut units, rows_n, sh, sc);
 
     // Left edge to zero, person boxes.
     let min_x = xs.iter().copied().fold(f64::INFINITY, f64::min);
@@ -1621,7 +1378,6 @@ struct Placed {
     people: usize,
     w: f64,
     comp: Option<CompOut>,
-    first: bool,
 }
 
 /// Lay out every person once. Deterministic for a given input.
@@ -1632,21 +1388,6 @@ pub fn whole(input: &WholeInput, m: &Metrics) -> WholeLayout {
 /// Like [`whole`]; with `reversed` every family is drawn upside down (the oldest generation at the
 /// bottom of its block). Headings, block positions, node ids and navigation links stay as they are.
 pub fn whole_directed(input: &WholeInput, m: &Metrics, reversed: bool) -> WholeLayout {
-    whole_around(input, m, reversed, None)
-}
-
-/// Like [`whole_directed`]; with `around` the chart is rebuilt with this person as its structural centre, so that
-/// their closest relatives sit near them: the walk starts from the topmost ancestor on their line, the line down to
-/// them stands in the exact middle of each row of brothers and sisters (and they in the middle of their partners),
-/// so their ancestors are straight above and their descendants straight below, and their family is shelved first.
-/// The usual order is never kept for them, even when it would be as near. Nothing is added or left out.
-/// A person who is not drawn (left out by the mask, or not there) changes nothing.
-pub fn whole_around(
-    input: &WholeInput,
-    m: &Metrics,
-    reversed: bool,
-    around: Option<Key>,
-) -> WholeLayout {
     let n = input.count;
     let fams = sanitise(input);
     let mut partner_in: Vec<Vec<usize>> = vec![Vec::new(); n];
@@ -1698,15 +1439,9 @@ pub fn whole_around(
         pos_in_unit: vec![0; n],
         px: vec![0.0; n],
         row: vec![0; n],
-        target: around
-            .map(|k| k as usize)
-            .filter(|&k| k < n && input.takes_part(k)),
-        line_root: None,
-        line: HashSet::new(),
     };
     let mut placed: Vec<Placed> = Vec::new();
     for members in &comps {
-        let first = sc.target.is_some_and(|t| members.contains(&t));
         let out = layout_component(members, &sh, &mut sc);
         let mut count: HashMap<&str, usize> = HashMap::new();
         for &p in members {
@@ -1725,11 +1460,10 @@ pub fn whole_around(
             people: members.len(),
             w: out.w.max(MIN_BLOCK_W),
             comp: Some(out),
-            first,
         });
     }
     // Largest first; ties keep the order of their first person.
-    placed.sort_by_key(|p| (!p.first, std::cmp::Reverse(p.people)));
+    placed.sort_by_key(|p| std::cmp::Reverse(p.people));
 
     // Shelf width from the total area, never narrower than the widest block.
     let pitch_x = f64::from(m.node_w + m.gap_x);

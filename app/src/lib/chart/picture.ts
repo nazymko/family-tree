@@ -52,7 +52,7 @@ function close(set: Set<number>, next: Map<number, number[]>): void {
  * The people of the selected person's branch, going away from the root of the chart, plus the partners of all of them.
  *  - pedigree: the person and their ancestors (edges run from a person to the ancestors);
  *  - descendants: the person and their descendants, and the partners of those people;
- *  - relatives: the direct line: ancestors, descendants and partners (no brothers, sisters or cousins);
+ *  - relatives and around: the direct line: ancestors, descendants and partners (no brothers, sisters or cousins);
  *  - whole tree: the lineage the backend gives (`lineage`) and the partners of those people.
  */
 export function branchIds(kind: ChartKind, scene: Scene, selected: number, lineage?: Iterable<number>): Set<number> {

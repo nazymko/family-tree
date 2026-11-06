@@ -18,6 +18,7 @@
   import { nodeLabel } from '../i18n/relation';
   import { plural, t, localeStore } from '../i18n';
   import { founderOf } from './wholeStart';
+  import { recallWholeView, rememberWholeView, wholeViewKey } from './wholeView';
   import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
   import { agentChanges } from '../state/agentChanges.svelte';
@@ -33,11 +34,9 @@
     reversed = false,
     people = [],
     descendants = false,
-    around = null,
     onShowSelection,
     onSelectionGone,
-    onArrange,
-    onArrangeGone,
+    onBuildAround,
   }: {
     homeId?: Id | null;
     /** The person the rest of the app is centred on; the first view starts on them, else on the home person. */
@@ -51,16 +50,12 @@
     /** Chosen people: when there are any, the chart holds only them, their ancestors and partners (and with `descendants` everyone below them). */
     people?: Id[];
     descendants?: boolean;
-    /** The same chart in another order: this person's close relatives are drawn near them, and they are in the middle of the view. */
-    around?: Id | null;
     /** Called with two or more Shift-picked people when "Show in Pedigree" (or P) is used on them. */
     onShowSelection?: (ids: Id[]) => void;
     /** None of the chosen people is in the project any more: go back to the whole tree. */
     onSelectionGone?: () => void;
-    /** "Arrange around this person" on the selected person. */
-    onArrange?: (id: Id) => void;
-    /** The person the chart was arranged around is not in the project any more: back to the usual order. */
-    onArrangeGone?: () => void;
+    /** "Build around this person" on the selected person: opens the screen built around them. */
+    onBuildAround?: (id: Id) => void;
   } = $props();
 
   const api = getApi();
@@ -177,7 +172,9 @@
   function place(): void {
     if (!sized || !meta) return;
     hint = '';
-    if (startRect) {
+    if (restoreCam) {
+      cam = { ...restoreCam };
+    } else if (startRect) {
       cam = centerOn({ x: 0, y: 0, zoom: START_ZOOM }, startRect, size);
       if (startNote) hint = startNote;
     } else {
@@ -200,6 +197,8 @@
     canvas.height = Math.round(size.h * dpr);
   }
 
+  /** The camera to come back to (see `wholeView.ts`); it replaces the usual first view. */
+  let restoreCam: Camera | null = null;
   let startRect: Rect | null = null;
   let startId: number | null = null;
   let startNote = '';
@@ -269,21 +268,15 @@
     startNote = '';
     const chosen = [...people];
     const inSel = chosen.length > 0;
-    const arr = around;
+    restoreCam = null;
     let m: WholeMeta;
     try {
-      m = arr
-        ? await api.chartOpenArranged(arr, inSel ? chosen : undefined, descendants)
-        : inSel
-          ? await api.chartOpenSelection(chosen, descendants)
-          : await api.chartOpenWhole();
+      m = inSel ? await api.chartOpenSelection(chosen, descendants) : await api.chartOpenWhole();
     } catch (e) {
       if (seq !== openSeq) return;
       const missing = (e as { code?: string } | null)?.code === 'not_found';
-      // The person it was arranged around is gone: the usual order (if everybody chosen is gone too, the next open says so).
-      if (arr && missing) onArrangeGone?.();
       // Everybody chosen was deleted: back to the whole tree.
-      else if (inSel && missing) onSelectionGone?.();
+      if (inSel && missing) onSelectionGone?.();
       else errorText = errMessage(e, t('whole.openFailed'));
       return;
     }
@@ -312,7 +305,7 @@
     });
     meta = m;
     // Boxes say how each person is related to the selected person (at first the focus or home person).
-    refId = keptPerson ?? flipKeep ?? arr ?? (inSel ? chosen[0] : (focusId ?? homeId)) ?? null;
+    refId = keptPerson ?? flipKeep ?? (inSel ? chosen[0] : (focusId ?? homeId)) ?? null;
     if (refId) {
       try {
         await api.chartSetReference(id, refId);
@@ -340,13 +333,15 @@
           startId = loc.nodeId;
         }
       }
-      // Arranged around someone: they are selected and in the middle of the view.
-      if (arr) {
-        const loc = await api.chartLocate(id, arr);
+      // Back from the screen built around a person: the same person selected and the view where it was left.
+      const back = keepView ? null : recallWholeView(wholeViewKey(chosen, descendants, reversed), focusId);
+      if (back) {
+        const loc = await api.chartLocate(id, back.person);
         if (seq !== openSeq) return;
         if (loc) {
           startRect = loc.rect;
           startId = loc.nodeId;
+          restoreCam = back.cam;
         }
       }
       // Flipped: the person that was selected stays selected and in the middle of the view.
@@ -456,7 +451,6 @@
     void focusId;
     void peopleKey;
     void descendants;
-    void around;
     const flipped = reversed !== lastReversed;
     lastReversed = reversed;
     untrack(() => {
@@ -762,10 +756,12 @@
     announceMarked();
   }
 
-  /** The selected person's closest relatives are drawn near them (a view only; the route remembers it). */
-  function arrangeAround(): void {
+  /** Opens the screen built around the selected person; the view is remembered so Back returns to it. */
+  function buildAround(): void {
     const p = realPerson(selNode);
-    if (p) onArrange?.(p.id);
+    if (!p) return;
+    rememberWholeView({ key: wholeViewKey([...people], descendants, reversed), person: p.id, cam: { ...cam } });
+    onBuildAround?.(p.id);
   }
 
   const canShow = $derived(markedIds.length > 0 || realPerson(selNode) !== null);
@@ -998,7 +994,7 @@
     <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={homeNode === null} onclick={goHome} />
     <FlipTreeButton />
     <Button aria-pressed={lineageOn} onclick={() => (lineageOn = !lineageOn)}>{t('whole.lineage')}</Button>
-    <Button disabled={!realPerson(selNode)} onclick={arrangeAround}>{t('whole.arrangeAround')}</Button>
+    <Button disabled={!realPerson(selNode)} onclick={buildAround}>{t('whole.buildAround')}</Button>
     <Button disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id)}>{t('whole.openPerson')}</Button>
     <IconButton label={t('whole.showInPedigree')} icon="pedigree" disabled={!canShow} onclick={showInPedigree} />
     {#if markedIds.length > 0}

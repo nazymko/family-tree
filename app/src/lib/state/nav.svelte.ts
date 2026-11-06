@@ -5,11 +5,10 @@ export type Route =
   | { name: 'importReport' }
   | { name: 'family' }
   | { name: 'people' }
-  /**
-   * `people`: the whole-tree page showing only these people, their ancestors and partners (Back returns to everyone).
-   * `around`: the same chart with this person's close relatives drawn near them (Back returns to the usual order).
-   */
-  | { name: 'whole'; people?: Id[]; around?: Id }
+  /** `people`: the whole-tree page showing only these people, their ancestors and partners (Back returns to everyone). */
+  | { name: 'whole'; people?: Id[] }
+  /** The screen built around one person: their ancestors above, their descendants below (Back returns to where it was opened). */
+  | { name: 'around'; id: Id }
   | { name: 'pedigree' }
   | { name: 'descendants' }
   | { name: 'relatives' }
@@ -22,8 +21,8 @@ export type Route =
 
 function same(a: Route, b: Route): boolean {
   if (a.name !== b.name) return false;
-  if (a.name === 'whole' && b.name === 'whole') return (a.people ?? []).join() === (b.people ?? []).join() && (a.around ?? '') === (b.around ?? '');
-  return a.name === 'person' && b.name === 'person' ? a.id === b.id : true;
+  if (a.name === 'whole' && b.name === 'whole') return (a.people ?? []).join() === (b.people ?? []).join();
+  return (a.name === 'person' && b.name === 'person') || (a.name === 'around' && b.name === 'around') ? a.id === b.id : true;
 }
 
 class NavState {
