@@ -1198,6 +1198,9 @@ export const uk: Messages = {
     clearMarked: 'Скасувати вибір',
     backToAll: 'Назад до всього родоводу',
     showDescendants: 'Показати всіх нащадків',
+    arrangeAround: 'Побудувати навколо цієї особи',
+    arrangedFor: 'Побудовано навколо: {name}',
+    usualOrder: 'Звичайний порядок',
   },
   trace: {
     title: 'Відтворення родоводу зі світлини',
