@@ -313,3 +313,64 @@ fn heavy_around_5000_people_is_fast() {
     assert!(el.as_millis() < 1_500, "took {el:?}");
     assert_no_overlap(&l);
 }
+
+/// Parents 2 and 3 (with their own parents 6/7 and 8/9) over person 1 and the siblings 4 (older) and 5
+/// (younger); `wide_for` gets twelve children, each with three of their own below.
+fn wide_siblings_family(wide_for: &[Key]) -> MapSource {
+    let mut s = MapSource::default();
+    s.family(Some(6), Some(7), &[2]);
+    s.family(Some(8), Some(9), &[3]);
+    s.family(Some(2), Some(3), &[4, 1, 5]);
+    s.births.extend([(4, 1), (1, 2), (5, 3)]);
+    s.family(Some(1), None, &[30, 31]);
+    let mut next = 1_000;
+    for &w in wide_for {
+        let kids: Vec<Key> = (next..next + 12).collect();
+        next += 12;
+        s.family(Some(w), None, &kids);
+    }
+    s
+}
+
+fn assert_parents_over_person(l: &Layout) {
+    let me = node_of(l, 1);
+    let (f, m) = (node_of(l, 2), node_of(l, 3));
+    let parents = (cx(f) + cx(m)) / 2.0;
+    assert!(
+        (cx(me) - parents).abs() < 0.01,
+        "parents centre {parents} vs person {}",
+        cx(me)
+    );
+    assert!(f.rect.y < me.rect.y && f.rect.y == m.rect.y);
+    for g in [6, 7, 8, 9] {
+        assert!(node_of(l, g).rect.y < f.rect.y, "{g} above the parents");
+    }
+    // The grandparents stand over their own child, not off somewhere else.
+    assert!((cx(node_of(l, 6)) + cx(node_of(l, 7))) / 2.0 - cx(f) < 0.01);
+    for sib in [4, 5] {
+        assert_eq!(
+            node_of(l, sib).rect.y,
+            me.rect.y,
+            "{sib} in the person's row"
+        );
+    }
+    for d in [30, 31] {
+        assert!(node_of(l, d).rect.y > me.rect.y, "{d} below");
+    }
+    assert_no_overlap(l);
+    assert_lines_clear_of_cards(l);
+}
+
+#[test]
+fn with_siblings_the_parents_stay_over_the_person_when_a_brother_has_a_wide_family() {
+    for wide in [&[4][..], &[5][..], &[1][..], &[4, 5][..], &[4, 1, 5][..]] {
+        let l = around_with_siblings(
+            &wide_siblings_family(wide),
+            1,
+            ALL,
+            &Metrics::default(),
+            100_000,
+        );
+        assert_parents_over_person(&l);
+    }
+}

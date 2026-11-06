@@ -1000,7 +1000,7 @@ export class MockApi implements Api {
     const laid =
       req.kind === 'around'
         ? req.siblings
-          ? layoutRelatives(req.root, generations, false, src)
+          ? layoutRelatives(req.root, generations, false, src, true, true)
           : layoutAround(req.root, generations, line)
         : req.kind === 'pedigree'
         ? layoutPedigree(req.root, generations, src)
