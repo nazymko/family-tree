@@ -27,7 +27,7 @@ fn agent(name: &str) -> Actor {
 fn agent_id(a: &Actor) -> Uuid {
     match a {
         Actor::Agent { id, .. } => *id,
-        Actor::User => unreachable!(),
+        Actor::User | Actor::Copy { .. } => unreachable!(),
     }
 }
 
@@ -101,7 +101,7 @@ fn v3_project_with_a_log_gets_the_reverts_index() {
         assert!(none.is_none());
     }
     let p = Project::open(&dir).unwrap();
-    assert_eq!(p.schema_version(), 4);
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
     drop(p);
     let c = Connection::open(dir.join("tree.db")).unwrap();
     let table: String = c
@@ -153,8 +153,8 @@ fn v2_upgrades_and_reads_before_tracking() {
         .unwrap();
     }
     let p = Project::open(&dir).unwrap();
-    assert_eq!(p.schema_version(), 4);
-    assert_eq!(SCHEMA_VERSION, 4);
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
+    assert_eq!(SCHEMA_VERSION, 5);
     let (page, total) = p.log_page(&all(), 0, 10).unwrap();
     // The row without a group cannot be addressed, so it is left out of the log.
     assert_eq!(total, 1);

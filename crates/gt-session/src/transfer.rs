@@ -186,7 +186,7 @@ pub struct RelinkResult {
 
 // ---------------------------------------------------------------- helpers
 
-fn io_err(what: &str, path: &Path, e: &std::io::Error) -> ApiError {
+pub(crate) fn io_err(what: &str, path: &Path, e: &std::io::Error) -> ApiError {
     ApiError::new(
         ErrorCode::Io,
         format!("Cannot {what} {}: {e}", path.display()),
@@ -220,7 +220,7 @@ fn remove_folder_safely(dir: &Path) -> Result<(), ApiError> {
 }
 
 /// Sibling scratch path `<target>.partial-<pid>`.
-fn partial_path(target: &Path) -> PathBuf {
+pub(crate) fn partial_path(target: &Path) -> PathBuf {
     let mut name = target.as_os_str().to_os_string();
     name.push(format!(".partial-{}", std::process::id()));
     PathBuf::from(name)
@@ -917,7 +917,7 @@ impl Session {
 
 /// Whether `dest` is (or would be) inside `project`, compared after resolving the parts that
 /// exist (symlinks, `..`) and, on Windows, ignoring case.
-fn inside_project(project: &Path, dest: &Path) -> bool {
+pub(crate) fn inside_project(project: &Path, dest: &Path) -> bool {
     let canon = |p: &Path| -> PathBuf {
         // Resolve the longest existing ancestor, then re-append the rest.
         let mut rest = Vec::new();

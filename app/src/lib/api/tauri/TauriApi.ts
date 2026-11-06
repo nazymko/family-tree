@@ -4,6 +4,10 @@ import type { Api } from '../api';
 import type { AgentAccessState, NewConnectionDto } from '../types';
 import type {
   BatchDto,
+  CopySizeDto,
+  CopyZipDto,
+  MergePreviewDto,
+  MergeResultDto,
   LogAgentDto,
   LogFilterDto,
   LogRowDto,
@@ -79,6 +83,27 @@ export class TauriApi implements Api {
   }
   saveCopy(dest: string): Promise<void> {
     return call('save_copy', { dest });
+  }
+  sendCopyZip(dest: string): Promise<CopyZipDto> {
+    return call('send_copy_zip', { dest });
+  }
+  copySize(): Promise<CopySizeDto> {
+    return call('copy_size');
+  }
+  openReceivedCopy(zip: string, dest: string): Promise<ProjectInfo> {
+    return call('open_received_copy', { zip, dest });
+  }
+  mergePreview(source: string, name: string): Promise<MergePreviewDto> {
+    return call('merge_preview', { source, name });
+  }
+  mergeApply(token: string): Promise<MergeResultDto> {
+    return call('merge_apply', { token });
+  }
+  mergeCancel(): Promise<void> {
+    return call('merge_cancel');
+  }
+  undoMerge(batch: string): Promise<UndoReport> {
+    return call('undo_merge', { batch });
   }
   checkLocation(dir: string): Promise<LocationWarningDto | null> {
     return call('check_location', { dir });

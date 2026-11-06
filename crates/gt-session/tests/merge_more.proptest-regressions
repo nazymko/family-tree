@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 67b21e4d84f622f217a4555ed53bd4684b62d9ff7ddd3df706a123a69f3dba73 # shrinks to owner_ops = [], rel_ops = [Private(1, true), SwapName(1)]
+cc a824c26f53ded26c6b3e76ab37ce838429d98e65924ef6c727a4d6b3c17d7d9a # shrinks to owner_ops = [Sex(1, 0)], rel_ops = [Sex(1, 1), Private(1, true)]

@@ -277,7 +277,7 @@ pub(crate) fn common_of(r: &Record) -> &Common {
     }
 }
 
-fn stamp_changed(r: &mut Record, now: i64) {
+pub(crate) fn stamp_changed(r: &mut Record, now: i64) {
     let c = match r {
         Record::Person(x) => &mut x.common,
         Record::Family(x) => &mut x.common,
@@ -326,7 +326,7 @@ fn holding_refs(r: &Record, f: &mut dyn FnMut(Uuid)) {
 }
 
 /// Every record this one points at: if one of these went, the reference would dangle.
-fn all_refs(r: &Record, f: &mut dyn FnMut(Uuid)) {
+pub(crate) fn all_refs(r: &Record, f: &mut dyn FnMut(Uuid)) {
     holding_refs(r, f);
     match r {
         Record::Event(x) => event_targets(x, f),

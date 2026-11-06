@@ -20,6 +20,10 @@
   import Descendants from './Descendants.svelte';
   import Relatives from './Relatives.svelte';
   import ExportDialog from './ExportDialog.svelte';
+  import SendCopyDialog from './SendCopyDialog.svelte';
+  import MergeDialog from './MergeDialog.svelte';
+  import UndoDialog, { type Pending } from './UndoDialog.svelte';
+  import { openReceivedCopy } from '../state/openReceived';
   import TraceView from '../trace/TraceView.svelte';
   import QuickAdd from '../editors/QuickAdd.svelte';
   import { added as addedPerson } from '../state/added.svelte';
@@ -64,6 +68,14 @@
   let searchOpen = $state(false);
   let sheetOpen = $state(false);
   let exportOpen = $state(false);
+  let sendOpen = $state(false);
+  let mergeOpen = $state(false);
+  let mergeUndo = $state<Pending | null>(null);
+
+  async function openReceived() {
+    const problem = await openReceivedCopy(api, platform);
+    if (problem) toasts.push({ text: problem });
+  }
 
   const homeId = $derived(project.info?.homePerson ?? settings.value.homePerson ?? null);
   const modLabel = $derived(formatKeys('Mod+K', currentPlatform()));
@@ -305,6 +317,18 @@
           </button>
         </li>
         <li>
+          <button type="button" class="item" onclick={() => (mergeOpen = true)}>
+            <Icon name="file" />
+            <span class="lbl">{t('merge.mergeMenu')}</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="item" onclick={() => void openReceived()}>
+            <Icon name="folder" />
+            <span class="lbl">{t('merge.openReceived')}</span>
+          </button>
+        </li>
+        <li>
           <a
             href="#/trace"
             class="item"
@@ -438,8 +462,37 @@
   ondone={added}
 />
 {#if exportOpen}
-  <ExportDialog onClose={() => (exportOpen = false)} />
+  <ExportDialog
+    onClose={() => (exportOpen = false)}
+    onSendCopy={() => {
+      exportOpen = false;
+      sendOpen = true;
+    }}
+  />
 {/if}
+{#if sendOpen}
+  <SendCopyDialog onClose={() => (sendOpen = false)} />
+{/if}
+{#if mergeOpen}
+  <MergeDialog
+    onClose={() => (mergeOpen = false)}
+    onShowChanges={() => {
+      mergeOpen = false;
+      go('log');
+    }}
+    onUndo={(batch, title) => {
+      mergeOpen = false;
+      mergeUndo = { kind: 'merge', id: batch, title };
+    }}
+    onOpenPerson={(id) => {
+      mergeOpen = false;
+      nav.focus(id);
+      nav.go({ name: 'person', id });
+    }}
+  />
+{/if}
+<UndoDialog pending={mergeUndo} onclose={() => (mergeUndo = null)} />
+
 <ToastHost />
 
 <style>

@@ -27,13 +27,14 @@ ts-rs.workspace = true
 image.workspace = true
 kamadak-exif.workspace = true
 fast_image_resize.workspace = true
+sha2.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 gt-session = { path = ".", features = ["test-support"] }
 gt-import-atdb = { path = "../gt-import-atdb", features = ["fixture"] }
 gt-gedcom = { path = "../gt-gedcom", features = ["synthetic"] }
 tempfile.workspace = true
-zip.workspace = true
 flate2.workspace = true
 proptest.workspace = true
 rusqlite.workspace = true

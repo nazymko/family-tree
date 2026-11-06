@@ -49,6 +49,8 @@ const EDIT_KEYS: Record<string, [label: MessageKey, done: MessageKey]> = {
 export function editLabel(label: string): string {
   const m = /^(Undo|Redo): (.+)$/.exec(label);
   if (m) return t(m[1] === 'Undo' ? 'edit.undoPrefix' : 'edit.redoPrefix', { label: editLabel(m[2]) });
+  const merged = /^Merged copy: (.+)$/.exec(label);
+  if (merged) return t('merge.mergedLabel', { name: merged[1] });
   const keys = EDIT_KEYS[label];
   return keys ? t(keys[0]) : label;
 }

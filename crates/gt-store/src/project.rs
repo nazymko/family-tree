@@ -2,7 +2,7 @@ use crate::migrate::{MIGRATIONS, migrate, user_version};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA_VERSION: i32 = 4;
+pub const SCHEMA_VERSION: i32 = 5;
 const DB_FILE: &str = "tree.db";
 const LOCK_FILE: &str = ".gene-tree.lock";
 const SUBDIRS: [&str; 3] = ["media", "thumbs", "backups"];
@@ -127,6 +127,59 @@ impl Project {
             project.rebuild_search()?;
         }
         Ok(project)
+    }
+
+    /// Opens a project folder that came from somewhere else (a relative's copy unpacked to a
+    /// scratch folder). Before anything is migrated or written the file must be an intact SQLite
+    /// database with this app's tables and no triggers or views (a schema of ours has none, and
+    /// a foreign one could run code on every write); anything else is refused. Then the same as
+    /// `open`: an older schema is migrated (in this scratch copy only), a newer one is refused.
+    pub fn open_untrusted(dir: &Path) -> Result<Project, StoreError> {
+        let db = dir.join(DB_FILE);
+        if !db.is_file() {
+            return Err(StoreError::NotAProject(dir.to_path_buf()));
+        }
+        {
+            let conn = Connection::open(&db).map_err(|e| StoreError::Corrupt(e.to_string()))?;
+            let bad = |e: rusqlite::Error| StoreError::Corrupt(e.to_string());
+            let check: String = conn
+                .query_row("PRAGMA quick_check", [], |r| r.get(0))
+                .map_err(bad)?;
+            if check != "ok" {
+                return Err(StoreError::Corrupt(format!("integrity check: {check}")));
+            }
+            let found = user_version(&conn)?;
+            if found > SCHEMA_VERSION {
+                return Err(StoreError::NewerSchema {
+                    found,
+                    supported: SCHEMA_VERSION,
+                });
+            }
+            let ours: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' \
+                     AND name IN ('person', 'family', 'event', 'meta', 'change_log')",
+                    [],
+                    |r| r.get(0),
+                )
+                .map_err(bad)?;
+            if found < 1 || ours != 5 {
+                return Err(StoreError::NotAProject(dir.to_path_buf()));
+            }
+            let foreign: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type IN ('trigger', 'view')",
+                    [],
+                    |r| r.get(0),
+                )
+                .map_err(bad)?;
+            if foreign > 0 {
+                return Err(StoreError::Corrupt(
+                    "the database holds triggers or views".into(),
+                ));
+            }
+        }
+        Project::open(dir)
     }
 
     pub fn schema_version(&self) -> i32 {

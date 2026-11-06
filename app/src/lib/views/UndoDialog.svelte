@@ -2,7 +2,7 @@
   import type { Id } from '../api/types';
 
   /** What to undo: one change group or a whole batch. */
-  export type Pending = { kind: 'group'; id: Id } | { kind: 'batch'; id: Id; title: string };
+  export type Pending = { kind: 'group'; id: Id } | { kind: 'batch'; id: Id; title: string } | { kind: 'merge'; id: Id; title: string };
 </script>
 
 <script lang="ts">
@@ -40,7 +40,12 @@
     busy = true;
     undoError = '';
     try {
-      report = pending.kind === 'group' ? await api.undoChangeGroup(pending.id) : await api.undoChangeBatch(pending.id);
+      report =
+        pending.kind === 'group'
+          ? await api.undoChangeGroup(pending.id)
+          : pending.kind === 'merge'
+            ? await api.undoMerge(pending.id)
+            : await api.undoChangeBatch(pending.id);
       void agentChanges.reload();
       onundone?.(report);
       // The button just pressed has gone with the question.
@@ -63,7 +68,13 @@
   }
 
   const title = $derived(
-    report ? t('changeLog.resultTitle') : pending?.kind === 'batch' ? t('changeLog.confirmBatchTitle') : t('changeLog.confirmChangeTitle'),
+    report
+      ? t('changeLog.resultTitle')
+      : pending?.kind === 'merge'
+        ? t('merge.undoMergeTitle')
+        : pending?.kind === 'batch'
+          ? t('changeLog.confirmBatchTitle')
+          : t('changeLog.confirmChangeTitle'),
   );
 
   /** The backend's word for a person with no name, in the active language. */
@@ -87,7 +98,13 @@
     {/if}
   {:else if pending}
     {#if undoError}<Banner kind="error">{undoError}</Banner>{/if}
-    <p>{pending.kind === 'batch' ? t('changeLog.confirmBatchBody', { title: pending.title }) : t('changeLog.confirmChangeBody')}</p>
+    <p>
+      {pending.kind === 'merge'
+        ? t('merge.undoMergeBody', { title: pending.title })
+        : pending.kind === 'batch'
+          ? t('changeLog.confirmBatchBody', { title: pending.title })
+          : t('changeLog.confirmChangeBody')}
+    </p>
   {/if}
   {#snippet footer()}
     {#if report}

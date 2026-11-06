@@ -7,6 +7,7 @@
   import { getApi, getPlatform } from '../api/context';
   import type { RecentProject } from '../api/types';
   import { enterProject } from '../state/openTree';
+  import { openReceivedCopy } from '../state/openReceived';
   import { t, currentLocale } from '../i18n';
 
   const api = getApi();
@@ -35,6 +36,10 @@
   async function openFolder() {
     const dir = await platform.pickFolder(t('welcome.openTree'));
     if (dir) await open(dir);
+  }
+
+  async function openReceived() {
+    error = (await openReceivedCopy(api, platform)) ?? '';
   }
 
   // The Api has no "forget this tree" call yet, so removal only lasts for this session.
@@ -85,6 +90,7 @@
         <Button onclick={() => (mode = 'create')}>{t('welcome.createTree')}</Button>
         <Button onclick={() => (mode = 'trace')}>{t('welcome.traceTree')}</Button>
         <Button onclick={openFolder}>{t('welcome.openTree')}</Button>
+        <Button onclick={openReceived}>{t('merge.openReceived')}</Button>
       </div>
 
       <section aria-labelledby="recent-h">

@@ -6,13 +6,14 @@ use crate::settings_file;
 use crate::state::{AppState, no_project};
 use gt_session::{
     ApiError, AttachResult, BatchDto, ChartLocation, ChartMeta, ChartRequest, ChartWindow,
-    CitationDto, DatePreview, DayOrder, EditCommand, EditResult, ErrorCode, ExifSuggestion,
-    ExportOptions, FamilyDto, FamilyViewDto, HistoryEntry, ImportProgress, ImportReportDto,
-    ImportRequest, LocationKind, LocationWarningDto, LogAgentDto, LogFilterDto, LogRowDto,
-    MediaDto, OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery, PersonRow, PlaceOption,
-    PrivacyPreview, ProjectInfo, RecentProject, RecordHomeDto, Rect, RelinkResult, ReviewScopeDto,
-    SearchHitDto, Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo,
-    UndoReport, UndoState, WholeMeta,
+    CitationDto, CopySizeDto, CopyZipDto, DatePreview, DayOrder, EditCommand, EditResult,
+    ErrorCode, ExifSuggestion, ExportOptions, FamilyDto, FamilyViewDto, HistoryEntry,
+    ImportProgress, ImportReportDto, ImportRequest, LocationKind, LocationWarningDto, LogAgentDto,
+    LogFilterDto, LogRowDto, MediaDto, MergePreviewDto, MergeResultDto, OutlineItem, OwnerRef,
+    Page, PersonDetail, PersonQuery, PersonRow, PlaceOption, PrivacyPreview, ProjectInfo,
+    RecentProject, RecordHomeDto, Rect, RelinkResult, ReviewScopeDto, SearchHitDto, Session,
+    Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport, UndoState,
+    WholeMeta,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -46,6 +47,13 @@ command_list!(
     open_project,
     close_project,
     save_copy,
+    send_copy_zip,
+    copy_size,
+    open_received_copy,
+    merge_preview,
+    merge_apply,
+    merge_cancel,
+    undo_merge,
     check_location,
     import_gedcom,
     save_import_report,
@@ -295,6 +303,67 @@ pub async fn save_copy<R: Runtime>(app: AppHandle<R>, dest: String) -> ApiResult
         s.with_session(|se| se.save_copy(Path::new(&dest)))
     })
     .await
+}
+
+/// The tree as one zip file, to send to a relative. Nothing leaves the computer from here.
+#[tauri::command]
+pub async fn send_copy_zip<R: Runtime>(app: AppHandle<R>, dest: String) -> ApiResult<CopyZipDto> {
+    blocking(&app, move |s| {
+        s.with_session(|se| se.save_copy_zip(Path::new(&dest)))
+    })
+    .await
+}
+
+/// How big the zip would be, for the warning shown before it is made.
+#[tauri::command(async)]
+pub fn copy_size(state: State<'_, AppState>) -> ApiResult<CopySizeDto> {
+    state.with_session(|s| s.copy_size())
+}
+
+/// Unpacks a zip received from a relative into a new folder and opens it as a tree.
+#[tauri::command]
+pub async fn open_received_copy<R: Runtime>(
+    app: AppHandle<R>,
+    zip: String,
+    dest: String,
+) -> ApiResult<ProjectInfo> {
+    blocking(&app, move |s| {
+        gt_session::merge::open_received_copy(Path::new(&zip), Path::new(&dest))?;
+        open_project_impl(s, &dest)
+    })
+    .await
+}
+
+/// Reads a relative's copy (a folder or a zip) and says what merging it would do. Changes nothing.
+#[tauri::command]
+pub async fn merge_preview<R: Runtime>(
+    app: AppHandle<R>,
+    source: String,
+    name: String,
+) -> ApiResult<MergePreviewDto> {
+    blocking(&app, move |s| {
+        s.with_session(|se| se.merge_preview(Path::new(&source), &name))
+    })
+    .await
+}
+
+/// Applies the preview made last; `stale` when the tree changed since.
+#[tauri::command]
+pub async fn merge_apply<R: Runtime>(app: AppHandle<R>, token: Uuid) -> ApiResult<MergeResultDto> {
+    blocking(&app, move |s| s.with_session(|se| se.merge_apply(token))).await
+}
+
+#[tauri::command(async)]
+pub fn merge_cancel(state: State<'_, AppState>) -> ApiResult<()> {
+    state.with_session(|s| {
+        s.merge_cancel();
+        Ok(())
+    })
+}
+
+#[tauri::command(async)]
+pub fn undo_merge(state: State<'_, AppState>, batch: Uuid) -> ApiResult<UndoReport> {
+    state.with_session(|s| s.undo_merge(batch))
 }
 
 #[tauri::command(async)]
