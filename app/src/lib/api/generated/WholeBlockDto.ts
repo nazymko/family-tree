@@ -6,9 +6,14 @@ import type { Rect } from "./Rect";
  */
 export type WholeBlockDto = { 
 /**
- * "Koval family (34 people)" or "Unconnected people (12)".
+ * "Koval family (34 people)" or "Unconnected people (12)": in English, for tools. The app
+ * words the heading in its own language from `surname`, `people` and `unconnected`.
  */
-title: string, people: number, 
+title: string, 
+/**
+ * The family's surname; empty when it has none and for the unconnected people.
+ */
+surname: string, people: number, 
 /**
  * The block of people who have no family link at all.
  */

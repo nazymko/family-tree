@@ -555,8 +555,11 @@ pub struct ChartWindow {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct WholeBlockDto {
-    /// "Koval family (34 people)" or "Unconnected people (12)".
+    /// "Koval family (34 people)" or "Unconnected people (12)": in English, for tools. The app
+    /// words the heading in its own language from `surname`, `people` and `unconnected`.
     pub title: String,
+    /// The family's surname; empty when it has none and for the unconnected people.
+    pub surname: String,
     pub people: u32,
     /// The block of people who have no family link at all.
     pub unconnected: bool,

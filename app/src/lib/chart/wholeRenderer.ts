@@ -2,6 +2,7 @@ import type { ChartEdge, ChartNode, ChartWindow, SexKind, WholeBlockDto } from '
 import type { Camera } from './camera';
 import { drawAgentBadges, drawMarkerBoxes, drawMarkerLabel, fit, lodFor, nameLines, themeFromCss, type Theme } from './renderer';
 import { kinshipText } from '../family/kinship';
+import { wholeBlockTitle } from '../i18n/backend';
 
 export interface WholeTheme extends Theme {
   male: string;
@@ -80,7 +81,7 @@ function drawHeadings(ctx: CanvasRenderingContext2D, blocks: WholeBlockDto[], ca
     for (const b of blocks) {
       const r = b.rect;
       if (r.x > x1 || r.x + r.w < cam.x || r.y > y1 || r.y + r.h < cam.y) continue;
-      ctx.fillText(b.title, r.x, r.y + 21);
+      ctx.fillText(wholeBlockTitle(b), r.x, r.y + 21);
     }
     // A rule under each heading keeps a block's top edge visible at any zoom.
     ctx.beginPath();
@@ -100,7 +101,8 @@ function drawHeadings(ctx: CanvasRenderingContext2D, blocks: WholeBlockDto[], ca
     const r = b.rect;
     const top = r.y - size - 2 * pad;
     if (r.x > x1 || r.x + r.w < cam.x || r.y + 2 * pad < cam.y || top > y1) continue;
-    const textW = ctx.measureText(b.title).width;
+    const title = wholeBlockTitle(b);
+    const textW = ctx.measureText(title).width;
     // The label stays on screen while its block is, so you can tell which family you are over.
     const x = Math.min(Math.max(r.x, cam.x + 8 / z), Math.max(r.x, r.x + r.w - textW - 2 * pad));
     ctx.globalAlpha = 0.92;
@@ -111,7 +113,7 @@ function drawHeadings(ctx: CanvasRenderingContext2D, blocks: WholeBlockDto[], ca
     ctx.lineWidth = 1 / z;
     ctx.strokeRect(x - pad, top, textW + 2 * pad, size + 2 * pad);
     ctx.fillStyle = theme.ink;
-    ctx.fillText(b.title, x, r.y - pad - size * 0.2);
+    ctx.fillText(title, x, r.y - pad - size * 0.2);
   }
 }
 

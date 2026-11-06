@@ -765,6 +765,7 @@ impl Session {
             })
             .map(|(b, people)| WholeBlockDto {
                 title: block_title(b.kind, &b.surname, people),
+                surname: b.surname.clone(),
                 people,
                 unconnected: b.kind == BlockKind::Unconnected,
                 rect: Rect {

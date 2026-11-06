@@ -818,6 +818,8 @@ fn whole_tree_has_everyone_once_headings_and_an_unconnected_block() {
     assert_eq!(w.meta.version, s.revision());
     let titles: Vec<&str> = w.blocks.iter().map(|b| b.title.as_str()).collect();
     assert_eq!(titles, ["X family (7 people)", "Unconnected people (1)"]);
+    assert_eq!(w.blocks[0].surname, "X");
+    assert_eq!(w.blocks[1].surname, "");
     assert!(w.blocks[1].unconnected && !w.blocks[0].unconnected);
     let all = s.chart_window(w.meta.chart_id, &everything(), 1.0).unwrap();
     assert_eq!(all.nodes.len(), 8);
