@@ -232,6 +232,78 @@ fn a_photo_path_outside_media_is_blocked_and_nothing_is_read_from_it() {
     assert!(owner.tree().media.is_empty());
 }
 
+fn media_entries(zip: &Path) -> usize {
+    let a = zip::ZipArchive::new(std::fs::File::open(zip).unwrap()).unwrap();
+    a.file_names()
+        .filter(|n| n.as_ref().is_ok_and(|n| n.starts_with("media/")))
+        .count()
+}
+
+#[test]
+fn a_photo_no_record_refers_to_is_left_out_of_the_zip() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut owner = new_owner(&dir, "owner");
+    let ivan = add(&mut owner, "Ivan");
+    let (mut rel, zip) = with_photo(&dir, &owner, ivan);
+    assert_eq!(media_entries(&zip), 1, "a photo in use is sent");
+    let media = *rel.tree().media.keys().next().unwrap();
+    rel.apply(EditCommand::DeleteMedia { id: media }).unwrap();
+    assert_eq!(
+        media_files(&rel),
+        1,
+        "the file is still on the relative's disk"
+    );
+    let zip2 = send(&rel, &dir, "again.zip");
+    assert_eq!(
+        media_entries(&zip2),
+        0,
+        "no record refers to it, so it is not sent"
+    );
+    assert_eq!(rel.copy_size().unwrap().photos, 0);
+}
+
+/// Makes `link` a directory link (a junction on Windows) to `target`.
+fn link_dir(link: &Path, target: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+}
+
+#[test]
+fn a_media_folder_that_is_itself_a_link_is_not_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut owner = new_owner(&dir, "owner");
+    let ivan = add(&mut owner, "Ivan");
+    let (rel, _zip) = with_photo(&dir, &owner, ivan);
+    let rel_dir = rel.project().dir.clone();
+    drop(rel);
+    let real = rel_dir.join("media-elsewhere");
+    std::fs::rename(rel_dir.join("media"), &real).unwrap();
+    assert!(
+        link_dir(&rel_dir.join("media"), &real),
+        "the test needs to make a directory link"
+    );
+    let p = owner.merge_preview(&rel_dir, "Olena's copy").unwrap();
+    assert!(
+        p.blocked
+            .iter()
+            .any(|l| l.why == Some(MergeWhy::PhotoUnsafe)),
+        "{p:?}"
+    );
+    owner.merge_apply(p.token).unwrap();
+    assert_eq!(media_files(&owner), 0, "nothing was read through the link");
+}
+
 // ---- records that point at something removed ---------------------------------------------------
 
 #[test]
@@ -482,7 +554,18 @@ proptest! {
             if o.common.private != b.common.private {
                 prop_assert_eq!(a.common.private, o.common.private);
             }
-            if let Some(r) = r {
+            // A record whose copy swapped a name is listed whole, so its other edits wait too.
+            let swapped = rel_ops
+                .iter()
+                .any(|o| matches!(o, Op::SwapName(i) if ids[*i] == *id));
+            // Both sides set the same field to different values: the record is listed whole.
+            let clash = |x: &gt_core::model::Person| {
+                o.sex != b.sex && x.sex != b.sex && o.sex != x.sex
+                    || o.common.private != b.common.private
+                        && x.common.private != b.common.private
+                        && o.common.private != x.common.private
+            };
+            if let Some(r) = r.filter(|r| !swapped && !clash(r)) {
                 // What only the copy changed comes across, except a change that makes a
                 // private person visible.
                 if o.sex == b.sex && r.sex != b.sex {

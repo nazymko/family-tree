@@ -484,6 +484,31 @@ fn send_open_edit_send_back_merge_undo() {
     assert!(again.to_apply >= 3, "{again:?}");
 }
 
+#[test]
+fn a_merge_undone_but_left_in_the_ledger_is_offered_again() {
+    let mut f = family();
+    let ivan = f.ivan;
+    let mut rel = f.relative("rel", LATER_MS);
+    set_sex(&mut rel, ivan, SexKind::Male);
+    let zip = send(&rel, &f, "back.zip");
+    let p = preview(&mut f.owner, &zip);
+    let r = f.owner.merge_apply(p.token).unwrap();
+    // A crash between the undo and the ledger clean-up: the undo is done, the ledger stays.
+    let report = f.owner.undo_batch(r.batch).unwrap();
+    assert!(report.skipped.is_empty(), "{report:?}");
+    assert!(
+        !f.owner
+            .project()
+            .merged_groups_of(r.batch)
+            .unwrap()
+            .is_empty(),
+        "the ledger was left in place"
+    );
+    let again = preview(&mut f.owner, &zip);
+    assert_eq!(again.to_apply, 1, "{again:?}");
+    assert!(!again.nothing_new, "{again:?}");
+}
+
 // ---- a copy is untrusted --------------------------------------------------------------------
 
 #[test]

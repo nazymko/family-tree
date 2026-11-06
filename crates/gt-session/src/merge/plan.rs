@@ -7,7 +7,7 @@
 //! applies: an addition comes across, a removal is never made, and a record that differs on both
 //! sides is left for the owner.
 
-use super::copy::{MAX_RECORDS, OpenedCopy, open_copy};
+use super::copy::{MAX_RECORDS, OpenedCopy, is_link_like, open_copy, refuse_if_huge};
 use super::dto::{
     MaybeSameDto, MergeCheckDto, MergeCheckKind, MergeHistory, MergeLineDto, MergePreviewDto,
     MergeWhy,
@@ -115,18 +115,6 @@ fn records_of(t: &Tree) -> HashMap<Uuid, Record> {
     m
 }
 
-fn record_count(t: &Tree) -> usize {
-    t.persons.len()
-        + t.families.len()
-        + t.events.len()
-        + t.places.len()
-        + t.sources.len()
-        + t.repositories.len()
-        + t.citations.len()
-        + t.media.len()
-        + t.notes.len()
-}
-
 fn rank(k: RecordKind) -> u8 {
     match k {
         RecordKind::Person => 0,
@@ -225,7 +213,7 @@ fn is_empty_value(v: &Value) -> bool {
 /// a record). `None`: a plain value such as a surname, which can be corrected.
 fn link_identity(item: &Value) -> Option<Value> {
     match item {
-        Value::Object(o) => ["id", "person", "target"]
+        Value::Object(o) => ["id", "person", "target", "media"]
             .iter()
             .find_map(|k| o.get(*k).cloned()),
         Value::String(s) if Uuid::parse_str(s).is_ok() => Some(item.clone()),
@@ -341,12 +329,18 @@ fn check_media(sess: &Session, copy: &OpenedCopy, m: &Media) -> MediaCheck {
     {
         return MediaCheck::Bad(MergeWhy::PhotoUnsafe);
     }
+    // The copy's `media` folder itself must be a real folder, not a link to somewhere else.
+    match std::fs::symlink_metadata(&copy.media_root) {
+        Ok(r) if is_link_like(&r) => return MediaCheck::Bad(MergeWhy::PhotoUnsafe),
+        Ok(_) => {}
+        Err(_) => return MediaCheck::Bad(MergeWhy::PhotoMissing),
+    }
     let dir = copy.media_root.join(aa);
     let src = dir.join(file);
     let kind = |p: &Path| std::fs::symlink_metadata(p);
     match (kind(&dir), kind(&src)) {
         (Ok(d), Ok(f)) => {
-            if d.file_type().is_symlink() || f.file_type().is_symlink() || !f.is_file() {
+            if is_link_like(&d) || is_link_like(&f) || !f.is_file() {
                 return MediaCheck::Bad(MergeWhy::PhotoUnsafe);
             }
         }
@@ -736,13 +730,8 @@ impl Session {
     #[allow(clippy::too_many_lines)]
     fn make_plan(&self, source: &Path, name: &str) -> Result<Plan, ApiError> {
         let copy = open_copy(source)?;
+        refuse_if_huge(&copy.project, MAX_RECORDS)?;
         let their_tree = copy.project.load_tree()?;
-        if record_count(&their_tree) > MAX_RECORDS {
-            return Err(ApiError::new(
-                ErrorCode::Invalid,
-                "This copy holds far more records than a family tree can, so it was not opened.",
-            ));
-        }
         let name = {
             let n: String = name.trim().chars().take(80).collect();
             if n.is_empty() {

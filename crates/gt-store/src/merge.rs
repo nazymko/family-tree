@@ -66,11 +66,41 @@ impl Project {
         ids.iter().map(|s| parse_uuid(s)).collect()
     }
 
-    /// The groups already taken from some copy (the ledger).
+    /// How many records the tree holds (people, families, events, places, sources, repositories,
+    /// citations, media, notes), counted by the database without reading them.
+    pub fn record_count(&self) -> Result<u64, StoreError> {
+        let mut total = 0u64;
+        for table in [
+            "person",
+            "family",
+            "event",
+            "place",
+            "source",
+            "repository",
+            "citation",
+            "media",
+            "note",
+        ] {
+            let n: i64 =
+                self.conn
+                    .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))?;
+            total = total.saturating_add(u64::try_from(n).unwrap_or(0));
+        }
+        Ok(total)
+    }
+
+    /// The groups already taken from some copy (the ledger). A merge whose every group in the log
+    /// has been undone does not count, whether or not its ledger rows were cleaned up (a crash
+    /// can come between the two).
     pub fn merged_source_groups(&self) -> Result<HashSet<Uuid>, StoreError> {
-        let mut st = self
-            .conn
-            .prepare_cached("SELECT source_group FROM merged_group")?;
+        let mut st = self.conn.prepare_cached(
+            "SELECT m.source_group FROM merged_group m WHERE \
+             NOT EXISTS (SELECT 1 FROM change_log c WHERE c.batch_id = m.batch_id) \
+             OR EXISTS (SELECT 1 FROM change_log c WHERE c.batch_id = m.batch_id \
+                AND c.reverts_group IS NULL AND c.group_id IS NOT NULL \
+                AND c.group_id NOT IN \
+                  (SELECT reverts_group FROM change_log WHERE reverts_group IS NOT NULL))",
+        )?;
         let ids: Vec<String> = st.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
         ids.iter().map(|s| parse_uuid(s)).collect()
     }

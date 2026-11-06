@@ -9,7 +9,7 @@ mod copy;
 pub mod dto;
 mod plan;
 
-pub use copy::open_received_copy;
+pub use copy::{open_received_copy, remove_stale_scratch, remove_stale_scratch_now};
 pub use dto::{
     CopySizeDto, CopyZipDto, MaybeSameDto, MergeCheckDto, MergeCheckKind, MergeHistory,
     MergeLineDto, MergePreviewDto, MergeResultDto, MergeWhy,
