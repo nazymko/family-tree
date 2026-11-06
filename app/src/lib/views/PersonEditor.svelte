@@ -582,7 +582,10 @@
         {#if familyNotes.length === 0}<p class="empty">{t('person.noNotes')}</p>{/if}
       {/each}
       {#each familyNotes as fam (fam.familyId)}
-        <h3>{fam.partner ? t('person.familyNotesWith', { name: fam.partner }) : t('person.familyNotes')}</h3>
+        <div class="sec-head">
+          <h3>{fam.partner ? t('person.familyNotesWith', { name: fam.partner }) : t('person.familyNotes')}</h3>
+          <Button onclick={() => (dialog = { kind: 'family', family: fam.familyId })}>{t('person.openFamily')}</Button>
+        </div>
         {#each fam.notes as n (n.id)}
           <article class="note">
             <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>

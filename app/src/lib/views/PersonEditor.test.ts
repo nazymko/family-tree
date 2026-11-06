@@ -37,7 +37,8 @@ describe('PersonEditor', () => {
     await api.apply({ type: 'saveNote', target: { kind: 'family', id: family }, note: { kind: 'general', text: 'They moved to the village in spring.' } });
     await open();
     const text = await screen.findByText('They moved to the village in spring.');
-    expect(screen.getByRole('heading', { level: 3, name: /Family notes/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Shared family notes/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open family' })).toBeInTheDocument();
     expect(screen.queryByText('No notes yet.')).toBeNull();
     const article = text.closest('article') as HTMLElement;
     await user.click(within(article).getByRole('button', { name: /Edit/ }));
