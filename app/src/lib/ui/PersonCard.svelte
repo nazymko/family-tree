@@ -3,14 +3,15 @@
   import Lock from './Lock.svelte';
   import AgentBadge from './AgentBadge.svelte';
   import { t, type MessageKey } from '../i18n';
+  import { SEX_GLYPH } from './sex';
 
   type Sex = 'male' | 'female' | 'intersex' | 'unknown' | 'other';
   const SEX: Record<Sex, { glyph: string; name: MessageKey }> = {
-    male: { glyph: '♂', name: 'sex.male' },
-    female: { glyph: '♀', name: 'sex.female' },
-    intersex: { glyph: '⚥', name: 'sex.intersex' },
-    unknown: { glyph: '?', name: 'sex.unknown' },
-    other: { glyph: '•', name: 'sex.other' },
+    male: { glyph: SEX_GLYPH.male, name: 'sex.male' },
+    female: { glyph: SEX_GLYPH.female, name: 'sex.female' },
+    intersex: { glyph: SEX_GLYPH.intersex, name: 'sex.intersex' },
+    unknown: { glyph: SEX_GLYPH.unknown, name: 'sex.unknown' },
+    other: { glyph: SEX_GLYPH.other, name: 'sex.other' },
   };
 
   let {

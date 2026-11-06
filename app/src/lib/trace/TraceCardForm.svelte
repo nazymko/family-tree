@@ -8,6 +8,7 @@
   import type { PersonRef, SexKind } from '../api/types';
   import type { LinkKind, TraceCard } from './model';
   import { t } from '../i18n';
+  import { withSexIcon } from '../ui/sex';
 
   interface Props {
     card: TraceCard;
@@ -21,11 +22,11 @@
 
   const api = getApi();
   const SEX = $derived<{ value: SexKind; label: string }[]>([
-    { value: 'unknown', label: t('trace.sexUnknown') },
-    { value: 'male', label: t('trace.sexMale') },
-    { value: 'female', label: t('trace.sexFemale') },
-    { value: 'intersex', label: t('trace.sexIntersex') },
-    { value: 'other', label: t('trace.sexOther') },
+    { value: 'unknown', label: withSexIcon('unknown', t('trace.sexUnknown')) },
+    { value: 'male', label: withSexIcon('male', t('trace.sexMale')) },
+    { value: 'female', label: withSexIcon('female', t('trace.sexFemale')) },
+    { value: 'intersex', label: withSexIcon('intersex', t('trace.sexIntersex')) },
+    { value: 'other', label: withSexIcon('other', t('trace.sexOther')) },
   ]);
 
   let matches = $state<PersonRef[]>([]);

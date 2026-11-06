@@ -45,6 +45,7 @@
   import { errMessage } from '../editors/errors';
   import { t, plural, currentLocale, type MessageKey } from '../i18n';
   import { agentLabel, editLabel, eventKindLabel } from '../i18n/backend';
+  import { withSexIcon } from '../ui/sex';
 
   let {
     id,
@@ -220,7 +221,7 @@
   );
 
   const SEXES = $derived(
-    (['male', 'female', 'intersex', 'unknown', 'other'] as const).map((value) => ({ value, label: t(`sexOption.${value}`) })),
+    (['male', 'female', 'intersex', 'unknown', 'other'] as const).map((value) => ({ value, label: withSexIcon(value, t(`sexOption.${value}`)) })),
   );
 
   const livingOptions = $derived([
