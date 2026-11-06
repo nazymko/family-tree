@@ -9,6 +9,7 @@
   import type { Id, SexKind } from '../api/types';
   import type { AddRelation as Relation } from '../state/ui.svelte';
   import { t, type MessageKey } from '../i18n';
+  import { withSexIcon } from '../ui/sex';
 
   let {
     open,
@@ -93,11 +94,11 @@
       label={t('newPerson.sex')}
       bind:value={sex}
       options={[
-        { value: 'unknown', label: t('sexOption.unknown') },
-        { value: 'female', label: t('sexOption.female') },
-        { value: 'male', label: t('sexOption.male') },
-        { value: 'intersex', label: t('sexOption.intersex') },
-        { value: 'other', label: t('sexOption.other') },
+        { value: 'unknown', label: withSexIcon('unknown', t('sexOption.unknown')) },
+        { value: 'female', label: withSexIcon('female', t('sexOption.female')) },
+        { value: 'male', label: withSexIcon('male', t('sexOption.male')) },
+        { value: 'intersex', label: withSexIcon('intersex', t('sexOption.intersex')) },
+        { value: 'other', label: withSexIcon('other', t('sexOption.other')) },
       ]}
     />
     <DatePartsField label={t('newPerson.birthDate')} value={birth} onChange={(r) => (birth = r)} order={settings.value.dayOrder} />

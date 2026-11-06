@@ -71,7 +71,7 @@ describe('FieldChanges', () => {
     expect(rows()).toEqual([
       ['Preferred name', 'no', 'yes'],
       ['Kind of name', 'Birth name', 'Pen name'],
-      ['Sex', 'Male', 'Female'],
+      ['Sex', '♂ Male', '♀ Female'],
     ]);
   });
 

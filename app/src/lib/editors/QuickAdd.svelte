@@ -15,6 +15,7 @@
   import EditorDialog from './EditorDialog.svelte';
   import { errMessage, opt, splitList } from './errors';
   import { t } from '../i18n';
+  import { withSexIcon } from '../ui/sex';
 
   type Relation = 'father' | 'mother' | 'partner' | 'child' | 'sibling';
   let {
@@ -41,7 +42,7 @@
   // svelte-ignore state_referenced_locally
   const rel = relation;
   const SEXES = $derived(
-    (['male', 'female', 'intersex', 'unknown', 'other'] as const).map((value) => ({ value, label: t(`sexOption.${value}`) })),
+    (['male', 'female', 'intersex', 'unknown', 'other'] as const).map((value) => ({ value, label: withSexIcon(value, t(`sexOption.${value}`)) })),
   );
   const ADD_KEY = {
     father: 'edit.addFather',
