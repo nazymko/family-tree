@@ -1835,6 +1835,17 @@ export const uk: Messages = {
       notFound: 'Цієї зміни вже немає в журналі змін.',
     },
   },
+  familyPage: {
+    title: 'Родина: {a} і {b}',
+    titleOne: 'Родина: {a}',
+    titleNone: 'Родина',
+    open: 'Сторінка родини',
+    openWith: 'Сторінка родини, партнер: {name}',
+    events: 'Події',
+    noEvents: 'Подій не вказано.',
+    noNotes: 'Спільних нотаток немає.',
+    gone: 'Цієї родини більше немає в родоводі.',
+  },
   be: {
     kind: {
       person: 'особа',
