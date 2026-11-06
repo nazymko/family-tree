@@ -6,6 +6,7 @@
   import Icon from '../ui/Icon.svelte';
   import DateBuilder from './DateBuilder.svelte';
   import { t } from '../i18n';
+  import { dateRangeText, dateText, dateWarningText } from '../i18n/backend';
 
   let {
     label,
@@ -76,14 +77,14 @@
   <TextField {label} bind:value={text} {oninput} autocomplete="off" />
   <div class="status" role="status" aria-live="polite">
     {#if preview?.status === 'ok'}
-      <span class="ok">{t('fields.understoodAs', { text: preview.understoodAs })}{preview.range ? ` (${preview.range})` : ''}</span>
+      <span class="ok">{t('fields.understoodAs', { text: dateText(preview.understoodAs) })}{preview.range ? ` (${dateRangeText(preview.range)})` : ''}</span>
     {:else if preview?.status === 'phrase'}
-      <span class="ok">Saved as a phrase: "{preview.raw}"</span>
+      <span class="ok">{t('fields.savedAsPhrase', { raw: preview.raw })}</span>
     {:else if preview?.status === 'unparsed'}
       <span class="warn"><Icon name="warning" /> {t('fields.notUnderstood')}</span>
     {/if}
     {#if preview}
-      {#each preview.warnings as w (w)}<span class="note">{w}</span>{/each}
+      {#each preview.warnings as w (w)}<span class="note">{dateWarningText(w)}</span>{/each}
     {/if}
   </div>
   {#if picker}

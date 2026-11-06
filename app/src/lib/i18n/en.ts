@@ -923,6 +923,10 @@ export const en = {
   },
   fields: {
     understoodAs: 'Understood as: {text}',
+    understoodRange: '{a} to {b}',
+    dateAmbiguousDmy: 'Day and month are ambiguous; read as DMY',
+    dateAmbiguousMdy: 'Day and month are ambiguous; read as MDY',
+    dateDualYear: 'Double year: the first year is Old Style, the second New Style.',
     understoodHint: 'Understood as {text}',
     savedAsPhrase: 'Saved as a phrase: "{raw}"',
     notUnderstood: 'Not understood as a date. It will be saved exactly as you typed it.',

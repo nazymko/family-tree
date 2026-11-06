@@ -922,6 +922,10 @@ export const uk: Messages = {
   },
   fields: {
     understoodAs: 'Розпізнано як: {text}',
+    understoodRange: '{a} – {b}',
+    dateAmbiguousDmy: 'День і місяць можна сплутати; прочитано як день, місяць, рік',
+    dateAmbiguousMdy: 'День і місяць можна сплутати; прочитано як місяць, день, рік',
+    dateDualYear: 'Подвійний рік: перший за старим стилем, другий за новим.',
     understoodHint: 'Розпізнано як {text}',
     savedAsPhrase: 'Збережено як фразу: «{raw}»',
     notUnderstood: 'Не схоже на дату. Її буде збережено точно так, як Ви її ввели.',
