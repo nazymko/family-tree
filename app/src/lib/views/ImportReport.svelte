@@ -9,6 +9,7 @@
   import { toasts } from '../state/toast.svelte';
   import { enterProject } from '../state/openTree';
   import { t, plural, formatNumber } from '../i18n';
+  import { backendError, repairKindLabel } from '../i18n/backend';
   import type { MessageKey } from '../i18n';
 
   let { report: reportProp }: { report?: ImportReportDto } = $props();
@@ -129,10 +130,10 @@
         <details open>
           <summary><h2>{t('imp.repairs')}</h2></summary>
           {#each repairGroups as [kind, items] (kind)}
-            <h3>{kind.replace(/_/g, ' ')}</h3>
+            <h3>{repairKindLabel(kind)}</h3>
             <ul>
               {#each items as r, i (i)}
-                <li>{r.line !== null ? `${t('imp.line', { n: r.line })} ` : ''}{r.detail}</li>
+                <li>{r.line !== null ? `${t('imp.line', { n: r.line })} ` : ''}{backendError(r.detail)}</li>
               {/each}
             </ul>
           {/each}

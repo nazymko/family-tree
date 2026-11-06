@@ -1,4 +1,5 @@
 import type { Api, Platform } from '../api/api';
+import { errMessage } from '../editors/errors';
 import { t } from '../i18n';
 import { enterProject } from './openTree';
 
@@ -15,7 +16,7 @@ export async function openReceivedCopy(api: Api, platform: Platform): Promise<st
     await enterProject(api, await api.openReceivedCopy(zip, dest));
     return null;
   } catch (e) {
-    const reason = e instanceof Error ? e.message : typeof e === 'object' && e && 'message' in e ? String((e as { message: unknown }).message) : '';
+    const reason = errMessage(e, '');
     return t('merge.openReceivedFailed', { reason });
   }
 }

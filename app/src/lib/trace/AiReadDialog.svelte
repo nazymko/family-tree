@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errMessage } from '../editors/errors';
   import Banner from '../ui/Banner.svelte';
   import Button from '../ui/Button.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
@@ -50,7 +51,7 @@
       onresult(r);
     } catch (e) {
       if (mine !== round) return;
-      error = e instanceof Error ? e.message : String(e);
+      error = errMessage(e, t('edit.wentWrong'));
       // The picture may already have left the computer: ask again before any retry.
       understood = false;
     } finally {
@@ -76,7 +77,7 @@
       await api.aiRemoveKey();
       hasKey = false;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errMessage(e, t('edit.wentWrong'));
     }
   }
 </script>

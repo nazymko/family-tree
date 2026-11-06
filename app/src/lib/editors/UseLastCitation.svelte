@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errMessage } from './errors';
   // "Use the last citation": one step, plus the Mod+Shift+C shortcut while the host dialog is open.
   import Button from '../ui/Button.svelte';
   import { getApi } from '../api/context';
@@ -25,7 +26,7 @@
       notices.show(undoNotice(api, t('edit.doneCitationAdded'), r.undo));
       onDone(r);
     } catch (e) {
-      onError?.(e instanceof Error ? e.message : String(e));
+      onError?.(errMessage(e, t('edit.wentWrong')));
     } finally {
       busy = false;
     }

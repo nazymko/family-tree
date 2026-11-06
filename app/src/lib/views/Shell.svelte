@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errMessage } from '../editors/errors';
   import { onMount } from 'svelte';
   import Icon from '../ui/Icon.svelte';
   import IconButton from '../ui/IconButton.svelte';
@@ -89,7 +90,7 @@
     try {
       await closeTree(api);
     } catch (e) {
-      toasts.push({ text: e instanceof Error ? e.message : String(e) });
+      toasts.push({ text: errMessage(e, t('edit.wentWrong')) });
     }
   }
 
