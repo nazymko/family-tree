@@ -242,6 +242,21 @@ struct Whole {
     blocks: Vec<WholeBlockDto>,
     /// Unnamed-siblings markers among the laid-out nodes: drawn, but not people.
     markers: u32,
+    /// `None` for the chart of everyone; for a chart of chosen people, who they are (sorted) and whether
+    /// all their descendants are on it.
+    selection: Option<Selection>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Selection {
+    people: Vec<Uuid>,
+    descendants: bool,
+}
+
+impl Whole {
+    fn is_plain(&self) -> bool {
+        self.selection.is_none()
+    }
 }
 
 /// Open charts and the tree revision they are checked against.
@@ -377,6 +392,11 @@ fn whole_meta(c: &OpenChart) -> WholeMeta {
             version: c.version,
         },
         blocks: c.whole.as_ref().map_or_else(Vec::new, |w| w.blocks.clone()),
+        chosen: c
+            .whole
+            .as_ref()
+            .and_then(|w| w.selection.as_ref())
+            .map_or(0, |s| u32::try_from(s.people.len()).unwrap_or(u32::MAX)),
     }
 }
 
@@ -522,27 +542,196 @@ impl Session {
                 .collect(),
             birth: summaries.iter().map(|s| s.birth_sort).collect(),
             surname: summaries.iter().map(|s| s.surname.clone()).collect(),
+            include: None,
         }
     }
 
     /// Lays out every person of the project in one chart. The layout is kept for the current tree
     /// revision: asking again returns the same chart, so panning and reopening the view never
     /// lay it out twice. An edit makes it stale and the next call lays it out again.
+    /// A chart of chosen people (`chart_open_selection`) is a different chart and is left alone.
     pub fn chart_open_whole(&mut self) -> Result<WholeMeta, ApiError> {
         let revision = self.charts.revision;
         let reversed = self.settings.tree_direction == TreeDirection::Reversed;
-        if let Some(c) =
-            self.charts.open.iter().find(|c| {
-                c.kind == ChartKind::Whole && c.version == revision && c.reversed == reversed
-            })
-        {
+        if let Some(c) = self.charts.open.iter().find(|c| {
+            c.kind == ChartKind::Whole
+                && c.version == revision
+                && c.reversed == reversed
+                && c.whole.as_ref().is_some_and(Whole::is_plain)
+        }) {
             self.charts.touch(c);
             return Ok(whole_meta(c));
         }
-        self.charts.open.retain(|c| c.kind != ChartKind::Whole);
+        self.charts.open.retain(|c| {
+            !(c.kind == ChartKind::Whole && c.whole.as_ref().is_some_and(Whole::is_plain))
+        });
         let input = self.whole_input();
+        Ok(self.lay_out_whole(&input, None, revision, reversed))
+    }
+
+    /// The chart of chosen people: each of them, all their ancestors and the partners of the chosen
+    /// people; with `all_descendants` also every descendant of theirs and those descendants' partners.
+    /// Someone reached twice appears once. People who are no longer in the project are dropped; with
+    /// none left this is `NotFound`. Kept for the current tree revision like the chart of everyone,
+    /// and it never replaces or is served in place of that chart.
+    pub fn chart_open_selection(
+        &mut self,
+        people: &[Uuid],
+        all_descendants: bool,
+    ) -> Result<WholeMeta, ApiError> {
+        let revision = self.charts.revision;
+        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
+        let (include, kept) = self.selection_subset(people, all_descendants);
+        if kept.is_empty() {
+            return Err(ApiError::new(
+                ErrorCode::NotFound,
+                "None of the chosen people is in the project any more.",
+            ));
+        }
+        let want = Selection {
+            people: kept,
+            descendants: all_descendants,
+        };
+        if let Some(c) = self.charts.open.iter().find(|c| {
+            c.version == revision
+                && c.reversed == reversed
+                && c.whole
+                    .as_ref()
+                    .and_then(|w| w.selection.as_ref())
+                    .is_some_and(|s| *s == want)
+        }) {
+            self.charts.touch(c);
+            return Ok(whole_meta(c));
+        }
+        // One chart of chosen people at a time.
+        self.charts
+            .open
+            .retain(|c| !c.whole.as_ref().is_some_and(|w| w.selection.is_some()));
+        let mut input = self.whole_input();
+        input.include = Some(include);
+        Ok(self.lay_out_whole(&input, Some(want), revision, reversed))
+    }
+
+    /// Who is on the chart of `people`: a flag per index slot, and the chosen people that exist (sorted, once each).
+    /// Every walk marks a person before it follows them, so a loop in the data cannot make it run forever.
+    fn selection_subset(&self, people: &[Uuid], all_descendants: bool) -> (Vec<bool>, Vec<Uuid>) {
+        let summaries = &self.index.summaries;
+        let n = summaries.len();
+        let mut kept: Vec<Uuid> = people
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.index
+                    .slot(*id)
+                    .and_then(|k| summaries.get(k as usize))
+                    .is_some_and(|s| !s.sibling_marker)
+            })
+            .collect();
+        kept.sort_unstable();
+        kept.dedup();
+        let chosen: Vec<usize> = kept
+            .iter()
+            .filter_map(|id| self.index.slot(*id).map(|k| k as usize))
+            .filter(|&k| k < n)
+            .collect();
+        // Every family as slots: (partners, children).
+        let fams: Vec<(Vec<usize>, Vec<usize>)> = self
+            .tree
+            .families
+            .values()
+            .map(|f| {
+                let slots = |id: Uuid| self.index.slot(id).map(|k| k as usize).filter(|&k| k < n);
+                let partners = [f.partner1, f.partner2]
+                    .into_iter()
+                    .flatten()
+                    .filter_map(slots)
+                    .collect();
+                let kids = f.children.iter().filter_map(|c| slots(c.person)).collect();
+                (partners, kids)
+            })
+            .collect();
+        let mut as_child: Vec<Vec<usize>> = vec![Vec::new(); n];
+        let mut as_partner: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for (i, (partners, kids)) in fams.iter().enumerate() {
+            for &c in kids {
+                as_child[c].push(i);
+            }
+            for &p in partners {
+                as_partner[p].push(i);
+            }
+        }
+        let mut on = vec![false; n];
+        // The chosen people and all their ancestors.
+        let mut todo: Vec<usize> = Vec::new();
+        for &c in &chosen {
+            if !on[c] {
+                on[c] = true;
+                todo.push(c);
+            }
+        }
+        while let Some(p) = todo.pop() {
+            for &f in &as_child[p] {
+                for &q in &fams[f].0 {
+                    if !on[q] {
+                        on[q] = true;
+                        todo.push(q);
+                    }
+                }
+            }
+        }
+        // The partners of the chosen people.
+        for &c in &chosen {
+            for &f in &as_partner[c] {
+                for &q in &fams[f].0 {
+                    on[q] = true;
+                }
+            }
+        }
+        if all_descendants {
+            let mut seen = vec![false; n];
+            let mut todo: Vec<usize> = Vec::new();
+            for &c in &chosen {
+                seen[c] = true;
+                todo.push(c);
+            }
+            while let Some(p) = todo.pop() {
+                for &f in &as_partner[p] {
+                    for &q in &fams[f].0 {
+                        on[q] = true;
+                    }
+                    for &k in &fams[f].1 {
+                        on[k] = true;
+                        if !seen[k] {
+                            seen[k] = true;
+                            todo.push(k);
+                        }
+                    }
+                }
+            }
+        }
+        // The unnamed-siblings marker of a family that is on the chart.
+        for (partners, kids) in &fams {
+            if !partners.iter().any(|&p| on[p]) {
+                continue;
+            }
+            for &k in kids {
+                if summaries.get(k).is_some_and(|s| s.sibling_marker) {
+                    on[k] = true;
+                }
+            }
+        }
+        (on, kept)
+    }
+
+    fn lay_out_whole(
+        &mut self,
+        input: &WholeInput,
+        selection: Option<Selection>,
+        revision: u64,
+        reversed: bool,
+    ) -> WholeMeta {
         let gt_layout::WholeLayout { layout, extras } =
-            gt_layout::whole_directed(&input, &Metrics::default(), reversed);
+            gt_layout::whole_directed(input, &Metrics::default(), reversed);
         // The markers are laid out like people but are not counted as people.
         let marker_at: Vec<(f32, f32)> = layout
             .nodes
@@ -606,12 +795,13 @@ impl Session {
                 extras,
                 blocks,
                 markers,
+                selection,
             }),
         };
         charts.touch(&chart);
         let meta = whole_meta(&chart);
         charts.open.push(chart);
-        Ok(meta)
+        meta
     }
 
     /// The node, its ancestors and its descendants in a whole-tree chart (the highlighted line).

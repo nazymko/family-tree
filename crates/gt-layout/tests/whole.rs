@@ -19,6 +19,7 @@ fn input(count: usize, fams: &[(Option<u32>, Option<u32>, &[u32])]) -> WholeInpu
             .collect(),
         birth: vec![None; count],
         surname: vec![String::new(); count],
+        include: None,
     }
 }
 
@@ -408,6 +409,7 @@ fn synthetic(target: usize, seed: u64) -> WholeInput {
         families: fams,
         birth,
         surname,
+        include: None,
     }
 }
 
@@ -772,4 +774,30 @@ fn one_child_and_a_marker_without_partners_are_joined() {
         .filter(|e| e.kind == EdgeKind::Parent)
         .count();
     assert_eq!(joins, 1);
+}
+
+#[test]
+fn people_left_out_by_the_mask_are_not_drawn_or_linked() {
+    // 0 + 1 have child 2 and child 3; 4 is alone; 5 + 2 are partners.
+    let mut i = input(
+        6,
+        &[(Some(0), Some(1), &[2, 3]), (Some(2), Some(5), &[])],
+    );
+    let all = run(&i);
+    assert_eq!(all.layout.nodes.len(), 6);
+    i.include = Some(vec![true, true, true, false, false, true]);
+    let w = run(&i);
+    let mut keys: Vec<u32> = w.layout.nodes.iter().map(|n| n.key).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, [0, 1, 2, 5]);
+    // 3 and 4 are gone, and so is the block for them: one connected group, no unconnected one.
+    assert_eq!(w.extras.blocks.len(), 1);
+    assert_eq!(w.extras.blocks[0].kind, BlockKind::Family);
+    assert!(w.extras.node_of(3).is_none() && w.extras.node_of(4).is_none());
+    // A left-out partner leaves the other one alone in its family: still drawn, as unconnected.
+    i.include = Some(vec![false, true, false, false, true, false]);
+    let w = run(&i);
+    assert_eq!(w.layout.nodes.len(), 2);
+    assert_eq!(w.extras.blocks.len(), 1);
+    assert_eq!(w.extras.blocks[0].kind, BlockKind::Unconnected);
 }
