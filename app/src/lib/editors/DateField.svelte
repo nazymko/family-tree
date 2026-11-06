@@ -4,6 +4,7 @@
   import { getApi } from '../api/context';
   import TextField from '../ui/TextField.svelte';
   import Icon from '../ui/Icon.svelte';
+  import DateBuilder from './DateBuilder.svelte';
   import { t } from '../i18n';
 
   let {
@@ -12,13 +13,17 @@
     onChange,
     onPreview,
     order,
+    picker = true,
   }: {
     label: string;
     value: string;
     onChange: (raw: string) => void;
     onPreview?: (p: DatePreview) => void;
     order: DayOrder;
+    /** A date picker (one date, about, before, after, between) that fills the text; off where the parent has its own. */
+    picker?: boolean;
   } = $props();
+  let picking = $state(false);
 
   const api = getApi();
   // svelte-ignore state_referenced_locally
@@ -81,9 +86,27 @@
       {#each preview.warnings as w (w)}<span class="note">{w}</span>{/each}
     {/if}
   </div>
+  {#if picker}
+    <button type="button" class="switch" aria-expanded={picking} onclick={() => (picking = !picking)}>
+      {picking ? t('fields.datePickerHide') : t('fields.datePickerShow')}
+    </button>
+    {#if picking}<DateBuilder {value} {onChange} />{/if}
+  {/if}
 </div>
 
 <style>
+  .switch {
+    justify-self: start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: var(--t-sm);
+    line-height: var(--t-sm-lh);
+    text-decoration: underline;
+    cursor: pointer;
+  }
   .date {
     display: grid;
     gap: var(--s-2);

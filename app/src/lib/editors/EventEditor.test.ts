@@ -46,6 +46,22 @@ describe('EventEditor', () => {
     expect(screen.queryByRole('textbox', { name: 'Year' })).toBeNull();
   });
 
+  it('a_death_date_can_be_picked_as_a_range_and_saves_the_text', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'apply');
+    const { onSaved } = show();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Kind of event' }), 'death');
+    await user.click(screen.getByRole('button', { name: 'Pick a date or a range' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Kind of date' }), 'between');
+    const years = screen.getAllByRole('textbox', { name: 'Year' });
+    await user.type(years[0], '1700');
+    await user.type(years[1], '1710');
+    expect(screen.getByRole('textbox', { name: 'Date' })).toHaveValue('between 1700 and 1710');
+    await user.click(screen.getByRole('button', { name: 'Save event' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(lastEvent(spy).dateRaw).toBe('between 1700 and 1710');
+  });
+
   it('birth_event_saves_expected_command', async () => {
     const user = userEvent.setup();
     const spy = vi.spyOn(api, 'apply');
