@@ -108,6 +108,7 @@ describe('Voice samples on a note', () => {
     await $('audio').waitForDisplayed({ timeout: 20000 });
     await proveAudioPlays();
     await expect($('ul[aria-label="Voice samples"]')).toBeDisplayed();
+    await $('audio').scrollIntoView({ block: 'center' });
     await browser.pause(500);
     await shot('voice-person-en.png');
   });
@@ -123,6 +124,7 @@ describe('Voice samples on a note', () => {
     await $('audio').waitForDisplayed({ timeout: 20000 });
     await proveAudioPlays();
     await expect($('ul[aria-label="Голосові записи"]')).toBeDisplayed();
+    await $('audio').scrollIntoView({ block: 'center' });
     await browser.pause(500);
     await shot('voice-person-uk.png');
   });
