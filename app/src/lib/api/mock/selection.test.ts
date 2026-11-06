@@ -15,7 +15,7 @@ function setup() {
   const ancestry = (ids: Id[]): Set<Id> => {
     const out = new Set<Id>(ids);
     const todo = [...ids];
-    while (todo.length) for (const q of parentsOf(todo.pop()!)) if (!out.has(q)) (out.add(q), todo.push(q));
+    while (todo.length) for (const q of parentsOf(todo.pop()!)) if (!out.has(q)) { out.add(q); todo.push(q); }
     return out;
   };
   const partnersOf = (id: Id): Id[] => fx.families.filter((f) => f.partner1 === id || f.partner2 === id).flatMap((f) => [f.partner1, f.partner2].filter(real).filter((p) => p !== id));

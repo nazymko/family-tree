@@ -50,9 +50,7 @@ fn ids(s: &Session, given: &[&str]) -> Vec<Uuid> {
 
 /// Given names of every drawn person, sorted.
 fn shown(s: &Session, m: &WholeMeta) -> Vec<String> {
-    let w = s
-        .chart_window(m.meta.chart_id, &everything(), 1.0)
-        .unwrap();
+    let w = s.chart_window(m.meta.chart_id, &everything(), 1.0).unwrap();
     let mut names: Vec<String> = w
         .nodes
         .iter()
@@ -72,9 +70,7 @@ fn sorted(v: &[&str]) -> Vec<String> {
 #[test]
 fn subset_is_the_chosen_person_ancestors_and_partners() {
     let (_d, mut s) = open();
-    let m = s
-        .chart_open_selection(&ids(&s, &["Taras"]), false)
-        .unwrap();
+    let m = s.chart_open_selection(&ids(&s, &["Taras"]), false).unwrap();
     assert_eq!(
         shown(&s, &m),
         sorted(&[
@@ -148,9 +144,7 @@ fn the_descendants_flag_adds_everyone_below_and_their_partners() {
     );
     assert_eq!(with.chosen, 1);
     // Maria has no partner or children: her ancestors and herself.
-    let t = s
-        .chart_open_selection(&ids(&s, &["Maria"]), true)
-        .unwrap();
+    let t = s.chart_open_selection(&ids(&s, &["Maria"]), true).unwrap();
     assert_eq!(shown(&s, &t).len(), 7, "{:?}", shown(&s, &t));
 }
 
@@ -194,9 +188,7 @@ fn a_sibling_marker_is_drawn_with_its_family_but_not_counted() {
     let m = s.chart_open_selection(&[taras], false).unwrap();
     assert_eq!(m.meta.node_count, 8);
     assert_eq!(m.blocks[0].people, 8);
-    let w = s
-        .chart_window(m.meta.chart_id, &everything(), 1.0)
-        .unwrap();
+    let w = s.chart_window(m.meta.chart_id, &everything(), 1.0).unwrap();
     assert_eq!(w.nodes.len(), 9);
     assert!(
         w.nodes
@@ -250,9 +242,7 @@ fn the_chart_of_everyone_is_not_touched_by_a_selection_chart() {
     let (_d, mut s) = open();
     let all = s.chart_open_whole().unwrap();
     assert_eq!(all.chosen, 0);
-    let sel = s
-        .chart_open_selection(&ids(&s, &["Taras"]), false)
-        .unwrap();
+    let sel = s.chart_open_selection(&ids(&s, &["Taras"]), false).unwrap();
     assert_ne!(sel.meta.chart_id, all.meta.chart_id);
     // Still the same chart, still alive, still everyone.
     let again = s.chart_open_whole().unwrap();
@@ -266,14 +256,10 @@ fn the_chart_of_everyone_is_not_touched_by_a_selection_chart() {
         14
     );
     // And the selection chart is not served for the plain one (nor the other way round).
-    let sel2 = s
-        .chart_open_selection(&ids(&s, &["Taras"]), false)
-        .unwrap();
+    let sel2 = s.chart_open_selection(&ids(&s, &["Taras"]), false).unwrap();
     assert_eq!(sel2.meta.chart_id, sel.meta.chart_id);
     // A different request replaces the selection chart only.
-    let other = s
-        .chart_open_selection(&ids(&s, &["Taras"]), true)
-        .unwrap();
+    let other = s.chart_open_selection(&ids(&s, &["Taras"]), true).unwrap();
     assert_ne!(other.meta.chart_id, sel.meta.chart_id);
     assert!(
         s.chart_window(sel.meta.chart_id, &everything(), 1.0)
@@ -304,11 +290,12 @@ fn the_chart_of_everyone_is_not_touched_by_a_selection_chart() {
 #[test]
 fn lineage_locate_and_node_keys_work_on_the_selection_chart() {
     let (_d, mut s) = open();
-    let m = s
-        .chart_open_selection(&ids(&s, &["Taras"]), false)
-        .unwrap();
+    let m = s.chart_open_selection(&ids(&s, &["Taras"]), false).unwrap();
     let id = m.meta.chart_id;
-    let taras = s.chart_locate(id, find(s.tree(), "Taras")).unwrap().unwrap();
+    let taras = s
+        .chart_locate(id, find(s.tree(), "Taras"))
+        .unwrap()
+        .unwrap();
     // Taras, his parents and grandparents (and Oksana is only a partner).
     assert_eq!(s.chart_lineage(id, taras.node_id).unwrap().len(), 7);
     assert!(
@@ -323,7 +310,11 @@ fn lineage_locate_and_node_keys_work_on_the_selection_chart() {
     let ivan = w
         .nodes
         .iter()
-        .find(|n| n.person.as_ref().is_some_and(|p| p.name.starts_with("Ivan")))
+        .find(|n| {
+            n.person
+                .as_ref()
+                .is_some_and(|p| p.name.starts_with("Ivan"))
+        })
         .unwrap();
     assert_eq!(ivan.person.as_ref().unwrap().id, find(s.tree(), "Ivan"));
     assert!(ivan.kinship.is_some());

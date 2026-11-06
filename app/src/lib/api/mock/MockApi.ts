@@ -890,7 +890,7 @@ export class MockApi implements Api {
       const p = todo.pop()!;
       for (const f of fams) {
         if (!f.children.some((c) => c.person === p)) continue;
-        for (const q of partnersOf(f)) if (!on.has(q)) (on.add(q), todo.push(q));
+        for (const q of partnersOf(f)) if (!on.has(q)) { on.add(q); todo.push(q); }
       }
     }
     for (const f of fams) if (partnersOf(f).some((q) => kept.includes(q))) for (const q of partnersOf(f)) on.add(q);
@@ -905,7 +905,7 @@ export class MockApi implements Api {
           for (const c of f.children) {
             if (!this.db.persons.has(c.person)) continue;
             on.add(c.person);
-            if (!seen.has(c.person)) (seen.add(c.person), down.push(c.person));
+            if (!seen.has(c.person)) { seen.add(c.person); down.push(c.person); }
           }
         }
       }

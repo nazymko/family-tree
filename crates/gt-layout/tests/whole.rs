@@ -779,10 +779,7 @@ fn one_child_and_a_marker_without_partners_are_joined() {
 #[test]
 fn people_left_out_by_the_mask_are_not_drawn_or_linked() {
     // 0 + 1 have child 2 and child 3; 4 is alone; 5 + 2 are partners.
-    let mut i = input(
-        6,
-        &[(Some(0), Some(1), &[2, 3]), (Some(2), Some(5), &[])],
-    );
+    let mut i = input(6, &[(Some(0), Some(1), &[2, 3]), (Some(2), Some(5), &[])]);
     let all = run(&i);
     assert_eq!(all.layout.nodes.len(), 6);
     i.include = Some(vec![true, true, true, false, false, true]);
