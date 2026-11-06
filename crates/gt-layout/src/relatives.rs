@@ -185,6 +185,8 @@ struct Builder<'a> {
     pending: Vec<Pending>,
     blocks: Vec<Block>,
     truncated: bool,
+    /// Brothers, sisters and their families are drawn (the relatives chart); off for the chart of one line.
+    siblings: bool,
 }
 
 impl Builder<'_> {
@@ -302,7 +304,7 @@ impl Builder<'_> {
         }
         let dup = self.visited.contains_key(&key);
         let focus = row == 0;
-        let with_sibs = !dup && (focus || (row == -1 && o.aunts));
+        let with_sibs = !dup && self.siblings && (focus || (row == -1 && o.aunts));
         let sibs = if with_sibs {
             let mut v = siblings(self.src, key);
             // The parent stands next to the other parent: last on the left side, first on the right.
@@ -393,6 +395,36 @@ pub fn relatives(
     m: &Metrics,
     max_nodes: usize,
 ) -> Layout {
+    lay_out(src, root, o, true, m, max_nodes)
+}
+
+/// The chart "built around" one person: only their own line. The person stands in the middle, their
+/// ancestors in rows above (the father's and the mother's lines, spreading to the sides) and their
+/// descendants in rows below. The person's partners stand beside them and so do the partners of each
+/// descendant; an ancestor's only partner is the other parent on the line. No brothers or sisters, aunts,
+/// uncles, cousins or in-laws' families. `generations` is the number of rows above and below (255 = all).
+pub fn around(
+    src: &dyn ChartSource,
+    root: Key,
+    generations: u8,
+    m: &Metrics,
+    max_nodes: usize,
+) -> Layout {
+    let o = RelativesOptions {
+        generations,
+        aunts: false,
+    };
+    lay_out(src, root, &o, false, m, max_nodes)
+}
+
+fn lay_out(
+    src: &dyn ChartSource,
+    root: Key,
+    o: &RelativesOptions,
+    siblings: bool,
+    m: &Metrics,
+    max_nodes: usize,
+) -> Layout {
     let o = RelativesOptions {
         generations: o.generations.max(1),
         aunts: o.aunts,
@@ -412,6 +444,7 @@ pub fn relatives(
         pending: Vec::new(),
         blocks: Vec::new(),
         truncated: false,
+        siblings,
     };
     let top = -i32::from(o.generations);
     b.make_block(root, 0, &o, None);
@@ -490,6 +523,15 @@ pub fn relatives(
         };
         let glo = acc.iter().map(|c| c.0).fold(f32::INFINITY, f32::min);
         let ghi = acc.iter().map(|c| c.1).fold(f32::NEG_INFINITY, f32::max);
+        // One person alone in the group (the chart of one line): the person's box, not the whole family
+        // below, is what the parents stand over, so the group is made symmetric about the box.
+        let (glo, ghi, pivot) = if !siblings && group.len() == 1 {
+            let pv = -(uw(&units[group[0]]) - m.node_w) / 2.0;
+            let half = (pv - glo).max(ghi - pv);
+            (pv - half, pv + half, pv)
+        } else {
+            (glo, ghi, 0.0)
+        };
         let gw = ghi - glo;
         let gplace: Vec<f32> = places.iter().map(|p| p - glo).collect();
         let w = up_w.max(gw);
@@ -510,7 +552,7 @@ pub fn relatives(
         let acx = group
             .iter()
             .position(|&u| u == blocks[i].anchor)
-            .map_or(0.0, |k| goff + gplace[k]);
+            .map_or(0.0, |k| goff + gplace[k] + pivot);
         let blk = &mut blocks[i];
         blk.gplace = gplace;
         blk.w = w;
