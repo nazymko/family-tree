@@ -1,5 +1,9 @@
 import type {
   BatchDto,
+  CopySizeDto,
+  CopyZipDto,
+  MergePreviewDto,
+  MergeResultDto,
   LogAgentDto,
   LogFilterDto,
   LogRowDto,
@@ -58,6 +62,19 @@ export interface Api {
   openProject(dir: string): Promise<ProjectInfo>;
   closeProject(): Promise<void>;
   saveCopy(dest: string): Promise<void>;
+  /** The tree as ONE zip file, to send to a relative. The app delivers nothing; the file is shown in its folder. */
+  sendCopyZip(dest: string): Promise<CopyZipDto>;
+  /** How big the zip would be, for the warning shown before it is made. */
+  copySize(): Promise<CopySizeDto>;
+  /** Unpacks a zip received from a relative into a new folder and opens it. */
+  openReceivedCopy(zip: string, dest: string): Promise<ProjectInfo>;
+  /** Reads a relative's copy (a folder or a zip) and says what merging it would do. Changes nothing. */
+  mergePreview(source: string, name: string): Promise<MergePreviewDto>;
+  /** Applies the preview made last. Rejects with code `stale` when the tree changed since. */
+  mergeApply(token: string): Promise<MergeResultDto>;
+  mergeCancel(): Promise<void>;
+  /** Undoes a merge from the change log; what you changed since stays and is reported. */
+  undoMerge(batch: string): Promise<UndoReport>;
   checkLocation(dir: string): Promise<LocationWarningDto | null>;
   importGedcom(req: ImportRequest, onProgress?: (p: ImportProgress) => void): Promise<ImportReportDto>;
   saveImportReport(dest: string): Promise<void>;

@@ -3,6 +3,11 @@ import type { AgentAccessState, NewConnectionDto } from '../types';
 import type {
   ActorDto,
   BatchDto,
+  CopySizeDto,
+  CopyZipDto,
+  MergeLineDto,
+  MergePreviewDto,
+  MergeResultDto,
   LogAgentDto,
   BatchRef,
   LogChangeDto,
@@ -336,6 +341,149 @@ export class MockApi implements Api {
   async saveCopy(dest: string): Promise<void> {
     if (/\.(zip|ged)$/i.test(dest)) throw new Error(`"${dest}" is a file. Choose an empty folder for the copy.`);
     this.savedCopies.push(dest);
+  }
+
+  /** Destinations passed to `sendCopyZip`, for tests. */
+  readonly sentZips: string[] = [];
+  /** Size the warning shows; tests and screenshots may change it. */
+  copyBytes = 4_812_000;
+
+  async sendCopyZip(dest: string): Promise<CopyZipDto> {
+    if (!/\.zip$/i.test(dest)) throw invalid(`"${dest}" is not a zip file name. Choose a name ending in .zip.`);
+    this.sentZips.push(dest);
+    return { path: dest, bytes: this.copyBytes };
+  }
+
+  async copySize(): Promise<CopySizeDto> {
+    const people = [...this.db.persons.values()].filter((p) => !p.siblingMarker).length;
+    return { bytes: this.copyBytes, photos: 38, people };
+  }
+
+  /** Zip and folder passed to `openReceivedCopy`, for tests. */
+  readonly receivedCopies: { zip: string; dest: string }[] = [];
+
+  async openReceivedCopy(zip: string, dest: string): Promise<ProjectInfo> {
+    if (!/\.zip$/i.test(zip)) throw invalid('This is not a zip file Gene Tree can read.');
+    this.receivedCopies.push({ zip, dest });
+    return this.info(dest);
+  }
+
+  /** What the next `mergePreview` answers (its token is replaced); null builds one from the people in the mock. */
+  mergeFixture: MergePreviewDto | null = null;
+  /** Sources passed to `mergePreview`, and tokens passed to `mergeApply`, for tests. */
+  readonly mergeSources: string[] = [];
+  readonly mergeApplied: string[] = [];
+  /** Makes the next `mergeApply` fail as if the tree changed after the preview. */
+  mergeStaleOnce = false;
+  private mergeToken: string | null = null;
+  private mergeLast: MergePreviewDto | null = null;
+  private merges = new Map<string, number>();
+
+  async mergePreview(source: string, name: string): Promise<MergePreviewDto> {
+    if (/bad|broken/i.test(source)) throw invalid('This is not a copy of a Gene Tree tree.');
+    this.mergeSources.push(source);
+    const base = this.mergeFixture ?? this.sampleMerge(name);
+    const dto: MergePreviewDto = {
+      ...structuredClone(base),
+      token: this.ids.next(),
+      name: name.trim() || base.name,
+      sourceName: source.replace(/[\\/]+$/, '').split(/[\\/]/).pop()?.replace(/\.zip$/i, '') ?? source,
+    };
+    this.mergeToken = dto.token;
+    this.mergeLast = dto;
+    return dto;
+  }
+
+  async mergeApply(token: string): Promise<MergeResultDto> {
+    const p = this.mergeLast;
+    if (!p || token !== this.mergeToken || this.mergeStaleOnce) {
+      this.mergeStaleOnce = false;
+      throw new MockApiError('stale', 'The tree changed after the copy was looked at. Look at the copy again.');
+    }
+    this.mergeApplied.push(token);
+    const batch = this.ids.next();
+    this.merges.set(batch, p.added.length + p.changed.length);
+    this.mergeToken = null;
+    return {
+      batch,
+      name: p.name,
+      added: p.added.length,
+      changed: p.changed.length,
+      photosCopied: p.photos,
+      leftForYou: p.undecided.length + p.removed.length + p.blocked.length,
+    };
+  }
+
+  async mergeCancel(): Promise<void> {
+    this.mergeToken = null;
+  }
+
+  async undoMerge(batch: string): Promise<UndoReport> {
+    const n = this.merges.get(batch);
+    if (n === undefined) throw missing('merge', batch);
+    this.merges.delete(batch);
+    return { undone: n, skipped: [] };
+  }
+
+  private sampleMerge(name: string): MergePreviewDto {
+    const people = [...this.db.persons.values()].filter((p) => !p.siblingMarker);
+    const nameOf = (i: number) => {
+      const p = people[i % Math.max(people.length, 1)];
+      return p ? this.ref(p).name : 'Unknown';
+    };
+    const idOf = (i: number) => people[i % Math.max(people.length, 1)]?.id ?? this.ids.next();
+    const line = (
+      kind: string,
+      id: Id,
+      op: 'create' | 'update' | 'delete',
+      detail: string,
+      fields: FieldChangeDto[],
+      extra: Partial<MergeLineDto> = {},
+    ): MergeLineDto => ({
+      change: { kind, id, op, detail, fact: { kind: 'text', text: detail }, sources: [], fields },
+      person: kind === 'person' && op !== 'create' ? id : null,
+      why: null,
+      alsoEditedHere: false,
+      yours: [],
+      maybeSame: [],
+      ...extra,
+    });
+    const field = (f: string, before: string | null, after: string | null): FieldChangeDto => ({ field: f, before, after });
+    return {
+      token: '',
+      name,
+      sourceName: 'copy',
+      history: 'full',
+      checks: [
+        { kind: 'readable_copy', ok: true },
+        { kind: 'same_tree', ok: true },
+        { kind: 'history', ok: true },
+      ],
+      nothingNew: false,
+      toApply: 5,
+      added: [
+        line('person', this.ids.next(), 'create', 'Taras Koval', [field('given', null, 'Taras'), field('surnames', null, 'Koval')], {
+          maybeSame: [{ id: idOf(2), name: nameOf(2), lifespan: 'b. 1968' }],
+        }),
+        line('note', this.ids.next(), 'create', 'Born in a village near Lviv, 1911.', [field('text', null, 'Born in a village near Lviv, 1911.')]),
+      ],
+      changed: [
+        line('person', idOf(0), 'update', nameOf(0), [field('sex', 'unknown', 'female')]),
+        line('person', idOf(1), 'update', nameOf(1), [field('nickname', null, 'Vanya')], { alsoEditedHere: true }),
+      ],
+      undecided: [
+        line('person', idOf(3), 'update', nameOf(3), [field('sex', 'male', 'female')], {
+          why: 'both_changed',
+          yours: [field('sex', 'male', 'unknown')],
+        }),
+        line('person', idOf(4), 'update', nameOf(4), [field('private', 'yes', 'no')], { why: 'more_visible' }),
+      ],
+      removed: [line('person', idOf(5), 'delete', nameOf(5), [])],
+      blocked: [line('media', this.ids.next(), 'create', 'letter.pdf', [], { why: 'photo_missing' })],
+      leftAlone: 3,
+      photos: 1,
+      photoBytes: 182_000,
+    };
   }
 
   async checkLocation(dir: string): Promise<LocationWarningDto | null> {
