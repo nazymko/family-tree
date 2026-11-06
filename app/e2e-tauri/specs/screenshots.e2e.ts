@@ -61,6 +61,13 @@ describe('Screenshots of the real app', () => {
     await $('h1').waitForDisplayed();
     await browser.pause(1000);
     await shot('real-person.png');
+
+    // The sign before the word for sex, in the person's own form.
+    const sex = await $('//select[@id=//label[starts-with(normalize-space(.),"Sex")]/@for]');
+    await sex.scrollIntoView({ block: 'center' });
+    await browser.pause(300);
+    expect(await sex.getText()).toContain('♂ Male');
+    await shot('real-person-sex.png');
   });
 
   it('pedigree and descendants', async () => {

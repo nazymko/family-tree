@@ -5,7 +5,8 @@ export type Route =
   | { name: 'importReport' }
   | { name: 'family' }
   | { name: 'people' }
-  | { name: 'whole' }
+  /** `people`: the whole-tree page showing only these people, their ancestors and partners (Back returns to everyone). */
+  | { name: 'whole'; people?: Id[] }
   | { name: 'pedigree' }
   | { name: 'descendants' }
   | { name: 'relatives' }
@@ -18,6 +19,7 @@ export type Route =
 
 function same(a: Route, b: Route): boolean {
   if (a.name !== b.name) return false;
+  if (a.name === 'whole' && b.name === 'whole') return (a.people ?? []).join() === (b.people ?? []).join();
   return a.name === 'person' && b.name === 'person' ? a.id === b.id : true;
 }
 
@@ -42,6 +44,12 @@ class NavState {
     this.history = [...this.history.slice(0, this.index + 1), r];
     this.foci = [...this.foci.slice(0, this.index + 1), this.focusPerson];
     this.index = this.history.length - 1;
+    this.#enter(r);
+  }
+
+  /** Swaps the current history entry for another route, so Back does not return to a page that no longer works. */
+  replace(r: Route): void {
+    this.history = this.history.map((h, i) => (i === this.index ? r : h));
     this.#enter(r);
   }
 

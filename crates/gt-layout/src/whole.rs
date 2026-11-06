@@ -37,6 +37,17 @@ pub struct WholeInput {
     pub birth: Vec<Option<i32>>,
     /// Surname of each person, for the block headings.
     pub surname: Vec<String>,
+    /// Which people take part (one flag per key). `None` lays out everybody; with a mask, people it
+    /// leaves out are neither drawn nor linked, and a family keeps only its members that are in.
+    pub include: Option<Vec<bool>>,
+}
+
+impl WholeInput {
+    fn takes_part(&self, key: usize) -> bool {
+        self.include
+            .as_ref()
+            .is_none_or(|m| m.get(key).copied().unwrap_or(false))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,7 +148,7 @@ fn sanitise(input: &WholeInput) -> Vec<Fam> {
         let mut partners: Vec<usize> = Vec::new();
         for p in f.partners.iter().flatten() {
             let p = *p as usize;
-            if p < n && !partners.contains(&p) {
+            if p < n && input.takes_part(p) && !partners.contains(&p) {
                 partners.push(p);
             }
         }
@@ -145,7 +156,7 @@ fn sanitise(input: &WholeInput) -> Vec<Fam> {
         let mut kids: Vec<usize> = Vec::new();
         for &c in &f.children {
             let c = c as usize;
-            if c < n && !partners.contains(&c) && seen.insert(c) {
+            if c < n && input.takes_part(c) && !partners.contains(&c) && seen.insert(c) {
                 kids.push(c);
             }
         }
@@ -1405,6 +1416,9 @@ pub fn whole_directed(input: &WholeInput, m: &Metrics, reversed: bool) -> WholeL
     let mut comps: Vec<Vec<usize>> = Vec::new();
     let mut loose: Vec<usize> = Vec::new();
     for p in 0..n {
+        if !input.takes_part(p) {
+            continue;
+        }
         if partner_in[p].is_empty() && child_in[p].is_empty() {
             loose.push(p);
             continue;

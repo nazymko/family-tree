@@ -78,6 +78,7 @@ command_list!(
     last_citation,
     chart_open,
     chart_open_whole,
+    chart_open_selection,
     chart_lineage,
     chart_locate,
     chart_set_reference,
@@ -527,6 +528,19 @@ pub async fn chart_open<R: Runtime>(app: AppHandle<R>, req: ChartRequest) -> Api
 #[tauri::command]
 pub async fn chart_open_whole<R: Runtime>(app: AppHandle<R>) -> ApiResult<WholeMeta> {
     blocking(&app, move |s| s.with_session(|se| se.chart_open_whole())).await
+}
+
+/// The chart of chosen people: them, their ancestors and their partners, and with `all_descendants` everyone below them.
+#[tauri::command]
+pub async fn chart_open_selection<R: Runtime>(
+    app: AppHandle<R>,
+    people: Vec<Uuid>,
+    all_descendants: bool,
+) -> ApiResult<WholeMeta> {
+    blocking(&app, move |s| {
+        s.with_session(|se| se.chart_open_selection(&people, all_descendants))
+    })
+    .await
 }
 
 #[tauri::command(async)]

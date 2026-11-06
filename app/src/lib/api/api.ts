@@ -85,6 +85,8 @@ export interface Api {
   chartClose(chartId: number): Promise<void>;
   /** Every person of the project in one chart. The layout is kept per tree revision, so asking again is cheap. */
   chartOpenWhole(): Promise<WholeMeta>;
+  /** The chart of chosen people: them, their ancestors and their partners; with `allDescendants` also everyone below them. `not_found` when none of them is in the project. */
+  chartOpenSelection(people: Id[], allDescendants: boolean): Promise<WholeMeta>;
   /** The node, its ancestors and its descendants in a whole-tree chart. */
   chartLineage(chartId: number, nodeId: number): Promise<number[]>;
   /** Where a person sits in a whole-tree chart; null when the person is not in the project. */

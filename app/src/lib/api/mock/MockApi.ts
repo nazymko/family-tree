@@ -211,7 +211,7 @@ interface ChartState {
   reference?: Id | null;
   kin?: { ref: Id; find: (to: Id) => Kinship | null };
   /** Whole-tree charts only. */
-  whole?: { result: WholeResult; surnames: string[]; meta: WholeMeta; reversed: boolean };
+  whole?: { result: WholeResult; surnames: string[]; meta: WholeMeta; reversed: boolean; selection?: { people: Id[]; descendants: boolean } };
 }
 
 interface OwnerBag {
@@ -865,10 +865,69 @@ export class MockApi implements Api {
   }
 
   async chartOpenWhole(): Promise<WholeMeta> {
+    return this.openWholeChart(null, null);
+  }
+
+  /** The chart of chosen people: them, their ancestors and their partners; with `allDescendants` also everyone below them. */
+  async chartOpenSelection(people: Id[], allDescendants: boolean): Promise<WholeMeta> {
+    const { on, kept } = this.selectionSubset(people, allDescendants);
+    if (kept.length === 0) throw new MockApiError('not_found', 'None of the chosen people is in the project any more.');
+    return this.openWholeChart({ people: kept, descendants: allDescendants }, on);
+  }
+
+  /** Who is on the chart of `people`, and the chosen people that exist (sorted, once each). Every walk marks before it follows. */
+  private selectionSubset(people: Id[], allDescendants: boolean): { on: Set<Id>; kept: Id[] } {
+    const real = (id: Id) => {
+      const p = this.db.persons.get(id);
+      return p !== undefined && !p.siblingMarker;
+    };
+    const kept = [...new Set(people.filter(real))].sort();
+    const fams = [...this.db.families.values()];
+    const partnersOf = (f: (typeof fams)[number]) => [f.partner1, f.partner2].filter((x): x is Id => x !== null && this.db.persons.has(x));
+    const on = new Set<Id>(kept);
+    const todo = [...kept];
+    while (todo.length > 0) {
+      const p = todo.pop()!;
+      for (const f of fams) {
+        if (!f.children.some((c) => c.person === p)) continue;
+        for (const q of partnersOf(f)) if (!on.has(q)) { on.add(q); todo.push(q); }
+      }
+    }
+    for (const f of fams) if (partnersOf(f).some((q) => kept.includes(q))) for (const q of partnersOf(f)) on.add(q);
+    if (allDescendants) {
+      const seen = new Set<Id>(kept);
+      const down = [...kept];
+      while (down.length > 0) {
+        const p = down.pop()!;
+        for (const f of fams) {
+          if (!partnersOf(f).includes(p)) continue;
+          for (const q of partnersOf(f)) on.add(q);
+          for (const c of f.children) {
+            if (!this.db.persons.has(c.person)) continue;
+            on.add(c.person);
+            if (!seen.has(c.person)) { seen.add(c.person); down.push(c.person); }
+          }
+        }
+      }
+    }
+    // The unnamed-siblings marker of a family that is on the chart.
+    for (const f of fams) {
+      if (!partnersOf(f).some((q) => on.has(q))) continue;
+      for (const c of f.children) if (this.db.persons.get(c.person)?.siblingMarker) on.add(c.person);
+    }
+    return { on, kept };
+  }
+
+  private async openWholeChart(selection: { people: Id[]; descendants: boolean } | null, subset: Set<Id> | null): Promise<WholeMeta> {
     const reversed = this.settings.treeDirection === 'reversed';
-    for (const c of this.charts.values()) if (c.whole && c.version === this.version && c.whole.reversed === reversed) return structuredClone(c.whole.meta);
-    for (const [id, c] of [...this.charts]) if (c.whole) this.charts.delete(id);
-    const persons = [...this.db.persons.values()];
+    const sameKind = (c: ChartState) => c.whole && (selection === null ? !c.whole.selection : !!c.whole.selection);
+    for (const c of this.charts.values()) {
+      if (!sameKind(c) || c.version !== this.version || c.whole!.reversed !== reversed) continue;
+      const have = c.whole!.selection;
+      if (selection === null || (have && have.descendants === selection.descendants && have.people.join() === selection.people.join())) return structuredClone(c.whole!.meta);
+    }
+    for (const [id, c] of [...this.charts]) if (sameKind(c)) this.charts.delete(id);
+    const persons = [...this.db.persons.values()].filter((p) => subset === null || subset.has(p.id));
     const rows = new Map(this.rows().rows.map((r) => [r.id, r]));
     const result = layoutWhole({
       persons: persons.map((p) => ({ id: p.id, surname: rows.get(p.id)?.surname ?? '', birth: this.birthSort(p) })),
@@ -899,9 +958,10 @@ export class MockApi implements Api {
         version: this.version,
       },
       blocks,
+      chosen: selection ? selection.people.length : 0,
     };
     const layout: Layout = { nodes: result.nodes, edges: result.edges, bounds: result.bounds, truncated: false, kids: [], labels: [] };
-    this.charts.set(chartId, { kind: 'whole', layout, version: this.version, reference: null, whole: { result, surnames, meta, reversed } });
+    this.charts.set(chartId, { kind: 'whole', layout, version: this.version, reference: null, whole: { result, surnames, meta, reversed, ...(selection ? { selection } : {}) } });
     return structuredClone(meta);
   }
 

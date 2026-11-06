@@ -15,7 +15,7 @@
   import { WindowCache } from './window';
   import { drawWhole, wholeThemeFromCss, type WholeTheme } from './wholeRenderer';
   import { nodeLabel } from '../i18n/relation';
-  import { t } from '../i18n';
+  import { plural, t } from '../i18n';
   import { founderOf } from './wholeStart';
   import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
@@ -30,6 +30,10 @@
     onOpenInPedigree,
     onOpened,
     reversed = false,
+    people = [],
+    descendants = false,
+    onShowSelection,
+    onSelectionGone,
   }: {
     homeId?: Id | null;
     /** The person the rest of the app is centred on; the first view starts on them, else on the home person. */
@@ -40,6 +44,13 @@
     onOpened?: (meta: WholeMeta) => void;
     /** Every family is drawn upside down: its oldest generation at the bottom (headings stay above their people). */
     reversed?: boolean;
+    /** Chosen people: when there are any, the chart holds only them, their ancestors and partners (and with `descendants` everyone below them). */
+    people?: Id[];
+    descendants?: boolean;
+    /** Called with two or more Shift-picked people when "Show in Pedigree" (or P) is used on them. */
+    onShowSelection?: (ids: Id[]) => void;
+    /** None of the chosen people is in the project any more: go back to the whole tree. */
+    onSelectionGone?: () => void;
   } = $props();
 
   const api = getApi();
@@ -55,6 +66,8 @@
   let selNode = $state<ChartNode | null>(null);
   /** The person behind a node that has a page: the unnamed-siblings marker has none. */
   const realPerson = (n: ChartNode | null) => (n?.person && !n.person.siblingMarker ? n.person : null);
+  /** People picked with Shift+click (the person selected before the first Shift+click is one of them). */
+  let markedIds = $state<Id[]>([]);
   let announcement = $state('');
   let hint = $state('');
   let lineageOn = $state(true);
@@ -105,8 +118,13 @@
     const ctx = canvas.getContext('2d');
     if (!cur || !ctx) return;
     theme ??= wholeThemeFromCss();
-    drawWhole(ctx, cur.win, meta.blocks, cam, { w: size.w, h: size.h, dpr }, { selected, home: homeNode, lineage, theme, badged: agentChanges.unreviewed });
+    drawWhole(ctx, cur.win, meta.blocks, cam, { w: size.w, h: size.h, dpr }, { selected, home: homeNode, lineage, theme, badged: agentChanges.unreviewed, marked: new Set(markedIds) });
   }
+
+  $effect(() => {
+    void markedIds;
+    invalidate();
+  });
 
   $effect(() => {
     void agentChanges.unreviewed;
@@ -238,14 +256,21 @@
     startRect = null;
     startId = null;
     startNote = '';
+    const chosen = [...people];
+    const inSel = chosen.length > 0;
     let m: WholeMeta;
     try {
-      m = await api.chartOpenWhole();
+      m = inSel ? await api.chartOpenSelection(chosen, descendants) : await api.chartOpenWhole();
     } catch (e) {
-      if (seq === openSeq) errorText = e instanceof Error ? e.message : t('whole.openFailed');
+      if (seq !== openSeq) return;
+      // Everybody chosen was deleted: back to the whole tree.
+      if (inSel && (e as { code?: string } | null)?.code === 'not_found') onSelectionGone?.();
+      else errorText = e instanceof Error ? e.message : t('whole.openFailed');
       return;
     }
     if (seq !== openSeq) return;
+    if (!keepView) markedIds = inSel ? chosen : [];
+    else void dropGoneMarks(m.meta.chartId, seq);
     const id = m.meta.chartId;
     const c = new WindowCache(async (r, z) => {
       try {
@@ -268,7 +293,7 @@
     });
     meta = m;
     // Boxes say how each person is related to the selected person (at first the focus or home person).
-    refId = keptPerson ?? flipKeep ?? focusId ?? homeId ?? null;
+    refId = keptPerson ?? flipKeep ?? (inSel ? chosen[0] : (focusId ?? homeId)) ?? null;
     if (refId) {
       try {
         await api.chartSetReference(id, refId);
@@ -282,12 +307,13 @@
         const loc = await api.chartLocate(id, homeId);
         if (seq !== openSeq) return;
         homeNode = loc?.nodeId ?? null;
-        if (loc && !focusId) {
+        if (loc && !focusId && !inSel) {
           startRect = loc.rect;
           startId = loc.nodeId;
         }
       }
-      if (focusId) {
+      // A chart of chosen people starts on the whole of it, not on one card.
+      if (focusId && !inSel) {
         const loc = await api.chartLocate(id, focusId);
         if (seq !== openSeq) return;
         if (loc) {
@@ -308,7 +334,7 @@
       const all = await api.chartWindow(id, { x: 0, y: 0, w: m.meta.bounds.w + 1, h: m.meta.bounds.h + 1 }, 0.01);
       if (seq !== openSeq) return;
       miniWin = all;
-      if (!startRect) {
+      if (!startRect && !inSel) {
         const f = founderOf(m.blocks, all.nodes, reversed);
         if (f) {
           startRect = f.rect;
@@ -396,9 +422,12 @@
 
   let lastReversed = untrack(() => reversed);
   let flipKeep: Id | null = null;
+  const peopleKey = $derived(people.join(','));
   $effect(() => {
     void homeId;
     void focusId;
+    void peopleKey;
+    void descendants;
     const flipped = reversed !== lastReversed;
     lastReversed = reversed;
     untrack(() => {
@@ -658,7 +687,62 @@
     if (!cur) return;
     const w = toWorld(e);
     const n = hitTest(cur.win, w.x, w.y);
+    if (e.shiftKey) {
+      if (n) toggleMark(n);
+      return;
+    }
+    // A plain click means one selected person again.
+    if (n && markedIds.length > 0) markedIds = [];
     if (n) select(n);
+  }
+
+  /** After an edit or undo: someone marked may no longer be in the tree. */
+  async function dropGoneMarks(chartId: number, seq: number): Promise<void> {
+    const marked = markedIds;
+    if (marked.length === 0) return;
+    const found = await Promise.all(marked.map((p) => api.chartLocate(chartId, p).catch(() => null)));
+    if (seq !== openSeq) return;
+    const gone = new Set(marked.filter((_, i) => found[i] === null));
+    if (gone.size > 0) markedIds = markedIds.filter((p) => !gone.has(p));
+  }
+
+  /** Shift+click: adds the person to the multi-selection, or takes them out of it. */
+  function toggleMark(n: ChartNode): void {
+    const person = realPerson(n);
+    if (!person) return;
+    const next = [...markedIds];
+    if (next.length === 0) {
+      const before = realPerson(selNode);
+      if (before && before.id !== person.id) next.push(before.id);
+    }
+    const at = next.indexOf(person.id);
+    if (at >= 0) next.splice(at, 1);
+    else next.push(person.id);
+    markedIds = next;
+    select(n);
+    announceMarked();
+  }
+
+  function announceMarked(): void {
+    announcement = markedIds.length === 0 ? t('whole.markedNone') : plural('whole.nMarked', markedIds.length);
+  }
+
+  function clearMarked(): void {
+    if (markedIds.length === 0) return;
+    markedIds = [];
+    announceMarked();
+  }
+
+  const canShow = $derived(markedIds.length > 0 || realPerson(selNode) !== null);
+
+  /** One person: their pedigree. Two or more picked with Shift: one chart of all of them. */
+  function showInPedigree(): void {
+    if (markedIds.length >= 2) {
+      onShowSelection?.([...markedIds]);
+      return;
+    }
+    const id = realPerson(selNode)?.id ?? markedIds[0];
+    if (id) onOpenInPedigree(id);
   }
 
   function ondblclick(e: MouseEvent): void {
@@ -815,18 +899,23 @@
         if (far) flyTo(id, far, cam.zoom);
       }
     } else if (e.key === 'Escape') {
-      if (selected !== null) {
+      if (selected !== null || markedIds.length > 0) {
         e.preventDefault();
         selected = null;
         selNode = null;
+        markedIds = [];
         announcement = t('whole.selectionCleared');
         invalidate();
       }
+    } else if (e.key === ' ') {
+      // The keyboard way to Shift+click: add the selected person to the multi-selection or take them out.
+      e.preventDefault();
+      if (selNode) toggleMark(selNode);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (realPerson(selNode)) onOpenPerson(realPerson(selNode)!.id);
     } else if (e.key === 'p' || e.key === 'P') {
-      if (realPerson(selNode)) onOpenInPedigree(realPerson(selNode)!.id);
+      showInPedigree();
     } else if (e.key === 'l' || e.key === 'L') {
       lineageOn = !lineageOn;
     } else if (e.key === 'Home') {
@@ -875,7 +964,11 @@
     <FlipTreeButton />
     <Button aria-pressed={lineageOn} onclick={() => (lineageOn = !lineageOn)}>{t('whole.lineage')}</Button>
     <Button disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id)}>{t('whole.openPerson')}</Button>
-    <IconButton label={t('whole.showInPedigree')} icon="pedigree" disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onOpenInPedigree(realPerson(selNode)!.id)} />
+    <IconButton label={t('whole.showInPedigree')} icon="pedigree" disabled={!canShow} onclick={showInPedigree} />
+    {#if markedIds.length > 0}
+      <span class="marked" data-testid="marked-count">{plural('whole.nMarked', markedIds.length)}</span>
+      <Button onclick={clearMarked}>{t('whole.clearMarked')}</Button>
+    {/if}
     <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
     <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
     <span class="zoom" aria-live="off">{zoomPct}%</span>
@@ -939,6 +1032,15 @@
   }
   .find {
     min-width: 16rem;
+  }
+  .marked {
+    align-self: center;
+    padding: var(--s-1) var(--s-3);
+    border: 1px solid var(--ribbon);
+    border-radius: 999px;
+    background: var(--ribbon-wash);
+    color: var(--ink);
+    font-size: var(--t-sm);
   }
   .zoom {
     margin-inline-start: auto;
