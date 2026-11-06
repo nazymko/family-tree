@@ -5,6 +5,7 @@ import { MockPlatform } from './mock/MockPlatform';
 import { fixtureTree } from './mock/fixtures';
 import { TauriApi } from './tauri/TauriApi';
 import { TauriPlatform } from './tauri/TauriPlatform';
+import { localizeApi } from './localize';
 
 const KEY = Symbol('gene-tree.api');
 
@@ -15,12 +16,12 @@ export interface ApiBundle {
 
 /** Call once from the root component; descendants read with getApi() / getPlatform(). */
 export function setApi(api: Api, platform: Platform): void {
-  setContext<ApiBundle>(KEY, { api, platform });
+  setContext<ApiBundle>(KEY, { api: localizeApi(api), platform });
 }
 
 /** For tests: the `context` option of testing-library's render(). */
 export function apiContext(api: Api, platform: Platform): Map<symbol, ApiBundle> {
-  return new Map([[KEY, { api, platform }]]);
+  return new Map([[KEY, { api: localizeApi(api), platform }]]);
 }
 
 function bundle(): ApiBundle {

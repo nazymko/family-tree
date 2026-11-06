@@ -15,7 +15,7 @@
   import { WindowCache } from './window';
   import { drawWhole, wholeThemeFromCss, type WholeTheme } from './wholeRenderer';
   import { nodeLabel } from '../i18n/relation';
-  import { plural, t } from '../i18n';
+  import { plural, t, localeStore } from '../i18n';
   import { founderOf } from './wholeStart';
   import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
@@ -137,6 +137,7 @@
 
   $effect(() => {
     void agentChanges.unreviewed;
+    void localeStore.locale; // words drawn on the canvas follow the language
     invalidate();
   });
 

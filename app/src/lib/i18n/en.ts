@@ -1573,6 +1573,15 @@ export const en = {
     n14: "mother's mother's father",
     n15: "mother's mother's mother",
   },
+  /** The short words in the backend's lifespans and summaries ("c. 1968 – 2021", "m. 1 Jun 1878, Hamburg"). */
+  lifespan: {
+    about: 'c.',
+    before: 'bef.',
+    after: 'aft.',
+    born: 'b.',
+    died: 'd.',
+    married: 'm.',
+  },
   changeLog: {
     title: 'Change log',
     intro: 'Every change to this tree and who made it. What an agent changed stays marked until you have reviewed it.',
