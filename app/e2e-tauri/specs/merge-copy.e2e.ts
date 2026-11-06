@@ -9,11 +9,13 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { expect } from '@wdio/globals';
-import { $, browser, click, importSynthetic, meta, openTreeFromReport, pushDialog, ready, search, shot, slash, text, work } from './helpers';
+import { $, browser, click, goTo, importSynthetic, meta, openTreeFromReport, pushDialog, ready, search, shot, slash, text, work } from './helpers';
 
 const NOTE = 'Olena Koval remembers the mill by the river.';
 
 async function openHome() {
+  // A tree opens on the whole tree, which has no person heading.
+  await goTo('Family');
   await search(meta().home.name);
   await $('[role="listbox"] [role="option"]').waitForDisplayed();
   await browser.keys('Enter');
