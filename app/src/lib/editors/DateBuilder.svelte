@@ -9,13 +9,11 @@
 
   // svelte-ignore state_referenced_locally
   const start = parseChoice(value);
-  // svelte-ignore state_referenced_locally
   let choice = $state<DateChoice>(start ?? emptyChoice());
   // svelte-ignore state_referenced_locally
   let sent = value;
   // svelte-ignore state_referenced_locally
   let kind = $state<DateKind>(choice.kind);
-  // svelte-ignore state_referenced_locally
   let foreign = $state(start === null);
 
   const kinds = $derived([
