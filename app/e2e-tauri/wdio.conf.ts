@@ -49,7 +49,7 @@ export const config: WebdriverIO.Config = {
   hostname: '127.0.0.1',
   port: 4444,
   path: '/',
-  specs: [path.join(here, 'specs', 'flows.e2e.ts'), path.join(here, 'specs', 'screenshots.e2e.ts'), path.join(here, 'specs', 'agent-access.e2e.ts'), path.join(here, 'specs', 'voice-samples.e2e.ts'), path.join(here, 'specs', 'selection-tree.e2e.ts'), path.join(here, 'specs', 'arrange-around.e2e.ts')],
+  specs: [path.join(here, 'specs', 'flows.e2e.ts'), path.join(here, 'specs', 'screenshots.e2e.ts'), path.join(here, 'specs', 'agent-access.e2e.ts'), path.join(here, 'specs', 'voice-samples.e2e.ts'), path.join(here, 'specs', 'selection-tree.e2e.ts'), path.join(here, 'specs', 'arrange-around.e2e.ts'), path.join(here, 'specs', 'one-scrollbar.e2e.ts')],
   maxInstances: 1,
   capabilities: [
     {

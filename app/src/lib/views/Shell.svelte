@@ -446,7 +446,11 @@
   .shell {
     display: grid;
     grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+    /* The row is the window's height, whatever is in it: an auto row grows with the sidebar and the whole document
+       then scrolls beside the pane. */
+    grid-template-rows: minmax(0, 1fr);
     height: 100vh;
+    overflow: clip;
     background: var(--paper-0);
   }
   .side {
@@ -471,6 +475,11 @@
   }
   nav {
     flex: 1;
+    /* In a short window the list scrolls by itself and the project name stays in view. */
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    position: relative;
     padding: var(--s-3);
   }
   ul {
@@ -594,6 +603,8 @@
     flex: 1;
     overflow: auto;
     min-height: 0;
+    /* Holds absolutely placed children (hidden screen-reader labels): without it they stay out of the pane's scrolling. */
+    position: relative;
   }
   /* Charts fill the pane: a fixed-height flex parent. */
   .main:has(.page.chart) {

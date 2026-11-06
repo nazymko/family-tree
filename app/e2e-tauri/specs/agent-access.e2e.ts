@@ -8,7 +8,7 @@
  * never to the keychain of the person running the test.
  */
 import { expect } from '@wdio/globals';
-import { $, $$, browser, click, clearFocus, goTo, importSynthetic, meta, openTreeFromReport, ready, search, shot, text } from './helpers';
+import { $, $$, browser, click, clearFocus, expectNoWindowScroll, goTo, importSynthetic, meta, openTreeFromReport, ready, search, shot, text } from './helpers';
 
 const TREE = 'Agent tree';
 const PORT = 48765;
@@ -253,6 +253,8 @@ describe('Agent access end to end', () => {
     expect(count).toMatch(/^\d+\/\d+$/);
     expect(left).toBe(total);
     expect(await panelOpen()).toBe(false);
+    // Its hidden label sits at the foot of a long page and must not stretch the window.
+    await expectNoWindowScroll('person page with the agent panel');
     await browser.pause(400);
     await shot('agent-panel-folded-en.png');
 
