@@ -427,6 +427,16 @@ fn arrange(
     }
     // Stable: the far end of a loop stays outside the near end, the others keep their order.
     right.sort_by_key(|k: &Kid| pinned(k.unit).map_or(0, |&(_, rank)| rank));
+    // The child on the line down to the arranged-around person stands in the exact middle of the brothers and
+    // sisters who stay in birth order, so their parents are straight above and the rest spread to both sides.
+    if let Some(at) = middle
+        .iter()
+        .position(|k| sc.line.contains(&(fam, k.unit)))
+        .filter(|_| only.is_none())
+    {
+        let line_kid = middle.remove(at);
+        middle.insert(middle.len().div_ceil(2), line_kid);
+    }
     left.append(&mut middle);
     left.append(&mut right);
     left
@@ -498,9 +508,9 @@ fn close_kin(t: usize, sh: &Shared) -> Vec<usize> {
     out
 }
 
-/// Places a component with the people around `t` as near as it can: the line up from `t` ends at the walk's root, the
-/// line's units keep the middle of their row, and several ways up are tried next to the usual root; the placement
-/// that puts the close kin of `t` nearest wins, the usual one on a tie. So it is never worse than the usual order.
+/// Places a component with `t` as its centre: the line up from `t` ends at the walk's root, the line's units keep the
+/// middle of their row, `t` the middle of their partners, and several ways up are tried; the placement that puts the
+/// close kin of `t` nearest wins, the first on a tie. The usual root is not a candidate: the chart is rebuilt.
 fn place_around(
     t: usize,
     units: &mut [Unit],
@@ -510,6 +520,7 @@ fn place_around(
 ) -> Vec<f64> {
     let kin = close_kin(t, sh);
     let step = f64::from(sh.m.node_w + sh.m.couple_gap);
+    centre_in_unit(t, units, sh, sc);
     let start: Vec<Vec<usize>> = units.iter().map(|u| u.members.clone()).collect();
     let restore = |units: &mut [Unit], sc: &mut Scratch| {
         for (u, m) in units.iter_mut().zip(&start) {
@@ -521,7 +532,7 @@ fn place_around(
     };
     // Candidates: (root unit or None for the usual pick, units of the line).
     type Line = HashSet<(usize, usize)>;
-    let mut tries: Vec<(Option<usize>, Line)> = vec![(None, Line::new())];
+    let mut tries: Vec<(Option<usize>, Line)> = Vec::new();
     let mut seen_tries: Vec<(usize, Vec<(usize, usize)>)> = Vec::new();
     for mode in 0..4u8 {
         let (top, line) = climb(t, sh, mode);
@@ -537,8 +548,13 @@ fn place_around(
         tries.push((Some(root), set.clone()));
         tries.push((None, set));
     }
+    // The usual pick is never a candidate: the chart is rebuilt around `t`, not left as it was. A person with no
+    // parents is the top of their own line, so the walk starts from them.
+    if tries.is_empty() {
+        tries.push((Some(sc.unit_of[t]), Line::new()));
+    }
     if units.len() > MAX_UNITS_TO_TRY {
-        tries.truncate(3);
+        tries.truncate(2);
     }
     let mut best: Option<(f64, usize)> = None;
     for (i, (root, line)) in tries.iter().enumerate() {
@@ -557,6 +573,63 @@ fn place_around(
     sc.line_root = tries[i].0;
     sc.line.clone_from(&tries[i].1);
     place_units(units, rows_n, sh, sc)
+}
+
+/// Puts `t` in the middle of their own unit of partners: half of their partners (each with the partners beyond
+/// them) on one side, the rest on the other. A person with one partner or none is left as they are.
+fn centre_in_unit(t: usize, units: &mut [Unit], sh: &Shared, sc: &mut Scratch) {
+    let u = sc.unit_of[t];
+    let members = units[u].members.clone();
+    let near = |p: usize| -> Vec<usize> {
+        let mut out: Vec<usize> = Vec::new();
+        for &f in &sh.partner_in[p] {
+            for &q in &sh.fams[f].partners {
+                if q != p && members.contains(&q) && !out.contains(&q) {
+                    out.push(q);
+                }
+            }
+        }
+        out.sort_by_key(|q| members.iter().position(|m| m == q));
+        out
+    };
+    let mine = near(t);
+    if mine.len() < 2 {
+        return;
+    }
+    let mut taken: HashSet<usize> = HashSet::from([t]);
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for &q in &mine {
+        if taken.contains(&q) {
+            continue;
+        }
+        let mut group = Vec::new();
+        let mut stack = vec![q];
+        while let Some(p) = stack.pop() {
+            if !taken.insert(p) {
+                continue;
+            }
+            group.push(p);
+            stack.extend(near(p).into_iter().rev());
+        }
+        groups.push(group);
+    }
+    let half = groups.len() / 2;
+    let mut order: Vec<usize> = Vec::with_capacity(members.len());
+    for g in groups[..half].iter().rev() {
+        order.extend(g.iter().rev());
+    }
+    order.push(t);
+    for g in &groups[half..] {
+        order.extend(g);
+    }
+    order.extend(members.iter().filter(|m| !taken.contains(m)));
+    if order.len() != members.len() {
+        return;
+    }
+    for (k, &p) in order.iter().enumerate() {
+        sc.pos_in_unit[p] = k;
+    }
+    units[u].members = order;
 }
 
 /// The unit to start from: on the top row, with the most people below it.
@@ -1562,9 +1635,11 @@ pub fn whole_directed(input: &WholeInput, m: &Metrics, reversed: bool) -> WholeL
     whole_around(input, m, reversed, None)
 }
 
-/// Like [`whole_directed`]; with `around` the same people are drawn in another order, so that this person's closest
-/// relatives sit near them: the walk starts from the topmost ancestor on their line, the line down to them keeps
-/// the middle of each row of brothers and sisters, and their family is shelved first. Nothing is added or left out.
+/// Like [`whole_directed`]; with `around` the chart is rebuilt with this person as its structural centre, so that
+/// their closest relatives sit near them: the walk starts from the topmost ancestor on their line, the line down to
+/// them stands in the exact middle of each row of brothers and sisters (and they in the middle of their partners),
+/// so their ancestors are straight above and their descendants straight below, and their family is shelved first.
+/// The usual order is never kept for them, even when it would be as near. Nothing is added or left out.
 /// A person who is not drawn (left out by the mask, or not there) changes nothing.
 pub fn whole_around(
     input: &WholeInput,
