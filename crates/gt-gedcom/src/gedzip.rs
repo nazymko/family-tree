@@ -4,7 +4,7 @@
 
 use crate::import::{ImportOptions, ImportOutcome, import, is_lexically_under};
 use std::collections::HashSet;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
@@ -38,6 +38,8 @@ pub enum GedzipError {
     Zip(String),
     #[error("the archive has no gedcom.ged at its root")]
     MissingGedcom,
+    #[error("the archive has no {0} at its root")]
+    MissingEntry(String),
     #[error("unsafe path in the archive: {0:?}")]
     UnsafePath(String),
     #[error("the archive contains a symbolic link: {0:?}")]
@@ -182,8 +184,8 @@ impl Budget<'_> {
     }
 }
 
-fn entry_cap(name: &str, lim: &Limits) -> u64 {
-    if name == GEDCOM_NAME {
+fn entry_cap(name: &str, special: Option<&str>, lim: &Limits) -> u64 {
+    if special == Some(name) {
         lim.max_gedcom_bytes
     } else {
         lim.max_entry_bytes
@@ -191,13 +193,18 @@ fn entry_cap(name: &str, lim: &Limits) -> u64 {
 }
 
 /// Pass 1, no writes: every name, flag, the count, duplicates, and the header sizes.
-fn scan(archive: &mut ZipArchive<Cursor<&[u8]>>, lim: &Limits) -> Result<(), GedzipError> {
+fn scan<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    lim: &Limits,
+    special: Option<&str>,
+    required: &str,
+) -> Result<(), GedzipError> {
     if archive.len() > lim.max_entries {
         return Err(GedzipError::TooManyEntries(lim.max_entries));
     }
     let mut seen: HashSet<String> = HashSet::new();
     let mut claimed_total = 0u64;
-    let mut has_gedcom = false;
+    let mut has_required = false;
     for i in 0..archive.len() {
         let file = archive.by_index(i)?;
         let raw = file.name()?.into_owned();
@@ -214,19 +221,21 @@ fn scan(archive: &mut ZipArchive<Cursor<&[u8]>>, lim: &Limits) -> Result<(), Ged
         if !seen.insert(raw.to_lowercase()) {
             return Err(GedzipError::Duplicate(raw));
         }
-        if file.size() > entry_cap(&raw, lim) {
+        if file.size() > entry_cap(&raw, special, lim) {
             return Err(GedzipError::EntryTooLarge(raw));
         }
         claimed_total = claimed_total.saturating_add(file.size());
         if claimed_total > lim.max_total_bytes {
             return Err(GedzipError::TotalTooLarge);
         }
-        has_gedcom |= raw == GEDCOM_NAME;
+        has_required |= raw == required;
     }
-    if has_gedcom {
+    if has_required {
         Ok(())
-    } else {
+    } else if required == GEDCOM_NAME {
         Err(GedzipError::MissingGedcom)
+    } else {
+        Err(GedzipError::MissingEntry(required.to_string()))
     }
 }
 
@@ -235,15 +244,37 @@ fn scan(archive: &mut ZipArchive<Cursor<&[u8]>>, lim: &Limits) -> Result<(), Ged
 fn run(
     bytes: &[u8],
     lim: &Limits,
+    make: impl FnMut(&str) -> Result<Out, GedzipError>,
+    done: impl FnMut(&str, Out),
+) -> Result<Vec<u8>, GedzipError> {
+    run_on(
+        Cursor::new(bytes),
+        bytes.len() as u64,
+        lim,
+        Some(GEDCOM_NAME),
+        GEDCOM_NAME,
+        make,
+        done,
+    )
+}
+
+/// The same over any seekable reader. `special` is the one entry returned in memory instead of
+/// going through `make`; `required` must be present at the archive root.
+fn run_on<R: Read + Seek>(
+    reader: R,
+    archive_len: u64,
+    lim: &Limits,
+    special: Option<&str>,
+    required: &str,
     mut make: impl FnMut(&str) -> Result<Out, GedzipError>,
     mut done: impl FnMut(&str, Out),
 ) -> Result<Vec<u8>, GedzipError> {
-    let mut archive = ZipArchive::new(Cursor::new(bytes))?;
-    scan(&mut archive, lim)?;
+    let mut archive = ZipArchive::new(reader)?;
+    scan(&mut archive, lim, special, required)?;
     let mut budget = Budget {
         lim,
         total: 0,
-        archive_len: bytes.len() as u64,
+        archive_len,
     };
     let mut gedcom = Vec::new();
     for i in 0..archive.len() {
@@ -253,8 +284,8 @@ fn run(
         }
         let raw = file.name()?.into_owned();
         let claimed = file.compressed_size();
-        let cap = entry_cap(&raw, lim);
-        if raw == GEDCOM_NAME {
+        let cap = entry_cap(&raw, special, lim);
+        if special == Some(raw.as_str()) {
             budget.copy(&mut file, claimed, &raw, cap, &mut gedcom)?;
         } else {
             let mut out = make(&raw)?;
@@ -362,6 +393,49 @@ pub fn import_gedzip(
     opts: &ImportOptions,
 ) -> Result<ImportOutcome, GedzipError> {
     extract_with(bytes, extract_dir, opts, &LIMITS)
+}
+
+/// Unpacks a zip file into `dest` (an existing, empty folder) with the same limits and checks as
+/// a GEDZIP: names validated, no symlinks, no encrypted entries, entry count, per-entry and total
+/// sizes and the compression ratio enforced on the bytes really written, every file created
+/// beneath `dest`. `required` (such as `tree.db`) must be at the root. On any error `dest` is
+/// left for the caller to delete.
+pub fn extract_zip_file(path: &Path, dest: &Path, required: &str) -> Result<(), GedzipError> {
+    extract_zip_file_with(path, dest, required, &LIMITS)
+}
+
+fn extract_zip_file_with(
+    path: &Path,
+    dest: &Path,
+    required: &str,
+    lim: &Limits,
+) -> Result<(), GedzipError> {
+    let file = std::fs::File::open(path)?;
+    let len = file.metadata()?.len();
+    let roots = [dest.to_path_buf()];
+    run_on(
+        std::io::BufReader::new(file),
+        len,
+        lim,
+        None,
+        required,
+        |name| {
+            let p = dest.join(name);
+            if !is_lexically_under(&p, &roots) {
+                return Err(GedzipError::UnsafePath(name.to_string()));
+            }
+            if let Some(parent) = p.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let f = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&p)?;
+            Ok(Out::File(f))
+        },
+        |_, _| {},
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -582,6 +656,70 @@ mod tests {
         assert!(matches!(
             import_gedzip(&z, dir.path(), &opts()),
             Err(GedzipError::RatioTooHigh(_))
+        ));
+    }
+
+    fn zip_file(entries: &[(&str, &[u8])]) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("copy.zip");
+        std::fs::write(&path, make(entries)).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn project_zip_extracts_every_file_and_needs_its_required_entry() {
+        let (_keep, z) = zip_file(&[("tree.db", b"db"), ("media/ab/abc.jpg", b"img")]);
+        let out = tempfile::tempdir().unwrap();
+        extract_zip_file(&z, out.path(), "tree.db").unwrap();
+        assert_eq!(std::fs::read(out.path().join("tree.db")).unwrap(), b"db");
+        assert_eq!(std::fs::read(out.path().join("media/ab/abc.jpg")).unwrap(), b"img");
+        let (_keep2, other) = zip_file(&[("other.db", b"x")]);
+        let out2 = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            extract_zip_file(&other, out2.path(), "tree.db"),
+            Err(GedzipError::MissingEntry(_))
+        ));
+    }
+
+    #[test]
+    fn project_zip_refuses_unsafe_names_bombs_and_oversized_entries() {
+        for name in ["../x.db", "/abs/tree.db", "a/../../b", "c:/x", r"media\x"] {
+            let (_k, z) = zip_file(&[("tree.db", b"db"), (name, b"x")]);
+            let out = tempfile::tempdir().unwrap();
+            assert!(
+                matches!(
+                    extract_zip_file(&z, out.path(), "tree.db"),
+                    Err(GedzipError::UnsafePath(_))
+                ),
+                "{name}"
+            );
+        }
+        let zeros = vec![0u8; 16 << 20];
+        let (_k, bomb) = zip_file(&[("tree.db", b"db"), ("bomb.bin", &zeros)]);
+        let out = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            extract_zip_file(&bomb, out.path(), "tree.db"),
+            Err(GedzipError::RatioTooHigh(_))
+        ));
+        let tiny = Limits {
+            max_entry_bytes: 8,
+            ..LIMITS
+        };
+        let (_k, big) = zip_file(&[("tree.db", b"0123456789")]);
+        let out = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            extract_zip_file_with(&big, out.path(), "tree.db", &tiny),
+            Err(GedzipError::EntryTooLarge(_))
+        ));
+        let few = Limits {
+            max_entries: 1,
+            ..LIMITS
+        };
+        let (_k, many) = zip_file(&[("tree.db", b"db"), ("a", b"1")]);
+        let out = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            extract_zip_file_with(&many, out.path(), "tree.db", &few),
+            Err(GedzipError::TooManyEntries(_))
         ));
     }
 }

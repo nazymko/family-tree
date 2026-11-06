@@ -530,6 +530,43 @@ impl Session {
         out
     }
 
+    /// The changes of one group (or one planned merge) as the log shows them. `whole`: field
+    /// values in full; otherwise cut short. Ids are worded through the other changes first, so a
+    /// record added in the same set can be named.
+    pub(crate) fn change_dtos(&self, changes: &[Change], whole: bool) -> Vec<LogChangeDto> {
+        let words = LogWords {
+            session: self,
+            group: changes,
+        };
+        changes
+            .iter()
+            .map(|ch| LogChangeDto {
+                kind: kind_name(ch.kind).to_string(),
+                id: ch.id,
+                op: match (&ch.before, &ch.after) {
+                    (None, _) => HistoryOp::Create,
+                    (Some(_), Some(_)) => HistoryOp::Update,
+                    (Some(_), None) => HistoryOp::Delete,
+                },
+                detail: ch
+                    .after
+                    .as_ref()
+                    .or(ch.before.as_ref())
+                    .map(|r| self.describe(r, changes))
+                    .unwrap_or_default(),
+                fact: self.change_fact(ch, changes),
+                sources: self.sources_of_change(ch, changes),
+                fields: {
+                    let mut f = record_field_changes(ch.before.as_ref(), ch.after.as_ref(), &words);
+                    if !whole {
+                        clip_fields(&mut f);
+                    }
+                    f
+                },
+            })
+            .collect()
+    }
+
     /// `whole`: field values in full, as the person page shows them; otherwise cut short.
     fn log_row(
         &self,
@@ -561,38 +598,7 @@ impl Session {
                 })
             }
         };
-        let words = LogWords {
-            session: self,
-            group: &g.changes,
-        };
-        let changes = g
-            .changes
-            .iter()
-            .map(|ch| LogChangeDto {
-                kind: kind_name(ch.kind).to_string(),
-                id: ch.id,
-                op: match (&ch.before, &ch.after) {
-                    (None, _) => HistoryOp::Create,
-                    (Some(_), Some(_)) => HistoryOp::Update,
-                    (Some(_), None) => HistoryOp::Delete,
-                },
-                detail: ch
-                    .after
-                    .as_ref()
-                    .or(ch.before.as_ref())
-                    .map(|r| self.describe(r, &g.changes))
-                    .unwrap_or_default(),
-                fact: self.change_fact(ch, &g.changes),
-                sources: self.sources_of_change(ch, &g.changes),
-                fields: {
-                    let mut f = record_field_changes(ch.before.as_ref(), ch.after.as_ref(), &words);
-                    if !whole {
-                        clip_fields(&mut f);
-                    }
-                    f
-                },
-            })
-            .collect();
+        let changes = self.change_dtos(&g.changes, whole);
         let people = g
             .people
             .iter()

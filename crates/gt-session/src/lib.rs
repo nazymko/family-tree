@@ -15,6 +15,7 @@ pub mod import_format;
 pub mod index;
 pub mod kinship;
 pub mod log;
+pub mod merge;
 pub mod names;
 pub mod ops;
 pub mod person_detail;

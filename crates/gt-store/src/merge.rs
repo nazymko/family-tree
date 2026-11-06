@@ -192,4 +192,14 @@ impl Project {
         tx.commit()?;
         Ok(())
     }
+
+    /// Takes a merge out of the ledger once it is undone in full, so the same copy can be
+    /// looked at again.
+    pub fn forget_merge(&mut self, batch: Uuid) -> Result<(), StoreError> {
+        self.conn.execute(
+            "DELETE FROM merged_group WHERE batch_id = ?1",
+            [batch.to_string()],
+        )?;
+        Ok(())
+    }
 }
