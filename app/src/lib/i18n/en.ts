@@ -741,6 +741,7 @@ export const en = {
     callHint: 'The given name the person was known by',
     surnamePrefix: 'Surname prefix',
     surnamePrefixHint: 'For example van, de or von',
+    moreNameFields: 'More fields: surname prefix, title, suffix, nickname, language',
     surnames: 'Surnames',
     surnamesHint: 'Separate several surnames with a comma',
     patronymic: 'Father’s name (patronymic)',

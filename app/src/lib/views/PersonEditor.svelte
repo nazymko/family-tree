@@ -259,9 +259,11 @@
     const married = detail?.names.find((n) => n.kind === 'married' && n.surnames.length > 0);
     const birth = detail?.names.find((n) => n.kind === 'birth' && n.surnames.length > 0);
     if (!married) return [];
+    // The surname prefix belongs to the surname (van Dijk), the same way the line under the name reads it.
+    const full = (n: NameDto) => [n.surnamePrefix?.trim(), n.surnames.join(', ')].filter(Boolean).join(' ');
     return [
-      ...(birth ? [{ label: t('surnames.atBirth'), text: birth.surnames.join(', ') }] : []),
-      { label: t('surnames.afterMarriage'), text: married.surnames.join(', ') },
+      ...(birth ? [{ label: t('surnames.atBirth'), text: full(birth) }] : []),
+      { label: t('surnames.afterMarriage'), text: full(married) },
     ];
   });
   const cardLines = $derived(
