@@ -59,7 +59,7 @@ async function aroundCards(name: string, kin: 'line' | 'siblings' | 'all'): Prom
 }
 
 /** The vertical centre of every direct child of the chart toolbar that is a button or a `.tool` wrapper, grouped by line. */
-async function toolbarLines(): Promise<{ buttons: number[]; control: number }[]> {
+async function toolbarLines(): Promise<{ buttons: number[]; control: number | null }[]> {
   return browser.execute(() => {
     const bar = document.querySelector('[role="toolbar"]')!;
     const mid = (e: Element) => {
@@ -67,10 +67,10 @@ async function toolbarLines(): Promise<{ buttons: number[]; control: number }[]>
       return r.top + r.height / 2;
     };
     const kids = [...bar.children].filter((c) => c.tagName === 'BUTTON' || c.classList.contains('tool'));
-    const lines = new Map<number, { buttons: number[]; control: number }>();
+    const lines = new Map<number, { buttons: number[]; control: number | null }>();
     for (const k of kids) {
       const top = Math.round(k.getBoundingClientRect().top);
-      const line = lines.get(top) ?? { buttons: [], control: NaN };
+      const line = lines.get(top) ?? { buttons: [], control: null };
       if (k.classList.contains('tool')) line.control = mid(k.querySelector('input, [role="radiogroup"], label') ?? k);
       else line.buttons.push(mid(k));
       lines.set(top, line);
@@ -82,11 +82,13 @@ async function toolbarLines(): Promise<{ buttons: number[]; control: number }[]>
 /** Every control sits within 1 px of the buttons on its own line. */
 async function expectAligned(where: string) {
   const lines = await toolbarLines();
-  expect(lines.some((l) => !Number.isNaN(l.control))).toBe(true);
+  expect(lines.some((l) => l.control !== null)).toBe(true);
   for (const l of lines) {
-    if (Number.isNaN(l.control)) continue;
+    if (l.control === null) continue;
     // A control alone on a wrapped line has no buttons beside it: compare it with its own wrapper instead.
-    for (const b of l.buttons) expect(Math.abs(b - l.control), `${where}: control centre ${l.control} against button centre ${b}`).toBeLessThanOrEqual(1);
+    for (const b of l.buttons) {
+      if (Math.abs(b - l.control) > 1) throw new Error(`${where}: control centre ${l.control} against button centre ${b}`);
+    }
   }
 }
 
