@@ -405,7 +405,10 @@
       const more = first.nodes.filter((n) => chosenMore.has(n.id));
       if (more.length > 1) {
         const all = box(more, null);
-        if (all) {
+        // Far apart (unrelated people stand in separate groups): keep the first person's own view instead of a middle point
+        // where nobody is.
+        const fits = !!all && 0.55 * Math.max(all.w + 64, 1) <= size.w && 0.55 * Math.max(all.h + 64, 1) <= size.h;
+        if (all && fits) {
           centreRect = all;
           rootRect = all;
           frameRect = all;

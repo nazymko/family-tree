@@ -77,10 +77,22 @@ function names(): { first: string; second: string } {
 /** Marks the two people on the whole tree: Space on the first, Shift+click on the second. */
 async function markBoth(findLabel: string, first: string, second: string) {
   await flyTo(findLabel, first);
-  await focusCanvas();
-  await browser.keys('Escape');
-  await browser.keys(' ');
-  await $('[data-testid="marked-count"]').waitForDisplayed();
+  const marked = $('[data-testid="marked-count"]');
+  // Marks left from before (the whole tree remembers them): Escape clears them.
+  if (await marked.isDisplayed()) {
+    await focusCanvas();
+    await browser.keys('Escape');
+    await marked.waitForDisplayed({ reverse: true, timeout: 10000 });
+    // Clearing leaves nothing selected: find the person again.
+    await flyTo(findLabel, first);
+  }
+  // Space marks the selected card.
+  for (let i = 0; i < 3 && !(await marked.isDisplayed()); i++) {
+    await focusCanvas();
+    await browser.keys(' ');
+    await browser.pause(700);
+  }
+  await marked.waitForDisplayed();
   await flyTo(findLabel, second);
   await shiftClickCentre();
 }
