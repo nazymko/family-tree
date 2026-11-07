@@ -646,7 +646,7 @@ impl Session {
 
     /// The chart built around several people: the chosen people in the middle, every one's ancestors above
     /// (someone shared is drawn once) and every one's descendants below, with the partners of the chosen people and
-    /// of the descendants. No brothers, sisters or other collateral relatives. The layout is the one of the chart of
+    /// of the descendants; the wider kin choice adds brothers, sisters and other relatives. The layout is the one of the chart of
     /// chosen people on the whole tree; here it is an ordinary chart with an outline, and each box says how that
     /// person is related to the NEAREST chosen person (the first of them when equally near).
     fn chart_open_around_many(
@@ -666,13 +666,30 @@ impl Session {
             links: &self.links,
             index: &self.index,
         };
-        let mut layout = gt_layout::around_many(
-            &LineSource(&src),
-            &slots,
-            generations,
-            &Metrics::default(),
-            MAX_NODES,
-        );
+        let kin = match req.kin.unwrap_or(AroundKin::Line) {
+            AroundKin::Line => gt_layout::ManyKin::Line,
+            AroundKin::Siblings => gt_layout::ManyKin::Siblings,
+            AroundKin::All => gt_layout::ManyKin::All,
+        };
+        let mut layout = if kin == gt_layout::ManyKin::Line {
+            gt_layout::around_many_kin(
+                &LineSource(&src),
+                &slots,
+                generations,
+                kin,
+                &Metrics::default(),
+                MAX_NODES,
+            )
+        } else {
+            gt_layout::around_many_kin(
+                &src,
+                &slots,
+                generations,
+                kin,
+                &Metrics::default(),
+                MAX_NODES,
+            )
+        };
         if reversed {
             layout.mirror(Axis::Vertical);
         }
@@ -718,8 +735,11 @@ impl Session {
                 _ => None,
             };
         }
+        // The wider family was named by the layout already; the lines are named from the nearest chosen person.
         for (node, rel) in layout.nodes.iter_mut().zip(rels) {
-            node.rel = rel;
+            if rel.is_some() {
+                node.rel = rel;
+            }
         }
         let parents_of: HashMap<u32, Vec<u32>> = parents
             .into_iter()

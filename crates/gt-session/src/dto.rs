@@ -427,7 +427,7 @@ pub struct ChartRequest {
     #[ts(optional)]
     pub kin: Option<AroundKin>,
     /// Chart built around people only: everybody the chart is built around, `root` included. Two or more
-    /// people give one chart of the lines of all of them (`kin` is then always the line only).
+    /// people give one chart around all of them, with the wider family `kin` asks for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub roots: Option<Vec<Uuid>>,

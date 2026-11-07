@@ -189,16 +189,17 @@ fn one_person_in_roots_is_the_ordinary_chart() {
 }
 
 #[test]
-fn several_people_ignore_the_wider_kin_choice_and_show_the_line_only() {
+fn several_people_follow_the_wider_kin_choice() {
     let (_d, mut s) = open_tree(&tree_of(KOVAL));
     let line = s
         .chart_open(&request(&s, &["Ivan", "Andriy"], 255, None))
         .unwrap();
-    let a = names(&nodes(&s, &line));
     let all = s
         .chart_open(&request(&s, &["Ivan", "Andriy"], 255, Some(AroundKin::All)))
         .unwrap();
-    assert_eq!(names(&nodes(&s, &all)), a);
+    // Zinaida is an aunt: only the all-relatives chart has her.
+    assert!(!names(&nodes(&s, &line)).contains(&"Zinaida Koval".to_string()));
+    assert!(names(&nodes(&s, &all)).contains(&"Zinaida Koval".to_string()));
 }
 
 #[test]
@@ -286,6 +287,43 @@ fn heavy_twenty_people_of_a_5000_person_tree_open_in_reasonable_time() {
     assert_eq!(ns.len(), m.node_count as usize);
     let outline = s.chart_outline(m.chart_id, None, 100).unwrap();
     assert_eq!(outline.len(), 20);
+}
+
+#[test]
+#[ignore = "heavy: runs before merge"]
+fn heavy_twenty_people_of_a_5000_person_tree_with_siblings_and_all_relatives() {
+    let tree = synthetic_tree(5_000, 1_500);
+    let mut ids: Vec<_> = tree.persons.keys().copied().collect();
+    ids.sort();
+    let dir = tempfile::tempdir().unwrap();
+    let proj = dir.path().join("project");
+    let mut p = Project::create(&proj).unwrap();
+    p.save_tree(&tree, today()).unwrap();
+    drop(p);
+    let mut s = Session::open(&proj, SessionClock::fixed(today(), NOW_MS)).unwrap();
+    let chosen: Vec<_> = ids.iter().step_by(250).take(20).copied().collect();
+    for kin in [AroundKin::Siblings, AroundKin::All] {
+        let t = Instant::now();
+        let m = s
+            .chart_open(&ChartRequest {
+                kind: ChartKind::Around,
+                root: chosen[0],
+                generations: 255,
+                aunts_uncles: None,
+                kin: Some(kin),
+                roots: Some(chosen.clone()),
+            })
+            .unwrap();
+        let took = t.elapsed();
+        assert!(took < Duration::from_secs(30), "took {took:?}");
+        assert!(m.node_count >= 20 && m.node_count <= 20_000);
+        // Truncation is reported exactly when the cap was reached.
+        assert_eq!(m.truncated, m.node_count == 20_000);
+        assert_eq!(m.chosen_nodes.as_ref().map(Vec::len), Some(20));
+        let ns = nodes(&s, &m);
+        assert_eq!(ns.len(), m.node_count as usize);
+        assert_no_overlaps(&ns);
+    }
 }
 
 // ---- Geometry: parents adjacent and centred over the child, grandparents over the midpoint, nothing crossed ----

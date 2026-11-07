@@ -1292,7 +1292,6 @@ export const uk: Messages = {
     kinLine: 'Лише лінія',
     kinSiblings: 'Брати й сестри',
     kinAll: 'Уся рідня',
-    kinManyHint: 'Для кількох осіб показано лише лінію: предків і нащадків.',
   },
   whole: {
     title: 'Увесь родовід',

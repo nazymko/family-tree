@@ -82,7 +82,7 @@ import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } f
 import { GROUP_BASE, layoutAround, layoutAroundAll, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
 import { layoutWhole, lineageOf, type WholeResult } from './wholeLayout';
 import { kinshipFinder } from './kinship';
-import { relationLabel, relationRole, type Rel } from './relation';
+import { relationLabel, relationRole, type PartnerOf, type Rel } from './relation';
 import { toDateDto, yearOf } from './mockParse';
 import { lifespanText, previewDate } from './mockDate';
 
@@ -989,7 +989,7 @@ export class MockApi implements Api {
     const generations = Math.max(1, Math.min(req.generations, req.kind === 'pedigree' || req.kind === 'around' ? 255 : 20));
     if (req.kind === 'around') {
       const chosen = [req.root, ...(req.roots ?? [])].filter((id, i, all) => all.indexOf(id) === i && this.db.persons.has(id) && !this.person(id).siblingMarker);
-      if (chosen.length > 1) return this.openAroundMany(chosen);
+      if (chosen.length > 1) return this.openAroundMany(chosen, req.kin ?? 'line');
     }
     const src: RustLayoutSource = {
       ref: (id) => this.ref(this.person(id)),
@@ -1030,12 +1030,68 @@ export class MockApi implements Api {
   }
 
   /**
+   * The brothers and sisters of the chosen people (and, for 'all', of every ancestor on their lines), with partners and all
+   * descendants, named like the backend names them. People already on the chart keep their place.
+   */
+  private extraKin(chosen: Id[], kin: 'siblings' | 'all', on: Set<Id>): Map<Id, Rel> {
+    const fams = [...this.db.families.values()];
+    const real = (id: Id) => this.db.persons.has(id) && !this.person(id).siblingMarker;
+    const partnersOf = (f: (typeof fams)[number]) => [f.partner1, f.partner2].filter((x): x is Id => x !== null && real(x));
+    const parentsOf = (p: Id): Id[] => [...new Set(fams.filter((f) => f.children.some((c) => c.person === p)).flatMap(partnersOf))];
+    const out = new Map<Id, Rel>();
+    const taken = (id: Id) => on.has(id) || out.has(id);
+    const addTree = (root: Id, up: number, rel: Rel) => {
+      out.set(root, rel);
+      let level = [root];
+      for (let down = 1; level.length > 0; down++) {
+        const next: Id[] = [];
+        for (const p of level) {
+          for (const f of fams) {
+            if (!partnersOf(f).includes(p)) continue;
+            const rank = p === root ? (up === 1 ? 'sibling' : up === 2 ? 'aunt' : { up, down }) : { up, down };
+            for (const q of partnersOf(f)) if (!taken(q)) out.set(q, { t: 'partner', of: rank as PartnerOf });
+            for (const c of f.children) {
+              if (!real(c.person) || taken(c.person)) continue;
+              out.set(c.person, up === 1 && down === 1 ? { t: 'nibling' } : { t: 'kin', up, down: down + 1 });
+              next.push(c.person);
+            }
+          }
+        }
+        level = next;
+      }
+    };
+    const levels = new Map<Id, number>(chosen.map((c) => [c, 0]));
+    const todo = [...chosen];
+    for (let i = 0; i < todo.length; i++) {
+      const p = todo[i];
+      if (kin === 'siblings' && levels.get(p)! > 0) break;
+      for (const q of parentsOf(p)) if (!levels.has(q)) { levels.set(q, levels.get(p)! + 1); todo.push(q); }
+    }
+    const order = [...levels.entries()].filter(([, g]) => kin === 'all' || g === 0).sort((a, b) => a[1] - b[1]);
+    for (const [x, g] of order) {
+      const own = fams.filter((f) => f.children.some((c) => c.person === x));
+      const ps = parentsOf(x);
+      for (const f of fams) {
+        if (!partnersOf(f).some((q) => ps.includes(q))) continue;
+        for (const c of f.children) {
+          if (c.person === x || ps.includes(c.person) || !real(c.person) || taken(c.person) || levels.has(c.person)) continue;
+          const half = !own.includes(f) && !(ps.length === 2 && partnersOf(f).length === 2 && partnersOf(f).every((q) => ps.includes(q)));
+          addTree(c.person, g + 1, g === 0 ? { t: 'sibling', half } : g === 1 ? { t: 'aunt', half } : { t: 'kin', up: g + 1, down: 1 });
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
    * The chart built around several people: the chosen people, their ancestors (shared ones once) and descendants, laid out
    * like the chart of chosen people on the whole tree. Boxes are worded against the NEAREST chosen person. Only the line;
    * the generations limit is not applied here.
    */
-  private openAroundMany(chosen: Id[]): ChartMeta {
+  private openAroundMany(chosen: Id[], kin: 'line' | 'siblings' | 'all'): ChartMeta {
     const { on } = this.selectionSubset(chosen, true);
+    const extra = kin === 'line' ? new Map<Id, Rel>() : this.extraKin(chosen, kin, on);
+    for (const id of extra.keys()) on.add(id);
     const persons = [...this.db.persons.values()].filter((p) => on.has(p.id) && !p.siblingMarker);
     const rows = new Map(this.rows().rows.map((r) => [r.id, r]));
     const reversed = this.settings.treeDirection === 'reversed';
@@ -1061,12 +1117,14 @@ export class MockApi implements Api {
       const u = up[n.id];
       const d = down[n.id];
       if (chosenNodes.includes(n.id)) return { t: 'focus' };
+      const x = n.person ? extra.get(n.person.id) : undefined;
+      if (x) return x;
       if (u !== null && (d === null || u <= d)) return { t: 'ancestor', n: u };
       if (d !== null) return { t: 'descendant', n: d };
       return { t: 'focus' };
     });
     nodes.forEach((n) => {
-      if (up[n.id] !== null || down[n.id] !== null || chosenNodes.includes(n.id)) return;
+      if (up[n.id] !== null || down[n.id] !== null || chosenNodes.includes(n.id) || (n.person && extra.has(n.person.id))) return;
       const o = owner.get(n.id);
       const r = o === undefined ? null : rels[o];
       rels[n.id] = r?.t === 'descendant' ? { t: 'partner', of: r.n } : { t: 'partner', of: 'focus' };
