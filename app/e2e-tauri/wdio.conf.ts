@@ -157,6 +157,7 @@ export const config: WebdriverIO.Config = {
     'date-picker',
     'merge-copy',
     'family-notes',
+    'maiden-name',
   ].map((name) => path.join(here, 'specs', `${name}.e2e.ts`)),
   // One instance of this file runs its specs one after another; scripts/e2e-parallel.mjs runs several instances.
   maxInstances: 1,
