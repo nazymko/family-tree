@@ -882,16 +882,65 @@ pub fn around_many_kin(
         .collect();
     order.extend(chosen.iter().copied().filter(|k| !ancestors.contains(k)));
     let chosen_set: std::collections::HashSet<Key> = chosen.iter().copied().collect();
-    let mut roots: Vec<usize> = Vec::new();
+    // The units of the chosen row, one group per chosen person (or, flagged, the brothers and sisters of a chosen
+    // person who stands as somebody's partner); the groups go left to right in this order.
+    let mut groups: Vec<(Vec<usize>, bool)> = Vec::new();
     // Brothers and sisters who are not chosen themselves.
     let mut sib_roots: Vec<usize> = Vec::new();
     'roots: for key in order {
-        if b.visited.contains_key(&key) {
+        if let Some(&node) = b.visited.get(&key) {
+            // Already drawn. A chosen partner (of a chosen person or of a brother or sister) still brings his or
+            // her own brothers and sisters, on the outer side of the group that holds the partner.
+            if !with_sibs {
+                continue;
+            }
+            let owner = groups.iter().position(|g| {
+                g.0.iter().any(|&u| {
+                    let un = &b.units[u];
+                    (un.person..=un.person + un.partners).contains(&node)
+                })
+            });
+            let Some(owner) = owner else { continue };
+            let mut at = owner + 1;
+            while at < groups.len() && groups[at].1 {
+                at += 1;
+            }
+            let mut made = Vec::new();
+            for s in siblings(src, key) {
+                if s.key == key || b.visited.contains_key(&s.key) || chosen_set.contains(&s.key) {
+                    continue;
+                }
+                let Some(u) = b.make_unit(
+                    s.key,
+                    0,
+                    Rel::Sibling { half: s.half },
+                    Some(Rel::Partner(PartnerOf::Sibling)),
+                    None,
+                ) else {
+                    break 'roots;
+                };
+                b.expand(u, Tree::Kin(1));
+                sib_roots.push(u);
+                made.push(u);
+            }
+            if !made.is_empty() {
+                groups.insert(at, (made, true));
+            }
             continue;
         }
+        groups.push((Vec::new(), false));
+        // A chosen person whose partner is chosen too stands last in the group, next to the partner who follows
+        // the unit; the partner's own brothers and sisters then go on that side of the pair.
+        let partner_chosen = src.unions(key).iter().any(|(p, _)| {
+            p.is_some_and(|p| p != key && chosen_set.contains(&p) && !b.visited.contains_key(&p))
+        });
         let group: Vec<(Key, Rel, bool)> = if with_sibs {
-            siblings(src, key)
-                .into_iter()
+            let mut sibs = siblings(src, key);
+            if partner_chosen && let Some(i) = sibs.iter().position(|s| s.key == key) {
+                let me = sibs.remove(i);
+                sibs.push(me);
+            }
+            sibs.into_iter()
                 .map(|s| {
                     if chosen_set.contains(&s.key) {
                         (s.key, Rel::Focus, true)
@@ -921,9 +970,12 @@ pub fn around_many_kin(
                 b.expand(u, Tree::Kin(1));
                 sib_roots.push(u);
             }
-            roots.push(u);
+            if let Some(g) = groups.last_mut() {
+                g.0.push(u);
+            }
         }
     }
+    let roots: Vec<usize> = groups.into_iter().flat_map(|g| g.0).collect();
     if roots.is_empty() {
         return Layout::finish(Vec::new(), Vec::new(), 0, b.truncated);
     }

@@ -134,6 +134,27 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             call: get_relatives::<H>,
         },
         Tool {
+            name: "get_around_chart",
+            description: "Everyone the app's \"Built around\" chart shows for one to 50 chosen people, without coordinates, laid out the way the app lays it out. kin says how much of the family comes with each chosen person: line (default) is their ancestors and descendants with partners, siblings adds their brothers and sisters with partners and descendants, all adds the brothers and sisters of every ancestor too, with partners and descendants. Every chosen person brings all of that, even a chosen couple, or a chosen person who descends from another chosen person. generations limits the rows above and below (default and most 255, all of them). Each row has id, name, relation (how the chart's box names the person, in English: starting person for a chosen one, father, grandmother, half brother, aunt, partner, ...) and appearsEarlier, true when the box only points to where the person is drawn already. count is the number of rows. truncated is true when the chart passed the 20,000 boxes the app draws and the rest is left out. Rows come in reading order, from the top row down, left to right.",
+            schema: json!({
+                "type": "object",
+                "properties": {
+                    "people": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": AROUND_PEOPLE_MAX,
+                        "description": "The ids of the chosen people, the first one the starting person.",
+                    },
+                    "kin": {"type": "string", "enum": ["line", "siblings", "all"], "default": "line"},
+                    "generations": {"type": "integer", "minimum": 1, "maximum": 255, "default": 255},
+                },
+                "required": ["people"],
+                "additionalProperties": false,
+            }),
+            call: get_around_chart::<H>,
+        },
+        Tool {
             name: "get_family",
             description: "One family: partners, children with how each is linked, events, notes, citations and media. A child with siblingMarker true is no person: it stands for brothers and sisters nobody named. It has no pages; a very long note in it comes as its start, to read in pieces with get_note.",
             schema: id("The family's id."),
@@ -737,6 +758,75 @@ fn get_relatives<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
             "partners": partners,
             "children": children,
             "siblings": siblings,
+        }))
+    })?;
+    answer(&result)
+}
+
+/// The most people one `get_around_chart` call may be built around, as the app allows.
+const AROUND_PEOPLE_MAX: usize = 50;
+
+fn get_around_chart<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
+    let listed = args
+        .get("people")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("people must be a list of 1 to 50 person ids".into()))?;
+    if listed.is_empty() || listed.len() > AROUND_PEOPLE_MAX {
+        return Err(invalid(format!(
+            "people must hold 1 to {AROUND_PEOPLE_MAX} person ids, not {}",
+            listed.len()
+        )));
+    }
+    let mut people: Vec<Uuid> = Vec::new();
+    for v in listed {
+        let id = v
+            .as_str()
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .ok_or_else(|| invalid("people must hold only ids of records".into()))?;
+        if !people.contains(&id) {
+            people.push(id);
+        }
+    }
+    let kin = match optional_str(args, "kin")? {
+        None | Some("line") => gt_session::AroundKin::Line,
+        Some("siblings") => gt_session::AroundKin::Siblings,
+        Some("all") => gt_session::AroundKin::All,
+        Some(_) => return Err(invalid("kin must be line, siblings or all".into())),
+    };
+    let generations = match optional_u64(args, "generations")? {
+        None => 255,
+        Some(g) => u32::try_from(g.clamp(1, 255)).unwrap_or(255),
+    };
+    let result = read(host, |s| {
+        for id in &people {
+            if !s.tree().persons.contains_key(id) {
+                return Err(ApiError::not_found("person", *id));
+            }
+        }
+        let rows = s.around_people(&gt_session::ChartRequest {
+            kind: gt_session::ChartKind::Around,
+            root: people[0],
+            generations,
+            aunts_uncles: None,
+            kin: Some(kin),
+            roots: Some(people.clone()),
+        })?;
+        let items: Vec<Value> = rows
+            .people
+            .iter()
+            .map(|r| {
+                json!({
+                    "id": r.id,
+                    "name": r.name,
+                    "relation": r.relation,
+                    "appearsEarlier": r.appears_earlier,
+                })
+            })
+            .collect();
+        Ok(json!({
+            "count": items.len(),
+            "truncated": rows.truncated,
+            "people": items,
         }))
     })?;
     answer(&result)

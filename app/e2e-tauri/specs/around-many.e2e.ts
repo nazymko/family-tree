@@ -295,3 +295,104 @@ describe('The screen built around several people', () => {
     await $('h1=Увесь родовід').waitForDisplayed({ timeout: 30000 });
   });
 });
+
+/**
+ * A married couple of the synthetic tree whose husband (the partner of the first) has brothers or sisters of his own,
+ * found in the backend: the wife first, then the husband and the names of his brothers and sisters.
+ */
+async function pickCouple(): Promise<{ wife: string; husband: string; siblings: string[] }> {
+  await browser.execute(() => {
+    delete (window as unknown as { __gtCouple?: unknown }).__gtCouple;
+    type Inv = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+    const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Inv } }).__TAURI_INTERNALS__.invoke;
+    const big = { x: -1e7, y: -1e7, w: 2e7, h: 2e7 };
+    type Win = {
+      nodes: { id: number; relation?: string; person?: { id: string; name: string } }[];
+      edges: { from: number; to: number; kind: string }[];
+    };
+    const open = async (root: string, kin: string) => {
+      const m = (await invoke('chart_open', { req: { kind: 'around', root, generations: 2, kin } })) as { chartId: number; rootNode: number };
+      const w = (await invoke('chart_window', { chartId: m.chartId, rect: big, zoom: 1 })) as Win;
+      return { w, root: m.rootNode };
+    };
+    void (async () => {
+      const whole = (await invoke('chart_open_whole')) as { meta: { chartId: number } };
+      const all = (await invoke('chart_window', { chartId: whole.meta.chartId, rect: big, zoom: 1 })) as Win;
+      const count = new Map<string, number>();
+      for (const n of all.nodes) if (n.person) count.set(n.person.name, (count.get(n.person.name) ?? 0) + 1);
+      const once = (name: string) => count.get(name) === 1;
+      for (const n of all.nodes.filter((x) => x.person && once(x.person.name))) {
+        const a = await open(n.person!.id, 'line');
+        const edge = a.w.edges.find((e) => e.kind === 'partner' && e.from === a.root);
+        const partner = edge && a.w.nodes.find((x) => x.id === edge.to);
+        if (!partner?.person || !once(partner.person.name)) continue;
+        const b = await open(partner.person.id, 'siblings');
+        const sibs = b.w.nodes.filter((x) => x.person && /brother|sister|sibling/.test(x.relation ?? '') && once(x.person.name));
+        if (sibs.length === 0) continue;
+        (window as unknown as { __gtCouple?: unknown }).__gtCouple = {
+          wife: n.person!.name,
+          husband: partner.person.name,
+          siblings: sibs.map((x) => x.person!.name),
+        };
+        return;
+      }
+      (window as unknown as { __gtCouple?: unknown }).__gtCouple = { error: 'no couple with a sibling' };
+    })().catch((e) => ((window as unknown as { __gtCouple?: unknown }).__gtCouple = { error: String(e) }));
+  });
+  await browser.waitUntil(() => browser.execute(() => !!(window as unknown as { __gtCouple?: unknown }).__gtCouple), { timeout: 60000 });
+  const got = await browser.execute(
+    () => (window as unknown as { __gtCouple: { wife: string; husband: string; siblings: string[]; error?: string } }).__gtCouple,
+  );
+  if (got.error) throw new Error(got.error);
+  return got;
+}
+
+describe('The screen built around a married couple', () => {
+  before(async () => {
+    await ready();
+  });
+
+  after(async () => {
+    await $('//nav//a[normalize-space(.)="Налаштування"]').click();
+    await choose('Мова', 'en');
+    await $('h1=Settings').waitForDisplayed({ timeout: 20000 });
+  });
+
+  it("keeps the husband's brothers and sisters when the wife is chosen first", async () => {
+    await importSynthetic('Around couple');
+    await openTreeFromReport();
+    await $('//nav//a[normalize-space(.)="Settings"]').click();
+    await choose('Language', 'uk');
+    await $('h1=Налаштування').waitForDisplayed({ timeout: 20000 });
+    await toWholeTree('Увесь родовід', 'Увесь родовід');
+    const { wife, husband, siblings } = await pickCouple();
+    await markBoth('Знайти особу…', wife, husband);
+    await $('//button[normalize-space(.)="Побудувати навколо цих осіб (2)"]').waitForDisplayed();
+    await $('//button[normalize-space(.)="Побудувати навколо цих осіб (2)"]').click();
+    await $(`//h1[contains(.,"Побудовано навколо:")][contains(.,"${wife}")][contains(.,"${husband}")]`).waitForDisplayed({ timeout: 30000 });
+    await $('canvas[role="application"]').waitForDisplayed();
+    await $('//label[normalize-space(.)="Уся рідня"]').click();
+    await browser.pause(2500);
+    await shot('around-many-couple-all-uk.png');
+
+    // Brothers and sisters mode: every sibling of the husband is on the chart, on the far side of the pair.
+    const sibs = await cardNames(wife, husband, 'siblings');
+    const names = sibs.nodes.map((n) => n.name);
+    for (const s of siblings) expect(names).toContain(s);
+    expect(new Set(names).size).toBe(names.length);
+    const man = sibs.nodes.find((n) => n.name === husband)!;
+    const woman = sibs.nodes.find((n) => n.name === wife)!;
+    expect(Math.abs(man.y - woman.y)).toBeLessThan(1);
+    const sign = man.x > woman.x ? 1 : -1;
+    for (const s of siblings) {
+      const c = sibs.nodes.find((n) => n.name === s)!;
+      if (Math.abs(c.y - man.y) < 1) expect((c.x - man.x) * sign).toBeGreaterThan(0);
+    }
+    const all = await cardNames(wife, husband, 'all');
+    expect(all.nodes.length).toBeGreaterThanOrEqual(sibs.nodes.length);
+    for (const s of siblings) expect(all.nodes.map((n) => n.name)).toContain(s);
+    expect(new Set(all.nodes.map((n) => n.name)).size).toBe(all.nodes.length);
+    await $('//button[normalize-space(.)="Назад до всього родоводу"]').click();
+    await $('h1=Увесь родовід').waitForDisplayed({ timeout: 30000 });
+  });
+});

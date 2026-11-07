@@ -1938,6 +1938,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "gt-core",
+ "gt-gedcom",
  "gt-session",
  "gt-store",
  "httparse",
