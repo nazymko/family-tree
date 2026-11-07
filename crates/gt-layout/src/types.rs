@@ -31,7 +31,7 @@ impl Default for Metrics {
     fn default() -> Self {
         Self {
             node_w: 176.0,
-            node_h: 56.0,
+            node_h: 66.0,
             gap_x: 40.0,
             gap_y: 12.0,
             couple_gap: 8.0,

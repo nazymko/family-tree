@@ -5,7 +5,7 @@ import type { Layout } from './mockLayout';
 // same shapes as the Rust ones: Ahnentafel columns for pedigrees, a Buchheim tidy tree over couple boxes
 // for descendants. Edge `from` is the node nearer the root; partner nodes have an empty Nav.
 
-export const M = { nodeW: 176, nodeH: 56, gapX: 40, gapY: 12, coupleGap: 8 };
+export const M = { nodeW: 176, nodeH: 66, gapX: 40, gapY: 12, coupleGap: 8 };
 export const MAX_NODES = 4000;
 
 export interface RustLayoutSource {

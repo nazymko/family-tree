@@ -4,7 +4,7 @@ import type { ChartEdge, ChartNode, Id, OutlineItem, PersonRef } from '../types'
 // list for descendants). It is not Walker; it only has to give the views real shapes to draw.
 
 export const NODE_W = 176;
-export const NODE_H = 56;
+export const NODE_H = 66;
 export const GAP_X = 40;
 export const GAP_Y = 12;
 const MAX_NODES = 4000;

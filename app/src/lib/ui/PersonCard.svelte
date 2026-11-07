@@ -4,6 +4,7 @@
   import AgentBadge from './AgentBadge.svelte';
   import { t, type MessageKey } from '../i18n';
   import { SEX_GLYPH } from './sex';
+  import { birthSurnameText } from './birthSurname';
 
   type Sex = 'male' | 'female' | 'intersex' | 'unknown' | 'other';
   const SEX: Record<Sex, { glyph: string; name: MessageKey }> = {
@@ -17,6 +18,7 @@
   let {
     name,
     lifespan = '',
+    birthSurname,
     sex = 'unknown',
     living = false,
     isPrivate = false,
@@ -35,6 +37,8 @@
   }: {
     name: string;
     lifespan?: string;
+    /** The surname at birth, when it differs from the one in `name` ("дів. Bondar" under the name). */
+    birthSurname?: string;
     sex?: Sex;
     living?: boolean;
     isPrivate?: boolean;
@@ -59,9 +63,10 @@
     ondelete?: () => void;
   } = $props();
 
+  const maiden = $derived(birthSurnameText({ sex, birthSurname }));
   const accName = $derived(
     relationship || agentChanged
-      ? [name, lifespan, relationship, agentChanged ? t('changeLog.badgeLabel') : ''].filter((x) => x && x.length > 0).join(', ')
+      ? [name, maiden, lifespan, relationship, agentChanged ? t('changeLog.badgeLabel') : ''].filter((x) => x && x.length > 0).join(', ')
       : undefined,
   );
 </script>
@@ -70,6 +75,7 @@
   <span class="sex" role="img" aria-label={t(SEX[sex].name)}>{SEX[sex].glyph}</span>
   <span class="text">
     <bdi dir="auto" {lang} class="name">{name}</bdi>
+    {#if maiden}<span class="maiden">{maiden}</span>{/if}
     <span class="meta tnum">
       {#if living}<span class="living"><span class="dot" aria-hidden="true"></span>{t('common.living')}</span>{/if}
       {#if lifespan}<span>{lifespan}</span>{/if}
@@ -179,6 +185,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .maiden {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--t-sm);
+    line-height: var(--t-sm-lh);
+    color: var(--ink-1);
   }
   .meta {
     display: flex;

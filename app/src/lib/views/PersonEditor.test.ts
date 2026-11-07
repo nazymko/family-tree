@@ -29,7 +29,45 @@ async function open() {
   await screen.findByRole('heading', { level: 2, name: 'Names' });
 }
 
+async function open2() {
+  toasts.clear();
+  renderWithApi(observeApi(api), PersonEditor, { id });
+  await screen.findByRole('heading', { level: 1 });
+}
+
 describe('PersonEditor', () => {
+  it('shows_the_birth_surname_under_the_name_and_above_the_dates', async () => {
+    const married = await findPerson(api, (d) => !!d.ref.birthSurname);
+    id = married.ref.id;
+    setLanguage('uk');
+    try {
+      await open2();
+      // The same line also sits on the person's box in the family tree below: the one under the page heading is the first.
+      const heading = (await screen.findAllByRole('heading', { level: 1 }))[0];
+      const maiden = heading.nextElementSibling as HTMLElement;
+      // The heading comes first, then the birth surname line, then the dates.
+      expect(maiden.textContent).toBe(`дів. ${married.ref.birthSurname}`);
+      expect(maiden.className).toContain('maiden');
+      expect(maiden.nextElementSibling?.className).toContain('life');
+    } finally {
+      setLanguage('en');
+    }
+  });
+
+  it('shows_no_birth_surname_line_when_there_is_none', async () => {
+    const plain = await findPerson(api, (d) => !d.ref.birthSurname && d.names.length >= 1);
+    id = plain.ref.id;
+    setLanguage('uk');
+    try {
+      await open2();
+      await screen.findByRole('heading', { level: 1 });
+      expect(screen.queryByText(/^дів\. /)).toBeNull();
+      expect(screen.queryByText(/^при нар\. /)).toBeNull();
+    } finally {
+      setLanguage('en');
+    }
+  });
+
   it('a_family_note_shows_on_the_partners_page_and_can_be_edited', async () => {
     const user = userEvent.setup();
     const person = await api.getPerson(id);
