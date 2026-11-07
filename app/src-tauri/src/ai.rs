@@ -138,6 +138,54 @@ impl KeyStore for Keychain {
     }
 }
 
+/// A shared store is a store, so the app state can hand the same one to every command.
+impl KeyStore for std::sync::Arc<dyn KeyStore> {
+    fn get(&self) -> Option<String> {
+        (**self).get()
+    }
+    fn set(&self, key: &str) -> Result<(), String> {
+        (**self).set(key)
+    }
+    fn remove(&self) -> Result<(), String> {
+        (**self).remove()
+    }
+}
+
+/// A file in the config folder, for test runs that must never read, write or delete the owner's key in the OS keychain.
+pub struct FileKey {
+    path: std::path::PathBuf,
+}
+
+impl FileKey {
+    pub fn new(config_dir: &std::path::Path) -> Self {
+        Self {
+            path: config_dir.join("ai-key.e2e.txt"),
+        }
+    }
+}
+
+impl KeyStore for FileKey {
+    fn get(&self) -> Option<String> {
+        std::fs::read_to_string(&self.path)
+            .ok()
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty())
+    }
+    fn set(&self, key: &str) -> Result<(), String> {
+        if let Some(dir) = self.path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&self.path, key).map_err(|e| e.to_string())
+    }
+    fn remove(&self) -> Result<(), String> {
+        match std::fs::remove_file(&self.path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+}
+
 fn err(code: ErrorCode, msg: &str) -> ApiError {
     ApiError::new(code, msg)
 }
