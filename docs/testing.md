@@ -10,7 +10,7 @@ others; at the end it prints a summary and the log of every failure, and the exi
 | everyday: all Rust tests (nextest) and vitest | `.\scripts\test.ps1` | `bash scripts/test.sh` |
 | window specs on the real app, several at a time | `.\scripts\test.ps1 -E2e [specs]` | `bash scripts/test.sh --e2e [specs]` |
 | before merge: fmt, clippy, Rust tests, heavy tier, doctests, vitest, svelte-check, eslint | `.\scripts\test.ps1 -Full` | `bash scripts/test.sh --full` |
-| the gate and all window specs at once (changes nothing) | | `bash scripts/ship.sh` |
+| the gate, then all window specs (changes nothing) | | `bash scripts/ship.sh` |
 | the same, then merge develop into main, release build, install | | `bash scripts/ship.sh --merge "message"` |
 
 Needs `cargo install cargo-nextest --locked` once (nextest settings: `.config/nextest.toml`).
@@ -59,7 +59,7 @@ Specs are named without the suffix: `bash scripts/test.sh --e2e flows date-picke
 
 ## `ship.sh`
 
-Runs `--full` and the window specs at the same time, stops at the first failure (killing the other) and leaves `main` alone.
+Runs `--full`, then the window specs (side by side the CPU load made windows miss their timeouts), stops at the first failure and leaves `main` alone.
 With `--merge "message"` and both green it merges `develop` into a scratch checkout of `main`, does the release build into
 `target/ship` (never the folder of a running exe) and installs it; only then does `main` move. It refuses to start while
 another `ship.sh` runs (lock file with the PID, a lock of a dead process is cleared), needs a clean tree and HEAD on the tip

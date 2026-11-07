@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Verifies this checkout and, only with --merge, ships it. Start it through scripts/ship.sh.
 //
-//   bash scripts/ship.sh                       gate (--full) and all window specs at the same time. Changes nothing.
+//   bash scripts/ship.sh                       gate (--full), then all window specs. Changes nothing.
 //   bash scripts/ship.sh --merge "message"     the same, and when both are green: merge develop into main with that message,
 //                                              release build, install into %LOCALAPPDATA%\GeneTree (scripts/install-app.ps1).
 //
@@ -129,24 +129,21 @@ const gateCmd = fromEnv('GT_SHIP_GATE', [node, path.join(here, 'gate.mjs'), '--f
 const e2eCmd = fromEnv('GT_SHIP_E2E', [node, path.join(here, 'gate.mjs'), '--e2e']);
 
 const started = Date.now();
-// The gate saturates the CPU while the windows run beside it: at the full window count a relaunched app took over 60 s to
-// open its tree (flows failed, alone it passed). Half the usual number of windows keeps both inside their timeouts.
-const sharedJobs = process.env.GT_E2E_JOBS || String(Math.max(2, Math.floor(Math.min(6, Math.floor(os.cpus().length / 2.5)) / 2)));
+// One after the other, never side by side: with the gate saturating the CPU the windows missed their timeouts in three
+// different specs (a relaunch, an audio clock, an import), each green when run alone. The windows take about a minute.
 const runs = [
   { label: 'gate (--full)', cmd: gateCmd, log: path.join(logDir, 'gate.log') },
-  { label: 'window specs', cmd: e2eCmd, log: path.join(logDir, 'e2e.log'), env: { GT_E2E_JOBS: sharedJobs } },
-].map((r) => ({ ...r, handle: runTask({ name: r.label, file: r.cmd[0], args: r.cmd.slice(1), cwd: root, log: r.log, env: r.env }) }));
-
-const first = await new Promise((resolve) => {
-  let open = runs.length;
-  for (const r of runs) {
-    r.handle.done.then((res) => {
-      console.log(`${mark(res)}  ${res.seconds.toFixed(0).padStart(4)} s  ${r.label}`);
-      if (res.code !== 0) resolve(r);
-      else if (--open === 0) resolve(null);
-    });
+  { label: 'window specs', cmd: e2eCmd, log: path.join(logDir, 'e2e.log') },
+];
+let first = null;
+for (const r of runs) {
+  const res = await runTask({ name: r.label, file: r.cmd[0], args: r.cmd.slice(1), cwd: root, log: r.log }).done;
+  console.log(`${mark(res)}  ${res.seconds.toFixed(0).padStart(4)} s  ${r.label}`);
+  if (res.code !== 0) {
+    first = r;
+    break;
   }
-});
+}
 if (first) {
   stopAll();
   console.log(`\n=== ${first.label} FAILED. Last lines of ${first.log}:`);
