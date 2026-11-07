@@ -42,10 +42,12 @@ describe('PersonEditor', () => {
     setLanguage('uk');
     try {
       await open2();
-      const maiden = await screen.findByText(`дів. ${married.ref.birthSurname}`);
-      const heading = screen.getByRole('heading', { level: 1 });
+      // The same line also sits on the person's box in the family tree below: the one under the page heading is the first.
+      const heading = (await screen.findAllByRole('heading', { level: 1 }))[0];
+      const maiden = heading.nextElementSibling as HTMLElement;
       // The heading comes first, then the birth surname line, then the dates.
-      expect(heading.compareDocumentPosition(maiden) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(maiden.textContent).toBe(`дів. ${married.ref.birthSurname}`);
+      expect(maiden.className).toContain('maiden');
       expect(maiden.nextElementSibling?.className).toContain('life');
     } finally {
       setLanguage('en');
