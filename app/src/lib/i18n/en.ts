@@ -545,6 +545,8 @@ export const en = {
     noRelativesThis: 'No relatives recorded for this person. Add a parent, a partner or a child.',
     addRelative: 'Add a relative',
     aroundTitle: 'Built around {name}',
+    aroundTitleTwo: 'Built around: {a} and {b}',
+    aroundTitleMore: 'Built around: {a}, {b} and {n} more',
     backToWhole: 'Back to the whole tree',
     back: 'Back',
     noAroundTitle: 'No ancestors or descendants recorded',
@@ -1291,6 +1293,7 @@ export const en = {
     kinLine: 'Line only',
     kinSiblings: 'Brothers and sisters',
     kinAll: 'All relatives',
+    kinManyHint: 'For several people only the line is shown: ancestors and descendants.',
   },
   whole: {
     title: 'Whole tree',
@@ -1324,6 +1327,7 @@ export const en = {
     backToAll: 'Back to the whole tree',
     showDescendants: 'Show all descendants',
     buildAround: 'Build around this person',
+    buildAroundMany: 'Build around these people ({n})',
   },
   trace: {
     title: 'Trace a tree picture',

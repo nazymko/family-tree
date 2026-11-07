@@ -279,6 +279,7 @@ fn the_chart_of_everyone_is_not_touched_by_a_selection_chart() {
             generations: 3,
             aunts_uncles: None,
             kin: None,
+            roots: None,
         })
         .unwrap();
     }

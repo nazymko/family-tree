@@ -11,6 +11,8 @@ export interface WholeView {
   key: string;
   person: Id;
   cam: Camera;
+  /** The people marked with Shift+click when the screen was built around several of them. */
+  marked?: Id[];
 }
 
 let remembered: WholeView | null = null;
@@ -19,7 +21,7 @@ export const wholeViewKey = (people: Id[], descendants: boolean, reversed: boole
   `${people.join(',')}|${descendants ? 'd' : ''}|${reversed ? 'r' : ''}`;
 
 export function rememberWholeView(v: WholeView): void {
-  remembered = { ...v, cam: { ...v.cam } };
+  remembered = { ...v, cam: { ...v.cam }, marked: v.marked ? [...v.marked] : undefined };
 }
 
 /** The remembered view when it belongs to this chart and this person; it stays, so Back, Forward and Back again all return to it. */

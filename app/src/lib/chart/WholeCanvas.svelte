@@ -55,7 +55,7 @@
     /** None of the chosen people is in the project any more: go back to the whole tree. */
     onSelectionGone?: () => void;
     /** "Build around this person" on the selected person: opens the screen built around them. */
-    onBuildAround?: (id: Id) => void;
+    onBuildAround?: (ids: Id[]) => void;
   } = $props();
 
   const api = getApi();
@@ -342,6 +342,7 @@
           startRect = loc.rect;
           startId = loc.nodeId;
           restoreCam = back.cam;
+          if (back.marked && !inSel) markedIds = back.marked;
         }
       }
       // Flipped: the person that was selected stays selected and in the middle of the view.
@@ -758,10 +759,13 @@
 
   /** Opens the screen built around the selected person; the view is remembered so Back returns to it. */
   function buildAround(): void {
+    // Two or more marked people: the screen is built around all of them, and Back brings the marks back.
+    const many = markedIds.length >= 2;
     const p = realPerson(selNode);
-    if (!p) return;
-    rememberWholeView({ key: wholeViewKey([...people], descendants, reversed), person: p.id, cam: { ...cam } });
-    onBuildAround?.(p.id);
+    const first = many ? markedIds[0] : p?.id;
+    if (!first) return;
+    rememberWholeView({ key: wholeViewKey([...people], descendants, reversed), person: first, cam: { ...cam }, marked: many ? [...markedIds] : undefined });
+    onBuildAround?.(many ? [...markedIds] : [first]);
   }
 
   const canShow = $derived(markedIds.length > 0 || realPerson(selNode) !== null);
@@ -994,7 +998,7 @@
     <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={homeNode === null} onclick={goHome} />
     <FlipTreeButton />
     <Button aria-pressed={lineageOn} onclick={() => (lineageOn = !lineageOn)}>{t('whole.lineage')}</Button>
-    <Button disabled={!realPerson(selNode)} onclick={buildAround}>{t('whole.buildAround')}</Button>
+    <Button disabled={!realPerson(selNode) && markedIds.length < 2} onclick={buildAround}>{markedIds.length >= 2 ? t('whole.buildAroundMany', { n: markedIds.length }) : t('whole.buildAround')}</Button>
     <Button disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id)}>{t('whole.openPerson')}</Button>
     <IconButton label={t('whole.showInPedigree')} icon="pedigree" disabled={!canShow} onclick={showInPedigree} />
     {#if markedIds.length > 0}

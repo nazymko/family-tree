@@ -148,6 +148,7 @@ fn run(people: usize, families: usize, writes: usize, notes: usize) {
                 generations: 6,
                 aunts_uncles: None,
                 kin: None,
+                roots: None,
             })
             .unwrap()
         }),

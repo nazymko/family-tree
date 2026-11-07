@@ -544,6 +544,8 @@ export const uk: Messages = {
     noRelativesThis: 'Для цієї особи не вказано родичів. Додайте одного з батьків, партнера чи дитину.',
     addRelative: 'Додати родича',
     aroundTitle: 'Побудовано навколо: {name}',
+    aroundTitleTwo: 'Побудовано навколо: {a} і {b}',
+    aroundTitleMore: 'Побудовано навколо: {a}, {b} і ще {n}',
     backToWhole: 'Назад до всього родоводу',
     back: 'Назад',
     noAroundTitle: 'Предків і нащадків не вказано',
@@ -1290,6 +1292,7 @@ export const uk: Messages = {
     kinLine: 'Лише лінія',
     kinSiblings: 'Брати й сестри',
     kinAll: 'Уся рідня',
+    kinManyHint: 'Для кількох осіб показано лише лінію: предків і нащадків.',
   },
   whole: {
     title: 'Увесь родовід',
@@ -1323,6 +1326,7 @@ export const uk: Messages = {
     backToAll: 'Назад до всього родоводу',
     showDescendants: 'Показати всіх нащадків',
     buildAround: 'Побудувати навколо цієї особи',
+    buildAroundMany: 'Побудувати навколо цих осіб ({n})',
   },
   trace: {
     title: 'Відтворення родоводу зі світлини',
