@@ -220,6 +220,7 @@ fn tools_list_deterministic() {
         "list_people",
         "get_person",
         "get_relatives",
+        "get_around_chart",
         "get_family",
         "get_source",
         "get_note",

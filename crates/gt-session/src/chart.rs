@@ -263,6 +263,33 @@ fn first_places(c: &OpenChart) -> HashMap<u32, (u32, u32)> {
     seen
 }
 
+/// The laid-out chart around several people, before it is registered as an open chart.
+struct ManyLayout {
+    layout: Layout,
+    chosen_nodes: Vec<u32>,
+    partners: HashMap<u32, Vec<u32>>,
+    partner_owner: HashMap<u32, u32>,
+    parents_of: HashMap<u32, Vec<u32>>,
+    kids_of: HashMap<u32, Vec<u32>>,
+}
+
+/// One box of a chart around people: the person, how the box says they are related (English), and whether the
+/// box only points to where the person was drawn earlier.
+#[derive(Debug, Clone)]
+pub struct AroundRow {
+    pub id: Uuid,
+    pub name: String,
+    pub relation: String,
+    pub appears_earlier: bool,
+}
+
+/// Everyone on a chart around people, in reading order.
+#[derive(Debug, Clone)]
+pub struct AroundRows {
+    pub people: Vec<AroundRow>,
+    pub truncated: bool,
+}
+
 struct OpenChart {
     id: u32,
     kind: ChartKind,
@@ -553,20 +580,7 @@ impl Session {
                 };
                 gt_layout::relatives(&src, root, &o, &m, MAX_NODES)
             }
-            ChartKind::Around => {
-                // "All generations" asks for u8::MAX. Each person is placed once, so the chart is bounded by the
-                // tree and by MAX_NODES; unnamed-siblings markers are not part of anyone's line, but they
-                // are brothers and sisters, so they appear when those are asked for.
-                let g =
-                    u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
-                match req.kin.unwrap_or(AroundKin::Line) {
-                    AroundKin::All => gt_layout::around_all_kin(&src, root, g, &m, MAX_NODES),
-                    AroundKin::Siblings => {
-                        gt_layout::around_with_siblings(&src, root, g, &m, MAX_NODES)
-                    }
-                    AroundKin::Line => gt_layout::around(&LineSource(&src), root, g, &m, MAX_NODES),
-                }
-            }
+            ChartKind::Around => self.around_layout(req, root),
             ChartKind::Whole => {
                 return Err(ApiError::new(
                     ErrorCode::Invalid,
@@ -627,6 +641,24 @@ impl Session {
         Ok(meta)
     }
 
+    /// The layout of the chart around one person. "All generations" asks for u8::MAX. Each person is placed once,
+    /// so the chart is bounded by the tree and by MAX_NODES; unnamed-siblings markers are not part of anyone's
+    /// line, but they are brothers and sisters, so they appear when those are asked for.
+    fn around_layout(&self, req: &ChartRequest, root: u32) -> Layout {
+        let src = TreeSource {
+            tree: &self.tree,
+            links: &self.links,
+            index: &self.index,
+        };
+        let m = Metrics::default();
+        let g = u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
+        match req.kin.unwrap_or(AroundKin::Line) {
+            AroundKin::All => gt_layout::around_all_kin(&src, root, g, &m, MAX_NODES),
+            AroundKin::Siblings => gt_layout::around_with_siblings(&src, root, g, &m, MAX_NODES),
+            AroundKin::Line => gt_layout::around(&LineSource(&src), root, g, &m, MAX_NODES),
+        }
+    }
+
     /// Everybody a chart built around people is built around: the root first, then `roots` in the order given,
     /// each once. People who are not in the project and unnamed-siblings markers are left out.
     fn chosen_people(&self, req: &ChartRequest) -> Vec<Uuid> {
@@ -654,6 +686,63 @@ impl Session {
         req: &ChartRequest,
         chosen: &[Uuid],
     ) -> Result<ChartMeta, ApiError> {
+        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
+        let ManyLayout {
+            layout,
+            chosen_nodes,
+            partners,
+            partner_owner,
+            parents_of,
+            kids_of,
+        } = self.around_many_layout(req, chosen)?;
+        let first = chosen_nodes.first().copied().unwrap_or(0);
+        let n = layout.nodes.len();
+        let root_slot = self
+            .index
+            .slot(req.root)
+            .ok_or_else(|| ApiError::not_found("person", req.root))?;
+        let charts = &mut self.charts;
+        charts.make_room();
+        charts.next_id += 1;
+        let meta = ChartMeta {
+            chart_id: charts.next_id,
+            kind: ChartKind::Around,
+            bounds: ChartSize {
+                w: layout.bounds.x + layout.bounds.w,
+                h: layout.bounds.y + layout.bounds.h,
+            },
+            node_count: u32::try_from(n).unwrap_or(u32::MAX),
+            root_node: first,
+            truncated: layout.truncated,
+            version: charts.revision,
+            chosen_nodes: Some(chosen_nodes.clone()),
+        };
+        let chart = OpenChart {
+            id: meta.chart_id,
+            kind: ChartKind::Around,
+            version: charts.revision,
+            reversed,
+            layout,
+            partners,
+            partner_owner,
+            parents_of,
+            kids_of,
+            last_used: Cell::new(0),
+            kin: RefCell::new(Some(KinMemo::new(root_slot))),
+            whole: None,
+            chosen: chosen_nodes,
+        };
+        charts.touch(&chart);
+        charts.open.push(chart);
+        Ok(meta)
+    }
+
+    /// The layout of the chart built around several people, with the labels of its boxes; nothing is registered.
+    fn around_many_layout(
+        &self,
+        req: &ChartRequest,
+        chosen: &[Uuid],
+    ) -> Result<ManyLayout, ApiError> {
         let reversed = self.settings.tree_direction == TreeDirection::Reversed;
         let generations =
             u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
@@ -753,44 +842,72 @@ impl Session {
             .filter(|(_, v)| !v.is_empty())
             .map(|(i, v)| (i as u32, v))
             .collect();
-        let root_slot = self
-            .index
-            .slot(req.root)
-            .ok_or_else(|| ApiError::not_found("person", req.root))?;
-        let charts = &mut self.charts;
-        charts.make_room();
-        charts.next_id += 1;
-        let meta = ChartMeta {
-            chart_id: charts.next_id,
-            kind: ChartKind::Around,
-            bounds: ChartSize {
-                w: layout.bounds.x + layout.bounds.w,
-                h: layout.bounds.y + layout.bounds.h,
-            },
-            node_count: u32::try_from(n).unwrap_or(u32::MAX),
-            root_node: first,
-            truncated: layout.truncated,
-            version: charts.revision,
-            chosen_nodes: Some(chosen_nodes.clone()),
-        };
-        let chart = OpenChart {
-            id: meta.chart_id,
-            kind: ChartKind::Around,
-            version: charts.revision,
-            reversed,
+        Ok(ManyLayout {
             layout,
+            chosen_nodes,
             partners,
             partner_owner,
             parents_of,
             kids_of,
-            last_used: Cell::new(0),
-            kin: RefCell::new(Some(KinMemo::new(root_slot))),
-            whole: None,
-            chosen: chosen_nodes,
+        })
+    }
+
+    /// Everyone on the chart of `Around` (one chosen person or several), as the chart would show them, without
+    /// opening a chart: nothing is registered, so no chart of the app is closed to make room. Each row is a
+    /// person, how the box says they are related (in English, the same words the chart's `relation` has),
+    /// and whether the box only points to a place where the person was drawn earlier. Boxes are in reading
+    /// order: row by row from the top, left to right. The flag is the chart's `truncated`.
+    pub fn around_people(&self, req: &ChartRequest) -> Result<AroundRows, ApiError> {
+        let root = self
+            .index
+            .slot(req.root)
+            .ok_or_else(|| ApiError::not_found("person", req.root))?;
+        if self
+            .index
+            .summaries
+            .get(root as usize)
+            .is_some_and(|s| s.sibling_marker)
+        {
+            return Err(ApiError::sibling_marker(req.root));
+        }
+        let chosen = self.chosen_people(req);
+        let layout = if chosen.len() >= 2 {
+            self.around_many_layout(req, &chosen)?.layout
+        } else {
+            self.around_layout(req, root)
         };
-        charts.touch(&chart);
-        charts.open.push(chart);
-        Ok(meta)
+        let mut order: Vec<&gt_layout::Node> = layout.nodes.iter().collect();
+        order.sort_by(|a, b| {
+            a.rect
+                .y
+                .total_cmp(&b.rect.y)
+                .then(a.rect.x.total_cmp(&b.rect.x))
+        });
+        let people = order
+            .into_iter()
+            .filter_map(|n| {
+                let s = self.index.summaries.get(n.key as usize)?;
+                let relation = match n.rel {
+                    Some(r) => relation_label(r, s.sex),
+                    None if n.r#gen == 0 => "starting person".to_string(),
+                    None => "relative".to_string(),
+                };
+                Some(AroundRow {
+                    id: s.person_ref().id,
+                    name: if s.sibling_marker {
+                        "more brothers and sisters, not named".to_string()
+                    } else {
+                        s.name.clone()
+                    },
+                    relation,
+                    appears_earlier: n.dup_of.is_some(),
+                })
+            })
+            .collect();
+        Ok(AroundRows {
+            people,
+            truncated: layout.truncated,
+        })
     }
 
     /// What the whole-tree chart is laid out from.
