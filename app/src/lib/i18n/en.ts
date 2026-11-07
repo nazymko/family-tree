@@ -1286,7 +1286,10 @@ export const en = {
     aroundTools: 'Tools for the chart built around a person',
     centreOnMe: 'Centre on me',
     showAunts: 'Show aunts and uncles',
-    showSiblings: 'Brothers and sisters',
+    kin: 'Relatives',
+    kinLine: 'Line only',
+    kinSiblings: 'Brothers and sisters',
+    kinAll: 'All relatives',
   },
   whole: {
     title: 'Whole tree',

@@ -34,7 +34,8 @@ function removed(r: number): string {
   return r === 2 ? t('kinship.removed2') : t('kinship.removedN', { r });
 }
 
-function bloodText(up: number, down: number, half: boolean, sex: SexKind): string {
+/** The word for a blood relative `up` generations above the common ancestor and `down` below it (the all-relatives chart). */
+export function bloodText(up: number, down: number, half: boolean, sex: SexKind): string {
   let text: string | null;
   let canHalf = false;
   if (up === 0 && down === 0) return t('kinship.self');

@@ -20,6 +20,21 @@ describe('relationship words in Ukrainian', () => {
     expect(roleText(role('sibling', 'female'))).toBe('сестра');
   });
 
+  it('names_distant_relatives_by_generations_up_and_down', () => {
+    const kin = (sex: RoleDto['sex'], up: number, down: number) => roleText(role('kin', sex, { n: up, k: down }));
+    expect(kin('male', 3, 1)).toBe('двоюрідний дідусь');
+    expect(kin('female', 3, 1)).toBe('двоюрідна бабуся');
+    expect(kin('male', 4, 1)).toBe('двоюрідний прадідусь');
+    expect(kin('female', 2, 2)).toBe('двоюрідна сестра');
+    expect(kin('male', 3, 3)).toBe('троюрідний брат');
+    expect(kin('male', 1, 3)).toBe('внучатий племінник');
+    expect(kin('male', 3, 2)).toBe('двоюрідний дядько');
+    expect(kin('female', 2, 3)).toBe('двоюрідна племінниця');
+    // No exact word: the general one, never a wrong one.
+    expect(kin('male', 9, 1)).toBe('родич');
+    expect(roleText(role('partner_of_kin', 'female', { n: 2, k: 2 }))).toBe('родич за шлюбом');
+  });
+
   it('names_half_siblings_aunts_uncles_and_cousins', () => {
     expect(roleText(role('sibling', 'male', { half: true }))).toBe('зведений брат');
     expect(roleText(role('sibling', 'female', { half: true }))).toBe('зведена сестра');
