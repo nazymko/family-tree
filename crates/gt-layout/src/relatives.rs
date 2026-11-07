@@ -921,7 +921,8 @@ pub fn around_many(
     while !frontier.is_empty() {
         frontier.sort_by(|a, b| a.1.total_cmp(&b.1));
         // Children with the same parents form one group.
-        let mut groups: Vec<([Option<Key>; 2], Vec<(u32, f32)>)> = Vec::new();
+        type Kids = Vec<(u32, f32)>;
+        let mut groups: Vec<([Option<Key>; 2], Kids)> = Vec::new();
         for &(node, cx) in &frontier {
             let ps = src.parents(b.nodes[node as usize].key);
             if ps.iter().all(Option::is_none) {
