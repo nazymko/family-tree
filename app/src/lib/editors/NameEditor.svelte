@@ -4,6 +4,7 @@
   import TextField from '../ui/TextField.svelte';
   import Select from '../ui/Select.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
+  import Button from '../ui/Button.svelte';
   import DateField from './DateField.svelte';
   import { settings } from '../state/settings.svelte';
   import EditorDialog from './EditorDialog.svelte';
@@ -43,6 +44,12 @@
     isPrivate: name?.private ?? false,
   };
   let f = $state({ ...init });
+  /**
+   * Fields most names never use. They stay folded so the surname is not typed into the surname prefix just above it
+   * (a real tree had its married surname land there); a field that already has a value keeps the section open.
+   */
+  // svelte-ignore state_referenced_locally
+  let more = $state([init.prefix, init.call, init.surnamePrefix, init.suffix, init.nickname, init.lang].some((v) => v.trim() !== ''));
   let saving = $state(false);
   let error = $state('');
   const dirty = $derived(JSON.stringify(f) !== JSON.stringify(init));
@@ -93,15 +100,19 @@
 >
   <Select label={t('editor.kindOfName')} options={KINDS} bind:value={f.kind} />
   {#if f.kind === 'other'}<TextField label={t('editor.describeKind')} bind:value={f.kindText} />{/if}
-  <TextField label={t('editor.prefix')} hint={t('editor.prefixHint')} bind:value={f.prefix} />
   <TextField label={t('editor.given')} bind:value={f.given} />
-  <TextField label={t('editor.call')} hint={t('editor.callHint')} bind:value={f.call} />
-  <TextField label={t('editor.surnamePrefix')} hint={t('editor.surnamePrefixHint')} bind:value={f.surnamePrefix} />
-  <TextField label={t('editor.surnames')} hint={t('editor.surnamesHint')} bind:value={f.surnames} />
   <TextField label={t('editor.patronymic')} bind:value={f.patronymic} />
-  <TextField label={t('editor.suffix')} hint={t('editor.suffixHint')} bind:value={f.suffix} />
-  <TextField label={t('editor.nickname')} bind:value={f.nickname} />
-  <TextField label={t('editor.language')} hint={t('editor.languageHint')} bind:value={f.lang} />
+  <TextField label={t('editor.surnames')} hint={t('editor.surnamesHint')} bind:value={f.surnames} />
+  {#if more}
+    <TextField label={t('editor.surnamePrefix')} hint={t('editor.surnamePrefixHint')} bind:value={f.surnamePrefix} />
+    <TextField label={t('editor.prefix')} hint={t('editor.prefixHint')} bind:value={f.prefix} />
+    <TextField label={t('editor.call')} hint={t('editor.callHint')} bind:value={f.call} />
+    <TextField label={t('editor.suffix')} hint={t('editor.suffixHint')} bind:value={f.suffix} />
+    <TextField label={t('editor.nickname')} bind:value={f.nickname} />
+    <TextField label={t('editor.language')} hint={t('editor.languageHint')} bind:value={f.lang} />
+  {:else}
+    <div><Button variant="quiet" onclick={() => (more = true)}>{t('editor.moreNameFields')}</Button></div>
+  {/if}
   <DateField label={t('editor.dateInUse')} value={f.dateRaw} onChange={(r) => (f.dateRaw = r)} order={settings.value.dayOrder} />
   <Checkbox label={t('editor.preferredName')} bind:checked={f.preferred} />
   <Checkbox label={t('editor.private')} bind:checked={f.isPrivate} />

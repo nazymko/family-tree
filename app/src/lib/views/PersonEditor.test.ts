@@ -54,6 +54,33 @@ describe('PersonEditor', () => {
     }
   });
 
+  it('a_surname_prefix_on_the_birth_name_reads_the_same_in_the_line_and_the_surname_row', async () => {
+    const married = await findPerson(api, (d) => !!d.ref.birthSurname);
+    id = married.ref.id;
+    const birth = married.names.find((n) => n.kind === 'birth')!;
+    await api.apply({ type: 'saveName', person: id, name: { id: birth.id, kind: 'birth', preferred: birth.preferred, private: birth.private, given: birth.given ?? undefined, surnames: birth.surnames, surnamePrefix: 'van' } });
+    await open2();
+    const heading = (await screen.findAllByRole('heading', { level: 1 }))[0];
+    const line = (heading.nextElementSibling as HTMLElement).textContent!;
+    const row = screen.getByText('Surname at birth').closest('p')!.textContent!.replace('Surname at birth', '').trim();
+    expect(line).toBe(`née van ${birth.surnames.join(' ')}`);
+    expect(row).toBe(`van ${birth.surnames.join(', ')}`);
+  });
+
+  it('the_name_editor_shows_a_surname_prefix_that_is_set', async () => {
+    const user = userEvent.setup();
+    const married = await findPerson(api, (d) => !!d.ref.birthSurname);
+    id = married.ref.id;
+    const birth = married.names.find((n) => n.kind === 'birth')!;
+    await api.apply({ type: 'saveName', person: id, name: { id: birth.id, kind: 'birth', preferred: birth.preferred, private: birth.private, given: birth.given ?? undefined, surnames: birth.surnames, surnamePrefix: 'van' } });
+    await open();
+    const shown = (await api.getPerson(id)).names.find((n) => n.kind === 'birth')!;
+    await user.click(screen.getByRole('button', { name: `Edit name ${shown.display}` }));
+    const dlg = await screen.findByRole('dialog', { name: 'Edit name' });
+    // A value already there keeps the folded fields open, so a stray prefix can be seen and cleared.
+    expect(within(dlg).getByRole('textbox', { name: 'Surname prefix' })).toHaveValue('van');
+  });
+
   it('shows_no_birth_surname_line_when_there_is_none', async () => {
     const plain = await findPerson(api, (d) => !d.ref.birthSurname && d.names.length >= 1);
     id = plain.ref.id;
@@ -118,6 +145,9 @@ describe('PersonEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Add name' }));
     const dlg = screen.getByRole('dialog', { name: 'Add name' });
     await user.selectOptions(within(dlg).getByRole('combobox', { name: 'Kind of name' }), 'married');
+    // The rarely used fields are folded: the surname comes right after the given name and patronymic.
+    expect(within(dlg).queryByRole('textbox', { name: 'Surname prefix' })).toBeNull();
+    await user.click(within(dlg).getByRole('button', { name: /^More fields/ }));
     await user.type(within(dlg).getByRole('textbox', { name: 'Title or prefix' }), 'Dr');
     await user.type(within(dlg).getByRole('textbox', { name: 'Surnames' }), 'Müller, Schmidt');
     await user.click(within(dlg).getByRole('button', { name: 'Save name' }));

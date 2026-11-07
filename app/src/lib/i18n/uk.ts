@@ -740,6 +740,7 @@ export const uk: Messages = {
     callHint: 'Ім’я, під яким особу знали',
     surnamePrefix: 'Префікс прізвища',
     surnamePrefixHint: 'Наприклад, van, de або von',
+    moreNameFields: 'Інші поля: префікс прізвища, титул, суфікс, прізвисько, мова',
     surnames: 'Прізвища',
     surnamesHint: 'Кілька прізвищ розділяйте комою',
     patronymic: 'По батькові',
