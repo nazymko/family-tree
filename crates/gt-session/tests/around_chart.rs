@@ -47,6 +47,7 @@ fn request(s: &Session, given: &str, generations: u32) -> ChartRequest {
         generations,
         aunts_uncles: None,
         kin: None,
+        roots: None,
     }
 }
 

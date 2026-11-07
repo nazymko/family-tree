@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import Host from '../chart/testing/Host.svelte';
-import { attachContext, fakeRaf, makeApi, richestRoot } from '../chart/testing/helpers';
+import { attachContext, fakeRaf, lastCamera, makeApi, richestRoot } from '../chart/testing/helpers';
 import { setLanguage } from '../i18n';
 import { nav } from '../state/nav.svelte';
 import { toasts } from '../state/toast.svelte';
@@ -39,15 +39,15 @@ async function mountWhole() {
 }
 
 async function mountAround(id: string) {
-  fakeRaf();
+  const raf = fakeRaf();
   const made = makeApi();
   nav.go({ name: 'whole' });
-  nav.go({ name: 'around', id });
+  nav.go({ name: 'around', ids: [id] });
   const spy = vi.spyOn(made.api, 'chartOpen');
   render(Host, { props: { api: made.api, view: Around } });
   const canvas = (await screen.findByRole('application')) as HTMLCanvasElement;
-  attachContext(canvas);
-  return { ...made, canvas, spy };
+  const ctx = attachContext(canvas);
+  return { ...made, canvas, spy, ctx, raf };
 }
 
 describe('the button on the whole tree', () => {
@@ -63,7 +63,7 @@ describe('the button on the whole tree', () => {
     expect(screen.queryByText(/Побудовано навколо/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Звичайний порядок' })).toBeNull();
     // The person the shell is centred on is the one it was built around, so Back brings them back.
-    expect(nav.route.name === 'around' && nav.route.id).toBe(nav.focusPerson);
+    expect(nav.route.name === 'around' && nav.route.ids[0]).toBe(nav.focusPerson);
     nav.back();
     expect(nav.route).toEqual({ name: 'whole' });
   });
@@ -133,16 +133,16 @@ describe('the screen built around a person', () => {
     // Somebody else: building around another person is one more step in the history.
     const second = fx.persons.find((p) => p.id !== root)!.id;
     const open = vi.spyOn(s.api, 'chartOpen');
-    nav.go({ name: 'around', id: second });
+    nav.go({ name: 'around', ids: [second] });
     await waitFor(() => expect(open).toHaveBeenCalledWith({ kind: 'around', root: second, generations: 255, kin: 'line' }));
     // The label no longer promises the whole tree: the step back is the first person's screen.
     expect(await screen.findByRole('button', { name: 'Назад' })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Назад' }));
-    expect(nav.route).toEqual({ name: 'around', id: root });
+    expect(nav.route).toEqual({ name: 'around', ids: [root] });
     nav.back();
     expect(nav.route).toEqual({ name: 'whole' });
     nav.forward();
-    expect(nav.route).toEqual({ name: 'around', id: root });
+    expect(nav.route).toEqual({ name: 'around', ids: [root] });
   });
 
   it('a_person_who_is_gone_returns_to_the_whole_tree_with_a_message_and_no_history_trap', async () => {
@@ -151,5 +151,98 @@ describe('the screen built around a person', () => {
     await waitFor(() => expect(nav.route).toEqual({ name: 'whole' }));
     expect(toasts.items.map((x) => x.text)).toContain('Цієї особи немає в родоводі.');
     expect(nav.history[nav.index - 1]?.name).not.toBe("whole");
+  });
+});
+
+async function mountAroundMany(ids: string[]) {
+  fakeRaf();
+  const made = makeApi();
+  nav.go({ name: 'whole' });
+  nav.go({ name: 'around', ids });
+  const spy = vi.spyOn(made.api, 'chartOpen');
+  render(Host, { props: { api: made.api, view: Around } });
+  const canvas = (await screen.findByRole('application')) as HTMLCanvasElement;
+  attachContext(canvas);
+  return { ...made, canvas, spy };
+}
+
+describe('the screen built around several people', () => {
+  const pick = (fx: ReturnType<typeof makeApi>['fx'], n: number) => fx.persons.filter((p) => !p.siblingMarker).slice(0, n).map((p) => p.id);
+
+  it('names_one_two_and_five_people_in_the_heading_without_declining_the_names', async () => {
+    for (const count of [1, 2, 5]) {
+      nav.reset();
+      nav.go({ name: 'whole' });
+      fakeRaf();
+      const { fx, api } = makeApi();
+      const ids = pick(fx, count);
+      const names = await Promise.all(ids.map(async (id) => (await api.getPerson(id)).ref.name));
+      const want =
+        count === 1 ? `Побудовано навколо: ${names[0]}` : count === 2 ? `Побудовано навколо: ${names[0]} і ${names[1]}` : `Побудовано навколо: ${names[0]}, ${names[1]} і ще ${count - 2}`;
+      nav.go({ name: 'around', ids });
+      const { unmount } = render(Host, { props: { api, view: Around } });
+      expect(await screen.findByRole('heading', { name: want })).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('opens_one_chart_for_all_of_them_with_the_line_only_and_back_returns_to_the_whole_tree', async () => {
+    const probe = makeApi();
+    const ids = pick(probe.fx, 3);
+    const s = await mountAroundMany(ids);
+    await waitFor(() => expect(s.spy).toHaveBeenCalledWith({ kind: 'around', root: ids[0], generations: 255, kin: 'line', roots: ids }));
+    // Only the line is possible for several people: the other two choices are shown but cannot be picked.
+    const group = screen.getByRole('radiogroup', { name: 'Рідня' });
+    expect(within(group).getByRole('radio', { name: 'Лише лінія' })).toBeChecked();
+    expect(within(group).getByRole('radio', { name: 'Брати й сестри' })).toBeDisabled();
+    expect(within(group).getByRole('radio', { name: 'Уся рідня' })).toBeDisabled();
+    expect(screen.getByText('Для кількох осіб показано лише лінію: предків і нащадків.')).toBeInTheDocument();
+    // The outline lists every chosen person.
+    const meta = await s.spy.mock.results[s.spy.mock.results.length - 1].value;
+    expect(meta.chosenNodes).toHaveLength(3);
+    const top = await s.api.chartOutline(meta.chartId, null, 100);
+    expect(top.map((i) => i.person?.id)).toEqual(ids);
+    await fireEvent.click(screen.getByRole('button', { name: 'Назад до всього родоводу' }));
+    expect(nav.route).toEqual({ name: 'whole' });
+  });
+
+  it('shift_click_on_the_screen_marks_people_and_the_button_counts_them_escape_clears', async () => {
+    const { api, fx } = makeApi();
+    const root = await richestRoot(api, fx, 'relatives');
+    const s = await mountAround(root);
+    const RECT = { left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON() {} };
+    s.canvas.getBoundingClientRect = () => RECT;
+    const meta = await s.spy.mock.results[s.spy.mock.results.length - 1].value;
+    const win = await s.api.chartWindow(meta.chartId, { x: 0, y: 0, w: meta.bounds.w, h: meta.bounds.h }, 1);
+    const others = win.nodes.filter((n) => n.person && n.id !== meta.rootNode && n.dupOf === null).slice(0, 2);
+    expect(others.length).toBe(2);
+    // Mark by Shift+click at the card's place on screen: the view is centred on the person, so ask where the camera is.
+    await waitFor(() => {
+      s.raf.pump(2);
+      expect(lastCamera(s.ctx)).not.toBeNull();
+    });
+    const cam = lastCamera(s.ctx)!;
+    const shiftClick = async (n: (typeof others)[number]) => {
+      const at = { clientX: (n.x + n.w / 2 - cam.x) * cam.zoom, clientY: (n.y + n.h / 2 - cam.y) * cam.zoom, shiftKey: true, bubbles: true };
+      await fireEvent(s.canvas, new MouseEvent('pointerdown', at));
+      await fireEvent(s.canvas, new MouseEvent('pointerup', at));
+    };
+    expect(screen.getByRole('button', { name: 'Побудувати навколо цієї особи' })).toBeInTheDocument();
+    await shiftClick(others[0]);
+    await shiftClick(others[1]);
+    expect(await screen.findByRole('button', { name: 'Побудувати навколо цих осіб (2)' })).toBeInTheDocument();
+    expect(screen.getByTestId('marked-count')).toHaveTextContent('2');
+    await fireEvent.keyDown(s.canvas, { key: 'Escape' });
+    expect(await screen.findByRole('button', { name: 'Побудувати навколо цієї особи' })).toBeInTheDocument();
+    expect(screen.queryByTestId('marked-count')).toBeNull();
+  });
+
+  it('routes_with_the_same_people_are_one_step_and_other_people_are_another', () => {
+    nav.go({ name: 'around', ids: ['a', 'b'] });
+    const n = nav.history.length;
+    nav.go({ name: 'around', ids: ['a', 'b'] });
+    expect(nav.history.length).toBe(n);
+    nav.go({ name: 'around', ids: ['a'] });
+    expect(nav.history.length).toBe(n + 1);
   });
 });

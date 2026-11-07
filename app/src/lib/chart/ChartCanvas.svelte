@@ -27,6 +27,7 @@
   let {
     kind,
     root,
+    roots,
     generations,
     onRecentre,
     onOpenPerson,
@@ -45,6 +46,8 @@
   }: {
     kind: ChartKind;
     root: Id;
+    /** The chart built around several people: all of them, `root` first (absent or one person: the ordinary chart). */
+    roots?: Id[];
     generations: number;
     /** Called with the person to centre on and, on the relatives chart, how they are related to the current centre. */
     onRecentre: (id: Id, relation?: string) => void;
@@ -63,8 +66,8 @@
     onOpened?: (meta: ChartMeta) => void;
     /** Called whenever the selected node changes (also from the keyboard). */
     onSelect?: (nodeId: number) => void;
-    /** Chart built around a person: shows the "Build around this person" and "Open person" buttons for the selected person. */
-    onBuildAround?: (id: Id) => void;
+    /** Chart built around a person: shows the "Build around this person" and "Open person" buttons; builds around the selected person, or around everybody marked with Shift+click. */
+    onBuildAround?: (ids: Id[]) => void;
     /** Chart built around a person: the person is not in the project any more. */
     onGone?: () => void;
     /** Selection driven from outside (the outline); the canvas scrolls to it. */
@@ -93,6 +96,12 @@
   let pictureMenu = $state<{ openAt(x: number, y: number, person?: Id | null): void }>();
   let savingPicture = $state(false);
   let rootName = '';
+  /** People marked with Shift+click, in the order marked: the next chart is built around them. */
+  let markedIds = $state<Id[]>([]);
+  /** The chart is built around several people: they are marked on it and only the line is shown. */
+  const many = $derived((roots?.length ?? 0) > 1);
+  /** The boxes of the other chosen people of a chart built around several. */
+  let chosenMore = new Set<number>();
 
   let cache: WindowCache | null = null;
   let cam: Camera = { x: 0, y: 0, zoom: 1 };
@@ -156,12 +165,13 @@
     const ctx = canvas.getContext('2d');
     if (!cur || !ctx) return;
     theme ??= themeFromCss();
-    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, theme, kind, reversed, badged: agentChanges.unreviewed });
+    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, focusMore: chosenMore, marked: new Set(markedIds), theme, kind, reversed, badged: agentChanges.unreviewed });
   }
 
   $effect(() => {
     void agentChanges.unreviewed;
     void localeStore.locale; // words drawn on the canvas (a nameless person's name, relations) follow the language
+    void markedIds;
     invalidate();
   });
 
@@ -295,7 +305,8 @@
     if (!keepCam) selNode = null;
     let m: ChartMeta;
     try {
-      const req: ChartRequest = kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? { kind, root, generations, kin } : { kind, root, generations };
+      const req: ChartRequest =
+        kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? (many ? { kind, root, generations, kin: 'line', roots } : { kind, root, generations, kin }) : { kind, root, generations };
       m = await api.chartOpen(req);
     } catch (e) {
       if (seq !== openSeq) return;
@@ -310,6 +321,7 @@
     }
     meta = m;
     rootNodeId = m.rootNode;
+    chosenMore = new Set(m.chosenNodes ?? []);
     const c = new WindowCache(async (r, z) => {
       try {
         return await api.chartWindow(m.chartId, r, z);
@@ -389,6 +401,18 @@
       parentsRect = box(parents, null);
       kidsRect = box(kids, null);
       frameRect = box(kids, box(parents, rootRect));
+      // Several people: the first view holds all of them, at a readable zoom.
+      const more = first.nodes.filter((n) => chosenMore.has(n.id));
+      if (more.length > 1) {
+        const all = box(more, null);
+        if (all) {
+          centreRect = all;
+          rootRect = all;
+          frameRect = all;
+          parentsRect = null;
+          kidsRect = null;
+        }
+      }
     }
     if (kind === 'descendants' && rn && rootRect) {
       try {
@@ -508,10 +532,12 @@
     void generations;
     void auntsUncles;
     void kin;
+    void roots?.join();
     const flipped = reversed !== lastReversed;
     lastReversed = reversed;
     untrack(() => {
       flipKeep = flipped ? (selNode?.person?.id ?? null) : null;
+      if (!flipped) markedIds = [];
       void open();
     });
     return () => {
@@ -796,6 +822,12 @@
     const cur = cache?.current();
     if (!cur) return;
     const w = toWorld(e);
+    // Shift+click marks people, to build the next chart around all of them.
+    if (e.shiftKey && onBuildAround) {
+      const hit = hitTest(cur.win, w.x, w.y);
+      if (hit) toggleMark(hit);
+      return;
+    }
     const handle = hitHandle(cur.win, kind, w.x, w.y, cam.zoom, reversed);
     if (handle?.person && !handle.person.siblingMarker) {
       if (handle.relation) onRecentre(handle.person.id, relationText(handle));
@@ -804,8 +836,38 @@
     }
     const n = hitTest(cur.win, w.x, w.y);
     if (!n) return;
+    if (markedIds.length > 0) markedIds = [];
     if (n.dupOf !== null) jumpToOriginal(n);
     else select(n);
+  }
+
+  /** Shift+click: adds the person to the marked ones, or takes them out. The first mark also takes in the selected person. */
+  function toggleMark(n: ChartNode): void {
+    const person = realPerson(n);
+    if (!person) return;
+    const next = [...markedIds];
+    if (next.length === 0) {
+      const before = realPerson(selNode);
+      if (before && before.id !== person.id) next.push(before.id);
+    }
+    const at = next.indexOf(person.id);
+    if (at >= 0) next.splice(at, 1);
+    else next.push(person.id);
+    markedIds = next;
+    select(n);
+    announcement = markedIds.length === 0 ? t('whole.markedNone') : plural('whole.nMarked', markedIds.length);
+  }
+
+  function clearMarked(): void {
+    if (markedIds.length === 0) return;
+    markedIds = [];
+    announcement = t('whole.markedNone');
+  }
+
+  /** The button: everybody marked with Shift+click when two or more are, otherwise the selected person. */
+  function buildAround(): void {
+    if (markedIds.length >= 2) onBuildAround?.([...markedIds]);
+    else if (realPerson(selNode)) onBuildAround?.([realPerson(selNode)!.id]);
   }
 
   function ondblclick(e: MouseEvent): void {
@@ -836,6 +898,7 @@
     const th = theme;
     const sel = selected;
     const focus = rootNodeId;
+    const focusMore = chosenMore;
     const shot = { cam: { ...cam }, size: { ...size }, dpr };
     // The screen picture asks for its own fresh window: the cached one can lag behind the camera (or be at another zoom level).
     const scene: Scene =
@@ -847,7 +910,7 @@
       theme: { paper: th.paper, ink2: th.ink2, font: th.font },
       caption: captionText(kind, rootName),
       paint: (ctx, p) =>
-        draw(ctx, scene, p.cam, { w: p.view.w, h: p.view.h, dpr: p.scale }, { selected: scope === 'screen' ? sel : null, focus, theme: th, kind, reversed, handles: scope === 'screen' }),
+        draw(ctx, scene, p.cam, { w: p.view.w, h: p.view.h, dpr: p.scale }, { selected: scope === 'screen' ? sel : null, focus, focusMore, theme: th, kind, reversed, handles: scope === 'screen' }),
     };
   }
 
@@ -920,6 +983,11 @@
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (selNode) (selNode.dupOf !== null ? jumpToOriginal : recentre)(selNode);
+    } else if (e.key === 'Escape') {
+      if (markedIds.length > 0) {
+        e.preventDefault();
+        clearMarked();
+      }
     } else if (e.key === 'e' || e.key === 'E') {
       if (realPerson(selNode)) onOpenPerson(realPerson(selNode)!.id);
     } else if (e.key === 'Home') {
@@ -966,13 +1034,17 @@
     <Button onclick={fitAll}>{t('chartCanvas.fit')}</Button>
     <FlipTreeButton />
     {#if onBuildAround}
-      <Button disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onBuildAround(realPerson(selNode)!.id)}>{t('whole.buildAround')}</Button>
+      <Button disabled={markedIds.length < 2 && !realPerson(selNode)} onclick={buildAround}>{markedIds.length >= 2 ? t('whole.buildAroundMany', { n: markedIds.length }) : t('whole.buildAround')}</Button>
       <Button disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id)}>{t('whole.openPerson')}</Button>
     {/if}
     {#if kind === 'relatives'}
       <Button disabled={!homeId} onclick={() => homeId && onRecentre(homeId)}>{t('chartCanvas.centreOnMe')}</Button>
     {:else}
       <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={!homeId} onclick={() => homeId && onRecentre(homeId)} />
+    {/if}
+    {#if markedIds.length > 0}
+      <div class="tool"><span class="marked" data-testid="marked-count">{plural('whole.nMarked', markedIds.length)}</span></div>
+      <Button onclick={clearMarked}>{t('whole.clearMarked')}</Button>
     {/if}
     {#if onAunts}
       <div class="tool"><Checkbox label={t('chartCanvas.showAunts')} checked={auntsUncles} onchange={onAunts} /></div>
@@ -986,9 +1058,11 @@
             { value: 'siblings', label: t('chartCanvas.kinSiblings') },
             { value: 'all', label: t('chartCanvas.kinAll') },
           ]}
-          value={kin}
+          value={many ? 'line' : kin}
+          disabledValues={many ? ['siblings', 'all'] : []}
           onchange={(v) => onKin(v as AroundKin)}
         />
+        {#if many}<span class="kin-hint">{t('chartCanvas.kinManyHint')}</span>{/if}
       </div>
     {/if}
     <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
@@ -1063,6 +1137,14 @@
   }
   .gens {
     margin-inline-start: auto;
+  }
+  .marked,
+  .kin-hint {
+    color: var(--ink-2);
+    font-size: 0.875rem;
+  }
+  .kin-hint {
+    margin-inline-start: var(--s-3);
   }
   .hint {
     position: absolute;

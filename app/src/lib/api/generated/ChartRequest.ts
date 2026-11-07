@@ -10,4 +10,9 @@ auntsUncles?: boolean,
 /**
  * Chart built around a person only: who is shown besides the line (default `line`).
  */
-kin?: AroundKin, };
+kin?: AroundKin, 
+/**
+ * Chart built around people only: everybody the chart is built around, `root` included. Two or more
+ * people give one chart of the lines of all of them (`kin` is then always the line only).
+ */
+roots?: Array<string>, };

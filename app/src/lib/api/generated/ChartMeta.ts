@@ -6,4 +6,8 @@ export type ChartMeta = { chartId: number, kind: ChartKind, bounds: ChartSize, n
 /**
  * Tree revision the chart was laid out at.
  */
-version: number, };
+version: number, 
+/**
+ * Chart built around several people: the boxes of all of them (first is the root). Absent otherwise.
+ */
+chosenNodes?: Array<number>, };

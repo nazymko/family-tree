@@ -259,6 +259,7 @@ fn chart_windows_carry_kinship_for_the_reference_person() {
             generations: 3,
             aunts_uncles: None,
             kin: None,
+            roots: None,
         })
         .unwrap();
     let all = Rect {

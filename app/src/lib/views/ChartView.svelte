@@ -26,13 +26,19 @@
   /** The screen built around one person: the person is part of the route, and the heading names them. */
   const around = $derived(kind === 'around');
   let rootName = $state('');
+  /** Everybody the screen is built around, by name, root first (read from the outline's top level). */
+  let aroundNames = $state<string[]>([]);
   const title = $derived(
     kind === 'pedigree'
       ? t('chart.pedigree')
       : kind === 'descendants'
         ? t('chart.descendants')
         : around
-          ? t('chart.aroundTitle', { name: rootName || t('chart.thisPerson') })
+          ? aroundNames.length >= 3
+            ? t('chart.aroundTitleMore', { a: aroundNames[0], b: aroundNames[1], n: aroundNames.length - 2 })
+            : aroundNames.length === 2
+              ? t('chart.aroundTitleTwo', { a: aroundNames[0], b: aroundNames[1] })
+              : t('chart.aroundTitle', { name: rootName || t('chart.thisPerson') })
           : t('chart.relatives'),
   );
   /** Back goes one step in the history; the label says where that is when it is the whole tree. */
@@ -43,7 +49,7 @@
     else nav.go({ name: 'whole' });
   }
   /** Build the screen around another person: one more step in the history, so Back returns to the previous person. */
-  const buildAround = (id: Id) => nav.go({ name: 'around', id });
+  const buildAround = (ids: Id[]) => nav.go({ name: 'around', ids });
   // The person was deleted while the screen was open: back to where it was opened from, with a message, no history trap.
   function gone(): void {
     toasts.push({ text: t('whole.notInTree'), kind: 'warn' });
@@ -84,7 +90,9 @@
     }
   });
 
-  const root = $derived(nav.route.name === 'around' ? nav.route.id : (nav.focusPerson ?? home));
+  /** The people the around screen is built around (route order, the main person first). */
+  const aroundIds = $derived(nav.route.name === 'around' ? nav.route.ids : []);
+  const root = $derived(nav.route.name === 'around' ? (nav.route.ids[0] ?? null) : (nav.focusPerson ?? home));
   // On the relatives chart the choice follows you from person to person.
   const genKey = $derived(kind === 'relatives' || kind === 'around' ? kind : `${kind}:${root ?? ''}`);
   // The chart built around a person shows every generation until the reader chooses fewer.
@@ -127,10 +135,14 @@
   async function opened(m: ChartMeta): Promise<void> {
     meta = m;
     rootName = '';
+    aroundNames = [];
     const centre = root;
     try {
-      const first = await api.chartOutline(m.chartId, null, 1);
-      if (meta?.chartId === m.chartId) rootName = first[0]?.person?.name ?? '';
+      const first = await api.chartOutline(m.chartId, null, around ? 100 : 1);
+      if (meta?.chartId === m.chartId) {
+        rootName = first[0]?.person?.name ?? '';
+        aroundNames = around ? first.map((i) => i.person?.name ?? '').filter((n) => n !== '') : [];
+      }
     } catch {
       // The helper text falls back to "this person".
     }
@@ -140,7 +152,7 @@
   /** Centre the chart on someone. On the relatives chart this is a new history entry, so Back returns to the last person. */
   function recentre(id: Id, relation?: string): void {
     if (around) {
-      if (id !== root) buildAround(id);
+      if (aroundIds.length !== 1 || id !== root) buildAround([id]);
       return;
     }
     if (kind !== 'relatives') {
@@ -212,6 +224,7 @@
       <ChartCanvas
         {kind}
         {root}
+        roots={around && aroundIds.length > 1 ? aroundIds : undefined}
         {generations}
         hidden={mode !== 'chart'}
         reversed={settings.value.treeDirection === 'reversed'}

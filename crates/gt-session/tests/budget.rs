@@ -257,6 +257,7 @@ fn chart_window_under_8ms() {
             generations: DEEP_GENERATIONS,
             aunts_uncles: None,
             kin: None,
+            roots: None,
         })
         .unwrap();
     let rect = Rect {
@@ -291,6 +292,7 @@ fn chart_open_pedigree_8_gens_under_50ms() {
         generations: DEEP_GENERATIONS,
         aunts_uncles: None,
         kin: None,
+        roots: None,
     };
     let mut nodes = 0;
     let took = median(9, || {

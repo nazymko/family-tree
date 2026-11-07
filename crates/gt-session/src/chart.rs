@@ -17,7 +17,7 @@ use gt_layout::{
     WholeExtras, WholeFamily, WholeInput,
 };
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use uuid::Uuid;
 
 /// Node cap per chart.
@@ -252,7 +252,14 @@ fn first_places(c: &OpenChart) -> HashMap<u32, (u32, u32)> {
     }
     let mut seen = HashMap::new();
     seen.insert(c.layout.root, (u32::MAX, 0));
+    // A chart built around several people lists every one of them at the top of the outline.
+    for &r in &c.chosen {
+        seen.insert(r, (u32::MAX, 0));
+    }
     walk(c, c.layout.root, &mut seen);
+    for &r in &c.chosen {
+        walk(c, r, &mut seen);
+    }
     seen
 }
 
@@ -275,6 +282,8 @@ struct OpenChart {
     kin: RefCell<Option<KinMemo>>,
     /// Whole-tree charts only.
     whole: Option<Whole>,
+    /// Chart built around several people: the boxes of all of them, the first being the root. Empty otherwise.
+    chosen: Vec<u32>,
 }
 
 struct Whole {
@@ -360,6 +369,28 @@ fn is_partner_role(kind: RoleKind) -> bool {
     )
 }
 
+/// Steps from the nearest of `starts` to every node along `next` (parents or children); `None` where it never reaches.
+fn depths<'a>(n: usize, starts: &[u32], next: impl Fn(u32) -> &'a [u32]) -> Vec<Option<u8>> {
+    let mut out: Vec<Option<u8>> = vec![None; n];
+    let mut todo: VecDeque<u32> = VecDeque::new();
+    for &s in starts {
+        if let Some(slot) = out.get_mut(s as usize) {
+            *slot = Some(0);
+            todo.push_back(s);
+        }
+    }
+    while let Some(v) = todo.pop_front() {
+        let d = out[v as usize].unwrap_or(0);
+        for &w in next(v) {
+            if out[w as usize].is_none() {
+                out[w as usize] = Some(d.saturating_add(1));
+                todo.push_back(w);
+            }
+        }
+    }
+    out
+}
+
 type PartnerMaps = (HashMap<u32, Vec<u32>>, HashMap<u32, u32>);
 
 fn partner_maps(layout: &Layout) -> PartnerMaps {
@@ -442,6 +473,7 @@ fn whole_meta(c: &OpenChart) -> WholeMeta {
             root_node: c.layout.root,
             truncated: false,
             version: c.version,
+            chosen_nodes: None,
         },
         blocks: c.whole.as_ref().map_or_else(Vec::new, |w| w.blocks.clone()),
         chosen: c
@@ -488,6 +520,12 @@ impl Session {
             .is_some_and(|s| s.sibling_marker)
         {
             return Err(ApiError::sibling_marker(req.root));
+        }
+        if req.kind == ChartKind::Around {
+            let chosen = self.chosen_people(req);
+            if chosen.len() >= 2 {
+                return self.chart_open_around_many(req, &chosen);
+            }
         }
         let src = TreeSource {
             tree: &self.tree,
@@ -558,6 +596,7 @@ impl Session {
             root_node: layout.root,
             truncated: layout.truncated,
             version: charts.revision,
+            chosen_nodes: None,
         };
         let (partners, partner_owner) = partner_maps(&layout);
         let mut parents_of: HashMap<u32, Vec<u32>> = HashMap::new();
@@ -581,6 +620,137 @@ impl Session {
             last_used: Cell::new(0),
             kin: RefCell::new(Some(KinMemo::new(root))),
             whole: None,
+            chosen: Vec::new(),
+        };
+        charts.touch(&chart);
+        charts.open.push(chart);
+        Ok(meta)
+    }
+
+    /// Everybody a chart built around people is built around: the root first, then `roots` in the order given,
+    /// each once. People who are not in the project and unnamed-siblings markers are left out.
+    fn chosen_people(&self, req: &ChartRequest) -> Vec<Uuid> {
+        let mut out = vec![req.root];
+        for id in req.roots.iter().flatten() {
+            let real = self
+                .index
+                .slot(*id)
+                .and_then(|k| self.index.summaries.get(k as usize))
+                .is_some_and(|s| !s.sibling_marker);
+            if real && !out.contains(id) {
+                out.push(*id);
+            }
+        }
+        out
+    }
+
+    /// The chart built around several people: the chosen people in the middle, every one's ancestors above
+    /// (someone shared is drawn once) and every one's descendants below, with the partners of the chosen people and
+    /// of the descendants. No brothers, sisters or other collateral relatives. The layout is the one of the chart of
+    /// chosen people on the whole tree; here it is an ordinary chart with an outline, and each box says how that
+    /// person is related to the NEAREST chosen person (the first of them when equally near).
+    fn chart_open_around_many(
+        &mut self,
+        req: &ChartRequest,
+        chosen: &[Uuid],
+    ) -> Result<ChartMeta, ApiError> {
+        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
+        let generations = req.generations.clamp(1, u32::from(u8::MAX));
+        let (mut include, _) = self.selection_subset(chosen, true, generations);
+        for (k, s) in self.index.summaries.iter().enumerate() {
+            if s.sibling_marker
+                && let Some(on) = include.get_mut(k)
+            {
+                *on = false;
+            }
+        }
+        let mut input = self.whole_input();
+        input.include = Some(include);
+        let gt_layout::WholeLayout { mut layout, extras } =
+            gt_layout::whole_directed(&input, &Metrics::default(), reversed);
+        let chosen_nodes: Vec<u32> = chosen
+            .iter()
+            .filter_map(|id| self.index.slot(*id))
+            .filter_map(|k| extras.node_of(k))
+            .collect();
+        let Some(&first) = chosen_nodes.first() else {
+            return Err(ApiError::not_found("person", req.root));
+        };
+        layout.root = first;
+        let n = layout.nodes.len();
+        let up = depths(n, &chosen_nodes, |v| extras.parents_of(v));
+        let down = depths(n, &chosen_nodes, |v| extras.children_of(v));
+        let (partners, partner_owner) = partner_maps(&layout);
+        let mut rels: Vec<Option<Rel>> = (0..n)
+            .map(|i| {
+                if chosen_nodes.contains(&(i as u32)) {
+                    return Some(Rel::Focus);
+                }
+                match (up[i], down[i]) {
+                    (Some(u), Some(d)) if d < u => Some(Rel::Descendant(d)),
+                    (Some(u), _) => Some(Rel::Ancestor(u)),
+                    (None, Some(d)) => Some(Rel::Descendant(d)),
+                    (None, None) => None,
+                }
+            })
+            .collect();
+        for (&node, &owner) in &partner_owner {
+            if rels[node as usize].is_some() {
+                continue;
+            }
+            rels[node as usize] = match rels[owner as usize] {
+                Some(Rel::Focus) => Some(Rel::Partner(gt_layout::PartnerOf::Focus)),
+                Some(Rel::Descendant(d)) => Some(Rel::Partner(gt_layout::PartnerOf::Descendant(d))),
+                _ => None,
+            };
+        }
+        for (node, rel) in layout.nodes.iter_mut().zip(rels) {
+            node.rel = rel;
+        }
+        let mut parents_of: HashMap<u32, Vec<u32>> = HashMap::new();
+        let mut kids_of: HashMap<u32, Vec<u32>> = HashMap::new();
+        for v in 0..n as u32 {
+            if !extras.parents_of(v).is_empty() {
+                parents_of.insert(v, extras.parents_of(v).to_vec());
+            }
+            if !extras.children_of(v).is_empty() {
+                kids_of.insert(v, extras.children_of(v).to_vec());
+            }
+        }
+        let root_slot = self
+            .index
+            .slot(req.root)
+            .ok_or_else(|| ApiError::not_found("person", req.root))?;
+        let charts = &mut self.charts;
+        charts.make_room();
+        charts.next_id += 1;
+        let meta = ChartMeta {
+            chart_id: charts.next_id,
+            kind: ChartKind::Around,
+            bounds: ChartSize {
+                w: layout.bounds.x + layout.bounds.w,
+                h: layout.bounds.y + layout.bounds.h,
+            },
+            node_count: u32::try_from(n).unwrap_or(u32::MAX),
+            root_node: first,
+            truncated: false,
+            version: charts.revision,
+            chosen_nodes: Some(chosen_nodes.clone()),
+        };
+        let chart = OpenChart {
+            id: meta.chart_id,
+            kind: ChartKind::Around,
+            version: charts.revision,
+            reversed,
+            layout,
+            partners,
+            partner_owner,
+            parents_of,
+            kids_of,
+            last_used: Cell::new(0),
+            kin: RefCell::new(Some(KinMemo::new(root_slot))),
+            whole: None,
+            chosen: chosen_nodes,
         };
         charts.touch(&chart);
         charts.open.push(chart);
@@ -647,7 +817,7 @@ impl Session {
     ) -> Result<WholeMeta, ApiError> {
         let revision = self.charts.revision;
         let reversed = self.settings.tree_direction == TreeDirection::Reversed;
-        let (include, kept) = self.selection_subset(people, all_descendants);
+        let (include, kept) = self.selection_subset(people, all_descendants, u32::MAX);
         if kept.is_empty() {
             return Err(ApiError::new(
                 ErrorCode::NotFound,
@@ -679,7 +849,12 @@ impl Session {
 
     /// Who is on the chart of `people`: a flag per index slot, and the chosen people that exist (sorted, once each).
     /// Every walk marks a person before it follows them, so a loop in the data cannot make it run forever.
-    fn selection_subset(&self, people: &[Uuid], all_descendants: bool) -> (Vec<bool>, Vec<Uuid>) {
+    fn selection_subset(
+        &self,
+        people: &[Uuid],
+        all_descendants: bool,
+        max_gen: u32,
+    ) -> (Vec<bool>, Vec<Uuid>) {
         let summaries = &self.index.summaries;
         let n = summaries.len();
         let mut kept: Vec<Uuid> = people
@@ -727,19 +902,23 @@ impl Session {
         }
         let mut on = vec![false; n];
         // The chosen people and all their ancestors.
-        let mut todo: Vec<usize> = Vec::new();
+        // Breadth first, so a person met by two routes keeps the shorter one when generations are limited.
+        let mut todo: VecDeque<(usize, u32)> = VecDeque::new();
         for &c in &chosen {
             if !on[c] {
                 on[c] = true;
-                todo.push(c);
+                todo.push_back((c, 0));
             }
         }
-        while let Some(p) = todo.pop() {
+        while let Some((p, d)) = todo.pop_front() {
+            if d >= max_gen {
+                continue;
+            }
             for &f in &as_child[p] {
                 for &q in &fams[f].0 {
                     if !on[q] {
                         on[q] = true;
-                        todo.push(q);
+                        todo.push_back((q, d + 1));
                     }
                 }
             }
@@ -754,12 +933,15 @@ impl Session {
         }
         if all_descendants {
             let mut seen = vec![false; n];
-            let mut todo: Vec<usize> = Vec::new();
+            let mut todo: VecDeque<(usize, u32)> = VecDeque::new();
             for &c in &chosen {
                 seen[c] = true;
-                todo.push(c);
+                todo.push_back((c, 0));
             }
-            while let Some(p) = todo.pop() {
+            while let Some((p, d)) = todo.pop_front() {
+                if d >= max_gen {
+                    continue;
+                }
                 for &f in &as_partner[p] {
                     for &q in &fams[f].0 {
                         on[q] = true;
@@ -768,7 +950,7 @@ impl Session {
                         on[k] = true;
                         if !seen[k] {
                             seen[k] = true;
-                            todo.push(k);
+                            todo.push_back((k, d + 1));
                         }
                     }
                 }
@@ -863,6 +1045,7 @@ impl Session {
                 markers,
                 selection,
             }),
+            chosen: Vec::new(),
         };
         charts.touch(&chart);
         let meta = whole_meta(&chart);
@@ -1293,6 +1476,9 @@ impl Session {
             })
         };
         let Some(p) = parent else {
+            if c.chosen.len() > 1 {
+                return c.chosen.iter().map(|&n| item(n, None)).collect();
+            }
             return Ok(vec![item(c.layout.root, None)?]);
         };
         if p < GROUP_BASE {

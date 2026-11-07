@@ -426,6 +426,11 @@ pub struct ChartRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub kin: Option<AroundKin>,
+    /// Chart built around people only: everybody the chart is built around, `root` included. Two or more
+    /// people give one chart of the lines of all of them (`kin` is then always the line only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub roots: Option<Vec<Uuid>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
@@ -446,6 +451,10 @@ pub struct ChartMeta {
     /// Tree revision the chart was laid out at.
     #[ts(type = "number")]
     pub version: u64,
+    /// Chart built around several people: the boxes of all of them (first is the root). Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub chosen_nodes: Option<Vec<u32>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, TS)]
