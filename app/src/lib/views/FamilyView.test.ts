@@ -11,6 +11,7 @@ import { fixtureTree } from '../api/mock/fixtures';
 import { nav } from '../state/nav.svelte';
 import { project } from '../state/project.svelte';
 import { ui } from '../state/ui.svelte';
+import { setLanguage } from '../i18n';
 
 vi.mock('./flip', async (orig) => {
   const actual = await orig<typeof import('./flip')>();
@@ -110,6 +111,17 @@ describe('FamilyView', () => {
       }),
     ]);
     expect(await screen.findByRole('button', { name: 'Hans Schmidt, 1820-1890, Father' })).toBeInTheDocument();
+  });
+
+  it('names_a_married_partner_husband_or_wife_and_other_unions_partner', async () => {
+    setLanguage('uk');
+    const wife = union(ref('Олена Коваль', { sex: 'female' }));
+    const un = { ...union(ref('Марія Мороз', { sex: 'female' })), kind: 'unmarried' as const };
+    const { user } = setup([view(ref('Іван Петрович Коваль', { sex: 'male' }), { partnerships: [wife, un] })]);
+    expect(await screen.findByRole('button', { name: /Олена Коваль, .*, Дружина$/ })).toBeInTheDocument();
+    await user.click(screen.getByRole('option', { name: /Марія Мороз/ }));
+    expect(await screen.findByRole('button', { name: /Марія Мороз, .*, Партнер$/ })).toBeInTheDocument();
+    setLanguage('en');
   });
 
   it('unknown_parent_slot_shows_add_prompt', async () => {

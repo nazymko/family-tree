@@ -536,6 +536,8 @@ pub struct RoleDto {
     pub half: bool,
     pub sex: SexKind,
     pub k: u32,
+    /// Partner roles only: the union with the person this one sits beside is a marriage (husband / wife).
+    pub married: bool,
 }
 
 impl RoleDto {
@@ -546,6 +548,7 @@ impl RoleDto {
             half: false,
             sex,
             k: 0,
+            married: false,
         }
     }
 }

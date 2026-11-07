@@ -3,7 +3,7 @@ import { setLanguage } from '.';
 import { ahnenText, nodeLabel, outlineLabel, relationText, roleText } from './relation';
 import type { ChartNode, OutlineItem, RoleDto } from '../api/types';
 
-const role = (kind: RoleDto['kind'], sex: RoleDto['sex'], over: Partial<RoleDto> = {}): RoleDto => ({ kind, n: 1, half: false, sex, k: 0, ...over });
+const role = (kind: RoleDto['kind'], sex: RoleDto['sex'], over: Partial<RoleDto> = {}): RoleDto => ({ kind, n: 1, half: false, sex, k: 0, married: false, ...over });
 
 describe('relationship words in Ukrainian', () => {
   beforeEach(() => setLanguage('uk'));
@@ -51,6 +51,22 @@ describe('relationship words in Ukrainian', () => {
     expect(roleText(role('partner_of_descendant', 'unknown'))).toBe('родич по шлюбу');
     expect(roleText(role('partner_of_sibling', 'female'))).not.toBe('');
     expect(roleText(role('partner_of_aunt_uncle', 'male'))).not.toBe('');
+  });
+
+  it('names_a_married_partner_husband_or_wife_and_any_other_partner_partner', () => {
+    const married = { married: true };
+    expect(roleText(role('partner', 'female', married))).toBe('дружина');
+    expect(roleText(role('partner', 'male', married))).toBe('чоловік');
+    expect(roleText(role('partner', 'unknown', married))).toBe('чоловік або дружина');
+    expect(roleText(role('partner', 'female'))).toBe('партнерка');
+    expect(roleText(role('partner', 'male'))).toBe('партнер');
+    const row = (r: RoleDto) => ({ nodeId: 1, person: null, label: 'English', hasChildren: false, appearsEarlier: false, alsoAbove: false, role: r }) as OutlineItem;
+    expect(outlineLabel(row(role('partner', 'female', married)))).toBe('Дружина');
+    expect(outlineLabel(row(role('partner', 'female')))).toBe('Партнерка');
+    setLanguage('en');
+    expect(roleText(role('partner', 'female', married))).toBe('wife');
+    expect(roleText(role('partner', 'male', married))).toBe('husband');
+    expect(roleText(role('partner', 'female'))).toBe('partner');
   });
 
   it('counts_far_generations_with_a_multiplier', () => {

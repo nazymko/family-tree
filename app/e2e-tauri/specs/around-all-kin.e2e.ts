@@ -58,6 +58,34 @@ async function aroundCards(name: string, kin: 'line' | 'siblings' | 'all'): Prom
   return browser.execute(() => (window as unknown as { __gtAround: Card[] }).__gtAround);
 }
 
+type PartnerCard = { name: string; sex: string; kind: string; married: boolean };
+
+/** The role the backend gives the partner cards that stand beside the centre person of the chart built around `name`. */
+async function centrePartners(name: string): Promise<PartnerCard[]> {
+  await browser.execute((who: string) => {
+    delete (window as unknown as { __gtPartners?: unknown }).__gtPartners;
+    type Inv = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+    const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Inv } }).__TAURI_INTERNALS__.invoke;
+    const big = { x: -1e7, y: -1e7, w: 2e7, h: 2e7 };
+    void (async () => {
+      const whole = (await invoke('chart_open_whole')) as { meta: { chartId: number } };
+      const all = (await invoke('chart_window', { chartId: whole.meta.chartId, rect: big, zoom: 1 })) as { nodes: { person?: { id: string; name: string } }[] };
+      const root = all.nodes.find((n) => n.person?.name === who)!.person!.id;
+      const m = (await invoke('chart_open', { req: { kind: 'around', root, generations: 255, kin: 'all' } })) as { chartId: number; rootNode: number };
+      const w = (await invoke('chart_window', { chartId: m.chartId, rect: big, zoom: 1 })) as {
+        nodes: { id: number; person?: { name: string }; role?: { kind: string; sex: string; married: boolean } }[];
+        edges: { from: number; to: number; kind: string }[];
+      };
+      const partnerIds = new Set(w.edges.filter((e) => e.kind === 'partner' && e.from === m.rootNode).map((e) => e.to));
+      (window as unknown as { __gtPartners?: unknown }).__gtPartners = w.nodes
+        .filter((n) => partnerIds.has(n.id) && n.person && n.role)
+        .map((n) => ({ name: n.person!.name, sex: n.role!.sex, kind: n.role!.kind, married: n.role!.married }));
+    })();
+  }, name);
+  await browser.waitUntil(() => browser.execute(() => !!(window as unknown as { __gtPartners?: unknown }).__gtPartners), { timeout: 30000 });
+  return browser.execute(() => (window as unknown as { __gtPartners: PartnerCard[] }).__gtPartners);
+}
+
 /** The vertical centre of every direct child of the chart toolbar that is a button or a `.tool` wrapper, grouped by line. */
 async function toolbarLines(): Promise<{ buttons: number[]; control: number | null }[]> {
   return browser.execute(() => {
@@ -192,7 +220,47 @@ describe('The Relatives choice on the around screen', () => {
     if (await fit.isExisting()) await fit.click();
     await browser.pause(900);
     await shot('around-all-kin-uk.png');
+    // The centre person's own partner card names the partner husband or wife (the synthetic couple is married).
+    const partners = await centrePartners(meta().home.name);
+    expect(partners.length).toBeGreaterThan(0);
+    for (const p of partners) {
+      expect(p.kind).toBe('partner');
+      expect(p.married).toBe(true);
+      // Husband or wife by sex; the words themselves are asserted in relation.test.ts.
+      expect(['male', 'female']).toContain(p.sex);
+    }
+    // The chart is a canvas; the outline lists the same people as text, so the word itself is checked there.
+    // The line-only chart keeps the outline short; its groups open on demand, so the first two levels are opened.
     await $('//label[normalize-space(.)="Лише лінія"]').click();
+    await browser.pause(900);
+    await $('//*[@role="tab"][normalize-space(.)="Список"]').click();
+    const word = partners[0].sex === 'female' ? 'Дружина' : 'Чоловік';
+    const row = await browser.waitUntil(
+      () =>
+        browser.execute(
+          (name: string, w: string) => {
+            const hit = [...document.querySelectorAll('[role="treeitem"] > .row')].find((e) => {
+              const s = e.textContent ?? '';
+              return s.includes(name) && s.includes(w);
+            });
+            if (hit) {
+              (hit as HTMLElement).scrollIntoView({ block: 'center' });
+              return (hit.textContent ?? '').trim();
+            }
+            for (const li of document.querySelectorAll('[role="treeitem"][aria-expanded="false"]')) {
+              if (Number(li.getAttribute('aria-level')) <= 2) (li.querySelector(':scope > .row > .twist') as HTMLElement | null)?.click();
+            }
+            return '';
+          },
+          partners[0].name,
+          word,
+        ),
+      { timeout: 20000, interval: 700, timeoutMsg: `no outline row names the centre person's partner «${word}»` },
+    );
+    expect(row).toContain(word);
+    expect(row).not.toContain('Партнер');
+    await shot('around-spouse-outline-uk.png');
+    await $('//*[@role="tab"][normalize-space(.)="Схема"]').click();
     await $('//button[normalize-space(.)="Назад до всього родоводу"]').click();
     await $('h1=Увесь родовід').waitForDisplayed({ timeout: 30000 });
   });

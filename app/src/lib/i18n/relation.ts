@@ -22,6 +22,11 @@ function ancestor(n: number, sex: RoleDto['sex']): string {
   return t(key('far', sex), { m: n - 2 });
 }
 
+/** Husband or wife for a marriage, partner otherwise (the neutral spouse words when the sex is unknown). */
+function partnerText(r: RoleDto): string {
+  return t(key(r.married ? 'spouse' : 'partner', r.sex));
+}
+
 function descendant(n: number, sex: RoleDto['sex']): string {
   if (n <= 1) return t(key('child', sex));
   if (n === 2) return t(key('grandchild', sex));
@@ -68,7 +73,7 @@ export function roleText(r: RoleDto): string {
     case 'partner_of_kin':
       return t('kinship.byMarriage');
     case 'partner':
-      return t(key('partner', r.sex));
+      return partnerText(r);
     case 'partner_of_sibling':
       return t(key('sibInLaw', r.sex));
     case 'partner_of_aunt_uncle':
@@ -117,7 +122,7 @@ export function outlineLabel(it: OutlineItem): string {
   if (!r) return it.label;
   let text: string;
   if (r.kind === 'ancestor_no') text = `${r.n} ${cap(ahnenText(r.n))}`;
-  else if (r.kind === 'partner') text = cap(t(key('partner', r.sex)));
+  else if (r.kind === 'partner') text = cap(partnerText(r));
   else text = cap(roleText(r));
   // Pedigree and descendants rows: say how the person is related to the starting person unless the row already does.
   const kin = it.kinship ? kinshipText(it.kinship) : '';

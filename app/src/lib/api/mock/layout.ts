@@ -15,7 +15,7 @@ export interface RustLayoutSource {
   /** Preferred parents, upper slot first. */
   parents(id: Id): [Id | null, Id | null];
   /** Partnerships in display order: (partner or null, children in birth order). */
-  unions(id: Id): { partner: Id | null; children: Id[] }[];
+  unions(id: Id): { partner: Id | null; children: Id[]; married?: boolean }[];
 }
 
 export interface N extends ChartNode {

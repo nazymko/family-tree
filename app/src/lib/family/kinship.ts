@@ -1,5 +1,5 @@
 import { t, type MessageKey } from '../i18n';
-import type { Kinship, SexKind } from '../api/types';
+import type { Kinship, SexKind, UnionKindId } from '../api/types';
 
 /**
  * Words for how one person is related to another, in the active language, built from the structured
@@ -9,6 +9,19 @@ import type { Kinship, SexKind } from '../api/types';
 type S = 'M' | 'F' | 'N';
 const sexOf = (sex: SexKind): S => (sex === 'male' ? 'M' : sex === 'female' ? 'F' : 'N');
 const word = (base: string, sex: SexKind, params?: Record<string, string | number>) => t(`kinship.${base}${sexOf(sex)}` as MessageKey, params);
+
+/**
+ * A couple counts as married unless recorded otherwise (imported families often carry no marriage record at all).
+ * The backend applies the same rule to `Kinship.married` and `RoleDto.married`.
+ */
+export const isMarriage = (kind: UnionKindId): boolean => kind !== 'unmarried' && kind !== 'other';
+
+/** The catalogue key naming a partner on a family card: husband or wife for a marriage, partner otherwise. */
+export function partnerCardKey(kind: UnionKindId, sex: SexKind | undefined): MessageKey {
+  if (isMarriage(kind) && sex === 'male') return 'family.treeHusband';
+  if (isMarriage(kind) && sex === 'female') return 'family.treeWife';
+  return 'kin.partner';
+}
 
 /** Longest word table (generations) before a relation is called just "relative". */
 const MAX_DEGREE = 7;
