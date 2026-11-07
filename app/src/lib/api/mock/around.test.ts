@@ -66,6 +66,24 @@ describe('mock chart built around a person (port of gt-layout around)', () => {
     expect(Math.abs(me.x + me.w / 2 - mid)).toBeLessThan(0.01);
   });
 
+  it('all_relatives_adds_every_ancestors_family_without_overlap_with_the_parents_over_the_person', async () => {
+    const root = await withSiblings();
+    const sibs = await api.chartOpen({ kind: 'around', root, generations: 255, kin: 'siblings' });
+    const m = await api.chartOpen({ kind: 'around', root, generations: 255, kin: 'all' });
+    expect(m.nodeCount).toBeGreaterThanOrEqual(sibs.nodeCount);
+    const win = await api.chartWindow(m.chartId, BIG, 1);
+    expect(overlaps(win.nodes)).toBe(0);
+    const me = win.nodes[m.rootNode];
+    const parents = win.edges.filter((e) => e.kind === 'parent' && e.to === me.id).map((e) => win.nodes[e.from]);
+    expect(parents.length).toBeGreaterThan(0);
+    const mid = parents.reduce((s, p) => s + p.x + p.w / 2, 0) / parents.length;
+    expect(Math.abs(me.x + me.w / 2 - mid)).toBeLessThan(0.01);
+    // Everyone stands in their generation's row: all the person's own brothers and sisters share the person's row.
+    for (const n of win.nodes.filter((x) => x.role?.kind === 'sibling')) expect(n.y).toBe(me.y);
+    // Great-uncles and cousins are named by generations up and down.
+    for (const n of win.nodes.filter((x) => x.role?.kind === 'kin')) expect(n.relation).toBeTruthy();
+  });
+
   it('a_limit_marks_the_cut_and_a_missing_person_is_not_found', async () => {
     const root = await withSiblings();
     const all = await api.chartOpen({ kind: 'around', root, generations: 255 });

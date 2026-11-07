@@ -79,7 +79,7 @@ import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
 import { mirrorLayout, type Layout } from './mockLayout';
 import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } from './layout';
-import { GROUP_BASE, layoutAround, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
+import { GROUP_BASE, layoutAround, layoutAroundAll, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
 import { layoutWhole, lineageOf, type WholeResult } from './wholeLayout';
 import { kinshipFinder } from './kinship';
 import { toDateDto, yearOf } from './mockParse';
@@ -999,9 +999,11 @@ export class MockApi implements Api {
     };
     const laid =
       req.kind === 'around'
-        ? req.siblings
-          ? layoutRelatives(req.root, generations, false, src, true, true)
-          : layoutAround(req.root, generations, line)
+        ? req.kin === 'all'
+          ? layoutAroundAll(req.root, generations, src)
+          : req.kin === 'siblings'
+            ? layoutRelatives(req.root, generations, false, src, true, true)
+            : layoutAround(req.root, generations, line)
         : req.kind === 'pedigree'
         ? layoutPedigree(req.root, generations, src)
         : req.kind === 'descendants'

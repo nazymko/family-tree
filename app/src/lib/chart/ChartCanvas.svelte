@@ -2,7 +2,7 @@
   import { errMessage } from '../editors/errors';
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
-  import type { ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
+  import type { AroundKin, ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
   import { added } from '../state/added.svelte';
   import { project } from '../state/project.svelte';
   import { undoState as undo } from '../state/undo.svelte';
@@ -10,6 +10,7 @@
   import Checkbox from '../ui/Checkbox.svelte';
   import FlipTreeButton from '../ui/FlipTreeButton.svelte';
   import IconButton from '../ui/IconButton.svelte';
+  import Segmented from '../ui/Segmented.svelte';
   import Select from '../ui/Select.svelte';
   import { centerOn, fit, panBy, tween, viewRect, zoomAt, type Camera } from './camera';
   import { hitHandle, hitTest, neighbor, type Dir } from './hit';
@@ -32,8 +33,8 @@
     onGenerations,
     auntsUncles = true,
     onAunts,
-    siblings = false,
-    onSiblings,
+    kin = 'line',
+    onKin,
     onOpened,
     onSelect,
     onBuildAround,
@@ -54,9 +55,10 @@
     auntsUncles?: boolean;
     /** Shows the "Show aunts and uncles" checkbox in the toolbar when given. */
     onAunts?: (show: boolean) => void;
-    siblings?: boolean;
-    /** Shows the "Brothers and sisters" checkbox in the toolbar when given (the chart built around a person). */
-    onSiblings?: (show: boolean) => void;
+    /** The chart built around a person: who is shown besides the line. */
+    kin?: AroundKin;
+    /** Shows the "Relatives" choice (line only, brothers and sisters, all relatives) in the toolbar when given. */
+    onKin?: (kin: AroundKin) => void;
     /** Called with the chart meta each time a chart is (re)opened. */
     onOpened?: (meta: ChartMeta) => void;
     /** Called whenever the selected node changes (also from the keyboard). */
@@ -293,7 +295,7 @@
     if (!keepCam) selNode = null;
     let m: ChartMeta;
     try {
-      const req: ChartRequest = kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? { kind, root, generations, siblings } : { kind, root, generations };
+      const req: ChartRequest = kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? { kind, root, generations, kin } : { kind, root, generations };
       m = await api.chartOpen(req);
     } catch (e) {
       if (seq !== openSeq) return;
@@ -505,7 +507,7 @@
     void root;
     void generations;
     void auntsUncles;
-    void siblings;
+    void kin;
     const flipped = reversed !== lastReversed;
     lastReversed = reversed;
     untrack(() => {
@@ -973,10 +975,21 @@
       <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={!homeId} onclick={() => homeId && onRecentre(homeId)} />
     {/if}
     {#if onAunts}
-      <Checkbox label={t('chartCanvas.showAunts')} checked={auntsUncles} onchange={onAunts} />
+      <div class="tool"><Checkbox label={t('chartCanvas.showAunts')} checked={auntsUncles} onchange={onAunts} /></div>
     {/if}
-    {#if onSiblings}
-      <Checkbox label={t('chartCanvas.showSiblings')} checked={siblings} onchange={onSiblings} />
+    {#if onKin}
+      <div class="tool">
+        <Segmented
+          legend={t('chartCanvas.kin')}
+          options={[
+            { value: 'line', label: t('chartCanvas.kinLine') },
+            { value: 'siblings', label: t('chartCanvas.kinSiblings') },
+            { value: 'all', label: t('chartCanvas.kinAll') },
+          ]}
+          value={kin}
+          onchange={(v) => onKin(v as AroundKin)}
+        />
+      </div>
     {/if}
     <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
     <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
@@ -1040,6 +1053,13 @@
     align-items: flex-end;
     gap: var(--s-3);
     padding-bottom: var(--s-3);
+  }
+  /* The toolbar rests on the bottom line so the labelled Select lines up with the buttons; an item shorter than a
+     button (a checkbox, the radio group) would then sit low. Give it a button's height and centre it in that. */
+  .tool {
+    display: flex;
+    align-items: center;
+    min-height: 2.25rem;
   }
   .gens {
     margin-inline-start: auto;

@@ -54,7 +54,54 @@ function pack(items: [number, number][][], gap: number): { places: number[]; acc
   return { places, acc };
 }
 
+/** Per absolute row, the leftmost and rightmost extent of a drawing part (all-relatives mode). */
+interface Ctr {
+  top: number;
+  v: [number, number][];
+}
+const EMPTY: [number, number] = [Infinity, -Infinity];
+const ctrAt = (c: Ctr, row: number): [number, number] | null => {
+  const p = c.v[row - c.top];
+  return p && p[0] <= p[1] ? p : null;
+};
+/** Merge `o` shifted by `dx` into `c`. */
+function ctrAdd(c: Ctr, o: Ctr, dx: number): void {
+  if (!o.v.length) return;
+  if (!c.v.length) c.top = o.top;
+  if (o.top < c.top) {
+    c.v.unshift(...Array.from({ length: c.top - o.top }, (): [number, number] => [...EMPTY]));
+    c.top = o.top;
+  }
+  const need = o.top + o.v.length - c.top;
+  while (c.v.length < need) c.v.push([...EMPTY]);
+  o.v.forEach(([lo, hi], j) => {
+    if (lo > hi) return;
+    const a = c.v[o.top - c.top + j];
+    a[0] = Math.min(a[0], lo + dx);
+    a[1] = Math.max(a[1], hi + dx);
+  });
+}
+/** How far right of `left`'s anchor `right`'s anchor has to stand to be `gap` clear row by row; -Infinity without a shared row. */
+function clearance(left: Ctr, right: Ctr, gap: number): number {
+  let need = -Infinity;
+  const to = Math.min(left.top + left.v.length, right.top + right.v.length);
+  for (let row = Math.max(left.top, right.top); row < to; row++) {
+    const l = ctrAt(left, row);
+    const r = ctrAt(right, row);
+    if (l && r) need = Math.max(need, l[1] + gap - r[0]);
+  }
+  return need;
+}
+
 interface Block {
+  /** Parent slot this block fills (null: the centred person's own block). */
+  side: number | null;
+  ctr: Ctr;
+  upX: [number, number];
+  /** Group unit centres from the centre of the anchor's box. */
+  gX: number[];
+  /** Absolute centre of the anchor's box. */
+  ax: number;
   row: number;
   anchor: number;
   group: number[];
@@ -75,8 +122,13 @@ interface Sib {
   half: boolean;
 }
 
-type Tree = { t: 'focus'; limit: number } | { t: 'niece' } | { t: 'aunt' };
-const limitOf = (t: Tree): number => (t.t === 'focus' ? t.limit : t.t === 'niece' || t.t === 'aunt' ? 1 : 0);
+type Tree = { t: 'focus'; limit: number } | { t: 'niece' } | { t: 'aunt' } | { t: 'kin'; up: number };
+const limitOf = (t: Tree): number => (t.t === 'focus' ? t.limit : t.t === 'kin' ? 250 : t.t === 'niece' || t.t === 'aunt' ? 1 : 0);
+
+const kinRel = (up: number, down: number): Rel => (up === 1 && down === 2 ? { t: 'nibling' } : { t: 'kin', up, down });
+const kinPartner = (up: number, down: number): PartnerOf => (up === 1 && down === 1 ? 'sibling' : up === 2 && down === 1 ? 'aunt' : { up, down });
+/** A brother or sister of the ancestor `gens` generations up (0 = the centred person). */
+const siblingRel = (gens: number, half: boolean): Rel => (gens === 0 ? { t: 'sibling', half } : gens === 1 ? { t: 'aunt', half } : { t: 'kin', up: gens + 1, down: 1 });
 
 function siblingsOf(src: RustLayoutSource, x: Id): Sib[] {
   const ps = src.parents(x);
@@ -116,7 +168,53 @@ export function layoutAround(root: Id, generations: number, src: RustLayoutSourc
   return layoutRelatives(root, generations, false, src, false);
 }
 
-export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean, src: RustLayoutSource, siblings = true, centred = false): RelLayout {
+/**
+ * All-relatives mode, bottom-up: each block's group offsets and parent places, measured from the centre of the
+ * anchor's box. The parents stand D/2 to either side, so each ancestor is over its own child; D grows until the
+ * father's side, the group and the mother's side clear one another row by row. A lone parent stays over the child
+ * unless a family in its way forces it aside.
+ */
+function solveAll(units: Unit[], blocks: Block[], gap: number, uw: (u: Unit) => number): void {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    const { places, acc } = pack(b.group.map((u) => units[u].ctr), gap);
+    const k = Math.max(0, b.group.indexOf(b.anchor));
+    const refx = places[k] - (uw(units[b.group[k]]) - M.nodeW) / 2;
+    b.gX = places.map((p) => p - refx);
+    const g: Ctr = { top: b.row, v: acc.map(([lo, hi]): [number, number] => [lo - refx, hi - refx]) };
+    const total: Ctr = { top: g.top, v: g.v.map(([lo, hi]): [number, number] => [lo, hi]) };
+    const upX: [number, number] = [0, 0];
+    const [sf, sm] = b.slots;
+    if (sf !== null && sm !== null) {
+      const cf = blocks[sf].ctr;
+      const cm = blocks[sm].ctr;
+      const d = Math.max(0, clearance(cf, cm, gap), 2 * clearance(cf, g, gap), 2 * clearance(g, cm, gap));
+      upX[0] = -d / 2;
+      upX[1] = d / 2;
+      ctrAdd(total, cf, upX[0]);
+      ctrAdd(total, cm, upX[1]);
+    } else if (sf !== null) {
+      const c = blocks[sf].ctr;
+      const x = -clearance(c, g, gap);
+      upX[0] = Number.isFinite(x) ? Math.min(x, 0) : 0;
+      ctrAdd(total, c, upX[0]);
+    } else if (sm !== null) {
+      const c = blocks[sm].ctr;
+      const x = clearance(g, c, gap);
+      upX[1] = Number.isFinite(x) ? Math.max(x, 0) : 0;
+      ctrAdd(total, c, upX[1]);
+    }
+    b.upX = upX;
+    b.ctr = total;
+  }
+}
+
+/** The chart around a person with all relatives: every ancestor's brothers and sisters and all their descendants. */
+export function layoutAroundAll(root: Id, generations: number, src: RustLayoutSource): RelLayout {
+  return layoutRelatives(root, generations, false, src, true, true, true);
+}
+
+export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean, src: RustLayoutSource, siblings = true, centred = false, all = false): RelLayout {
   const generations = Math.max(1, generationsIn);
   const nodes: N[] = [];
   const rels: Rel[] = [];
@@ -178,8 +276,10 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
       }
       const row = units[u].row + 1;
       const step = depth + 1;
-      const rel: Rel = tree.t === 'focus' ? { t: 'descendant', n: step } : tree.t === 'aunt' ? { t: 'cousin' } : { t: 'nibling' };
-      const partnerOf: PartnerOf | null = tree.t === 'focus' ? step : null;
+      const down = step + 1;
+      const rel: Rel =
+        tree.t === 'focus' ? { t: 'descendant', n: step } : tree.t === 'kin' ? kinRel(tree.up, down) : tree.t === 'aunt' ? { t: 'cousin' } : { t: 'nibling' };
+      const partnerOf: PartnerOf | null = tree.t === 'focus' ? step : tree.t === 'kin' ? kinPartner(tree.up, down) : null;
       const kidNodes: number[] = [];
       outer: for (const { at, children } of unions) {
         for (const key of children) {
@@ -205,7 +305,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     }
     const dup = visited.has(key);
     const focus = row === 0;
-    const withSibs = !dup && siblings && (focus || (row === -1 && aunts));
+    const withSibs = !dup && !all && siblings && (focus || (row === -1 && aunts));
     const sibs: Sib[] = withSibs ? siblingsOf(src, key) : [{ key, hang: [true, true], half: false }];
     // The parent stands next to the other parent: last on the left side, first on the right.
     const at = sibs.findIndex((s) => s.key === key);
@@ -228,8 +328,39 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     }
     const ai = group.indexOf(anchor);
     group.forEach((u, k) => (units[u].lean = Math.sign(k - ai)));
-    blocks.push({ row, anchor, group, slots: [null, null], ups: [], upOff: [], gplace: [], w: 0, acx: 0, goff: 0, left: 0 });
+    blocks.push({ row, anchor, group, slots: [null, null], ups: [], upOff: [], gplace: [], w: 0, acx: 0, goff: 0, left: 0, side, ctr: { top: 0, v: [] }, upX: [0, 0], gX: [], ax: 0 });
     return blocks.length - 1;
+  };
+
+  /** All-relatives mode: the brothers and sisters of block `bi`'s anchor with all their descendants, on the outer side. */
+  const fillGroup = (bi: number): void => {
+    const b = blocks[bi];
+    const person = units[b.anchor].person;
+    if (nodes[person].dupOf !== null) return;
+    const key = nodes[person].person!.id;
+    const gens = -b.row;
+    const sibs = siblingsOf(src, key);
+    const at = sibs.findIndex((s) => s.key === key);
+    if (at >= 0) {
+      const [me] = sibs.splice(at, 1);
+      if (b.side === 1) sibs.unshift(me);
+      else if (b.side === null) sibs.splice(at, 0, me);
+      else sibs.push(me);
+    }
+    const group: number[] = [];
+    for (const s of sibs) {
+      let u: number | null = b.anchor;
+      if (s.key !== key) {
+        u = makeUnit(s.key, b.row, siblingRel(gens, s.half), kinPartner(gens + 1, 1), null);
+        if (u === null) continue;
+        expand(u, { t: 'kin', up: gens + 1 });
+      }
+      units[u].hang = s.hang;
+      group.push(u);
+    }
+    const ai = group.indexOf(b.anchor);
+    group.forEach((u, k) => (units[u].lean = Math.sign(k - ai)));
+    b.group = group;
   };
 
   makeBlock(root, 0, null);
@@ -256,6 +387,9 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     }
   }
 
+  // All relatives: the line is complete first, so a relative who is also an ancestor never takes the ancestor's place.
+  if (all) for (let bi = 0; bi < blocks.length; bi++) fillGroup(bi);
+
   // Widths, bottom-up: children and ancestor blocks are always created after their owners.
   const gap = M.gapX;
   const uw = (u: Unit) => M.nodeW * (1 + u.partners) + M.coupleGap * u.partners;
@@ -276,7 +410,8 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     u.coff = places.map((p) => p - mid);
     u.ctr = [own, ...acc.map(([lo, hi]): [number, number] => [lo - mid, hi - mid])];
   }
-  for (let i = blocks.length - 1; i >= 0; i--) {
+  if (all) solveAll(units, blocks, gap, uw);
+  for (let i = all ? -1 : blocks.length - 1; i >= 0; i--) {
     const b = blocks[i];
     const upW = b.ups.reduce((s, u) => s + blocks[u].w, 0) + gap * Math.max(0, b.ups.length - 1);
     const { places, acc } = pack(b.group.map((u) => units[u].ctr), gap);
@@ -342,6 +477,13 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
   // Absolute positions, top-down.
   blocks[0].left = 0;
   for (const b of blocks) {
+    if (all) {
+      b.slots.forEach((ub, s) => {
+        if (ub !== null) blocks[ub].ax = b.ax + b.upX[s];
+      });
+      b.group.forEach((u, k) => (units[u].cx = b.ax + b.gX[k]));
+      continue;
+    }
     b.ups.forEach((u, k) => (blocks[u].left = b.left + b.upOff[k]));
     b.group.forEach((u, k) => (units[u].cx = b.left + b.goff + b.gplace[k]));
   }

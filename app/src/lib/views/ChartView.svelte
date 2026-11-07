@@ -2,12 +2,12 @@
   // The settings store has no per-chart field, so the choice lives for the session.
   const chosenGenerations = $state<Record<string, number>>({});
   const chosenAunts = $state({ on: true });
-  const chosenSiblings = $state({ on: false });
+  const chosenKin = $state<{ value: AroundKin }>({ value: 'line' });
 </script>
 
 <script lang="ts">
   import { getApi } from '../api/context';
-  import type { ChartKind, ChartMeta, Id } from '../api/types';
+  import type { AroundKin, ChartKind, ChartMeta, Id } from '../api/types';
   import ChartCanvas from '../chart/ChartCanvas.svelte';
   import OutlineMirror from '../chart/OutlineMirror.svelte';
   import { OUTLINE_GROUP_BASE } from '../chart/outline';
@@ -220,8 +220,8 @@
         onGenerations={(n) => (chosenGenerations[genKey] = n)}
         auntsUncles={chosenAunts.on}
         onAunts={kind === 'relatives' ? (v) => (chosenAunts.on = v) : undefined}
-        siblings={chosenSiblings.on}
-        onSiblings={around ? (v) => (chosenSiblings.on = v) : undefined}
+        kin={chosenKin.value}
+        onKin={around ? (v) => (chosenKin.value = v) : undefined}
         onOpened={opened}
         selectId={selectedNode}
         onSelect={select}

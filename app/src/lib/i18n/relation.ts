@@ -1,6 +1,6 @@
 import { t, type MessageKey } from '.';
 import type { ChartNode, OutlineItem, RoleDto } from '../api/types';
-import { kinshipText } from '../family/kinship';
+import { bloodText, kinshipText } from '../family/kinship';
 
 /**
  * Wording of how a chart person is related to the centred one, built from the structured `role` the backend sends
@@ -62,6 +62,10 @@ export function roleText(r: RoleDto): string {
       return t(key('nibling', r.sex));
     case 'cousin':
       return t(key('cousin', r.sex));
+    case 'kin':
+      return bloodText(r.n, r.k, false, r.sex);
+    case 'partner_of_kin':
+      return t('kinship.byMarriage');
     case 'partner':
       return t(key('partner', r.sex));
     case 'partner_of_sibling':
@@ -84,7 +88,7 @@ export function roleText(r: RoleDto): string {
   }
 }
 
-const RELATION_ROLES: ReadonlySet<RoleDto['kind']> = new Set(['ancestor', 'descendant', 'sibling', 'aunt_uncle', 'niece_nephew', 'cousin', 'partner_of_sibling', 'partner_of_aunt_uncle', 'partner_of_descendant']);
+const RELATION_ROLES: ReadonlySet<RoleDto['kind']> = new Set(['ancestor', 'descendant', 'sibling', 'aunt_uncle', 'niece_nephew', 'cousin', 'kin', 'partner_of_kin', 'partner_of_sibling', 'partner_of_aunt_uncle', 'partner_of_descendant']);
 
 /** The text a screen reader gets for a chart person: "Name, lifespan, role, appears earlier". */
 export function nodeLabel(n: ChartNode): string {

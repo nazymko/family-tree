@@ -1283,7 +1283,10 @@ export const uk: Messages = {
     aroundTools: 'Інструменти діаграми навколо особи',
     centreOnMe: 'Центрувати на мені',
     showAunts: 'Показати дядьків і тіток',
-    showSiblings: 'Брати й сестри',
+    kin: 'Рідня',
+    kinLine: 'Лише лінія',
+    kinSiblings: 'Брати й сестри',
+    kinAll: 'Уся рідня',
   },
   whole: {
     title: 'Увесь родовід',

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import Host from '../chart/testing/Host.svelte';
 import { attachContext, fakeRaf, makeApi, richestRoot } from '../chart/testing/helpers';
 import { setLanguage } from '../i18n';
@@ -69,19 +69,43 @@ describe('the button on the whole tree', () => {
   });
 });
 
-describe('the brothers and sisters checkbox', () => {
-  it('starts_off_and_asks_for_them_when_ticked_only_on_this_screen', async () => {
+describe('the relatives choice', () => {
+  it('has_three_options_starts_on_the_line_only_and_asks_for_the_others_on_this_screen', async () => {
     const { api, fx } = makeApi();
     const id = await richestRoot(api, fx, 'relatives');
     const s = await mountAround(id);
-    const box = screen.getByRole('checkbox', { name: 'Брати й сестри' });
-    expect(box).not.toBeChecked();
+    const group = screen.getByRole('radiogroup', { name: 'Рідня' });
+    const options = within(group).getAllByRole('radio');
+    expect(options.map((o) => (o as HTMLInputElement).labels?.[0]?.textContent?.trim())).toEqual(['Лише лінія', 'Брати й сестри', 'Уся рідня']);
+    const line = within(group).getByRole('radio', { name: 'Лише лінія' });
+    const sibs = within(group).getByRole('radio', { name: 'Брати й сестри' });
+    const all = within(group).getByRole('radio', { name: 'Уся рідня' });
+    expect(line).toBeChecked();
     await waitFor(() => expect(s.spy).toHaveBeenCalled());
-    expect(s.spy.mock.lastCall?.[0].siblings).toBe(false);
-    await fireEvent.click(box);
-    await waitFor(() => expect(s.spy.mock.lastCall?.[0].siblings).toBe(true));
-    await fireEvent.click(box);
-    await waitFor(() => expect(s.spy.mock.lastCall?.[0].siblings).toBe(false));
+    expect(s.spy.mock.lastCall?.[0].kin).toBe('line');
+    await fireEvent.click(sibs);
+    await waitFor(() => expect(s.spy.mock.lastCall?.[0].kin).toBe('siblings'));
+    expect(sibs).toBeChecked();
+    await fireEvent.click(all);
+    await waitFor(() => expect(s.spy.mock.lastCall?.[0].kin).toBe('all'));
+    expect(all).toBeChecked();
+    await fireEvent.click(line);
+    await waitFor(() => expect(s.spy.mock.lastCall?.[0].kin).toBe('line'));
+  });
+
+  it('the_all_relatives_chart_opens_with_more_people_than_the_line', async () => {
+    const { api, fx } = makeApi();
+    const id = await richestRoot(api, fx, 'relatives');
+    const s = await mountAround(id);
+    await waitFor(() => expect(s.spy).toHaveBeenCalled());
+    const first = await s.spy.mock.results[s.spy.mock.results.length - 1].value;
+    await fireEvent.click(screen.getByRole('radio', { name: 'Уся рідня' }));
+    await waitFor(() => expect(s.spy.mock.lastCall?.[0].kin).toBe('all'));
+    const last = await s.spy.mock.results[s.spy.mock.results.length - 1].value;
+    expect(last.nodeCount).toBeGreaterThan(first.nodeCount);
+    // The choice is remembered for the session: put it back for the other tests.
+    await fireEvent.click(screen.getByRole('radio', { name: 'Лише лінія' }));
+    await waitFor(() => expect(s.spy.mock.lastCall?.[0].kin).toBe('line'));
   });
 });
 
@@ -90,7 +114,7 @@ describe('the screen built around a person', () => {
     const { api, fx } = makeApi();
     const root = await richestRoot(api, fx, 'relatives');
     const s = await mountAround(root);
-    await waitFor(() => expect(s.spy).toHaveBeenCalledWith({ kind: 'around', root, generations: 255, siblings: false }));
+    await waitFor(() => expect(s.spy).toHaveBeenCalledWith({ kind: 'around', root, generations: 255, kin: 'line' }));
     const name = (await s.api.getPerson(root)).ref.name;
     expect(await screen.findByRole('heading', { name: `Побудовано навколо: ${name}` })).toBeInTheDocument();
     expect(screen.getByRole('application', { name: 'Діаграма навколо особи' })).toBeInTheDocument();
@@ -110,7 +134,7 @@ describe('the screen built around a person', () => {
     const second = fx.persons.find((p) => p.id !== root)!.id;
     const open = vi.spyOn(s.api, 'chartOpen');
     nav.go({ name: 'around', id: second });
-    await waitFor(() => expect(open).toHaveBeenCalledWith({ kind: 'around', root: second, generations: 255, siblings: false }));
+    await waitFor(() => expect(open).toHaveBeenCalledWith({ kind: 'around', root: second, generations: 255, kin: 'line' }));
     // The label no longer promises the whole tree: the step back is the first person's screen.
     expect(await screen.findByRole('button', { name: 'Назад' })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Назад' }));
