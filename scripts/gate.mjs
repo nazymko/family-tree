@@ -142,9 +142,9 @@ if (mode === 'e2e') {
 
 // ------------------------------------------------------------------------------------------------ full
 async function runFull() {
-  // Cargo takes a lock on the build folder, so a second cargo that needs to compile waits for the first. Compiling
-  // the tests once (and clippy into its own folder, where it competes for nothing) is what lets the rest run side by side.
-  const clippyTarget = process.env.GT_GATE_CLIPPY_TARGET === 'shared' ? undefined : path.join(root, 'target', 'clippy');
+  // Cargo takes a lock on the build folder, so a second cargo that needs to compile waits for the first. Compiling the
+  // tests once is what lets nextest, the heavy tier and the doctests start together. Clippy in a folder of its own was
+  // measured (124 s both ways after touching a core crate), so it shares target/ and no second 1.5 GB tree is kept.
   const build = step('Rust build (tests)', 'cargo', ['nextest', 'run', '--workspace', '--no-run']);
   const rust = build.then(() =>
     Promise.all([
@@ -155,7 +155,7 @@ async function runFull() {
   );
   const rest = [
     step('cargo fmt --check', 'cargo', ['fmt', '--all', '--', '--check']),
-    step('cargo clippy', 'cargo', ['clippy', '-q', '--workspace', '--all-targets', '--', '-D', 'warnings'], { env: clippyTarget ? { CARGO_TARGET_DIR: clippyTarget } : undefined }),
+    step('cargo clippy', 'cargo', ['clippy', '-q', '--workspace', '--all-targets', '--', '-D', 'warnings']),
     step('Frontend tests (vitest)', tools.vitest[0], [tools.vitest[1], 'run'], { cwd: appDir }),
     step('svelte-check', tools.svelteCheck[0], [tools.svelteCheck[1], '--tsconfig', './tsconfig.json', '--fail-on-warnings'], { cwd: appDir }),
     step('eslint', tools.eslint[0], [tools.eslint[1], '.'], { cwd: appDir }),
@@ -170,8 +170,9 @@ function git(args) {
 }
 
 function changedFiles() {
-  let base = null;
-  for (const ref of ['develop', 'origin/develop', 'main']) {
+  // GT_QUICK_BASE compares with another commit instead of the merge-base with develop.
+  let base = process.env.GT_QUICK_BASE ? git(['rev-parse', process.env.GT_QUICK_BASE])?.trim() : null;
+  for (const ref of base ? [] : ['develop', 'origin/develop', 'main']) {
     const out = git(['merge-base', 'HEAD', ref]);
     if (out) {
       base = out.trim();
@@ -221,6 +222,7 @@ async function runQuick() {
   const lintFiles = [];
   let webTouched = false;
   const unsure = [];
+  const noTest = [];
 
   for (const f of files) {
     const p = f.replaceAll('\\', '/');
@@ -256,8 +258,9 @@ async function runQuick() {
       }
       if (/^(e2e-tauri|src-tauri)\//.test(rel)) continue;
     }
-    if (/^scripts\/.*\.(sh|ps1|mjs|py)$/.test(p) || /^\.gitattributes$|^\.gitignore$/.test(p)) {
-      unsure.push(p);
+    if (/^scripts\//.test(p) || /^\.gitattributes$|^\.gitignore$/.test(p)) {
+      // Build and dev scripts: no unit test covers them (make-synthetic-ged.py is only used by the window specs).
+      noTest.push(p);
       continue;
     }
     unsure.push(p);
@@ -271,6 +274,7 @@ async function runQuick() {
     notes.push(`Widened to everything because of: ${unsure.slice(0, 6).join(', ')}${unsure.length > 6 ? ', ...' : ''}`);
   }
 
+  if (noTest.length) notes.push(`Not covered by any test here: ${noTest.slice(0, 6).join(', ')}${noTest.length > 6 ? ', ...' : ''}`);
   const jobs = [];
   if (rustTouched) {
     needNextest();
