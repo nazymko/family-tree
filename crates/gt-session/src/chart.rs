@@ -988,14 +988,13 @@ impl Session {
                     } else {
                         RoleDto::new(RoleKind::Generation, i32::from(n.r#gen), sex)
                     };
-                    if is_partner_role(role.kind) {
-                        if let Some(o) = c
+                    if is_partner_role(role.kind)
+                        && let Some(o) = c
                             .partner_owner
                             .get(&n.id)
                             .and_then(|o| c.layout.nodes.get(*o as usize))
-                        {
-                            role.married = kin.married(o.key, n.key);
-                        }
+                    {
+                        role.married = kin.married(o.key, n.key);
                     }
                     role
                 });
@@ -1277,14 +1276,13 @@ impl Session {
                     .map(|r| relation_label(r, sex)),
                 role: n.rel.map(|r| {
                     let mut role = relation_role(r, sex);
-                    if is_partner_role(role.kind) {
-                        if let Some(o) = c
+                    if is_partner_role(role.kind)
+                        && let Some(o) = c
                             .partner_owner
                             .get(&id)
                             .and_then(|o| c.layout.nodes.get(*o as usize))
-                        {
-                            role.married = kin.married(o.key, n.key);
-                        }
+                    {
+                        role.married = kin.married(o.key, n.key);
                     }
                     role
                 }),
