@@ -2,9 +2,9 @@
 //! chart, served as viewport windows. At most two charts stay open (least recently used goes).
 
 use crate::dto::{
-    ChartEdge, ChartKind, ChartLocation, ChartMeta, ChartNav, ChartNode, ChartRequest, ChartSize,
-    ChartWindow, EdgeKindDto, Kinship, KinshipKind, OutlineGroupKind, OutlineItem, PersonRef, Rect,
-    RoleDto, RoleKind, SexKind, TreeDirection, WholeBlockDto, WholeMeta,
+    AroundKin, ChartEdge, ChartKind, ChartLocation, ChartMeta, ChartNav, ChartNode, ChartRequest,
+    ChartSize, ChartWindow, EdgeKindDto, Kinship, KinshipKind, OutlineGroupKind, OutlineItem,
+    PersonRef, Rect, RoleDto, RoleKind, SexKind, TreeDirection, WholeBlockDto, WholeMeta,
 };
 use crate::error::{ApiError, ErrorCode};
 use crate::index::{Links, PersonIndex};
@@ -509,10 +509,12 @@ impl Session {
                 // are brothers and sisters, so they appear when those are asked for.
                 let g =
                     u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
-                if req.siblings.unwrap_or(false) {
-                    gt_layout::around_with_siblings(&src, root, g, &m, MAX_NODES)
-                } else {
-                    gt_layout::around(&LineSource(&src), root, g, &m, MAX_NODES)
+                match req.kin.unwrap_or(AroundKin::Line) {
+                    AroundKin::All => gt_layout::around_all_kin(&src, root, g, &m, MAX_NODES),
+                    AroundKin::Siblings => {
+                        gt_layout::around_with_siblings(&src, root, g, &m, MAX_NODES)
+                    }
+                    AroundKin::Line => gt_layout::around(&LineSource(&src), root, g, &m, MAX_NODES),
                 }
             }
             ChartKind::Whole => {
