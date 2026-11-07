@@ -161,31 +161,125 @@ fn everyone_stands_in_their_own_generation_row() {
     assert!(y(&l, 73) > y(&l, 72));
 }
 
+/// Every couple of parents of the line: the two stand one card width plus the partner gap apart, in one row.
+fn assert_couple_adjacent(l: &Layout, a: Key, b: Key) {
+    let m = Metrics::default();
+    let (na, nb) = (node_of(l, a), node_of(l, b));
+    assert_eq!(na.rect.y, nb.rect.y, "{a} and {b} in one row");
+    assert!(
+        ((cx(nb) - cx(na)) - (m.node_w + m.couple_gap)).abs() < 0.01,
+        "{a} and {b} are next to each other, not {} apart",
+        cx(nb) - cx(na)
+    );
+}
+
 #[test]
-fn the_person_stays_in_the_middle_with_every_ancestor_over_their_own_child() {
+fn the_person_stays_in_the_middle_with_each_couple_of_parents_next_to_each_other() {
     let l = run(&family(), 1);
     let mid = |a: Key, b: Key| (cx(node_of(&l, a)) + cx(node_of(&l, b))) / 2.0;
+    for (a, b) in [(2, 3), (6, 7), (8, 9), (60, 61), (80, 81)] {
+        assert_couple_adjacent(&l, a, b);
+    }
     assert!(
         (mid(2, 3) - cx(node_of(&l, 1))).abs() < 0.01,
         "parents over the person"
     );
+    // Higher up the couples keep to their side of the person and every ancestor is above their child.
+    for (a, b, child) in [(6, 7, 2), (8, 9, 3), (60, 61, 6), (80, 81, 9)] {
+        assert!(y(&l, a) < y(&l, child) && y(&l, b) < y(&l, child));
+    }
     assert!(
-        (mid(6, 7) - cx(node_of(&l, 2))).abs() < 0.01,
-        "father's parents over the father"
+        mid(6, 7) < cx(node_of(&l, 1)),
+        "the father's line on the left"
     );
     assert!(
-        (mid(8, 9) - cx(node_of(&l, 3))).abs() < 0.01,
-        "mother's parents over the mother"
-    );
-    assert!(
-        (mid(60, 61) - cx(node_of(&l, 6))).abs() < 0.01,
-        "great-grandparents over 6"
-    );
-    assert!(
-        (mid(80, 81) - cx(node_of(&l, 9))).abs() < 0.01,
-        "9's parents over 9"
+        mid(8, 9) > cx(node_of(&l, 1)),
+        "the mother's line on the right"
     );
     assert!(y(&l, 2) < y(&l, 1));
+    assert_clean(&l);
+}
+
+/// A full pedigree of `depth` generations above person 1 (key 2n and 2n+1 are the parents of n), every ancestor
+/// with a brother who has `kids` children, each with `kids` children, and a wide family below the person.
+fn wide_pedigree(depth: u32, kids: u32) -> (MapSource, Vec<(Key, Key)>) {
+    let mut s = MapSource::default();
+    let mut couples = Vec::new();
+    let mut next: Key = 10_000;
+    let mut fresh = || {
+        next += 1;
+        next
+    };
+    let mut line: Vec<Key> = vec![1];
+    for _ in 0..depth {
+        let mut up = Vec::new();
+        for &c in &line {
+            let (f, m) = (c * 2, c * 2 + 1);
+            let uncle = fresh();
+            if c == 1 {
+                let sister = fresh();
+                s.family(Some(f), Some(m), &[c, uncle, sister]);
+            } else {
+                s.family(Some(f), Some(m), &[c, uncle]);
+            }
+            couples.push((f, m));
+            // The uncle's family, two generations of it, hangs off him.
+            let mut layer = vec![uncle];
+            for _ in 0..2 {
+                let mut below = Vec::new();
+                for &p in &layer {
+                    let v: Vec<Key> = (0..kids).map(|_| fresh()).collect();
+                    s.family(Some(p), Some(fresh()), &v);
+                    below.extend(v);
+                }
+                layer = below;
+            }
+            up.push(f);
+            up.push(m);
+        }
+        line = up;
+    }
+    // The person: a wide line of their own.
+    let own: Vec<Key> = (0..kids + 3).map(|_| fresh()).collect();
+    s.family(Some(1), Some(fresh()), &own);
+    for &c in &own {
+        let v: Vec<Key> = (0..kids).map(|_| fresh()).collect();
+        s.family(Some(c), Some(fresh()), &v);
+    }
+    (s, couples)
+}
+
+#[test]
+fn the_line_is_a_compact_spine_whatever_the_width_of_the_families_around_it() {
+    let (s, couples) = wide_pedigree(3, 3);
+    let l = run(&s, 1);
+    assert!(!l.truncated);
+    // Every couple on the line stands side by side, however wide the families below and beside are.
+    for &(f, m) in &couples {
+        if keys(&l).contains(&f) && keys(&l).contains(&m) {
+            assert_couple_adjacent(&l, f, m);
+        }
+    }
+    assert_couple_adjacent(&l, 2, 3);
+    let me = node_of(&l, 1);
+    assert!((((cx(node_of(&l, 2)) + cx(node_of(&l, 3))) / 2.0) - cx(me)).abs() < 0.01);
+    // The father's line is left of the person and the mother's right, every ancestor above their child.
+    for &(f, m) in &couples {
+        let child = f / 2;
+        assert!(y(&l, f) < y(&l, child) && y(&l, m) < y(&l, child));
+        let on_left = {
+            let mut a = f;
+            while a > 3 {
+                a /= 2;
+            }
+            a == 2
+        };
+        let c = (cx(node_of(&l, f)) + cx(node_of(&l, m))) / 2.0;
+        if child != 1 {
+            assert_eq!(c < cx(me), on_left, "couple {f}/{m} on its own side");
+        }
+    }
+    assert_clean(&l);
 }
 
 #[test]

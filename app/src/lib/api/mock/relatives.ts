@@ -54,52 +54,9 @@ function pack(items: [number, number][][], gap: number): { places: number[]; acc
   return { places, acc };
 }
 
-/** Per absolute row, the leftmost and rightmost extent of a drawing part (all-relatives mode). */
-interface Ctr {
-  top: number;
-  v: [number, number][];
-}
-const EMPTY: [number, number] = [Infinity, -Infinity];
-const ctrAt = (c: Ctr, row: number): [number, number] | null => {
-  const p = c.v[row - c.top];
-  return p && p[0] <= p[1] ? p : null;
-};
-/** Merge `o` shifted by `dx` into `c`. */
-function ctrAdd(c: Ctr, o: Ctr, dx: number): void {
-  if (!o.v.length) return;
-  if (!c.v.length) c.top = o.top;
-  if (o.top < c.top) {
-    c.v.unshift(...Array.from({ length: c.top - o.top }, (): [number, number] => [...EMPTY]));
-    c.top = o.top;
-  }
-  const need = o.top + o.v.length - c.top;
-  while (c.v.length < need) c.v.push([...EMPTY]);
-  o.v.forEach(([lo, hi], j) => {
-    if (lo > hi) return;
-    const a = c.v[o.top - c.top + j];
-    a[0] = Math.min(a[0], lo + dx);
-    a[1] = Math.max(a[1], hi + dx);
-  });
-}
-/** How far right of `left`'s anchor `right`'s anchor has to stand to be `gap` clear row by row; -Infinity without a shared row. */
-function clearance(left: Ctr, right: Ctr, gap: number): number {
-  let need = -Infinity;
-  const to = Math.min(left.top + left.v.length, right.top + right.v.length);
-  for (let row = Math.max(left.top, right.top); row < to; row++) {
-    const l = ctrAt(left, row);
-    const r = ctrAt(right, row);
-    if (l && r) need = Math.max(need, l[1] + gap - r[0]);
-  }
-  return need;
-}
-
 interface Block {
   /** Parent slot this block fills (null: the centred person's own block). */
   side: number | null;
-  ctr: Ctr;
-  upX: [number, number];
-  /** Group unit centres from the centre of the anchor's box. */
-  gX: number[];
   /** Absolute centre of the anchor's box. */
   ax: number;
   row: number;
@@ -169,43 +126,92 @@ export function layoutAround(root: Id, generations: number, src: RustLayoutSourc
 }
 
 /**
- * All-relatives mode, bottom-up: each block's group offsets and parent places, measured from the centre of the
- * anchor's box. The parents stand D/2 to either side, so each ancestor is over its own child; D grows until the
- * father's side, the group and the mother's side clear one another row by row. A lone parent stays over the child
- * unless a family in its way forces it aside.
+ * All-relatives mode: absolute places. The line is a compact spine: the centred person in the middle, each couple of
+ * parents side by side over the middle of their child; where the couples of a row would meet, the father's side moves
+ * left and the mother's right, the least that keeps them apart. Then every ancestor's brothers and sisters (with
+ * partners and all descendants) hang outward on their side, each clearing, row by row, everything nearer the middle.
  */
 function solveAll(units: Unit[], blocks: Block[], gap: number, uw: (u: Unit) => number): void {
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const b = blocks[i];
-    const { places, acc } = pack(b.group.map((u) => units[u].ctr), gap);
-    const k = Math.max(0, b.group.indexOf(b.anchor));
-    const refx = places[k] - (uw(units[b.group[k]]) - M.nodeW) / 2;
-    b.gX = places.map((p) => p - refx);
-    const g: Ctr = { top: b.row, v: acc.map(([lo, hi]): [number, number] => [lo - refx, hi - refx]) };
-    const total: Ctr = { top: g.top, v: g.v.map(([lo, hi]): [number, number] => [lo, hi]) };
-    const upX: [number, number] = [0, 0];
-    const [sf, sm] = b.slots;
-    if (sf !== null && sm !== null) {
-      const cf = blocks[sf].ctr;
-      const cm = blocks[sm].ctr;
-      const d = Math.max(0, clearance(cf, cm, gap), 2 * clearance(cf, g, gap), 2 * clearance(g, cm, gap));
-      upX[0] = -d / 2;
-      upX[1] = d / 2;
-      ctrAdd(total, cf, upX[0]);
-      ctrAdd(total, cm, upX[1]);
-    } else if (sf !== null) {
-      const c = blocks[sf].ctr;
-      const x = -clearance(c, g, gap);
-      upX[0] = Number.isFinite(x) ? Math.min(x, 0) : 0;
-      ctrAdd(total, c, upX[0]);
-    } else if (sm !== null) {
-      const c = blocks[sm].ctr;
-      const x = clearance(g, c, gap);
-      upX[1] = Number.isFinite(x) ? Math.max(x, 0) : 0;
-      ctrAdd(total, c, upX[1]);
+  const nw = M.nodeW;
+  const pstep = nw + M.coupleGap;
+  const loRow = Math.min(...units.map((u) => u.row));
+  const hiRow = Math.max(...units.map((u) => u.row + u.ctr.length - 1));
+  const n = Math.max(1, hiRow - loRow + 1);
+  const lf = new Array<number>(n).fill(Infinity);
+  const rf = new Array<number>(n).fill(-Infinity);
+  const idx = (row: number) => row - loRow;
+
+  const root = blocks[0];
+  {
+    const { places, acc } = pack(root.group.map((u) => units[u].ctr), gap);
+    const k = Math.max(0, root.group.indexOf(root.anchor));
+    const refx = places[k] - (uw(units[root.group[k]]) - nw) / 2;
+    root.group.forEach((u, j) => (units[u].cx = places[j] - refx));
+    root.ax = 0;
+    acc.forEach(([lo, hi], d) => {
+      const i = idx(root.row + d);
+      lf[i] = Math.min(lf[i], lo - refx);
+      rf[i] = Math.max(rf[i], hi - refx);
+    });
+  }
+
+  const depth = Math.max(...blocks.map((b) => -b.row));
+  for (let k = 0; k < depth; k++) {
+    const rowIdx = blocks.map((_, i) => i).filter((i) => blocks[i].row === -k);
+    const left = rowIdx.filter((i) => blocks[i].side === 0).reverse();
+    const right = rowIdx.filter((i) => blocks[i].side !== 0);
+    for (const cb of [...left, ...right]) {
+      const parents = blocks[cb].slots.filter((x): x is number => x !== null);
+      if (!parents.length) continue;
+      const c = blocks[cb].ax;
+      const i = idx(blocks[cb].row - 1);
+      let xs = parents.length === 2 ? [c - pstep / 2, c + pstep / 2] : [c];
+      const side = blocks[cb].side;
+      if (side === 0) {
+        const limit = Math.min(lf[i] - gap, -gap / 2);
+        const shift = Math.max(0, Math.max(...xs.map((x) => x + nw / 2)) - limit);
+        xs = xs.map((x) => x - shift);
+      } else if (side !== null) {
+        const limit = Math.max(rf[i] + gap, gap / 2);
+        const shift = Math.max(0, limit - Math.min(...xs.map((x) => x - nw / 2)));
+        xs = xs.map((x) => x + shift);
+      }
+      parents.forEach((ub, j) => {
+        const x = xs[j];
+        blocks[ub].ax = x;
+        const a = blocks[ub].anchor;
+        units[a].cx = x + (uw(units[a]) - nw) / 2;
+        lf[i] = Math.min(lf[i], x - nw / 2);
+        rf[i] = Math.max(rf[i], x + nw / 2);
+      });
     }
-    b.upX = upX;
-    b.ctr = total;
+  }
+
+  for (const side of [0, 1]) {
+    const order = blocks
+      .map((_, i) => i)
+      .filter((i) => i > 0 && blocks[i].side === side)
+      .sort((a, b) => blocks[b].row - blocks[a].row || (side === 0 ? b - a : a - b));
+    for (const bi of order) {
+      const group = blocks[bi].group;
+      const k = group.indexOf(blocks[bi].anchor);
+      if (k < 0) continue;
+      const others = side === 0 ? group.slice(0, k).reverse() : group.slice(k + 1);
+      for (const u of others) {
+        const row0 = units[u].row;
+        let cx = side === 0 ? Infinity : -Infinity;
+        units[u].ctr.forEach(([lo, hi], d) => {
+          const i = idx(row0 + d);
+          cx = side === 0 ? Math.min(cx, Math.min(lf[i] - gap, -gap / 2) - hi) : Math.max(cx, Math.max(rf[i] + gap, gap / 2) - lo);
+        });
+        units[u].cx = cx;
+        units[u].ctr.forEach(([lo, hi], d) => {
+          const i = idx(row0 + d);
+          if (side === 0) lf[i] = Math.min(lf[i], cx + lo);
+          else rf[i] = Math.max(rf[i], cx + hi);
+        });
+      }
+    }
   }
 }
 
@@ -328,7 +334,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     }
     const ai = group.indexOf(anchor);
     group.forEach((u, k) => (units[u].lean = Math.sign(k - ai)));
-    blocks.push({ row, anchor, group, slots: [null, null], ups: [], upOff: [], gplace: [], w: 0, acx: 0, goff: 0, left: 0, side, ctr: { top: 0, v: [] }, upX: [0, 0], gX: [], ax: 0 });
+    blocks.push({ row, anchor, group, slots: [null, null], ups: [], upOff: [], gplace: [], w: 0, acx: 0, goff: 0, left: 0, side, ax: 0 });
     return blocks.length - 1;
   };
 
@@ -378,7 +384,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     for (let slot = 0; slot < 2; slot++) {
       const pk = ps[slot];
       if (pk === null) continue;
-      const nb = makeBlock(pk, row - 1, slot);
+      const nb = makeBlock(pk, row - 1, blocks[bi].side ?? slot);
       if (nb === null) nodes[xnode].moreUp = true;
       else {
         blocks[bi].slots[slot] = nb;
@@ -477,13 +483,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
   // Absolute positions, top-down.
   blocks[0].left = 0;
   for (const b of blocks) {
-    if (all) {
-      b.slots.forEach((ub, s) => {
-        if (ub !== null) blocks[ub].ax = b.ax + b.upX[s];
-      });
-      b.group.forEach((u, k) => (units[u].cx = b.ax + b.gX[k]));
-      continue;
-    }
+    if (all) continue;
     b.ups.forEach((u, k) => (blocks[u].left = b.left + b.upOff[k]));
     b.group.forEach((u, k) => (units[u].cx = b.left + b.goff + b.gplace[k]));
   }

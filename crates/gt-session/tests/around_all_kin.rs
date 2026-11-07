@@ -160,7 +160,11 @@ fn the_parents_stay_over_the_person() {
         n.x + n.w / 2.0
     };
     assert!(((cx("Petro") + cx("Halyna")) / 2.0 - cx("Ivan Petrovych")).abs() < 0.5);
-    assert!(((cx("Vasyl") + cx("Hanna")) / 2.0 - cx("Petro")).abs() < 0.5);
+    // The parents stand side by side, and so do the grandparents, on the father's side of the person.
+    let step = node(&w, "Petro").w + 8.0;
+    assert!((cx("Halyna") - cx("Petro") - step).abs() < 0.5);
+    assert!((cx("Hanna") - cx("Vasyl") - step).abs() < 0.5);
+    assert!(cx("Hanna") < cx("Ivan Petrovych"));
     assert!(
         cx("Ostap") < cx("Vasyl"),
         "the father's side is on the left"

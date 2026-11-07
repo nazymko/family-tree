@@ -155,73 +155,8 @@ struct Block {
     left: f32,
     /// Parent slot this block fills (None: the centred person's own block).
     side: Option<usize>,
-    /// All-relatives mode: the extent of everything in this block, row by row, measured from the centre of
-    /// the anchor's box.
-    ctr: Ctr,
-    /// Where the parents' anchors stand, from the centre of this anchor's box.
-    up_x: [f32; 2],
-    /// Group unit centres from the centre of the anchor's box.
-    g_x: Vec<f32>,
-    /// Absolute centre of the anchor's box.
+    /// All-relatives mode: absolute centre of the anchor's box.
     ax: f32,
-}
-
-/// Per absolute row, the leftmost and rightmost extent of a drawing part; rows without a box hold an
-/// empty pair.
-#[derive(Default, Clone)]
-struct Ctr {
-    top: i32,
-    v: Vec<(f32, f32)>,
-}
-
-const NONE: (f32, f32) = (f32::INFINITY, f32::NEG_INFINITY);
-
-impl Ctr {
-    fn at(&self, row: i32) -> Option<(f32, f32)> {
-        let i = usize::try_from(row - self.top).ok()?;
-        self.v.get(i).copied().filter(|p| p.0 <= p.1)
-    }
-
-    /// Merge `o` shifted by `dx` into this.
-    fn add(&mut self, o: &Ctr, dx: f32) {
-        if o.v.is_empty() {
-            return;
-        }
-        if self.v.is_empty() {
-            self.top = o.top;
-        }
-        if o.top < self.top {
-            let n = (self.top - o.top) as usize;
-            self.v.splice(0..0, std::iter::repeat_n(NONE, n));
-            self.top = o.top;
-        }
-        let need = (o.top + o.v.len() as i32 - self.top) as usize;
-        if self.v.len() < need {
-            self.v.resize(need, NONE);
-        }
-        for (j, &(lo, hi)) in o.v.iter().enumerate() {
-            if lo > hi {
-                continue;
-            }
-            let a = &mut self.v[(o.top - self.top) as usize + j];
-            a.0 = a.0.min(lo + dx);
-            a.1 = a.1.max(hi + dx);
-        }
-    }
-
-    /// How far right of `left`'s anchor `right`'s anchor has to stand so that, in every row both occupy,
-    /// `right` is `gap` clear of `left`. Negative infinity when they share no row.
-    fn clearance(left: &Ctr, right: &Ctr, gap: f32) -> f32 {
-        let from = left.top.max(right.top);
-        let to = (left.top + left.v.len() as i32).min(right.top + right.v.len() as i32);
-        let mut need = f32::NEG_INFINITY;
-        for row in from..to {
-            if let (Some(l), Some(r)) = (left.at(row), right.at(row)) {
-                need = need.max(l.1 + gap - r.0);
-            }
-        }
-        need
-    }
 }
 
 type Pending = Vec<(Option<u32>, Vec<Key>)>;
@@ -492,9 +427,6 @@ impl Builder<'_> {
             goff: 0.0,
             left: 0.0,
             side,
-            ctr: Ctr::default(),
-            up_x: [0.0; 2],
-            g_x: Vec::new(),
             ax: 0.0,
         });
         Some(self.blocks.len() - 1)
@@ -603,9 +535,9 @@ pub fn around_with_siblings(
 /// [`around`] with all relatives: the brothers and sisters of the person and of every ancestor on the line
 /// (aunts, uncles, great-aunts and so on) and ALL their descendants with partners, as far down as there are
 /// any. Everyone stands in their own generation row: a cousin in the person's row, a cousin's child one
-/// below, a grandparent's brother in the grandparents' row. The person stays in the middle with every
-/// ancestor over their own child; the families hang on the outer sides and widen the chart instead of
-/// overlapping.
+/// below, a grandparent's brother in the grandparents' row. The person stays in the middle, the line a compact
+/// spine (each couple of parents side by side); the families hang on the outer sides and widen the chart
+/// instead of overlapping.
 pub fn around_all_kin(
     src: &dyn ChartSource,
     root: Key,
@@ -620,69 +552,152 @@ pub fn around_all_kin(
     lay_out(src, root, &o, true, true, true, m, max_nodes)
 }
 
-/// All-relatives mode, bottom-up: for each block the group's offsets from the anchor and the parents' places.
-/// Everything is measured from the centre of the anchor's box. The parents stand `D / 2` to either side of
-/// it, so each ancestor is over its own child; `D` grows until, row by row, the father's side, the group and
-/// the mother's side clear one another. A lone parent stays over the child unless a family in its way
-/// forces it to the side.
-fn solve_all(units: &[Unit], blocks: &mut [Block], m: &Metrics) {
+/// All-relatives mode: absolute places for the line and the families. The line is a compact spine: the centred
+/// person in the middle, each couple of parents side by side (one card width plus the partner gap apart) over the
+/// middle of their child; where the couples of one row would meet, the father's side moves left and the
+/// mother's side right, the least that keeps them apart. Then every ancestor's brothers and sisters, with
+/// partners and all descendants, are hung outward on their side (the father's line on the left, the mother's on
+/// the right), each clearing, row by row, everything nearer the middle: the person's own family, the line, and the
+/// families placed before. Long bars out to a far family are fine; parents pulled apart are not.
+fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
     let gap = m.gap_x;
-    let uw = |u: &Unit| m.node_w * (1.0 + u.partners as f32) + m.couple_gap * u.partners as f32;
-    for i in (0..blocks.len()).rev() {
-        let row = blocks[i].row;
-        let group = blocks[i].group.clone();
+    let nw = m.node_w;
+    let pstep = nw + m.couple_gap;
+    let uw = |u: &Unit| nw * (1.0 + u.partners as f32) + m.couple_gap * u.partners as f32;
+    let lo_row = units.iter().map(|u| u.row).min().unwrap_or(0);
+    let hi_row = units
+        .iter()
+        .map(|u| u.row + u.ctr.len() as i32 - 1)
+        .max()
+        .unwrap_or(0);
+    let n = (hi_row - lo_row + 1).max(1) as usize;
+    // Per row: the leftmost and rightmost edge placed so far.
+    let mut lf = vec![f32::INFINITY; n];
+    let mut rf = vec![f32::NEG_INFINITY; n];
+    let idx = |row: i32| (row - lo_row) as usize;
+
+    // The centred person's own group, in birth order, with every descendant.
+    {
+        let group = blocks[0].group.clone();
         let (places, acc) = {
             let items: Vec<&Contour> = group.iter().map(|&u| &units[u].ctr).collect();
             pack(&items, gap)
         };
         let k = group
             .iter()
-            .position(|&u| u == blocks[i].anchor)
+            .position(|&u| u == blocks[0].anchor)
             .unwrap_or(0);
-        let pv = -(uw(&units[group[k]]) - m.node_w) / 2.0;
+        let pv = -(uw(&units[group[k]]) - nw) / 2.0;
         let refx = places[k] + pv;
-        let g_x: Vec<f32> = places.iter().map(|p| p - refx).collect();
-        let g = Ctr {
-            top: row,
-            v: acc.iter().map(|&(lo, hi)| (lo - refx, hi - refx)).collect(),
-        };
-        let [sf, sm] = blocks[i].slots;
-        let ctr_of = |b: &mut [Block], s: usize| std::mem::take(&mut b[s].ctr);
-        let mut up_x = [0.0f32; 2];
-        let mut total = g.clone();
-        match (sf, sm) {
-            (Some(f), Some(mo)) => {
-                let (cf, cm) = (ctr_of(blocks, f), ctr_of(blocks, mo));
-                let d = Ctr::clearance(&cf, &cm, gap)
-                    .max(2.0 * Ctr::clearance(&cf, &g, gap))
-                    .max(2.0 * Ctr::clearance(&g, &cm, gap))
-                    .max(0.0);
-                up_x = [-d / 2.0, d / 2.0];
-                total.add(&cf, up_x[0]);
-                total.add(&cm, up_x[1]);
-            }
-            (Some(p), None) => {
-                let c = ctr_of(blocks, p);
-                up_x[0] = (-Ctr::clearance(&c, &g, gap)).min(0.0);
-                if !up_x[0].is_finite() {
-                    up_x[0] = 0.0;
-                }
-                total.add(&c, up_x[0]);
-            }
-            (None, Some(p)) => {
-                let c = ctr_of(blocks, p);
-                up_x[1] = Ctr::clearance(&g, &c, gap).max(0.0);
-                if !up_x[1].is_finite() {
-                    up_x[1] = 0.0;
-                }
-                total.add(&c, up_x[1]);
-            }
-            (None, None) => {}
+        for (j, &u) in group.iter().enumerate() {
+            units[u].cx = places[j] - refx;
         }
-        let b = &mut blocks[i];
-        b.g_x = g_x;
-        b.up_x = up_x;
-        b.ctr = total;
+        blocks[0].ax = 0.0;
+        for (d, &(l, h)) in acc.iter().enumerate() {
+            let i = idx(blocks[0].row + d as i32);
+            lf[i] = lf[i].min(l - refx);
+            rf[i] = rf[i].max(h - refx);
+        }
+    }
+
+    // The spine, a generation at a time.
+    let depth = blocks.iter().map(|b| -b.row).max().unwrap_or(0);
+    for k in 0..depth {
+        let (mut left, right): (Vec<usize>, Vec<usize>) = (0..blocks.len())
+            .filter(|&i| blocks[i].row == -k)
+            .partition(|&i| blocks[i].side == Some(0));
+        // The father's side nearest the middle first, so each couple lands outside the one before.
+        left.reverse();
+        for cb in left.into_iter().chain(right) {
+            let parents: Vec<usize> = blocks[cb].slots.iter().flatten().copied().collect();
+            if parents.is_empty() {
+                continue;
+            }
+            let c = blocks[cb].ax;
+            let i = idx(blocks[cb].row - 1);
+            let mut xs: Vec<f32> = if parents.len() == 2 {
+                vec![c - pstep / 2.0, c + pstep / 2.0]
+            } else {
+                vec![c]
+            };
+            match blocks[cb].side {
+                Some(0) => {
+                    let limit = (lf[i] - gap).min(-gap / 2.0);
+                    let hi = xs
+                        .iter()
+                        .map(|x| x + nw / 2.0)
+                        .fold(f32::NEG_INFINITY, f32::max);
+                    let shift = (hi - limit).max(0.0);
+                    xs.iter_mut().for_each(|x| *x -= shift);
+                }
+                Some(_) => {
+                    let limit = (rf[i] + gap).max(gap / 2.0);
+                    let lo = xs
+                        .iter()
+                        .map(|x| x - nw / 2.0)
+                        .fold(f32::INFINITY, f32::min);
+                    let shift = (limit - lo).max(0.0);
+                    xs.iter_mut().for_each(|x| *x += shift);
+                }
+                None => {}
+            }
+            for (&ub, &x) in parents.iter().zip(&xs) {
+                blocks[ub].ax = x;
+                let a = blocks[ub].anchor;
+                units[a].cx = x + (uw(&units[a]) - nw) / 2.0;
+                lf[i] = lf[i].min(x - nw / 2.0);
+                rf[i] = rf[i].max(x + nw / 2.0);
+            }
+        }
+    }
+
+    // The families, nearest generation first, outward.
+    for side in 0..2usize {
+        let mut order: Vec<usize> = (1..blocks.len())
+            .filter(|&i| blocks[i].side == Some(side))
+            .collect();
+        order.sort_by_key(|&i| {
+            (
+                -blocks[i].row,
+                if side == 0 { -(i as i64) } else { i as i64 },
+            )
+        });
+        for bi in order {
+            let group = blocks[bi].group.clone();
+            let Some(k) = group.iter().position(|&u| u == blocks[bi].anchor) else {
+                continue;
+            };
+            let others: Vec<usize> = if side == 0 {
+                group[..k].iter().rev().copied().collect()
+            } else {
+                group[k + 1..].to_vec()
+            };
+            for u in others {
+                let row0 = units[u].row;
+                let mut cx = if side == 0 {
+                    f32::INFINITY
+                } else {
+                    f32::NEG_INFINITY
+                };
+                for (d, &(l, h)) in units[u].ctr.iter().enumerate() {
+                    let i = idx(row0 + d as i32);
+                    if side == 0 {
+                        cx = cx.min((lf[i] - gap).min(-gap / 2.0) - h);
+                    } else {
+                        cx = cx.max((rf[i] + gap).max(gap / 2.0) - l);
+                    }
+                }
+                units[u].cx = cx;
+                for (d, &(l, h)) in units[u].ctr.iter().enumerate() {
+                    let i = idx(row0 + d as i32);
+                    if side == 0 {
+                        lf[i] = lf[i].min(cx + l);
+                    } else {
+                        rf[i] = rf[i].max(cx + h);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -739,7 +754,8 @@ fn lay_out(
         }
         for (slot, p) in ps.iter().enumerate() {
             let Some(pk) = *p else { continue };
-            match b.make_block(pk, row - 1, &o, Some(slot)) {
+            let side = b.blocks[cur].side.or(Some(slot));
+            match b.make_block(pk, row - 1, &o, side) {
                 Some(nb) => {
                     b.blocks[cur].slots[slot] = Some(nb);
                     b.blocks[cur].ups.push(nb);
@@ -792,7 +808,7 @@ fn lay_out(
         units[i].ctr = ctr;
     }
     if all {
-        solve_all(&units, &mut blocks, m);
+        solve_all(&mut units, &mut blocks, m);
     }
     let old_order: Vec<usize> = if all {
         Vec::new()
@@ -882,15 +898,6 @@ fn lay_out(
     blocks[0].left = 0.0;
     for i in 0..blocks.len() {
         if all {
-            let ax = blocks[i].ax;
-            for s in 0..2 {
-                if let Some(ub) = blocks[i].slots[s] {
-                    blocks[ub].ax = ax + blocks[i].up_x[s];
-                }
-            }
-            for (k, &u) in blocks[i].group.iter().enumerate() {
-                units[u].cx = ax + blocks[i].g_x[k];
-            }
             continue;
         }
         let left = blocks[i].left;

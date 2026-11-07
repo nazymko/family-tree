@@ -34,7 +34,7 @@ async function flyTo(findLabel: string, name: string) {
   await browser.pause(900);
 }
 
-type Card = { y: number; relation: string; name: string; me: boolean };
+type Card = { x: number; w: number; y: number; relation: string; name: string; me: boolean };
 
 /** The cards of the chart built around `name` with the given choice, read from the backend. */
 async function aroundCards(name: string, kin: 'line' | 'siblings' | 'all'): Promise<Card[]> {
@@ -48,10 +48,10 @@ async function aroundCards(name: string, kin: 'line' | 'siblings' | 'all'): Prom
       const all = (await invoke('chart_window', { chartId: whole.meta.chartId, rect: big, zoom: 1 })) as { nodes: { person?: { id: string; name: string } }[] };
       const root = all.nodes.find((n) => n.person?.name === who)!.person!.id;
       const m = (await invoke('chart_open', { req: { kind: 'around', root, generations: 255, kin: k } })) as { chartId: number; rootNode: number };
-      const w = (await invoke('chart_window', { chartId: m.chartId, rect: big, zoom: 1 })) as { nodes: { id: number; y: number; relation?: string; person?: { name: string } }[] };
+      const w = (await invoke('chart_window', { chartId: m.chartId, rect: big, zoom: 1 })) as { nodes: { id: number; x: number; w: number; y: number; relation?: string; person?: { name: string } }[] };
       (window as unknown as { __gtAround?: Card[] }).__gtAround = w.nodes
         .filter((n) => n.person)
-        .map((n) => ({ y: n.y, relation: n.relation ?? '', name: n.person!.name, me: n.id === m.rootNode }));
+        .map((n) => ({ x: n.x, w: n.w, y: n.y, relation: n.relation ?? '', name: n.person!.name, me: n.id === m.rootNode }));
     })();
   }, name, kin);
   await browser.waitUntil(() => browser.execute(() => !!(window as unknown as { __gtAround?: unknown }).__gtAround), { timeout: 30000 });
@@ -126,6 +126,15 @@ describe('The Relatives choice on the around screen', () => {
     expect(all.length).toBeGreaterThanOrEqual(line.length);
     const me = all.find((c) => c.me)!;
     for (const c of all.filter((x) => /^(father|mother)$/.test(x.relation))) expect(c.y).toBeLessThan(me.y);
+    // The father and the mother stand side by side, right above the person, however wide the families are.
+    const dad = all.find((c) => c.relation === 'father');
+    const mum = all.find((c) => c.relation === 'mother');
+    if (dad && mum) {
+      const between = mum.x - (dad.x + dad.w);
+      expect(between >= 0 && between <= 20).toBe(true);
+      expect(Math.abs((dad.x + mum.x + mum.w) / 2 - (me.x + me.w / 2)) <= 1).toBe(true);
+      expect(Math.abs(dad.x + dad.w / 2 - (me.x + me.w / 2)) <= me.w).toBe(true);
+    }
     const kin = all.filter((c) => /aunt|uncle|cousin|great-/.test(c.relation));
     expect(all.length > line.length || kin.length === 0).toBe(true);
 
@@ -133,6 +142,9 @@ describe('The Relatives choice on the around screen', () => {
     await browser.pause(1200);
     await $('//label[normalize-space(.)="All relatives"]').click();
     await browser.pause(1800);
+    // Fit: the whole chart is on screen, the person in the middle with both parents above.
+    await $('//button[normalize-space(.)="Fit"]').click();
+    await browser.pause(900);
     await shot('around-all-kin-en.png');
 
     // The control sits on the buttons' centre line (within 1 px) at the default size ...
@@ -175,6 +187,8 @@ describe('The Relatives choice on the around screen', () => {
     await $('//label[normalize-space(.)="Уся рідня"]').click();
     await browser.pause(1800);
     await expectAligned('around screen in Ukrainian');
+    await $('//button[normalize-space(.)="�������"]').click();
+    await browser.pause(900);
     await shot('around-all-kin-uk.png');
     await $('//label[normalize-space(.)="Лише лінія"]').click();
     await $('//button[normalize-space(.)="Назад до всього родоводу"]').click();
