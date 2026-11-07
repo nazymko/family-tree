@@ -86,13 +86,6 @@ describe('A tree of several chosen people', () => {
     await ready();
   });
 
-  // The settings outlive this spec: the next one starts in English.
-  after(async () => {
-    await $('//nav//a[normalize-space(.)="Налаштування"]').click();
-    await choose('Мова', 'en');
-    await $('h1=Settings').waitForDisplayed({ timeout: 20000 });
-  });
-
   it('marks two people, shows them in one tree and adds all descendants', async () => {
     const { first, second } = names();
 

@@ -47,6 +47,7 @@
   import { t, plural, currentLocale, type MessageKey } from '../i18n';
   import { agentLabel, editLabel, eventKindLabel } from '../i18n/backend';
   import { withSexIcon } from '../ui/sex';
+  import { birthSurnameText } from '../ui/birthSurname';
 
   let {
     id,
@@ -251,6 +252,7 @@
 
   const birthEvent = $derived(detail?.events.find((x) => x.kind === 'birth'));
   const deathEvent = $derived(detail?.events.find((x) => x.kind === 'death'));
+  const maiden = $derived(birthSurnameText(detail?.ref));
   const preferredName = $derived(detail ? (detail.names.find((n) => n.preferred) ?? detail.names[0]) : undefined);
   /** Shown on the card only when the surname changed with marriage. */
   const surnameLines = $derived.by(() => {
@@ -389,6 +391,7 @@
     <IndexCard as="section" ribbon={isHome}>
       <div class="head">
         <h1 tabindex="-1" bind:this={title}><bdi dir="auto">{detail.ref.name}</bdi>{#if agentChanges.unreviewed.has(id)} <AgentBadge />{/if}</h1>
+        {#if maiden}<p class="maiden">{maiden}</p>{/if}
         <p class="life">{detail.ref.lifespan || t('person.noDates')}</p>
         <div class="head-actions" role="group" aria-label={t('person.quickEdit')}>
           <Button
@@ -734,6 +737,7 @@
     font-size: var(--t-2xl);
     line-height: var(--t-2xl-lh);
   }
+  .maiden,
   .life {
     color: var(--ink-1);
     font-variant-numeric: tabular-nums;

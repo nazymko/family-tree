@@ -1182,7 +1182,23 @@ fn a_new_state_asks_for_no_key_and_access_is_still_off() {
     assert_eq!(state["running"], false);
     assert_eq!(state["requireKey"], false);
     assert_eq!(state["keylessCommand"], KEYLESS_COMMAND);
-    assert!(refused_connecting(8765) || ping_bare(8765) != 200);
+    assert_eq!(state["port"], 8765, "the default port is unchanged");
+    // Whether something else (the owner's own app) holds the default port must not matter, so the proof that
+    // starting up with access off opens no listener is made on a port nobody holds.
+    let port = free_port();
+    let other = tempfile::tempdir().unwrap();
+    let config = other.path().join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(
+        config.join(SETTINGS_FILE),
+        format!(r#"{{"agentAccess":{{"enabled":false,"port":{port},"connections":[]}}}}"#),
+    )
+    .unwrap();
+    let (app2, w2) = app_with(state_in(other.path()));
+    agent_access::resume(app2.handle());
+    assert_eq!(state_of(&w2)["port"], port);
+    assert_eq!(state_of(&w2)["running"], false);
+    assert!(refused_connecting(port));
     assert!(
         !settings_file::AppSettings::default()
             .agent_access

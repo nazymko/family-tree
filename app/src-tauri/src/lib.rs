@@ -38,14 +38,24 @@ mod spike {
 pub fn run() {
     // The single-instance plugin must be registered first (its docs require it): a second launch
     // brings the running window forward instead of opening a second writer on the same tree.
-    let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let builder = tauri::Builder::default();
+    // A test copy (GT_E2E=1 in a debug build) must start next to the owner's running app instead of handing off to it.
+    #[cfg(debug_assertions)]
+    let single = !e2e_hooks::enabled();
+    #[cfg(not(debug_assertions))]
+    let single = true;
+    let builder = if single {
+        builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.show();
                 let _ = w.set_focus();
             }
         }))
+    } else {
+        builder
+    };
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -55,11 +65,13 @@ pub fn run() {
             let state = match e2e_hooks::config_dir_override() {
                 Some(dir) => {
                     let hashes = agent_access::FileHashes::new(&dir);
+                    let keys = ai::FileKey::new(&dir);
                     AppState::with_clock(
                         dir,
                         Box::new(gt_session::SessionClock::system),
                         Box::new(hashes),
                     )
+                    .with_keys(std::sync::Arc::new(keys))
                 }
                 None => AppState::new(dir),
             };
@@ -67,9 +79,16 @@ pub fn run() {
             let state = AppState::new(dir);
             app.manage(state);
             // Scratch copies of a merge that did not finish hold a whole, unfiltered tree.
-            std::thread::spawn(|| {
-                gt_session::merge::remove_stale_scratch_now();
-            });
+            // A test copy leaves the shared temp folder alone: the owner's own app may be in the middle of a merge.
+            #[cfg(debug_assertions)]
+            let sweep = !e2e_hooks::enabled();
+            #[cfg(not(debug_assertions))]
+            let sweep = true;
+            if sweep {
+                std::thread::spawn(|| {
+                    gt_session::merge::remove_stale_scratch_now();
+                });
+            }
             let handle = app.handle().clone();
             std::thread::spawn(move || agent_access::resume(&handle));
             Ok(())
@@ -90,8 +109,12 @@ pub fn run() {
     };
     #[cfg(not(any(debug_assertions, feature = "spike")))]
     let builder = builder.invoke_handler(main);
+    #[allow(unused_mut)]
+    let mut context = tauri::generate_context!();
+    #[cfg(debug_assertions)]
+    e2e_hooks::keep_windows_quiet(&mut context);
     builder
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building Gene Tree")
         .run(|app, event| {
             // Close the project cleanly: dropping it checkpoints the WAL into tree.db, so a

@@ -610,6 +610,8 @@ export const en = {
     atBirth: 'Surname at birth',
     atBirthHint: 'The original (maiden) surname.',
     afterMarriage: 'Surname after marriage',
+    maiden: 'née {surname}',
+    maidenMale: 'né {surname}',
     afterMarriageHint: 'Leave empty if the surname did not change.',
     useMarried: 'Show the surname after marriage as the main name',
     looksPatronymic: '“{value}” looks like a patronymic, not a surname.',

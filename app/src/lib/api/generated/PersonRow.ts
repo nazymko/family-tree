@@ -11,6 +11,11 @@ changed: number, id: string, name: string,
  */
 lifespan: string, sex: SexKind, living: boolean, private: boolean, 
 /**
+ * The surname of the birth name, only when it differs from the surname the person is shown under
+ * (see `names::birth_surname_shown`). Absent for hidden or replaced names.
+ */
+birthSurname?: string, 
+/**
  * The "more brothers and sisters, unnamed" entry: it has no name or dates and the app draws
  * its label.
  */

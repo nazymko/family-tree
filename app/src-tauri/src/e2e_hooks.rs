@@ -31,8 +31,13 @@ pub fn parse_dialog_results<I: IntoIterator<Item = String>>(args: I) -> Vec<Stri
     out
 }
 
-fn enabled() -> bool {
-    std::env::var("GT_E2E").is_ok_and(|v| v == "1")
+/// Are the test hooks on? Only `GT_E2E=1` turns them on; anything else leaves the app exactly as it is.
+pub fn enabled() -> bool {
+    flag_on(std::env::var("GT_E2E").ok().as_deref())
+}
+
+fn flag_on(value: Option<&str>) -> bool {
+    value == Some("1")
 }
 
 /// With hooks on, `GT_E2E_CONFIG_DIR` replaces the settings/recents folder, so a test run never touches the user's own.
@@ -43,6 +48,17 @@ pub fn config_dir_override() -> Option<std::path::PathBuf> {
     std::env::var_os("GT_E2E_CONFIG_DIR")
         .filter(|v| !v.is_empty())
         .map(std::path::PathBuf::from)
+}
+
+/// With hooks on, the windows of the config start without taking the keyboard focus, so a test window never pulls
+/// the focus away from the owner's work. `GT_E2E_FOCUS=1` turns this off, for watching a test run.
+pub fn keep_windows_quiet<R: Runtime>(context: &mut tauri::Context<R>) {
+    if !enabled() || std::env::var("GT_E2E_FOCUS").is_ok_and(|v| v == "1") {
+        return;
+    }
+    for window in &mut context.config_mut().app.windows {
+        window.focus = false;
+    }
 }
 
 /// `None` when the hooks are off.
@@ -74,6 +90,21 @@ mod tests {
             "--open-dialog-result=C:/b",
         ]));
         assert_eq!(got, v(&["a.ged", "C:/b"]));
+    }
+
+    #[test]
+    fn only_the_exact_value_one_turns_the_hooks_on() {
+        assert!(flag_on(Some("1")));
+        for off in [
+            None,
+            Some(""),
+            Some("0"),
+            Some("true"),
+            Some("11"),
+            Some(" 1"),
+        ] {
+            assert!(!flag_on(off), "{off:?}");
+        }
     }
 
     #[test]

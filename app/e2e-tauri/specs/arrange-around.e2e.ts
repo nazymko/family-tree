@@ -66,13 +66,6 @@ describe('A tree built around one person', () => {
     await ready();
   });
 
-  // The settings outlive this spec: the next one starts in English.
-  after(async () => {
-    await $('//nav//a[normalize-space(.)="Налаштування"]').click();
-    await choose('Мова', 'en');
-    await $('h1=Settings').waitForDisplayed({ timeout: 20000 });
-  });
-
   it('opens a new screen with only their own line and goes back to the whole tree', async () => {
     const name = meta().home.name;
 

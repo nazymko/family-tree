@@ -432,7 +432,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     let w: number;
     let goff: number;
     let acx: number;
-    let offs: number[] = [];
+    const offs: number[] = [];
     if (centred && siblings) {
       // The anchor's box, not the middle of the whole group, stands under the parents: brothers and sisters
       // (and their families) spread to either side and the block widens to hold them.

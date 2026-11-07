@@ -736,13 +736,13 @@ pub fn discard_trace_draft(state: State<'_, AppState>) -> ApiResult<()> {
 }
 
 #[tauri::command(async)]
-pub fn ai_key_status() -> bool {
-    crate::ai::key_status(&crate::ai::Keychain)
+pub fn ai_key_status(state: State<'_, AppState>) -> bool {
+    crate::ai::key_status(state.keys.as_ref())
 }
 
 #[tauri::command(async)]
-pub fn ai_remove_key() -> ApiResult<()> {
-    crate::ai::remove_key(&crate::ai::Keychain)
+pub fn ai_remove_key(state: State<'_, AppState>) -> ApiResult<()> {
+    crate::ai::remove_key(state.keys.as_ref())
 }
 
 /// Sends the traced picture to Anthropic. `consent` must be true on every call. The picture is read
@@ -757,7 +757,7 @@ pub async fn ai_read_picture(
     crate::ai::CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
     crate::ai::read_picture_async(
         std::sync::Arc::new(crate::ai::ReqwestHttp),
-        std::sync::Arc::new(crate::ai::Keychain),
+        std::sync::Arc::new(state.keys.clone()),
         consent,
         key,
         bytes,

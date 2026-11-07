@@ -1,6 +1,7 @@
 import type { ChartEdge, ChartNode, ChartWindow, SexKind, WholeBlockDto } from '../api/types';
 import type { Camera } from './camera';
-import { drawAgentBadges, drawMarkerBoxes, drawMarkerLabel, fit, lodFor, nameLines, themeFromCss, type Theme } from './renderer';
+import { cardRows, drawAgentBadges, drawMarkerBoxes, drawMarkerLabel, fit, lodFor, nameLines, themeFromCss, type Theme } from './renderer';
+import { birthSurnameText } from '../ui/birthSurname';
 import { kinshipText } from '../family/kinship';
 import { wholeBlockTitle } from '../i18n/backend';
 
@@ -278,8 +279,15 @@ export function drawWhole(
       const sub = n.person?.lifespan ?? '';
       // How this person is related to the reference person, at the right of the second line.
       const rel = kinshipText(n.kinship);
-      const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '' || rel !== '');
-      lines.forEach((line, i) => ctx.fillText(line, left, n.y + 23 + i * 18));
+      const maiden = birthSurnameText(n.person);
+      const rows = cardRows(maiden !== '');
+      const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '' || rel !== '' || maiden !== '');
+      lines.forEach((line, i) => ctx.fillText(line, left, n.y + rows.name + i * rows.step));
+      if (maiden) {
+        ctx.fillStyle = theme.ink2;
+        ctx.font = `11px ${theme.font}`;
+        ctx.fillText(fit(ctx, maiden, n.x + n.w - 10 - left), left, n.y + rows.maiden);
+      }
       let relW = 0;
       if (rel) {
         ctx.fillStyle = theme.ink2;
@@ -287,13 +295,13 @@ export function drawWhole(
         const text = fit(ctx, rel, n.w * 0.5);
         relW = ctx.measureText(text).width + 8;
         ctx.textAlign = 'right';
-        ctx.fillText(text, n.x + n.w - 8, n.y + 43);
+        ctx.fillText(text, n.x + n.w - 8, n.y + rows.sub);
         ctx.textAlign = 'left';
       }
       if (sub) {
         ctx.fillStyle = theme.ink2;
         ctx.font = `11px ${theme.font}`;
-        ctx.fillText(fit(ctx, sub, n.w - 20 - relW), n.x + 12, n.y + 43);
+        ctx.fillText(fit(ctx, sub, n.w - 20 - relW), n.x + 12, n.y + rows.sub);
       }
       ctx.globalAlpha = 1;
     }
