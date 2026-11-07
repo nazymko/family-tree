@@ -129,10 +129,13 @@ const gateCmd = fromEnv('GT_SHIP_GATE', [node, path.join(here, 'gate.mjs'), '--f
 const e2eCmd = fromEnv('GT_SHIP_E2E', [node, path.join(here, 'gate.mjs'), '--e2e']);
 
 const started = Date.now();
+// The gate saturates the CPU while the windows run beside it: at the full window count a relaunched app took over 60 s to
+// open its tree (flows failed, alone it passed). Half the usual number of windows keeps both inside their timeouts.
+const sharedJobs = process.env.GT_E2E_JOBS || String(Math.max(2, Math.floor(Math.min(6, Math.floor(os.cpus().length / 2.5)) / 2)));
 const runs = [
   { label: 'gate (--full)', cmd: gateCmd, log: path.join(logDir, 'gate.log') },
-  { label: 'window specs', cmd: e2eCmd, log: path.join(logDir, 'e2e.log') },
-].map((r) => ({ ...r, handle: runTask({ name: r.label, file: r.cmd[0], args: r.cmd.slice(1), cwd: root, log: r.log }) }));
+  { label: 'window specs', cmd: e2eCmd, log: path.join(logDir, 'e2e.log'), env: { GT_E2E_JOBS: sharedJobs } },
+].map((r) => ({ ...r, handle: runTask({ name: r.label, file: r.cmd[0], args: r.cmd.slice(1), cwd: root, log: r.log, env: r.env }) }));
 
 const first = await new Promise((resolve) => {
   let open = runs.length;
