@@ -5,6 +5,7 @@ import type { SexKind } from "./SexKind";
 /**
  * What a chart person is: how they are related, or which generation / ancestor number they are.
  * `n` is the number of generations (or the ancestor or generation number), `k` the position among children
- * in a descendant outline, `sex` the sex of the person described.
+ * in a descendant outline (for `kin` and `partner_of_kin`: `n` generations up to the common ancestor and `k`
+ * down from it), `sex` the sex of the person described.
  */
 export type RoleDto = { kind: RoleKind, n: number, half: boolean, sex: SexKind, k: number, };
