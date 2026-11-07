@@ -686,6 +686,7 @@ fn solve_all(units: &[Unit], blocks: &mut [Block], m: &Metrics) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lay_out(
     src: &dyn ChartSource,
     root: Key,

@@ -219,7 +219,7 @@ fn the_families_hang_on_the_outer_side_of_their_ancestor() {
 #[test]
 fn relationships_are_named_by_generations_up_and_down() {
     let l = run(&family(), 1);
-    let rel = |k| node_of(&l, k).rel.unwrap();
+    let rel = |k| node_of(&l, k).rel.expect("a relation");
     assert_eq!(rel(1), Rel::Focus);
     assert_eq!(rel(4), Rel::Sibling { half: false });
     assert_eq!(rel(71), Rel::NieceNephew);
