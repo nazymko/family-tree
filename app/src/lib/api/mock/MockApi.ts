@@ -1833,11 +1833,12 @@ export class MockApi implements Api {
     return best ? [best.partner1, best.partner2] : [null, null];
   }
 
-  private unionsOf(id: Id): { partner: Id | null; children: Id[] }[] {
-    const out: { partner: Id | null; children: Id[] }[] = [];
+  private unionsOf(id: Id): { partner: Id | null; children: Id[]; married: boolean }[] {
+    const out: { partner: Id | null; children: Id[]; married: boolean }[] = [];
     for (const f of this.db.families.values()) {
       if (f.partner1 !== id && f.partner2 !== id) continue;
-      out.push({ partner: f.partner1 === id ? f.partner2 : f.partner1, children: f.children.map((c) => c.person) });
+      // The same rule as the backend's `Kin::married`: a couple is married unless recorded otherwise.
+      out.push({ partner: f.partner1 === id ? f.partner2 : f.partner1, children: f.children.map((c) => c.person), married: f.kind !== 'unmarried' && f.kind !== 'other' });
     }
     return out;
   }

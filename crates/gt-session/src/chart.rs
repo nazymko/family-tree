@@ -348,6 +348,18 @@ impl Charts {
     }
 }
 
+/// Roles that name someone as a partner (of the starting person or of a relative).
+fn is_partner_role(kind: RoleKind) -> bool {
+    matches!(
+        kind,
+        RoleKind::Partner
+            | RoleKind::PartnerOfSibling
+            | RoleKind::PartnerOfAuntUncle
+            | RoleKind::PartnerOfDescendant
+            | RoleKind::PartnerOfKin
+    )
+}
+
 type PartnerMaps = (HashMap<u32, Vec<u32>>, HashMap<u32, u32>);
 
 fn partner_maps(layout: &Layout) -> PartnerMaps {
@@ -963,7 +975,7 @@ impl Session {
                 };
                 let role_dto = s.filter(|_| text).map(|s| {
                     let sex = s.sex;
-                    if whole {
+                    let mut role = if whole {
                         RoleDto::new(RoleKind::Generation, i32::from(n.r#gen) + 1, sex)
                     } else if let (true, Some(r)) = (c.kind.has_relations(), n.rel) {
                         relation_role(r, sex)
@@ -975,7 +987,16 @@ impl Session {
                         RoleDto::new(RoleKind::AncestorNo, a as i32, sex)
                     } else {
                         RoleDto::new(RoleKind::Generation, i32::from(n.r#gen), sex)
+                    };
+                    if is_partner_role(role.kind)
+                        && let Some(o) = c
+                            .partner_owner
+                            .get(&n.id)
+                            .and_then(|o| c.layout.nodes.get(*o as usize))
+                    {
+                        role.married = kin.married(o.key, n.key);
                     }
+                    role
                 });
                 let label = s.filter(|_| text).map_or_else(String::new, |s| {
                     let mut l = if s.sibling_marker {
@@ -1098,6 +1119,11 @@ impl Session {
                 .get(key as usize)
                 .map_or(SexKind::Unknown, |s| s.sex)
         };
+        let kin0 = Kin {
+            tree: &self.tree,
+            links: &self.links,
+            index: &self.index,
+        };
         let mut items: Vec<(u32, String, RoleDto)> = Vec::new();
         match parent {
             None => {
@@ -1113,12 +1139,11 @@ impl Session {
             Some(p) => {
                 let pn = node(p)?;
                 for &pid in c.partners.get(&p).map_or(&[][..], Vec::as_slice) {
-                    let sex = node(pid).map_or(SexKind::Unknown, |x| sex_of(x.key));
-                    items.push((
-                        pid,
-                        "Partner".to_string(),
-                        RoleDto::new(RoleKind::Partner, 0, sex),
-                    ));
+                    let key = node(pid).map(|x| x.key).ok();
+                    let sex = key.map_or(SexKind::Unknown, &sex_of);
+                    let mut role = RoleDto::new(RoleKind::Partner, 0, sex);
+                    role.married = key.is_some_and(|k| kin0.married(pn.key, k));
+                    items.push((pid, "Partner".to_string(), role));
                 }
                 let mut next = pn.nav.child;
                 let mut k = 0usize;
@@ -1210,6 +1235,11 @@ impl Session {
                     .map(|s| s.person_ref())
             })
         };
+        let kin = Kin {
+            tree: &self.tree,
+            links: &self.links,
+            index: &self.index,
+        };
         let places = first_places(c);
         // `place` is the (owner, group) the row is listed under; `None` for the centred person.
         let item = |id: u32, place: Option<(u32, u32)>| -> Result<OutlineItem, ApiError> {
@@ -1244,7 +1274,18 @@ impl Session {
                     .rel
                     .filter(|r| *r != Rel::Focus)
                     .map(|r| relation_label(r, sex)),
-                role: n.rel.map(|r| relation_role(r, sex)),
+                role: n.rel.map(|r| {
+                    let mut role = relation_role(r, sex);
+                    if is_partner_role(role.kind)
+                        && let Some(o) = c
+                            .partner_owner
+                            .get(&id)
+                            .and_then(|o| c.layout.nodes.get(*o as usize))
+                    {
+                        role.married = kin.married(o.key, n.key);
+                    }
+                    role
+                }),
                 kinship: None,
                 group: None,
                 appears_earlier: n.dup_of.is_some(),

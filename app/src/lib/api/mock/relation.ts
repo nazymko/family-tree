@@ -80,7 +80,7 @@ export function relationLabel(rel: Rel, sex: SexKind): string {
 
 /** `rel` as the structured role the real backend sends next to the label. */
 export function relationRole(rel: Rel, sex: SexKind): RoleDto {
-  const r: RoleDto = { kind: 'focus', n: 0, half: false, sex, k: 0 };
+  const r: RoleDto = { kind: 'focus', n: 0, half: false, sex, k: 0, married: false };
   switch (rel.t) {
     case 'ancestor':
       return { ...r, kind: 'ancestor', n: rel.n };

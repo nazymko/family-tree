@@ -9,6 +9,7 @@
   import { project } from '../state/project.svelte';
   import type { AddRelation } from '../state/ui.svelte';
   import { t, type MessageKey } from '../i18n';
+  import { isMarriage } from '../family/kinship';
   import ContextMenu from '../ui/ContextMenu.svelte';
   import type { MenuItem } from '../ui/Menu.svelte';
   import Dialog from '../ui/Dialog.svelte';
@@ -212,7 +213,7 @@
    * A partner reads as husband or wife when the sex is known, unless the couple is recorded as not married (imported
    * families often carry no marriage record at all); anyone else is a partner.
    */
-  const spouse = (u: PartnershipDto) => u.kind !== 'unmarried' && u.kind !== 'other';
+  const spouse = (u: PartnershipDto) => isMarriage(u.kind);
   const partnerRole = (u: PartnershipDto): Role =>
     spouse(u) && u.partner?.sex === 'male' ? 'husband' : spouse(u) && u.partner?.sex === 'female' ? 'wife' : 'partner';
   /** With more than one partner, each group of children is captioned with its other parent. */
