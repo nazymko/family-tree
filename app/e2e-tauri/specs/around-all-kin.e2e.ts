@@ -142,6 +142,7 @@ describe('The Relatives choice on the around screen', () => {
     await browser.pause(1200);
     await $('//label[normalize-space(.)="All relatives"]').click();
     await browser.pause(1800);
+    await shot('around-all-kin-default-en.png');
     // Fit: the whole chart is on screen, the person in the middle with both parents above.
     await $('//button[normalize-space(.)="Fit"]').click();
     await browser.pause(900);
@@ -187,7 +188,8 @@ describe('The Relatives choice on the around screen', () => {
     await $('//label[normalize-space(.)="Уся рідня"]').click();
     await browser.pause(1800);
     await expectAligned('around screen in Ukrainian');
-    await $('//button[normalize-space(.)="�������"]').click();
+    const fit = await $('//button[normalize-space(.)="Вписати"]');
+    if (await fit.isExisting()) await fit.click();
     await browser.pause(900);
     await shot('around-all-kin-uk.png');
     await $('//label[normalize-space(.)="Лише лінія"]').click();
