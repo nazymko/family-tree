@@ -306,7 +306,7 @@
     let m: ChartMeta;
     try {
       const req: ChartRequest =
-        kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? (many ? { kind, root, generations, kin: 'line', roots } : { kind, root, generations, kin }) : { kind, root, generations };
+        kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? (many ? { kind, root, generations, kin, roots } : { kind, root, generations, kin }) : { kind, root, generations };
       m = await api.chartOpen(req);
     } catch (e) {
       if (seq !== openSeq) return;
@@ -1063,11 +1063,9 @@
             { value: 'siblings', label: t('chartCanvas.kinSiblings') },
             { value: 'all', label: t('chartCanvas.kinAll') },
           ]}
-          value={many ? 'line' : kin}
-          disabledValues={many ? ['siblings', 'all'] : []}
+          value={kin}
           onchange={(v) => onKin(v as AroundKin)}
         />
-        {#if many}<span class="kin-hint">{t('chartCanvas.kinManyHint')}</span>{/if}
       </div>
     {/if}
     <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
@@ -1144,13 +1142,6 @@
     margin-inline-start: auto;
   }
   .marked,
-  .kin-hint {
-    color: var(--ink-2);
-    font-size: 0.875rem;
-  }
-  .kin-hint {
-    margin-inline-start: var(--s-3);
-  }
   .hint {
     position: absolute;
     top: var(--s-2);

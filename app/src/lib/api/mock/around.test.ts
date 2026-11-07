@@ -84,6 +84,30 @@ describe('mock chart built around a person (port of gt-layout around)', () => {
     for (const n of win.nodes.filter((x) => x.role?.kind === 'kin')) expect(n.relation).toBeTruthy();
   });
 
+  it('several_people_grow_from_the_line_to_brothers_and_sisters_to_all_relatives_without_overlap_or_repeats', async () => {
+    const small = new MockApi(fixtureTree(40));
+    const people = fixtureTree(40).persons.filter((p) => !p.siblingMarker).map((p) => p.id);
+    let grew = false;
+    for (let i = 0; i < people.length && !grew; i++) {
+      const roots = [people[i], people[(i + 7) % people.length]];
+      const count: number[] = [];
+      for (const kin of ['line', 'siblings', 'all'] as const) {
+        const m = await small.chartOpen({ kind: 'around', root: roots[0], generations: 255, kin, roots });
+        expect(m.chosenNodes).toHaveLength(2);
+        const win = await small.chartWindow(m.chartId, BIG, 1);
+        expect(overlaps(win.nodes)).toBe(0);
+        const ids = win.nodes.map((n) => n.person?.id);
+        expect(new Set(ids).size).toBe(ids.length);
+        count.push(m.nodeCount);
+        await small.chartClose(m.chartId);
+      }
+      expect(count[1]).toBeGreaterThanOrEqual(count[0]);
+      expect(count[2]).toBeGreaterThanOrEqual(count[1]);
+      grew = count[1] > count[0] && count[2] > count[1];
+    }
+    expect(grew).toBe(true);
+  });
+
   it('a_limit_marks_the_cut_and_a_missing_person_is_not_found', async () => {
     const root = await withSiblings();
     const all = await api.chartOpen({ kind: 'around', root, generations: 255 });

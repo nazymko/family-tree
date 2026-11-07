@@ -811,6 +811,37 @@ pub fn around_many(
     m: &Metrics,
     max_nodes: usize,
 ) -> Layout {
+    around_many_kin(src, chosen, generations, ManyKin::Line, m, max_nodes)
+}
+
+/// How much of the wider family [`around_many_kin`] shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManyKin {
+    /// Only the lines.
+    Line,
+    /// Also the brothers and sisters of every chosen person, with partners and all descendants. Brothers and
+    /// sisters who are chosen themselves share one group.
+    Siblings,
+    /// Also the brothers and sisters of every ancestor on the lines, with partners and all descendants, hung on the
+    /// outer side of their line.
+    All,
+}
+
+/// [`around_many`] with the wider family of `kin`: the chosen people and (when asked) their brothers and sisters
+/// stand in the chosen row, each sibling group in birth order with its families below; the parents of a group of
+/// chosen people are centred over the midpoint of the group's chosen people. With [`ManyKin::All`] the brothers and
+/// sisters of the ancestors are then hung outward, nearest generation first: the families left of the middle of the
+/// chosen row go to the left, the others to the right, each clearing row by row everything already placed. Everyone
+/// is drawn once; a relative reached by two ways appears where the first put them and the second gets a link.
+pub fn around_many_kin(
+    src: &dyn ChartSource,
+    chosen: &[Key],
+    generations: u8,
+    kin: ManyKin,
+    m: &Metrics,
+    max_nodes: usize,
+) -> Layout {
+    let with_sibs = kin != ManyKin::Line;
     let g = generations.max(1);
     let mut b = Builder {
         src,
@@ -850,22 +881,48 @@ pub fn around_many(
         .filter(|k| ancestors.contains(k))
         .collect();
     order.extend(chosen.iter().copied().filter(|k| !ancestors.contains(k)));
+    let chosen_set: std::collections::HashSet<Key> = chosen.iter().copied().collect();
     let mut roots: Vec<usize> = Vec::new();
-    for key in order {
+    // Brothers and sisters who are not chosen themselves.
+    let mut sib_roots: Vec<usize> = Vec::new();
+    'roots: for key in order {
         if b.visited.contains_key(&key) {
             continue;
         }
-        let Some(u) = b.make_unit(
-            key,
-            0,
-            Rel::Focus,
-            Some(Rel::Partner(PartnerOf::Focus)),
-            None,
-        ) else {
-            break;
+        let group: Vec<(Key, Rel, bool)> = if with_sibs {
+            siblings(src, key)
+                .into_iter()
+                .map(|s| {
+                    if chosen_set.contains(&s.key) {
+                        (s.key, Rel::Focus, true)
+                    } else {
+                        (s.key, Rel::Sibling { half: s.half }, false)
+                    }
+                })
+                .collect()
+        } else {
+            vec![(key, Rel::Focus, true)]
         };
-        b.expand(u, Tree::Focus(g));
-        roots.push(u);
+        for (k, rel, is_chosen) in group {
+            if b.visited.contains_key(&k) {
+                continue;
+            }
+            let pr = if is_chosen {
+                PartnerOf::Focus
+            } else {
+                PartnerOf::Sibling
+            };
+            let Some(u) = b.make_unit(k, 0, rel, Some(Rel::Partner(pr)), None) else {
+                break 'roots;
+            };
+            if is_chosen {
+                b.expand(u, Tree::Focus(g));
+            } else {
+                b.expand(u, Tree::Kin(1));
+                sib_roots.push(u);
+            }
+            roots.push(u);
+        }
     }
     if roots.is_empty() {
         return Layout::finish(Vec::new(), Vec::new(), 0, b.truncated);
@@ -875,7 +932,6 @@ pub fn around_many(
     let nw = m.node_w;
     let step_y = m.node_h + m.gap_y * 4.0;
     let pstep = nw + m.couple_gap;
-    let uw = |u: &Unit| nw * (1.0 + u.partners as f32) + m.couple_gap * u.partners as f32;
     // The chosen people's units side by side, then every descendant under its parent.
     let (places, _) = {
         let items: Vec<&Contour> = roots.iter().map(|&r| &b.units[r].ctr).collect();
@@ -888,21 +944,7 @@ pub fn around_many(
         .iter()
         .flat_map(|&r| b.units[r].person..=b.units[r].person + b.units[r].partners)
         .collect();
-    for i in 0..b.units.len() {
-        let ch = b.units[i].children.clone();
-        let w = uw(&b.units[i]);
-        let x0 = b.units[i].cx - w / 2.0;
-        let y = b.units[i].row as f32 * step_y;
-        let p = b.units[i].person;
-        for k in 0..=b.units[i].partners {
-            let n = &mut b.nodes[(p + k) as usize];
-            n.rect.x = x0 + k as f32 * pstep;
-            n.rect.y = y;
-        }
-        for (k, &c) in ch.iter().enumerate() {
-            b.units[c].cx = b.units[i].cx + b.units[i].coff[k];
-        }
-    }
+    place_units(&mut b.units, &mut b.nodes, 0, m);
 
     // The ancestors, a generation at a time. The frontier is the people whose parents come next, by centre.
     let mut frontier: Vec<(u32, f32)> = Vec::new();
@@ -917,6 +959,8 @@ pub fn around_many(
     }
     let mut links: Vec<(u32, u32)> = Vec::new();
     let mut couples: Vec<(u32, u32)> = Vec::new();
+    // Every ancestor drawn on the lines.
+    let mut spine: Vec<u32> = Vec::new();
     let mut row = 0i32;
     while !frontier.is_empty() {
         frontier.sort_by(|a, b| a.1.total_cmp(&b.1));
@@ -1042,6 +1086,7 @@ pub fn around_many(
                 n.rel = Some(Rel::Ancestor((-row) as u8));
                 b.nodes.push(n);
                 b.visited.insert(key, id);
+                spine.push(id);
                 next.push((id, cx));
             }
             if plan.fresh.len() == 2 {
@@ -1059,12 +1104,34 @@ pub fn around_many(
         frontier = next;
     }
 
+    // The brothers and sisters of the chosen people hang from the parents too.
+    for &u in &sib_roots {
+        let node = b.units[u].person;
+        for p in src
+            .parents(b.nodes[node as usize].key)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(&pn) = b.visited.get(&p) {
+                links.push((pn, node));
+            }
+        }
+    }
+
+    if kin == ManyKin::All {
+        hang_ancestor_siblings(&mut b, &spine, &roots, &mut links, m);
+    }
+
     let Builder {
         mut nodes,
         units,
         truncated,
         ..
     } = b;
+    {
+        let mut seen = std::collections::HashSet::new();
+        links.retain(|l| seen.insert(*l));
+    }
     // Keep every coordinate non-negative: the canvas bounds start at the origin.
     let min_x = nodes.iter().map(|n| n.rect.x).fold(f32::INFINITY, f32::min);
     let min_y = nodes.iter().map(|n| n.rect.y).fold(f32::INFINITY, f32::min);
@@ -1103,6 +1170,150 @@ pub fn around_many(
     link_rows(&mut nodes);
     let root = units[roots[0]].person;
     Layout::finish(nodes, edges, root, truncated)
+}
+
+/// Set the boxes of every unit from `from` on from its centre, and the centres of its children. The units whose
+/// parents are not in that range need their centre set beforehand.
+fn place_units(units: &mut [Unit], nodes: &mut [Node], from: usize, m: &Metrics) {
+    let step_y = m.node_h + m.gap_y * 4.0;
+    let pstep = m.node_w + m.couple_gap;
+    for i in from..units.len() {
+        let w =
+            m.node_w * (1.0 + units[i].partners as f32) + m.couple_gap * units[i].partners as f32;
+        let x0 = units[i].cx - w / 2.0;
+        let y = units[i].row as f32 * step_y;
+        let p = units[i].person;
+        for k in 0..=units[i].partners {
+            let n = &mut nodes[(p + k) as usize];
+            n.rect.x = x0 + k as f32 * pstep;
+            n.rect.y = y;
+        }
+        let ch = units[i].children.clone();
+        for (k, &c) in ch.iter().enumerate() {
+            units[c].cx = units[i].cx + units[i].coff[k];
+        }
+    }
+}
+
+/// All-kin chart of several people: the brothers and sisters of every ancestor on the lines, with partners and all
+/// descendants, nearest generation first. Families of ancestors left of the middle of the chosen row go to the left,
+/// the others to the right; each unit stands outside everything placed so far in every row it reaches.
+fn hang_ancestor_siblings(
+    b: &mut Builder<'_>,
+    spine: &[u32],
+    roots: &[usize],
+    links: &mut Vec<(u32, u32)>,
+    m: &Metrics,
+) {
+    let placed = b.nodes.len();
+    let from = b.units.len();
+    let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+    for &r in roots {
+        let (p, k) = (b.units[r].person, b.units[r].partners);
+        for id in p..=p + k {
+            let rect = b.nodes[id as usize].rect;
+            lo = lo.min(rect.x);
+            hi = hi.max(rect.right());
+        }
+    }
+    let mid = (lo + hi) / 2.0;
+    let mut anc: Vec<(u32, f32)> = spine
+        .iter()
+        .map(|&id| (id, b.nodes[id as usize].rect.cx()))
+        .collect();
+    anc.sort_by(|a, c| {
+        b.nodes[c.0 as usize]
+            .r#gen
+            .cmp(&b.nodes[a.0 as usize].r#gen)
+            .then((a.1 - mid).abs().total_cmp(&(c.1 - mid).abs()))
+    });
+    let mut fams: Vec<(bool, Vec<usize>)> = Vec::new();
+    for (id, cx) in anc {
+        let key = b.nodes[id as usize].key;
+        let row = i32::from(b.nodes[id as usize].r#gen);
+        let gens = u8::try_from(-row).unwrap_or(u8::MAX);
+        let up = gens.saturating_add(1);
+        let mut made = Vec::new();
+        for s in siblings(b.src, key) {
+            if s.key == key {
+                continue;
+            }
+            let parents: Vec<u32> = b
+                .src
+                .parents(s.key)
+                .into_iter()
+                .flatten()
+                .filter_map(|p| b.visited.get(&p).copied())
+                .collect();
+            if let Some(&n) = b.visited.get(&s.key) {
+                // Drawn already: it only gets its link.
+                if i32::from(b.nodes[n as usize].r#gen) == row {
+                    links.extend(parents.iter().map(|&pn| (pn, n)));
+                }
+                continue;
+            }
+            let Some(u) = b.make_unit(
+                s.key,
+                row,
+                sibling_rel(gens, s.half),
+                Some(kin_partner(up, 1)),
+                None,
+            ) else {
+                break;
+            };
+            b.expand(u, Tree::Kin(up));
+            let person = b.units[u].person;
+            links.extend(parents.iter().map(|&pn| (pn, person)));
+            made.push(u);
+        }
+        fams.push((cx < mid, made));
+    }
+    fill_contours(&mut b.units, m);
+    let gap = m.gap_x;
+    let mut lf: HashMap<i32, f32> = HashMap::new();
+    let mut rf: HashMap<i32, f32> = HashMap::new();
+    for n in &b.nodes[..placed] {
+        let r = i32::from(n.r#gen);
+        let l = lf.entry(r).or_insert(f32::INFINITY);
+        *l = l.min(n.rect.x);
+        let h = rf.entry(r).or_insert(f32::NEG_INFINITY);
+        *h = h.max(n.rect.right());
+    }
+    for (left, mut made) in fams {
+        if left {
+            made.reverse();
+        }
+        for u in made {
+            let row0 = b.units[u].row;
+            let mut cx = if left {
+                f32::INFINITY
+            } else {
+                f32::NEG_INFINITY
+            };
+            for (d, &(l, h)) in b.units[u].ctr.iter().enumerate() {
+                let r = row0 + d as i32;
+                if left {
+                    if let Some(&e) = lf.get(&r) {
+                        cx = cx.min(e - gap - h);
+                    }
+                } else if let Some(&e) = rf.get(&r) {
+                    cx = cx.max(e + gap - l);
+                }
+            }
+            if !cx.is_finite() {
+                cx = mid;
+            }
+            b.units[u].cx = cx;
+            for (d, &(l, h)) in b.units[u].ctr.iter().enumerate() {
+                let r = row0 + d as i32;
+                let a = lf.entry(r).or_insert(f32::INFINITY);
+                *a = a.min(cx + l);
+                let z = rf.entry(r).or_insert(f32::NEG_INFINITY);
+                *z = z.max(cx + h);
+            }
+        }
+    }
+    place_units(&mut b.units, &mut b.nodes, from, m);
 }
 
 #[allow(clippy::too_many_arguments)]
