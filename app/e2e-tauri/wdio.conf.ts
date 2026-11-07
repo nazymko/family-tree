@@ -44,15 +44,22 @@ function defaultApplication(): string {
   return fs.existsSync(own) ? own : path.join(repo, 'target', 'debug', exe);
 }
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.once('error', reject);
-    s.listen(0, '127.0.0.1', () => {
-      const { port } = s.address() as net.AddressInfo;
-      s.close(() => resolve(port));
+/**
+ * A free port picked at random from 41000-48999: below Windows' dynamic range (49152 and up), where the outgoing
+ * connections of every program on the machine get their ports, and above the ports the Rust tests choose (20000-40000).
+ * Asking the OS for port 0 gave a port from the dynamic range, and one agent-access run lost it to someone else's
+ * connection between picking and listening.
+ */
+async function freePort(): Promise<number> {
+  for (;;) {
+    const port = 41000 + Math.floor(Math.random() * 8000);
+    const free = await new Promise<boolean>((resolve) => {
+      const s = net.createServer();
+      s.once('error', () => resolve(false));
+      s.listen(port, '127.0.0.1', () => s.close(() => resolve(true)));
     });
-  });
+    if (free) return port;
+  }
 }
 
 /** The launcher picks the ports once and the workers it starts read them from the environment. */
@@ -161,7 +168,7 @@ export const config: WebdriverIO.Config = {
     } as WebdriverIO.Capabilities,
   ],
   logLevel: 'warn',
-  waitforTimeout: 15000,
+  waitforTimeout: 30000, // a machine busy with the gate runs a spec 2-3 times slower; a wait that is not needed costs nothing
   strictSelectors: false,
   connectionRetryTimeout: 60000,
   connectionRetryCount: 2,
