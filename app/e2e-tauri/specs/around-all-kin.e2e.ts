@@ -229,7 +229,38 @@ describe('The Relatives choice on the around screen', () => {
       // Husband or wife by sex; the words themselves are asserted in relation.test.ts.
       expect(['male', 'female']).toContain(p.sex);
     }
+    // The chart is a canvas; the outline lists the same people as text, so the word itself is checked there.
+    // The line-only chart keeps the outline short; its groups open on demand, so the first two levels are opened.
     await $('//label[normalize-space(.)="Лише лінія"]').click();
+    await browser.pause(900);
+    await $('//*[@role="tab"][normalize-space(.)="Список"]').click();
+    const word = partners[0].sex === 'female' ? 'Дружина' : 'Чоловік';
+    const row = await browser.waitUntil(
+      () =>
+        browser.execute(
+          (name: string, w: string) => {
+            const hit = [...document.querySelectorAll('[role="treeitem"] > .row')].find((e) => {
+              const s = e.textContent ?? '';
+              return s.includes(name) && s.includes(w);
+            });
+            if (hit) {
+              (hit as HTMLElement).scrollIntoView({ block: 'center' });
+              return (hit.textContent ?? '').trim();
+            }
+            for (const li of document.querySelectorAll('[role="treeitem"][aria-expanded="false"]')) {
+              if (Number(li.getAttribute('aria-level')) <= 2) (li.querySelector(':scope > .row > .twist') as HTMLElement | null)?.click();
+            }
+            return '';
+          },
+          partners[0].name,
+          word,
+        ),
+      { timeout: 20000, interval: 700, timeoutMsg: `no outline row names the centre person's partner «${word}»` },
+    );
+    expect(row).toContain(word);
+    expect(row).not.toContain('Партнер');
+    await shot('around-spouse-outline-uk.png');
+    await $('//*[@role="tab"][normalize-space(.)="Схема"]').click();
     await $('//button[normalize-space(.)="Назад до всього родоводу"]').click();
     await $('h1=Увесь родовід').waitForDisplayed({ timeout: 30000 });
   });
