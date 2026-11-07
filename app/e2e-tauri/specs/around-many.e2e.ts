@@ -2,7 +2,9 @@
  * "Build around these people" on the REAL app (debug build, tauri-driver, WebView2): two people are marked on the whole
  * tree (Space on the first, a real Shift+click on the second), the button counts them, the around screen names both in
  * its heading, draws both cards, lists both at the top of the «Outline» tab, and Back returns to the whole tree with the
- * two people still marked. Screenshots in English and Ukrainian.
+ * two people still marked. The three kin choices (line only, brothers and sisters, all relatives) work for the two people:
+ * the chart grows from one to the next and every chosen person's parents stay adjacent and over them. Screenshots in
+ * English and Ukrainian.
  *
  * Synthetic data only.
  */
@@ -136,8 +138,8 @@ type Layout = {
   parents: { from: number; to: number }[];
 };
 
-async function cardNames(first: string, second: string): Promise<Layout> {
-  await browser.execute((a: string, b: string) => {
+async function cardNames(first: string, second: string, kin: 'line' | 'siblings' | 'all' = 'line'): Promise<Layout> {
+  await browser.execute((a: string, b: string, k: string) => {
     delete (window as unknown as { __gtMany?: unknown }).__gtMany;
     type Inv = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
     const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Inv } }).__TAURI_INTERNALS__.invoke;
@@ -147,7 +149,7 @@ async function cardNames(first: string, second: string): Promise<Layout> {
       const all = (await invoke('chart_window', { chartId: whole.meta.chartId, rect: big, zoom: 1 })) as { nodes: { person?: { id: string; name: string } }[] };
       const id = (n: string) => all.nodes.find((x) => x.person?.name === n)!.person!.id;
       const roots = [id(a), id(b)];
-      const m = (await invoke('chart_open', { req: { kind: 'around', root: roots[0], generations: 255, kin: 'line', roots } })) as { chartId: number; chosenNodes?: number[] };
+      const m = (await invoke('chart_open', { req: { kind: 'around', root: roots[0], generations: 255, kin: k, roots } })) as { chartId: number; chosenNodes?: number[] };
       const w = (await invoke('chart_window', { chartId: m.chartId, rect: big, zoom: 1 })) as {
         nodes: { id: number; x: number; y: number; w: number; person?: { name: string } }[];
         edges: { from: number; to: number; kind: string }[];
@@ -158,7 +160,7 @@ async function cardNames(first: string, second: string): Promise<Layout> {
         parents: w.edges.filter((e) => e.kind === 'parent').map((e) => ({ from: e.from, to: e.to })),
       };
     })();
-  }, first, second);
+  }, first, second, kin);
   await browser.waitUntil(() => browser.execute(() => !!(window as unknown as { __gtMany?: unknown }).__gtMany), { timeout: 30000 });
   return browser.execute(() => (window as unknown as { __gtMany: Layout }).__gtMany);
 }
@@ -230,7 +232,7 @@ describe('The screen built around several people', () => {
     await $('canvas[role="application"]').waitForDisplayed();
     await browser.pause(1200);
 
-    // Both cards are in the chart, and the wider kin choices are shown but cannot be picked.
+    // Both cards are in the chart; the three kin choices can be picked.
     const cards = await cardNames(first, second);
     expect(cards.chosen.length).toBe(2);
     const onChart = cards.nodes.map((n) => n.name);
@@ -238,7 +240,8 @@ describe('The screen built around several people', () => {
     expect(onChart).toContain(second);
     expectParentsAbove(cards);
     await expect($('//label[normalize-space(.)="Line only"]//input')).toBeSelected();
-    await expect($('//label[normalize-space(.)="All relatives"]//input')).toBeDisabled();
+    await expect($('//label[normalize-space(.)="All relatives"]//input')).toBeEnabled();
+    await expect($('//label[normalize-space(.)="Brothers and sisters"]//input')).toBeEnabled();
     await shot('around-many-en.png');
 
     // The outline lists both chosen people at the top.
@@ -265,6 +268,26 @@ describe('The screen built around several people', () => {
     await $('canvas[role="application"]').waitForDisplayed();
     await browser.pause(1200);
     await shot('around-many-uk.png');
+
+    // Brothers and sisters, then all relatives: the chart grows and the parents stay over the chosen people.
+    const line = await cardNames(first, second, 'line');
+    await $('//label[normalize-space(.)="Брати й сестри"]//input').waitForEnabled();
+    await $('//label[normalize-space(.)="Брати й сестри"]').click();
+    await browser.pause(2000);
+    await shot('around-many-siblings-uk.png');
+    const sibs = await cardNames(first, second, 'siblings');
+    expect(sibs.nodes.length).toBeGreaterThan(line.nodes.length);
+    expect(sibs.nodes.map((n) => n.name)).toContain(first);
+    expectParentsAbove(sibs);
+    await $('//label[normalize-space(.)="Уся рідня"]').click();
+    await browser.pause(2000);
+    await shot('around-many-all-uk.png');
+    const all = await cardNames(first, second, 'all');
+    expect(all.nodes.length).toBeGreaterThan(sibs.nodes.length);
+    expectParentsAbove(all);
+    await $('//label[normalize-space(.)="Лише лінія"]').click();
+    await browser.pause(1500);
+
     await $('//*[@role="tab"][normalize-space(.)="Список"]').click();
     await expectTopRows(first, second);
     await $('//*[@role="tab"][normalize-space(.)="Схема"]').click();

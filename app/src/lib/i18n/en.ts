@@ -1293,7 +1293,6 @@ export const en = {
     kinLine: 'Line only',
     kinSiblings: 'Brothers and sisters',
     kinAll: 'All relatives',
-    kinManyHint: 'For several people only the line is shown: ancestors and descendants.',
   },
   whole: {
     title: 'Whole tree',

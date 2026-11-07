@@ -16,7 +16,8 @@ pub use descendants::descendants;
 pub use pedigree::pedigree;
 pub use quality::{Quality, quality};
 pub use relatives::{
-    RelativesOptions, around, around_all_kin, around_many, around_with_siblings, relatives,
+    ManyKin, RelativesOptions, around, around_all_kin, around_many, around_many_kin,
+    around_with_siblings, relatives,
 };
 pub use types::{
     Axis, ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Nav, Node, PartnerOf, Rect, Rel,

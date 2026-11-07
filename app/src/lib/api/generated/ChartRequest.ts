@@ -13,6 +13,6 @@ auntsUncles?: boolean,
 kin?: AroundKin, 
 /**
  * Chart built around people only: everybody the chart is built around, `root` included. Two or more
- * people give one chart of the lines of all of them (`kin` is then always the line only).
+ * people give one chart around all of them, with the wider family `kin` asks for.
  */
 roots?: Array<string>, };

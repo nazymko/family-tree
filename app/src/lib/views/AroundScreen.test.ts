@@ -186,17 +186,26 @@ describe('the screen built around several people', () => {
     }
   });
 
-  it('opens_one_chart_for_all_of_them_with_the_line_only_and_back_returns_to_the_whole_tree', async () => {
+  it('opens_one_chart_for_all_of_them_with_the_three_kin_choices_and_back_returns_to_the_whole_tree', async () => {
     const probe = makeApi();
     const ids = pick(probe.fx, 3);
     const s = await mountAroundMany(ids);
     await waitFor(() => expect(s.spy).toHaveBeenCalledWith({ kind: 'around', root: ids[0], generations: 255, kin: 'line', roots: ids }));
-    // Only the line is possible for several people: the other two choices are shown but cannot be picked.
+    // The three choices work for several people too: switching asks for the same people with the other kin.
     const group = screen.getByRole('radiogroup', { name: 'Рідня' });
-    expect(within(group).getByRole('radio', { name: 'Лише лінія' })).toBeChecked();
-    expect(within(group).getByRole('radio', { name: 'Брати й сестри' })).toBeDisabled();
-    expect(within(group).getByRole('radio', { name: 'Уся рідня' })).toBeDisabled();
-    expect(screen.getByText('Для кількох осіб показано лише лінію: предків і нащадків.')).toBeInTheDocument();
+    const line = within(group).getByRole('radio', { name: 'Лише лінія' });
+    const sibs = within(group).getByRole('radio', { name: 'Брати й сестри' });
+    const all = within(group).getByRole('radio', { name: 'Уся рідня' });
+    expect(line).toBeChecked();
+    expect(sibs).toBeEnabled();
+    expect(all).toBeEnabled();
+    expect(screen.queryByText(/Для кількох осіб показано лише лінію/)).toBeNull();
+    await fireEvent.click(sibs);
+    await waitFor(() => expect(s.spy).toHaveBeenCalledWith({ kind: 'around', root: ids[0], generations: 255, kin: 'siblings', roots: ids }));
+    await fireEvent.click(all);
+    await waitFor(() => expect(s.spy).toHaveBeenCalledWith({ kind: 'around', root: ids[0], generations: 255, kin: 'all', roots: ids }));
+    await fireEvent.click(line);
+    await waitFor(() => expect(s.spy.mock.lastCall?.[0].kin).toBe('line'));
     // The outline lists every chosen person.
     const meta = await s.spy.mock.results[s.spy.mock.results.length - 1].value;
     expect(meta.chosenNodes).toHaveLength(3);
