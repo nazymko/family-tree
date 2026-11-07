@@ -7,7 +7,7 @@ import type { ChartEdge, ChartNode, Id, PersonRef, WholeBlockDto } from '../type
 // least-squares solve and no bar lanes.
 
 const NODE_W = 176;
-const NODE_H = 56;
+const NODE_H = 66;
 const GAP_X = 40;
 const COUPLE_GAP = 8;
 const ROW_GAP = 48;

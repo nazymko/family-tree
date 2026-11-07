@@ -19,6 +19,7 @@
   import CoupleEndDialog from './CoupleEndDialog.svelte';
   import AgentBadge from '../ui/AgentBadge.svelte';
   import { agentChanges } from '../state/agentChanges.svelte';
+  import { birthSurnameText } from '../ui/birthSurname';
   import { coupleEnd, type CoupleEnd } from './coupleEnd';
 
   let {
@@ -598,7 +599,7 @@
     data-row={row}
     tabindex={activeKey === `p:${p.id}` ? 0 : -1}
     aria-current={current ? 'true' : undefined}
-    aria-label={[p.name, p.lifespan, role ? t(roleKey(role)) : '', note ?? '', agentChanges.unreviewed.has(p.id) ? t('changeLog.badgeLabel') : ''].filter(Boolean).join(', ')}
+    aria-label={[p.name, birthSurnameText(p), p.lifespan, role ? t(roleKey(role)) : '', note ?? '', agentChanges.unreviewed.has(p.id) ? t('changeLog.badgeLabel') : ''].filter(Boolean).join(', ')}
     onfocus={() => (active = `p:${p.id}`)}
     onclick={() => {
       if (!current) onopen(p.id);
@@ -608,6 +609,7 @@
   >
     {#if role}<span class="kin" aria-hidden="true">{t(roleKey(role))}{#if note}<span class="endtag">{` · ${note}`}</span>{/if}</span>{/if}
     <bdi dir="auto" class="nm">{p.name}</bdi>
+    {#if birthSurnameText(p)}<span class="maiden">{birthSurnameText(p)}</span>{/if}
     <span class="meta tnum">
       {#if p.living}<span class="living">{t('common.living')}</span>{/if}
       {#if p.lifespan}<span>{p.lifespan}</span>{/if}
@@ -1224,6 +1226,14 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .maiden {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--t-sm);
+    line-height: var(--t-sm-lh);
+    color: var(--ink-1);
   }
   .meta {
     display: flex;

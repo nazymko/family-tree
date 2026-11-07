@@ -2,7 +2,7 @@
 
 use crate::dates::{Side, lifespan_text};
 use crate::dto::{NameOrder, SexKind};
-use gt_core::model::{Event, EventKind, Name, ParticipantRef, Person, Role, Sex};
+use gt_core::model::{Event, EventKind, Name, NameKind, ParticipantRef, Person, Role, Sex};
 use gt_core::tree::Tree;
 
 pub const BIRTH_KINDS: [EventKind; 3] =
@@ -80,6 +80,28 @@ pub fn display_name(p: &Person, order: NameOrder) -> String {
         .map(|n| compose(n, order, false))
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "Unknown".to_string())
+}
+
+/// The surname of the person's birth name, shown under the name when the person goes by another surname
+/// (a married name is the main one). `None` when the displayed name is itself the birth name, when there is
+/// no birth surname (or it is the same, compared trimmed and case-insensitively), or when the birth name is private.
+pub fn birth_surname_shown(p: &Person) -> Option<String> {
+    let shown = preferred_name(p)?;
+    if shown.kind == NameKind::Birth {
+        return None;
+    }
+    let birth = p
+        .names
+        .iter()
+        .filter(|n| n.kind == NameKind::Birth && !n.private)
+        .map(surname_of)
+        .find(|s| !s.trim().is_empty())?;
+    let birth = birth.trim();
+    let shown_surname = surname_of(shown);
+    if shown_surname.trim().to_lowercase() == birth.to_lowercase() {
+        return None;
+    }
+    Some(birth.to_string())
 }
 
 pub fn sex_kind(s: &Sex) -> (SexKind, Option<String>) {
@@ -185,5 +207,74 @@ mod patronymic_tests {
     fn patronymic_alone_still_names_the_person() {
         let n = name(None, "Petrovych", None);
         assert_eq!(compose(&n, NameOrder::GivenFirst, false), "Petrovych");
+    }
+
+    fn named(kind: NameKind, surname: &str, preferred: bool, private: bool) -> Name {
+        let mut n = name(Some("Olena"), "", Some(surname));
+        n.kind = kind;
+        n.assertion.preferred = preferred;
+        n.private = private;
+        n.patronymic = None;
+        n
+    }
+
+    fn person(names: Vec<Name>) -> Person {
+        Person {
+            common: gt_core::model::Common {
+                id: uuid::Uuid::nil(),
+                private: false,
+                changed: None,
+                citations: vec![],
+                notes: vec![],
+                media: vec![],
+                ext_ids: vec![],
+                unknown: vec![],
+            },
+            sex: Sex::Female,
+            names,
+            living_override: None,
+            sibling_marker: false,
+        }
+    }
+
+    #[test]
+    fn birth_surname_shows_only_beside_another_main_surname() {
+        let married = named(NameKind::Married, "Koval", true, false);
+        let birth = named(NameKind::Birth, " Bondar ", false, false);
+        // A married name is the main one: the birth surname shows, trimmed.
+        let p = person(vec![birth.clone(), married.clone()]);
+        assert_eq!(birth_surname_shown(&p).as_deref(), Some("Bondar"));
+        // No name is marked main: the first one counts.
+        let mut first = married.clone();
+        first.assertion.preferred = false;
+        let mut other = birth.clone();
+        other.assertion.preferred = false;
+        assert_eq!(
+            birth_surname_shown(&person(vec![first, other])).as_deref(),
+            Some("Bondar")
+        );
+        // The birth name is the main one.
+        let mut main_birth = birth.clone();
+        main_birth.assertion.preferred = true;
+        let mut alt = married.clone();
+        alt.assertion.preferred = false;
+        assert_eq!(birth_surname_shown(&person(vec![main_birth, alt])), None);
+        // The same surname in another case.
+        let same = named(NameKind::Birth, "KOVAL", false, false);
+        assert_eq!(
+            birth_surname_shown(&person(vec![same, married.clone()])),
+            None
+        );
+        // No birth name, an empty one, no names at all.
+        assert_eq!(birth_surname_shown(&person(vec![married.clone()])), None);
+        let empty = named(NameKind::Birth, "", false, false);
+        assert_eq!(
+            birth_surname_shown(&person(vec![empty, married.clone()])),
+            None
+        );
+        assert_eq!(birth_surname_shown(&person(vec![])), None);
+        // A private birth name stays private.
+        let private = named(NameKind::Birth, "Bondar", false, true);
+        assert_eq!(birth_surname_shown(&person(vec![private, married])), None);
     }
 }

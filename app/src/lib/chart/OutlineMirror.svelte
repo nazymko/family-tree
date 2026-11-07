@@ -4,6 +4,7 @@
   import { getApi } from '../api/context';
   import type { Id, OutlineItem } from '../api/types';
   import { t } from '../i18n';
+  import { birthSurnameText } from '../ui/birthSurname';
   import { outlineLabel, relationText } from '../i18n/relation';
 
   let {
@@ -183,6 +184,7 @@
           <span class="rel">{outlineLabel(it)}</span>
           {#if it.person}
             <bdi dir="auto" class="nm">{it.person.name}</bdi>
+            {#if birthSurnameText(it.person)}<span class="life">{birthSurnameText(it.person)}</span>{/if}
             {#if it.person.lifespan}<span class="life">{it.person.lifespan}</span>{/if}
           {/if}
         </span>

@@ -32,7 +32,7 @@ describe('mock layout (port of gt-layout)', () => {
       expect(n.x).toBe(n.gen * 216);
       expect(n.gen).toBeLessThan(4);
       expect(n.w).toBe(176);
-      expect(n.h).toBe(56);
+      expect(n.h).toBe(66);
     }
     expect(overlaps(win.nodes)).toBe(0);
     let sawMore = false;

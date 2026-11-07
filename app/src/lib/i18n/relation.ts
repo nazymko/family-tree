@@ -1,6 +1,7 @@
 import { t, type MessageKey } from '.';
 import type { ChartNode, OutlineItem, RoleDto } from '../api/types';
 import { kinshipText } from '../family/kinship';
+import { birthSurnameText } from '../ui/birthSurname';
 
 /**
  * Wording of how a chart person is related to the centred one, built from the structured `role` the backend sends
@@ -90,7 +91,7 @@ const RELATION_ROLES: ReadonlySet<RoleDto['kind']> = new Set(['ancestor', 'desce
 export function nodeLabel(n: ChartNode): string {
   if (!n.role || !n.person) return n.label;
   const p = n.person;
-  const head = p.lifespan ? `${p.name}, ${p.lifespan}` : p.name;
+  const head = [p.name, birthSurnameText(p), p.lifespan].filter(Boolean).join(', ');
   const tail = n.dupOf !== null ? `, ${t('role.appearsEarlier')}` : '';
   // The relation chart's role already says how the person is related; the others add it.
   const kin = n.kinship && !RELATION_ROLES.has(n.role.kind) ? kinshipText(n.kinship) : '';
