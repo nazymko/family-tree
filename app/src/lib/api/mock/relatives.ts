@@ -10,6 +10,12 @@ import { relationLabel, relationRole, type PartnerOf, type Rel } from './relatio
 
 export interface RelLayout extends Layout {
   rels: Rel[];
+  /** The chart built around several people: the first chosen person's node (the outline's root; 0 otherwise). */
+  rootNode?: number;
+  /** The chart built around several people: the boxes of all of them, root first. */
+  chosen?: number[];
+  /** The chart built around several people: parents and children of each node, as the whole-tree layout knows them. */
+  adj?: { parents: number[][]; children: number[][] };
 }
 
 /** Outline rows from here up are group headings, not chart nodes (same value as the Rust side). */
@@ -618,7 +624,7 @@ const GROUP_KINDS = ['parents', 'siblings', 'partners', 'children', 'aunts_uncle
 
 function groupOf(l: RelLayout, id: number, g: number): number[] {
   const into = (key: 'from' | 'to') =>
-    l.edges.filter((e) => e.kind === 'parent' && e[key === 'from' ? 'to' : 'from'] === id).map((e) => e[key]);
+    l.adj ? (key === 'from' ? l.adj.parents[id] : l.adj.children[id]) ?? [] : l.edges.filter((e) => e.kind === 'parent' && e[key === 'from' ? 'to' : 'from'] === id).map((e) => e[key]);
   const onRow = (pred: (r: Rel) => boolean): number[] =>
     id !== 0
       ? []
@@ -647,7 +653,8 @@ const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 /** Where each node is first met reading the outline top to bottom: `owner:group`. Later sightings are references. */
 function firstPlaces(l: RelLayout): Map<number, string> {
-  const seen = new Map<number, string>([[0, 'root']]);
+  const roots = l.chosen && l.chosen.length > 1 ? l.chosen : [l.rootNode ?? 0];
+  const seen = new Map<number, string>(roots.map((r) => [r, 'root']));
   const walk = (id: number): void => {
     // Claim everyone listed under this person first, then go into the newly claimed people.
     const fresh: number[] = [];
@@ -660,7 +667,7 @@ function firstPlaces(l: RelLayout): Map<number, string> {
     });
     fresh.forEach(walk);
   };
-  walk(0);
+  roots.forEach(walk);
   return seen;
 }
 
@@ -673,11 +680,11 @@ export function relativesOutline(l: RelLayout, parent: number | null, limit: num
     // Only a person with someone not listed elsewhere can be opened.
     const hasChildren = first && GROUPS.some((_, g) => groupOf(l, id, g).some((m) => places.get(m) === `${id}:${g}`));
     const out: OutlineItem = { nodeId: id, person: n.person, label, hasChildren, appearsEarlier: n.dupOf !== null, alsoAbove: !first };
-    if (id !== 0 && n.relation) out.relation = n.relation;
+    if (id !== (l.rootNode ?? 0) && !l.chosen?.includes(id) && n.relation) out.relation = n.relation;
     if (n.role) out.role = n.role;
     return out;
   };
-  if (parent === null) return [item(0, 'root')];
+  if (parent === null) return l.chosen && l.chosen.length > 1 ? l.chosen.map((id) => item(id, 'root')) : [item(0, 'root')];
   if (parent < GROUP_BASE) {
     return GROUPS.map((title, g) => ({ g, title }))
       .filter(({ g }) => groupOf(l, parent, g).length > 0)

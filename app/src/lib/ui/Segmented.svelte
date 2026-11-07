@@ -6,11 +6,14 @@
     options,
     value,
     onchange,
+    disabledValues = [],
   }: {
     legend: string;
     options: { value: string; label: string }[];
     value: string;
     onchange?: (value: string) => void;
+    /** Choices that are shown but cannot be picked. */
+    disabledValues?: string[];
   } = $props();
   const uid = $props.id();
 </script>
@@ -19,8 +22,8 @@
   <span id="{uid}-legend" class="cap">{legend}</span>
   <div class="opts">
     {#each options as o (o.value)}
-      <label class:on={value === o.value}>
-        <input type="radio" name={uid} value={o.value} checked={value === o.value} onchange={() => onchange?.(o.value)} />
+      <label class:on={value === o.value} class:off={disabledValues.includes(o.value)}>
+        <input type="radio" name={uid} value={o.value} checked={value === o.value} disabled={disabledValues.includes(o.value)} onchange={() => onchange?.(o.value)} />
         <span>{o.label}</span>
       </label>
     {/each}
@@ -55,7 +58,15 @@
   label + label {
     border-inline-start: 1px solid var(--rule);
   }
-  label:hover:not(.on) {
+  label.off {
+    color: var(--ink-2);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  label.off input {
+    cursor: not-allowed;
+  }
+  label:hover:not(.on):not(.off) {
     background: var(--paper-2);
   }
   label.on {

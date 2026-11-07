@@ -57,9 +57,9 @@
   const showSelection = (ids: Id[]) => nav.go({ name: 'whole', people: ids });
   const allPeople = () => nav.go({ name: 'whole' });
   // The new screen is built around the selected person; the focus is set first so Back brings the same person back.
-  function buildAround(id: Id): void {
-    nav.focus(id);
-    nav.go({ name: 'around', id });
+  function buildAround(ids: Id[]): void {
+    nav.focus(ids[0]);
+    nav.go({ name: 'around', ids });
   }
   // Everybody chosen was deleted: the chart of some people no longer exists, so it leaves no history entry behind.
   const selectionGone = () => nav.replace({ name: 'whole' });

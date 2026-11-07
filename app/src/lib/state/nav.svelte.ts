@@ -7,8 +7,8 @@ export type Route =
   | { name: 'people' }
   /** `people`: the whole-tree page showing only these people, their ancestors and partners (Back returns to everyone). */
   | { name: 'whole'; people?: Id[] }
-  /** The screen built around one person: their ancestors above, their descendants below (Back returns to where it was opened). */
-  | { name: 'around'; id: Id }
+  /** The screen built around one person (or several): their ancestors above, their descendants below (Back returns to where it was opened). `ids[0]` is the main person. */
+  | { name: 'around'; ids: Id[] }
   /** One family to read: partners, events, children and shared notes. */
   | { name: 'familyPage'; id: Id }
   | { name: 'pedigree' }
@@ -24,7 +24,8 @@ export type Route =
 function same(a: Route, b: Route): boolean {
   if (a.name !== b.name) return false;
   if (a.name === 'whole' && b.name === 'whole') return (a.people ?? []).join() === (b.people ?? []).join();
-  return (a.name === 'person' && b.name === 'person') || (a.name === 'around' && b.name === 'around') || (a.name === 'familyPage' && b.name === 'familyPage') ? a.id === b.id : true;
+  if (a.name === 'around' && b.name === 'around') return a.ids.join() === b.ids.join();
+  return (a.name === 'person' && b.name === 'person') || (a.name === 'familyPage' && b.name === 'familyPage') ? a.id === b.id : true;
 }
 
 class NavState {

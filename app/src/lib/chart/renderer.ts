@@ -38,6 +38,42 @@ export interface DrawOpts {
   handles?: boolean;
   /** People an agent changed and nobody has reviewed; their boxes carry a dot. A saved picture leaves this out. */
   badged?: ReadonlySet<string>;
+  /** The chart built around several people: the boxes of the other chosen people (`focus` is the first); each gets the ribbon like the centre person. */
+  focusMore?: ReadonlySet<number>;
+  /** People marked with Shift+click (to build the next chart around them): a check badge and a frame. */
+  marked?: ReadonlySet<string>;
+}
+
+/** The check-mark badge and frame of the boxes marked with Shift+click. */
+function drawMarks(ctx: CanvasRenderingContext2D, nodes: ChartNode[], marked: ReadonlySet<string> | undefined, theme: Theme, z: number, lod: Lod): void {
+  if (!marked || marked.size === 0) return;
+  for (const n of nodes) {
+    if (!n.person || n.person.siblingMarker || !marked.has(n.person.id)) continue;
+    ctx.beginPath();
+    ctx.rect(n.x, n.y, n.w, n.h);
+    if (lod !== 'dots') {
+      ctx.fillStyle = theme.wash;
+      ctx.fill();
+    }
+    ctx.strokeStyle = theme.ribbon;
+    ctx.lineWidth = Math.max(2, 3 / z);
+    ctx.stroke();
+    if (lod === 'dots') continue;
+    const r = 8;
+    const cx = n.x + n.w - r - 4;
+    const cy = n.y + r + 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = theme.ribbon;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx - 4, cy);
+    ctx.lineTo(cx - 1, cy + 3);
+    ctx.lineTo(cx + 4, cy - 3);
+    ctx.strokeStyle = theme.paper;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
 }
 
 /** The "changed by an agent" dot at a box's top corner, a constant size on screen at every zoom. */
@@ -230,6 +266,7 @@ export function draw(
         ctx.stroke();
       }
     }
+    drawMarks(ctx, win.nodes, opts.marked, theme, z, lod);
     drawAgentBadges(ctx, win.nodes, opts.badged, theme, z);
     return { drawn: win.nodes.length };
   }
@@ -272,20 +309,20 @@ export function draw(
     ctx.stroke();
   }
 
-  // Ribbon bookmark on the home person.
-  if (focus !== null) {
-    const f = win.nodes.find((n) => n.id === focus);
-    if (f) {
-      ctx.beginPath();
-      ctx.moveTo(f.x + 8, f.y);
-      ctx.lineTo(f.x + 8, f.y + 16);
-      ctx.lineTo(f.x + 14, f.y + 11);
-      ctx.lineTo(f.x + 20, f.y + 16);
-      ctx.lineTo(f.x + 20, f.y);
-      ctx.closePath();
-      ctx.fillStyle = theme.ribbon;
-      ctx.fill();
-    }
+  drawMarks(ctx, win.nodes, opts.marked, theme, z, lod);
+
+  // Ribbon bookmark on the home person (and on every chosen person of a chart built around several).
+  const isFocus = (id: number) => id === focus || (opts.focusMore?.has(id) ?? false);
+  for (const f of win.nodes.filter((n) => isFocus(n.id))) {
+    ctx.beginPath();
+    ctx.moveTo(f.x + 8, f.y);
+    ctx.lineTo(f.x + 8, f.y + 16);
+    ctx.lineTo(f.x + 14, f.y + 11);
+    ctx.lineTo(f.x + 20, f.y + 16);
+    ctx.lineTo(f.x + 20, f.y);
+    ctx.closePath();
+    ctx.fillStyle = theme.ribbon;
+    ctx.fill();
   }
 
   if (opts.handles !== false) for (const n of win.nodes.filter((x) => !x.person?.siblingMarker)) for (const h of handleSpots(n, kind, opts.reversed ?? false)) drawHandle(ctx, h, theme, z);
@@ -300,7 +337,7 @@ export function draw(
         continue;
       }
       const isDup = n.dupOf !== null;
-      const left = n.x + (n.id === focus ? 26 : 10);
+      const left = n.x + (isFocus(n.id) ? 26 : 10);
       // Room for the ancestor number, which gets long many generations back.
       const maxW = n.x + n.w - 10 - left - (n.ahnen !== null ? Math.max(22, String(n.ahnen).length * 6 + 8) : 0);
       ctx.textAlign = 'left';
@@ -308,7 +345,7 @@ export function draw(
       ctx.font = `600 13px ${theme.serif}`;
       const sub = isDup ? t('role.shownElsewhere') : (n.person?.lifespan ?? '');
       // How this person is related to the centred one, at the right of the second line.
-      const rel = isDup || n.id === focus ? '' : kind === 'relatives' || kind === 'around' ? relationText(n) : kinshipText(n.kinship);
+      const rel = isDup || isFocus(n.id) ? '' : kind === 'relatives' || kind === 'around' ? relationText(n) : kinshipText(n.kinship);
       const maiden = birthSurnameText(n.person);
       const rows = cardRows(maiden !== '');
       const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '' || rel !== '' || maiden !== '');

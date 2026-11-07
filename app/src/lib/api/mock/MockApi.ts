@@ -82,6 +82,7 @@ import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } f
 import { GROUP_BASE, layoutAround, layoutAroundAll, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
 import { layoutWhole, lineageOf, type WholeResult } from './wholeLayout';
 import { kinshipFinder } from './kinship';
+import { relationLabel, relationRole, type Rel } from './relation';
 import { toDateDto, yearOf } from './mockParse';
 import { lifespanText, previewDate } from './mockDate';
 
@@ -986,6 +987,10 @@ export class MockApi implements Api {
     if (req.kind === 'whole') throw invalid('The whole tree has no starting person. Open it with the whole-tree command.');
     if (this.person(req.root).siblingMarker) throw markerEntry(req.root);
     const generations = Math.max(1, Math.min(req.generations, req.kind === 'pedigree' || req.kind === 'around' ? 255 : 20));
+    if (req.kind === 'around') {
+      const chosen = [req.root, ...(req.roots ?? [])].filter((id, i, all) => all.indexOf(id) === i && this.db.persons.has(id) && !this.person(id).siblingMarker);
+      if (chosen.length > 1) return this.openAroundMany(chosen);
+    }
     const src: RustLayoutSource = {
       ref: (id) => this.ref(this.person(id)),
       birth: (id) => this.birthSort(this.person(id)),
@@ -1022,6 +1027,60 @@ export class MockApi implements Api {
       truncated: layout.truncated,
       version: this.version,
     };
+  }
+
+  /**
+   * The chart built around several people: the chosen people, their ancestors (shared ones once) and descendants, laid out
+   * like the chart of chosen people on the whole tree. Boxes are worded against the NEAREST chosen person. Only the line;
+   * the generations limit is not applied here.
+   */
+  private openAroundMany(chosen: Id[]): ChartMeta {
+    const { on } = this.selectionSubset(chosen, true);
+    const persons = [...this.db.persons.values()].filter((p) => on.has(p.id) && !p.siblingMarker);
+    const rows = new Map(this.rows().rows.map((r) => [r.id, r]));
+    const reversed = this.settings.treeDirection === 'reversed';
+    const result = layoutWhole({
+      persons: persons.map((p) => ({ id: p.id, surname: rows.get(p.id)?.surname ?? '', birth: this.birthSort(p) })),
+      families: [...this.db.families.values()].map((f) => ({ partners: [f.partner1, f.partner2], children: f.children.map((c) => c.person) })),
+      ref: (id) => this.ref(this.person(id)),
+    }, reversed);
+    const nodes = result.nodes;
+    const chosenNodes = chosen.map((id) => result.nodeOf.get(id)).filter((n): n is number => n !== undefined);
+    const reach = (adj: number[][]): (number | null)[] => {
+      const d: (number | null)[] = nodes.map(() => null);
+      const todo = [...chosenNodes];
+      for (const c of chosenNodes) d[c] = 0;
+      for (let i = 0; i < todo.length; i++) for (const w of adj[todo[i]] ?? []) if (d[w] === null) { d[w] = d[todo[i]]! + 1; todo.push(w); }
+      return d;
+    };
+    const up = reach(result.parents);
+    const down = reach(result.children);
+    const owner = new Map<number, number>();
+    for (const e of result.edges) if (e.kind === 'partner') owner.set(e.to, owner.get(e.from) ?? e.from);
+    const rels: Rel[] = nodes.map((n) => {
+      const u = up[n.id];
+      const d = down[n.id];
+      if (chosenNodes.includes(n.id)) return { t: 'focus' };
+      if (u !== null && (d === null || u <= d)) return { t: 'ancestor', n: u };
+      if (d !== null) return { t: 'descendant', n: d };
+      return { t: 'focus' };
+    });
+    nodes.forEach((n) => {
+      if (up[n.id] !== null || down[n.id] !== null || chosenNodes.includes(n.id)) return;
+      const o = owner.get(n.id);
+      const r = o === undefined ? null : rels[o];
+      rels[n.id] = r?.t === 'descendant' ? { t: 'partner', of: r.n } : { t: 'partner', of: 'focus' };
+    });
+    for (const n of nodes) {
+      const rel = rels[n.id];
+      n.relation = relationLabel(rel, n.person!.sex);
+      n.role = relationRole(rel, n.person!.sex);
+      n.label = `${n.person!.name}${n.person!.lifespan ? `, ${n.person!.lifespan}` : ''}, ${n.relation}`;
+    }
+    const layout: RelLayout = { nodes, edges: result.edges, bounds: result.bounds, truncated: false, kids: nodes.map(() => []), labels: nodes.map((n) => n.label), rels, rootNode: chosenNodes[0], chosen: chosenNodes, adj: { parents: result.parents, children: result.children } };
+    const chartId = this.nextChart++;
+    this.charts.set(chartId, { kind: 'around', layout, version: this.version, reference: chosen[0] });
+    return { chartId, kind: 'around', bounds: layout.bounds, nodeCount: nodes.length, rootNode: chosenNodes[0], truncated: false, version: this.version, chosenNodes: [...chosenNodes] };
   }
 
   async chartOpenWhole(): Promise<WholeMeta> {

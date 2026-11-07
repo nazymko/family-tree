@@ -93,6 +93,16 @@ impl WholeExtras {
             .filter(|&n| n != NONE32)
     }
 
+    /// The parents of a node (the partners of the family it is a child in), in family order.
+    pub fn parents_of(&self, node: u32) -> &[u32] {
+        self.parents.get(node as usize).map_or(&[], Vec::as_slice)
+    }
+
+    /// The children of a node, in family order.
+    pub fn children_of(&self, node: u32) -> &[u32] {
+        self.children.get(node as usize).map_or(&[], Vec::as_slice)
+    }
+
     /// The node, its ancestors and its descendants, ascending.
     pub fn lineage(&self, node: u32) -> Vec<u32> {
         let mut seen: HashSet<u32> = HashSet::from([node]);
