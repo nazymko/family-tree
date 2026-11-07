@@ -48,8 +48,7 @@
    * Fields most names never use. They stay folded so the surname is not typed into the surname prefix just above it
    * (a real tree had its married surname land there); a field that already has a value keeps the section open.
    */
-  // svelte-ignore state_referenced_locally
-  let more = $state([init.prefix, init.call, init.surnamePrefix, init.suffix, init.nickname, init.lang].some((v) => v.trim() !== ''));
+  let more =$state([init.prefix, init.call, init.surnamePrefix, init.suffix, init.nickname, init.lang].some((v) => v.trim() !== ''));
   let saving = $state(false);
   let error = $state('');
   const dirty = $derived(JSON.stringify(f) !== JSON.stringify(init));
