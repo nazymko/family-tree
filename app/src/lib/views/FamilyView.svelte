@@ -20,6 +20,7 @@
   import { agentChanges } from '../state/agentChanges.svelte';
   import { t, type MessageKey } from '../i18n';
   import { birthSurnameText } from '../ui/birthSurname';
+  import { partnerCardKey } from '../family/kinship';
 
   let { onQuickAdd }: { onQuickAdd?: (relation: AddRelation, opts?: { newParentSet?: boolean; parentRel?: ParentRelId }) => void } = $props();
 
@@ -350,7 +351,7 @@
                   agentChanged={agentChanges.unreviewed.has(union.partner.id)}
                   home={union.partner.id === homeId}
                   flipKey={union.partner.id}
-                  relationship={t('kin.partner')}
+                  relationship={t(partnerCardKey(union.kind, union.partner.sex))}
                   onclick={() => refocus(union!.partner!.id)}
                 />
               {:else}

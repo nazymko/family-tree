@@ -163,3 +163,37 @@ fn a_person_who_is_gone_is_not_found() {
     r.root = uuid::Uuid::max();
     assert!(s.chart_open(&r).is_err());
 }
+
+/// The partner roles say whether the union is a marriage, by the same rule as `Kinship.married`: married unless
+/// recorded as unmarried or other.
+#[test]
+fn partner_roles_carry_whether_the_union_is_a_marriage() {
+    let mut tree = tree_of(KOVAL);
+    let taras = find(&tree, "Taras");
+    let unmarried = tree
+        .families
+        .values_mut()
+        .find(|f| f.partner1 == Some(taras))
+        .unwrap();
+    unmarried.kind = gt_core::model::UnionKind::Unmarried;
+    let (_d, mut s) = open_tree(&tree);
+    let m = s.chart_open(&request(&s, "Ivan Petrovych", 255)).unwrap();
+    let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+    let role_of = |name: &str| {
+        w.nodes
+            .iter()
+            .find(|n| n.person.as_ref().is_some_and(|p| p.name.starts_with(name)))
+            .and_then(|n| n.role)
+            .unwrap()
+    };
+    // Olena shares an imported family with Ivan, which counts as a marriage.
+    let olena = role_of("Olena");
+    assert_eq!(olena.kind, RoleKind::Partner);
+    assert!(olena.married);
+    // Oksana's union with Taras is recorded as unmarried.
+    let oksana = role_of("Oksana");
+    assert_eq!(oksana.kind, RoleKind::PartnerOfDescendant);
+    assert!(!oksana.married);
+    // Blood relatives never claim to be married.
+    assert!(!role_of("Taras").married);
+}

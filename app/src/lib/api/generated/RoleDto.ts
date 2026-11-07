@@ -8,4 +8,8 @@ import type { SexKind } from "./SexKind";
  * in a descendant outline (for `kin` and `partner_of_kin`: `n` generations up to the common ancestor and `k`
  * down from it), `sex` the sex of the person described.
  */
-export type RoleDto = { kind: RoleKind, n: number, half: boolean, sex: SexKind, k: number, };
+export type RoleDto = { kind: RoleKind, n: number, half: boolean, sex: SexKind, k: number, 
+/**
+ * Partner roles only: the union with the person this one sits beside is a marriage (husband / wife).
+ */
+married: boolean, };

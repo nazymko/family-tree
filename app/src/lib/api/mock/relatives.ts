@@ -224,6 +224,8 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
   const generations = Math.max(1, generationsIn);
   const nodes: N[] = [];
   const rels: Rel[] = [];
+  /** Node index -> whether the partner box sits in a marriage with the person it stands beside. */
+  const marriedNode = new Map<number, boolean>();
   const visited = new Map<Id, number>();
   const units: Unit[] = [];
   const pending: { at: number | null; children: Id[] }[][] = [];
@@ -256,6 +258,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
           if (nodes.length >= MAX_NODES) truncated = true;
           else {
             at = addNode(u.partner, row, { t: 'partner', of: partnerOf });
+            marriedNode.set(at, src.unions(key).some((x) => x.partner === u.partner && x.married === true));
             partners++;
           }
         }
@@ -593,6 +596,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     const rel = rels[n.id];
     n.relation = relationLabel(rel, n.person!.sex);
     n.role = relationRole(rel, n.person!.sex);
+    if (marriedNode.get(n.id)) n.role.married = true;
     const role = n.dupOf !== null ? `${n.relation}, appears earlier` : n.relation;
     n.label = `${n.person!.siblingMarker ? 'more brothers and sisters, not named' : `${n.person!.name}${n.person!.lifespan ? `, ${n.person!.lifespan}` : ''}`}, ${role}`;
   }

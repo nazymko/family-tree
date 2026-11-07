@@ -105,6 +105,11 @@ impl Kin<'_> {
         out
     }
 
+    /// Whether `a` and `b` are partners in a marriage (the rule behind every "husband" / "wife" wording).
+    pub fn married(&self, a: u32, b: u32) -> bool {
+        self.partners(a).iter().any(|(p, m)| *p == b && *m)
+    }
+
     /// Partners of `k` (slot, whether the union is a marriage).
     fn partners(&self, k: u32) -> Vec<(u32, bool)> {
         let mut out: Vec<(u32, bool)> = Vec::new();
