@@ -404,8 +404,10 @@
       // Several people: the first view holds all of them, at a readable zoom.
       const more = first.nodes.filter((n) => chosenMore.has(n.id));
       if (more.length > 1) {
-        const all = box(more, null);
-        // Far apart (unrelated people stand in separate groups): keep the first person's own view instead of a middle point
+        // The chosen people and their parents.
+        const parentIds = new Set(first.edges.filter((e) => e.kind === 'parent' && chosenMore.has(e.to)).map((e) => e.from));
+        const all = box([...more, ...first.nodes.filter((n) => parentIds.has(n.id) && !chosenMore.has(n.id))], null);
+        // Too wide for a readable zoom: keep the first person's own view (with its parents) instead of a middle point
         // where nobody is.
         const fits = !!all && 0.55 * Math.max(all.w + 64, 1) <= size.w && 0.55 * Math.max(all.h + 64, 1) <= size.h;
         if (all && fits) {

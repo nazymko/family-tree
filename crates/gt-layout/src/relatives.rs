@@ -701,6 +701,409 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
     }
 }
 
+/// The width of every unit and the contour of everything below it, bottom-up: children are always created after
+/// their owners.
+fn fill_contours(units: &mut [Unit], m: &Metrics) {
+    let gap = m.gap_x;
+    let uw = |u: &Unit| m.node_w * (1.0 + u.partners as f32) + m.couple_gap * u.partners as f32;
+    for i in (0..units.len()).rev() {
+        let w = uw(&units[i]);
+        let ch = units[i].children.clone();
+        let own = (-w / 2.0, w / 2.0);
+        if ch.is_empty() {
+            units[i].ctr = vec![own];
+            continue;
+        }
+        let (places, acc) = {
+            let items: Vec<&Contour> = ch.iter().map(|&c| &units[c].ctr).collect();
+            pack(&items, gap)
+        };
+        // The parent stands over the middle of its first and last child, or over the end nearest the
+        // centred person when the children hang away from it.
+        let (first, last) = (places[0], places[places.len() - 1]);
+        let mid = match units[i].lean {
+            l if l < 0 => last,
+            l if l > 0 => first,
+            _ => (first + last) / 2.0,
+        };
+        units[i].coff = places.iter().map(|p| p - mid).collect();
+        let mut ctr = vec![own];
+        ctr.extend(acc.iter().map(|&(lo, hi)| (lo - mid, hi - mid)));
+        units[i].ctr = ctr;
+    }
+}
+
+/// The partner links and the parent-to-child links of every unit, from the final box positions.
+fn unit_edges(nodes: &[Node], units: &[Unit], m: &Metrics) -> Vec<Edge> {
+    let mut edges = Vec::new();
+    for u in units {
+        for k in 1..=u.partners {
+            let to = u.person + k;
+            let a = nodes[(to - 1) as usize].rect;
+            let b = nodes[to as usize].rect;
+            edges.push(Edge {
+                from: to - 1,
+                to,
+                kind: EdgeKind::Partner,
+                pts: vec![a.right(), a.cy(), b.x, b.cy()],
+            });
+        }
+        for &c in &u.children {
+            let cu = &units[c];
+            let (sx, sy) = match cu.attach {
+                Some(pn) => {
+                    let a = nodes[(pn - 1) as usize].rect;
+                    let b = nodes[pn as usize].rect;
+                    ((a.right() + b.x) / 2.0, b.cy())
+                }
+                None => {
+                    let a = nodes[u.person as usize].rect;
+                    (a.cx(), a.bottom())
+                }
+            };
+            let t = nodes[cu.person as usize].rect;
+            let mid = nodes[u.person as usize].rect.bottom() + m.gap_y * 2.0;
+            edges.push(Edge {
+                from: u.person,
+                to: cu.person,
+                kind: EdgeKind::Parent,
+                pts: vec![sx, sy, sx, mid, t.cx(), mid, t.cx(), t.y],
+            });
+        }
+    }
+    edges
+}
+
+/// Left and right links along each row, by position.
+fn link_rows(nodes: &mut [Node]) {
+    for n in nodes.iter_mut() {
+        n.nav.prev = None;
+        n.nav.next = None;
+    }
+    let mut order: Vec<usize> = (0..nodes.len()).collect();
+    order.sort_by(|&a, &b| {
+        let (na, nb) = (&nodes[a], &nodes[b]);
+        na.rect
+            .y
+            .total_cmp(&nb.rect.y)
+            .then(na.rect.x.total_cmp(&nb.rect.x))
+            .then(a.cmp(&b))
+    });
+    for w in order.windows(2) {
+        if nodes[w[0]].rect.y == nodes[w[1]].rect.y {
+            nodes[w[0]].nav.next = Some(w[1] as u32);
+            nodes[w[1]].nav.prev = Some(w[0] as u32);
+        }
+    }
+}
+
+/// The chart built around several people: the chosen people side by side in one row, each with their partners and all
+/// their descendants below (packed so nothing overlaps, unrelated families side by side at the normal gap), and their
+/// ancestors above, one generation at a time. A couple stands side by side (one card and the partner gap) over the
+/// middle of the children it has on the chart: over its one child, or over the midpoint of several. A couple moves
+/// away from the middle of the row only as far as needed to clear the couples of its row. Everyone is placed once;
+/// a person reached by two lines stands where the first line put them and the second line gets a link to them.
+/// No brothers, sisters or other collateral relatives. `generations` is the number of rows above and below.
+pub fn around_many(
+    src: &dyn ChartSource,
+    chosen: &[Key],
+    generations: u8,
+    m: &Metrics,
+    max_nodes: usize,
+) -> Layout {
+    let g = generations.max(1);
+    let mut b = Builder {
+        src,
+        max_nodes: max_nodes.max(1),
+        rect: Rect {
+            x: 0.0,
+            y: 0.0,
+            w: m.node_w,
+            h: m.node_h,
+        },
+        nodes: Vec::new(),
+        visited: HashMap::new(),
+        units: Vec::new(),
+        pending: Vec::new(),
+        blocks: Vec::new(),
+        truncated: false,
+        siblings: false,
+        all: false,
+    };
+    // A chosen person who is an ancestor of another one goes first: the other one is then drawn as a descendant.
+    let mut ancestors: std::collections::HashSet<Key> = std::collections::HashSet::new();
+    for &c in chosen {
+        let mut seen: std::collections::HashSet<Key> = std::collections::HashSet::from([c]);
+        let mut todo = vec![c];
+        while let Some(p) = todo.pop() {
+            for q in src.parents(p).into_iter().flatten() {
+                if seen.insert(q) {
+                    ancestors.insert(q);
+                    todo.push(q);
+                }
+            }
+        }
+    }
+    let mut order: Vec<Key> = chosen
+        .iter()
+        .copied()
+        .filter(|k| ancestors.contains(k))
+        .collect();
+    order.extend(chosen.iter().copied().filter(|k| !ancestors.contains(k)));
+    let mut roots: Vec<usize> = Vec::new();
+    for key in order {
+        if b.visited.contains_key(&key) {
+            continue;
+        }
+        let Some(u) = b.make_unit(
+            key,
+            0,
+            Rel::Focus,
+            Some(Rel::Partner(PartnerOf::Focus)),
+            None,
+        ) else {
+            break;
+        };
+        b.expand(u, Tree::Focus(g));
+        roots.push(u);
+    }
+    if roots.is_empty() {
+        return Layout::finish(Vec::new(), Vec::new(), 0, b.truncated);
+    }
+    fill_contours(&mut b.units, m);
+    let gap = m.gap_x;
+    let nw = m.node_w;
+    let step_y = m.node_h + m.gap_y * 4.0;
+    let pstep = nw + m.couple_gap;
+    let uw = |u: &Unit| nw * (1.0 + u.partners as f32) + m.couple_gap * u.partners as f32;
+    // The chosen people's units side by side, then every descendant under its parent.
+    let (places, _) = {
+        let items: Vec<&Contour> = roots.iter().map(|&r| &b.units[r].ctr).collect();
+        pack(&items, gap)
+    };
+    for (&r, &x) in roots.iter().zip(&places) {
+        b.units[r].cx = x;
+    }
+    let root_nodes: Vec<u32> = roots
+        .iter()
+        .flat_map(|&r| b.units[r].person..=b.units[r].person + b.units[r].partners)
+        .collect();
+    for i in 0..b.units.len() {
+        let ch = b.units[i].children.clone();
+        let w = uw(&b.units[i]);
+        let x0 = b.units[i].cx - w / 2.0;
+        let y = b.units[i].row as f32 * step_y;
+        let p = b.units[i].person;
+        for k in 0..=b.units[i].partners {
+            let n = &mut b.nodes[(p + k) as usize];
+            n.rect.x = x0 + k as f32 * pstep;
+            n.rect.y = y;
+        }
+        for (k, &c) in ch.iter().enumerate() {
+            b.units[c].cx = b.units[i].cx + b.units[i].coff[k];
+        }
+    }
+
+    // The ancestors, a generation at a time. The frontier is the people whose parents come next, by centre.
+    let mut frontier: Vec<(u32, f32)> = Vec::new();
+    for &c in chosen {
+        if let Some(&node) = b.visited.get(&c)
+            && root_nodes.contains(&node)
+            && !frontier.iter().any(|f| f.0 == node)
+        {
+            let r = b.nodes[node as usize].rect;
+            frontier.push((node, r.x + r.w / 2.0));
+        }
+    }
+    let mut links: Vec<(u32, u32)> = Vec::new();
+    let mut couples: Vec<(u32, u32)> = Vec::new();
+    let mut row = 0i32;
+    while !frontier.is_empty() {
+        frontier.sort_by(|a, b| a.1.total_cmp(&b.1));
+        // Children with the same parents form one group.
+        let mut groups: Vec<([Option<Key>; 2], Vec<(u32, f32)>)> = Vec::new();
+        for &(node, cx) in &frontier {
+            let ps = src.parents(b.nodes[node as usize].key);
+            if ps.iter().all(Option::is_none) {
+                continue;
+            }
+            if row <= -i32::from(g) {
+                b.nodes[node as usize].more_up = true;
+                continue;
+            }
+            match groups.iter_mut().find(|grp| grp.0 == ps) {
+                Some(grp) => grp.1.push((node, cx)),
+                None => groups.push((ps, vec![(node, cx)])),
+            }
+        }
+        if groups.is_empty() {
+            break;
+        }
+        row -= 1;
+        let y = row as f32 * step_y;
+        struct Plan {
+            fresh: Vec<Key>,
+            c: f32,
+            w: f32,
+        }
+        let mut plans: Vec<Plan> = Vec::new();
+        for (ps, kids) in &groups {
+            let lo = kids.iter().map(|k| k.1).fold(f32::INFINITY, f32::min);
+            let hi = kids.iter().map(|k| k.1).fold(f32::NEG_INFINITY, f32::max);
+            let mut fresh: Vec<Key> = ps
+                .iter()
+                .flatten()
+                .copied()
+                .filter(|k| !b.visited.contains_key(k))
+                .collect();
+            if b.nodes.len() + fresh.len() > b.max_nodes {
+                b.truncated = true;
+                for k in kids {
+                    b.nodes[k.0 as usize].more_up = true;
+                }
+                fresh.clear();
+            }
+            let w = match fresh.len() {
+                0 => 0.0,
+                1 => nw,
+                _ => nw + pstep,
+            };
+            plans.push(Plan {
+                fresh,
+                c: (lo + hi) / 2.0,
+                w,
+            });
+        }
+        // Place from the middle of the row outward: the group nearest the middle where it wants to be, the next
+        // one outside it only as far as needed to clear it.
+        let targets: Vec<f32> = plans
+            .iter()
+            .filter(|p| !p.fresh.is_empty())
+            .map(|p| p.c)
+            .collect();
+        let mid = (targets.iter().copied().fold(f32::INFINITY, f32::min)
+            + targets.iter().copied().fold(f32::NEG_INFINITY, f32::max))
+            / 2.0;
+        let mut at: Vec<f32> = plans.iter().map(|p| p.c).collect();
+        let mut by_target: Vec<usize> = (0..plans.len())
+            .filter(|&i| !plans[i].fresh.is_empty())
+            .collect();
+        by_target.sort_by(|&a, &c| plans[a].c.total_cmp(&plans[c].c));
+        let (mut lf, mut rf) = (f32::INFINITY, f32::NEG_INFINITY);
+        let centre: Vec<usize> = by_target
+            .iter()
+            .copied()
+            .filter(|&i| (plans[i].c - mid).abs() < 0.5)
+            .collect();
+        for &i in &centre {
+            lf = lf.min(at[i] - plans[i].w / 2.0);
+            rf = rf.max(at[i] + plans[i].w / 2.0);
+        }
+        let left: Vec<usize> = by_target
+            .iter()
+            .rev()
+            .copied()
+            .filter(|&i| plans[i].c < mid - 0.5)
+            .collect();
+        for i in left {
+            let limit = (lf - gap).min(mid - gap / 2.0);
+            let hi = at[i] + plans[i].w / 2.0;
+            at[i] -= (hi - limit).max(0.0);
+            lf = lf.min(at[i] - plans[i].w / 2.0);
+        }
+        let right: Vec<usize> = by_target
+            .iter()
+            .copied()
+            .filter(|&i| plans[i].c > mid + 0.5)
+            .collect();
+        for i in right {
+            let limit = (rf + gap).max(mid + gap / 2.0);
+            let lo = at[i] - plans[i].w / 2.0;
+            at[i] += (limit - lo).max(0.0);
+            rf = rf.max(at[i] + plans[i].w / 2.0);
+        }
+        let mut next: Vec<(u32, f32)> = Vec::new();
+        for ((ps, kids), (plan, &c)) in groups.iter().zip(plans.iter().zip(&at)) {
+            let xs: Vec<f32> = if plan.fresh.len() == 2 {
+                vec![c - pstep / 2.0, c + pstep / 2.0]
+            } else {
+                vec![c]
+            };
+            for (&key, &cx) in plan.fresh.iter().zip(&xs) {
+                let id = b.nodes.len() as u32;
+                let rect = Rect {
+                    x: cx - nw / 2.0,
+                    y,
+                    w: nw,
+                    h: m.node_h,
+                };
+                let mut n = new_node(id, key, rect, row as i16);
+                n.rel = Some(Rel::Ancestor((-row) as u8));
+                b.nodes.push(n);
+                b.visited.insert(key, id);
+                next.push((id, cx));
+            }
+            if plan.fresh.len() == 2 {
+                let a = b.visited[&plan.fresh[0]];
+                couples.push((a, a + 1));
+            }
+            for p in ps.iter().flatten() {
+                if let Some(&pn) = b.visited.get(p) {
+                    for k in kids {
+                        links.push((pn, k.0));
+                    }
+                }
+            }
+        }
+        frontier = next;
+    }
+
+    let Builder {
+        mut nodes,
+        units,
+        truncated,
+        ..
+    } = b;
+    // Keep every coordinate non-negative: the canvas bounds start at the origin.
+    let min_x = nodes.iter().map(|n| n.rect.x).fold(f32::INFINITY, f32::min);
+    let min_y = nodes.iter().map(|n| n.rect.y).fold(f32::INFINITY, f32::min);
+    for n in &mut nodes {
+        n.rect.x -= min_x;
+        n.rect.y -= min_y;
+    }
+    let mut edges = unit_edges(&nodes, &units, m);
+    for &(a, b2) in &couples {
+        let (ra, rb) = (nodes[a as usize].rect, nodes[b2 as usize].rect);
+        edges.push(Edge {
+            from: a,
+            to: b2,
+            kind: EdgeKind::Partner,
+            pts: vec![ra.right(), ra.cy(), rb.x, rb.cy()],
+        });
+    }
+    for &(p, c) in &links {
+        let a = nodes[p as usize].rect;
+        let t = nodes[c as usize].rect;
+        let mid = a.bottom() + m.gap_y * 2.0;
+        edges.push(Edge {
+            from: p,
+            to: c,
+            kind: EdgeKind::Parent,
+            pts: vec![a.cx(), a.bottom(), a.cx(), mid, t.cx(), mid, t.cx(), t.y],
+        });
+        nodes[c as usize].nav.parent.get_or_insert(p);
+        nodes[p as usize].nav.child.get_or_insert(c);
+    }
+    for v in 0..nodes.len() {
+        if let Some(orig) = nodes[v].dup_of {
+            edges.push(dup_edge(&nodes, v as u32, orig, m.gap_x));
+        }
+    }
+    link_rows(&mut nodes);
+    let root = units[roots[0]].person;
+    Layout::finish(nodes, edges, root, truncated)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn lay_out(
     src: &dyn ChartSource,
@@ -782,31 +1185,7 @@ fn lay_out(
     // Widths, bottom-up: children and ancestor blocks are always created after their owners.
     let gap = m.gap_x;
     let uw = |u: &Unit| m.node_w * (1.0 + u.partners as f32) + m.couple_gap * u.partners as f32;
-    for i in (0..units.len()).rev() {
-        let w = uw(&units[i]);
-        let ch = units[i].children.clone();
-        let own = (-w / 2.0, w / 2.0);
-        if ch.is_empty() {
-            units[i].ctr = vec![own];
-            continue;
-        }
-        let (places, acc) = {
-            let items: Vec<&Contour> = ch.iter().map(|&c| &units[c].ctr).collect();
-            pack(&items, gap)
-        };
-        // The parent stands over the middle of its first and last child, or over the end nearest the
-        // centred person when the children hang away from it.
-        let (first, last) = (places[0], places[places.len() - 1]);
-        let mid = match units[i].lean {
-            l if l < 0 => last,
-            l if l > 0 => first,
-            _ => (first + last) / 2.0,
-        };
-        units[i].coff = places.iter().map(|p| p - mid).collect();
-        let mut ctr = vec![own];
-        ctr.extend(acc.iter().map(|&(lo, hi)| (lo - mid, hi - mid)));
-        units[i].ctr = ctr;
-    }
+    fill_contours(&mut units, m);
     if all {
         solve_all(&mut units, &mut blocks, m);
     }
@@ -942,42 +1321,7 @@ fn lay_out(
         n.rect.y -= min_y;
     }
 
-    let mut edges = Vec::new();
-    for u in &units {
-        for k in 1..=u.partners {
-            let to = u.person + k;
-            let a = nodes[(to - 1) as usize].rect;
-            let b = nodes[to as usize].rect;
-            edges.push(Edge {
-                from: to - 1,
-                to,
-                kind: EdgeKind::Partner,
-                pts: vec![a.right(), a.cy(), b.x, b.cy()],
-            });
-        }
-        for &c in &u.children {
-            let cu = &units[c];
-            let (sx, sy) = match cu.attach {
-                Some(pn) => {
-                    let a = nodes[(pn - 1) as usize].rect;
-                    let b = nodes[pn as usize].rect;
-                    ((a.right() + b.x) / 2.0, b.cy())
-                }
-                None => {
-                    let a = nodes[u.person as usize].rect;
-                    (a.cx(), a.bottom())
-                }
-            };
-            let t = nodes[cu.person as usize].rect;
-            let mid = nodes[u.person as usize].rect.bottom() + m.gap_y * 2.0;
-            edges.push(Edge {
-                from: u.person,
-                to: cu.person,
-                kind: EdgeKind::Parent,
-                pts: vec![sx, sy, sx, mid, t.cx(), mid, t.cx(), t.y],
-            });
-        }
-    }
+    let mut edges = unit_edges(&nodes, &units, m);
     // Parents to their group: one bar per family, drawn at its own height so a half sibling
     // does not look like a full one.
     // With cousins, the bar into the centred person's row runs below the cousin row, so a parent's
@@ -1054,24 +1398,6 @@ fn lay_out(
             n.child = child;
         }
     }
-    for n in &mut nodes {
-        n.nav.prev = None;
-        n.nav.next = None;
-    }
-    let mut order: Vec<usize> = (0..nodes.len()).collect();
-    order.sort_by(|&a, &b| {
-        let (na, nb) = (&nodes[a], &nodes[b]);
-        na.rect
-            .y
-            .total_cmp(&nb.rect.y)
-            .then(na.rect.x.total_cmp(&nb.rect.x))
-            .then(a.cmp(&b))
-    });
-    for w in order.windows(2) {
-        if nodes[w[0]].rect.y == nodes[w[1]].rect.y {
-            nodes[w[0]].nav.next = Some(w[1] as u32);
-            nodes[w[1]].nav.prev = Some(w[0] as u32);
-        }
-    }
+    link_rows(&mut nodes);
     Layout::finish(nodes, edges, 0, truncated)
 }

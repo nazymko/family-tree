@@ -655,31 +655,45 @@ impl Session {
         chosen: &[Uuid],
     ) -> Result<ChartMeta, ApiError> {
         let reversed = self.settings.tree_direction == TreeDirection::Reversed;
-        let generations = req.generations.clamp(1, u32::from(u8::MAX));
-        let (mut include, _) = self.selection_subset(chosen, true, generations);
-        for (k, s) in self.index.summaries.iter().enumerate() {
-            if s.sibling_marker
-                && let Some(on) = include.get_mut(k)
-            {
-                *on = false;
-            }
-        }
-        let mut input = self.whole_input();
-        input.include = Some(include);
-        let gt_layout::WholeLayout { mut layout, extras } =
-            gt_layout::whole_directed(&input, &Metrics::default(), reversed);
-        let chosen_nodes: Vec<u32> = chosen
+        let generations =
+            u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
+        let slots: Vec<u32> = chosen
             .iter()
             .filter_map(|id| self.index.slot(*id))
-            .filter_map(|k| extras.node_of(k))
+            .collect();
+        let src = TreeSource {
+            tree: &self.tree,
+            links: &self.links,
+            index: &self.index,
+        };
+        let mut layout = gt_layout::around_many(
+            &LineSource(&src),
+            &slots,
+            generations,
+            &Metrics::default(),
+            MAX_NODES,
+        );
+        if reversed {
+            layout.mirror(Axis::Vertical);
+        }
+        let chosen_nodes: Vec<u32> = slots
+            .iter()
+            .filter_map(|k| layout.nodes.iter().position(|n| n.key == *k))
+            .map(|i| i as u32)
             .collect();
         let Some(&first) = chosen_nodes.first() else {
             return Err(ApiError::not_found("person", req.root));
         };
         layout.root = first;
         let n = layout.nodes.len();
-        let up = depths(n, &chosen_nodes, |v| extras.parents_of(v));
-        let down = depths(n, &chosen_nodes, |v| extras.children_of(v));
+        let mut parents: Vec<Vec<u32>> = vec![Vec::new(); n];
+        let mut kids: Vec<Vec<u32>> = vec![Vec::new(); n];
+        for e in layout.edges.iter().filter(|e| e.kind == EdgeKind::Parent) {
+            parents[e.to as usize].push(e.from);
+            kids[e.from as usize].push(e.to);
+        }
+        let up = depths(n, &chosen_nodes, |v| &parents[v as usize]);
+        let down = depths(n, &chosen_nodes, |v| &kids[v as usize]);
         let (partners, partner_owner) = partner_maps(&layout);
         let mut rels: Vec<Option<Rel>> = (0..n)
             .map(|i| {
@@ -707,16 +721,18 @@ impl Session {
         for (node, rel) in layout.nodes.iter_mut().zip(rels) {
             node.rel = rel;
         }
-        let mut parents_of: HashMap<u32, Vec<u32>> = HashMap::new();
-        let mut kids_of: HashMap<u32, Vec<u32>> = HashMap::new();
-        for v in 0..n as u32 {
-            if !extras.parents_of(v).is_empty() {
-                parents_of.insert(v, extras.parents_of(v).to_vec());
-            }
-            if !extras.children_of(v).is_empty() {
-                kids_of.insert(v, extras.children_of(v).to_vec());
-            }
-        }
+        let parents_of: HashMap<u32, Vec<u32>> = parents
+            .into_iter()
+            .enumerate()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(i, v)| (i as u32, v))
+            .collect();
+        let kids_of: HashMap<u32, Vec<u32>> = kids
+            .into_iter()
+            .enumerate()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(i, v)| (i as u32, v))
+            .collect();
         let root_slot = self
             .index
             .slot(req.root)
@@ -733,7 +749,7 @@ impl Session {
             },
             node_count: u32::try_from(n).unwrap_or(u32::MAX),
             root_node: first,
-            truncated: false,
+            truncated: layout.truncated,
             version: charts.revision,
             chosen_nodes: Some(chosen_nodes.clone()),
         };

@@ -287,3 +287,150 @@ fn heavy_twenty_people_of_a_5000_person_tree_open_in_reasonable_time() {
     let outline = s.chart_outline(m.chart_id, None, 100).unwrap();
     assert_eq!(outline.len(), 20);
 }
+
+// ---- Geometry: parents adjacent and centred over the child, grandparents over the midpoint, nothing crossed ----
+
+const CARD: f32 = 176.0;
+const COUPLE_GAP: f32 = 8.0;
+const FAMILY_GAP: f32 = 40.0;
+const ROW: f32 = 114.0;
+
+/// Two families with nothing in common: Adam + Eva have Ben; Carl + Dora have Finn.
+const UNRELATED: &str = "\
+0 @I1@ INDI\n1 NAME Adam /Aaa/\n1 SEX M\n1 FAMS @F1@\n\
+0 @I2@ INDI\n1 NAME Eva /Eee/\n1 SEX F\n1 FAMS @F1@\n\
+0 @I3@ INDI\n1 NAME Ben /Aaa/\n1 SEX M\n1 FAMC @F1@\n\
+0 @I4@ INDI\n1 NAME Carl /Ccc/\n1 SEX M\n1 FAMS @F2@\n\
+0 @I5@ INDI\n1 NAME Dora /Ddd/\n1 SEX F\n1 FAMS @F2@\n\
+0 @I6@ INDI\n1 NAME Finn /Ccc/\n1 SEX M\n1 FAMC @F2@\n\
+0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n1 CHIL @I3@\n\
+0 @F2@ FAM\n1 HUSB @I4@\n1 WIFE @I5@\n1 CHIL @I6@\n";
+
+fn window(s: &Session, m: &ChartMeta) -> ChartWindow {
+    s.chart_window(m.chart_id, &everything(), 1.0).unwrap()
+}
+
+fn at<'a>(ns: &'a [ChartNode], name: &str) -> &'a ChartNode {
+    ns.iter()
+        .find(|n| n.person.as_ref().is_some_and(|p| p.name == name))
+        .unwrap_or_else(|| panic!("{name} is not on the chart"))
+}
+
+fn cx(n: &ChartNode) -> f32 {
+    n.x + n.w / 2.0
+}
+
+/// The father and the mother stand in the row above `child`, side by side (a card and the partner gap apart).
+/// Returns the middle of the couple.
+fn assert_couple_above(ns: &[ChartNode], father: &str, mother: &str, child: &ChartNode) -> f32 {
+    let (f, mo) = (at(ns, father), at(ns, mother));
+    assert!(
+        (f.y - (child.y - ROW)).abs() < 0.5,
+        "{father} is one row above"
+    );
+    assert!(
+        (mo.y - f.y).abs() < 0.5,
+        "{father} and {mother} share a row"
+    );
+    assert!(
+        (mo.x - f.x - (CARD + COUPLE_GAP)).abs() < 0.5,
+        "{father} and {mother} are a card and the partner gap apart: {} and {}",
+        f.x,
+        mo.x
+    );
+    (f.x + mo.x + mo.w) / 2.0
+}
+
+/// No connector passes through the inside of any card.
+fn assert_no_connector_crosses_a_card(w: &ChartWindow) {
+    for e in &w.edges {
+        for seg in e.pts.windows(4).step_by(2) {
+            let (x0, x1) = (seg[0].min(seg[2]), seg[0].max(seg[2]));
+            let (y0, y1) = (seg[1].min(seg[3]), seg[1].max(seg[3]));
+            for n in &w.nodes {
+                let inside = x1 > n.x + 0.5
+                    && x0 < n.x + n.w - 0.5
+                    && y1 > n.y + 0.5
+                    && y0 < n.y + n.h - 0.5;
+                assert!(
+                    !inside,
+                    "a connector {}->{} crosses card {}",
+                    e.from, e.to, n.id
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn cousins_parents_stand_adjacent_over_their_child_and_the_grandparents_over_the_midpoint() {
+    let (_d, mut s) = open_tree(&tree_of(KOVAL));
+    let m = s
+        .chart_open(&request(&s, &["Ivan", "Andriy"], 255, None))
+        .unwrap();
+    let w = window(&s, &m);
+    let ns = &w.nodes;
+    assert_no_overlaps(ns);
+    let (ivan, andriy) = (at(ns, "Ivan Koval"), at(ns, "Andriy Koval"));
+    // Each child's parents: adjacent, one row above, centred over the child.
+    let c1 = assert_couple_above(ns, "Petro Koval", "Olena Bondar", ivan);
+    let c2 = assert_couple_above(ns, "Stepan Koval", "Nina Moroz", andriy);
+    assert!(
+        (c1 - cx(ivan)).abs() < 1.0,
+        "Ivan's parents are centred over him"
+    );
+    assert!(
+        (c2 - cx(andriy)).abs() < 1.0,
+        "Andriy's parents are centred over him"
+    );
+    // The grandparents once, side by side, centred over the midpoint of the two lines.
+    let (petro, stepan) = (at(ns, "Petro Koval"), at(ns, "Stepan Koval"));
+    let c3 = assert_couple_above(ns, "Hryhorii Koval", "Halyna Koval", petro);
+    assert!((c3 - (cx(petro) + cx(stepan)) / 2.0).abs() < 1.0);
+    // A partner stands beside the chosen person.
+    assert!(at(ns, "Maria Shevchuk").x > ivan.x);
+    assert_no_connector_crosses_a_card(&w);
+}
+
+#[test]
+fn two_unrelated_people_sit_side_by_side_at_the_family_gap_each_under_their_own_couple() {
+    let (_d, mut s) = open_tree(&tree_of(UNRELATED));
+    let m = s
+        .chart_open(&request(&s, &["Ben", "Finn"], 255, None))
+        .unwrap();
+    let w = window(&s, &m);
+    let ns = &w.nodes;
+    assert_no_overlaps(ns);
+    let (ben, finn) = (at(ns, "Ben Aaa"), at(ns, "Finn Ccc"));
+    // The normal family gap between the two blocks, not a far-apart shelf.
+    assert!(
+        (finn.x - (ben.x + ben.w) - FAMILY_GAP).abs() < 0.5,
+        "gap between Ben and Finn is the family gap, not {}",
+        finn.x - (ben.x + ben.w)
+    );
+    // Each one's parents stand above as a couple; couples never overlap, so they part a little.
+    let c1 = assert_couple_above(ns, "Adam Aaa", "Eva Eee", ben);
+    let c2 = assert_couple_above(ns, "Carl Ccc", "Dora Ddd", finn);
+    assert!(
+        c1 < cx(ben) + 1.0 && c2 > cx(finn) - 1.0,
+        "the couples part, not cross"
+    );
+    let (eva, carl) = (at(ns, "Eva Eee"), at(ns, "Carl Ccc"));
+    assert!(carl.x - (eva.x + eva.w) >= FAMILY_GAP - 0.5);
+    assert_no_connector_crosses_a_card(&w);
+}
+
+#[test]
+fn a_chosen_couple_stays_adjacent_as_partners() {
+    let (_d, mut s) = open_tree(&tree_of(KOVAL));
+    let m = s
+        .chart_open(&request(&s, &["Maria", "Ivan"], 255, None))
+        .unwrap();
+    let ns = nodes(&s, &m);
+    let (ivan, maria) = (at(&ns, "Ivan Koval"), at(&ns, "Maria Shevchuk"));
+    assert!((ivan.y - maria.y).abs() < 0.5);
+    assert!(((maria.x - ivan.x).abs() - (CARD + COUPLE_GAP)).abs() < 0.5);
+    assert_eq!(m.chosen_nodes.as_ref().unwrap().len(), 2);
+    // Ivan's parents are above him all the same.
+    assert_couple_above(&ns, "Petro Koval", "Olena Bondar", ivan);
+}

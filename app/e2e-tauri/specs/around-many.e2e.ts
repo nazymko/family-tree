@@ -7,7 +7,7 @@
  * Synthetic data only.
  */
 import { expect } from '@wdio/globals';
-import { $, browser, importSynthetic, meta, openTreeFromReport, ready, shot } from './helpers';
+import { $, browser, importSynthetic, openTreeFromReport, ready, shot } from './helpers';
 
 const SHIFT = '';
 
@@ -67,11 +67,43 @@ async function shiftClickCentre() {
   await browser.releaseActions();
 }
 
-function names(): { first: string; second: string } {
-  const first = meta().home.name;
-  const other = Object.values(meta().scripts).find((p) => `${p.given} ${p.surname}` !== first);
-  if (!other) throw new Error('the synthetic tree has no second named person');
-  return { first, second: `${other.given} ${other.surname}` };
+/**
+ * Two people of the synthetic tree who both have a father and a mother, standing near each other on the whole tree
+ * (found in the backend's chart of everybody; names that appear once).
+ */
+async function pickPair(): Promise<{ first: string; second: string }> {
+  await browser.execute(() => {
+    delete (window as unknown as { __gtPair?: unknown }).__gtPair;
+    type Inv = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+    const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Inv } }).__TAURI_INTERNALS__.invoke;
+    const big = { x: -1e7, y: -1e7, w: 2e7, h: 2e7 };
+    const fail = (e: unknown) => ((window as unknown as { __gtPair?: unknown }).__gtPair = { error: String(e) });
+    void (async () => {
+      const whole = (await invoke('chart_open_whole')) as { meta: { chartId: number } };
+      const w = (await invoke('chart_window', { chartId: whole.meta.chartId, rect: big, zoom: 1 })) as {
+        nodes: { id: number; x: number; y: number; person?: { id: string; name: string } }[];
+      };
+      const count = new Map<string, number>();
+      for (const n of w.nodes) if (n.person) count.set(n.person.name, (count.get(n.person.name) ?? 0) + 1);
+      const people = w.nodes.filter((n) => n.person && count.get(n.person.name) === 1);
+      const found: { name: string; dad: string }[] = [];
+      for (const n of people.slice(Math.floor(people.length / 3))) {
+        if (found.length === 2) break;
+        const m = (await invoke('chart_open', { req: { kind: 'around', root: n.person!.id, generations: 2, kin: 'line' } })) as { chartId: number; rootNode: number };
+        const c = (await invoke('chart_window', { chartId: m.chartId, rect: big, zoom: 1 })) as {
+          nodes: { id: number; person?: { name: string } }[];
+          edges: { from: number; to: number; kind: string }[];
+        };
+        const ps = c.edges.filter((e) => e.kind === 'parent' && e.to === m.rootNode).map((e) => c.nodes.find((x) => x.id === e.from)?.person?.name ?? '');
+        if (ps.length === 2 && found.every((f) => f.dad !== ps[0])) found.push({ name: n.person!.name, dad: ps[0] });
+      }
+      (window as unknown as { __gtPair?: unknown }).__gtPair = { first: found[0].name, second: found[1].name };
+    })().catch(fail);
+  });
+  await browser.waitUntil(() => browser.execute(() => !!(window as unknown as { __gtPair?: unknown }).__gtPair), { timeout: 30000 });
+  const got = await browser.execute(() => (window as unknown as { __gtPair: { first: string; second: string; error?: string } }).__gtPair);
+  if (got.error) throw new Error(got.error);
+  return got;
 }
 
 /** Marks the two people on the whole tree: Space on the first, Shift+click on the second. */
@@ -98,7 +130,13 @@ async function markBoth(findLabel: string, first: string, second: string) {
 }
 
 /** The names of the cards the around chart draws, read from the backend for the same two people. */
-async function cardNames(first: string, second: string): Promise<{ chosen: number; names: string[] }> {
+type Layout = {
+  chosen: number[];
+  nodes: { id: number; name: string; x: number; y: number; w: number }[];
+  parents: { from: number; to: number }[];
+};
+
+async function cardNames(first: string, second: string): Promise<Layout> {
   await browser.execute((a: string, b: string) => {
     delete (window as unknown as { __gtMany?: unknown }).__gtMany;
     type Inv = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -110,12 +148,43 @@ async function cardNames(first: string, second: string): Promise<{ chosen: numbe
       const id = (n: string) => all.nodes.find((x) => x.person?.name === n)!.person!.id;
       const roots = [id(a), id(b)];
       const m = (await invoke('chart_open', { req: { kind: 'around', root: roots[0], generations: 255, kin: 'line', roots } })) as { chartId: number; chosenNodes?: number[] };
-      const w = (await invoke('chart_window', { chartId: m.chartId, rect: big, zoom: 1 })) as { nodes: { person?: { name: string } }[] };
-      (window as unknown as { __gtMany?: unknown }).__gtMany = { chosen: m.chosenNodes?.length ?? 0, names: w.nodes.filter((n) => n.person).map((n) => n.person!.name) };
+      const w = (await invoke('chart_window', { chartId: m.chartId, rect: big, zoom: 1 })) as {
+        nodes: { id: number; x: number; y: number; w: number; person?: { name: string } }[];
+        edges: { from: number; to: number; kind: string }[];
+      };
+      (window as unknown as { __gtMany?: unknown }).__gtMany = {
+        chosen: m.chosenNodes ?? [],
+        nodes: w.nodes.filter((n) => n.person).map((n) => ({ id: n.id, name: n.person!.name, x: n.x, y: n.y, w: n.w })),
+        parents: w.edges.filter((e) => e.kind === 'parent').map((e) => ({ from: e.from, to: e.to })),
+      };
     })();
   }, first, second);
   await browser.waitUntil(() => browser.execute(() => !!(window as unknown as { __gtMany?: unknown }).__gtMany), { timeout: 30000 });
-  return browser.execute(() => (window as unknown as { __gtMany: { chosen: number; names: string[] } }).__gtMany);
+  return browser.execute(() => (window as unknown as { __gtMany: Layout }).__gtMany);
+}
+
+/**
+ * Each chosen person's father and mother stand in the row above, side by side (a card and the partner gap apart), over
+ * the person: exactly centred, or moved sideways by at most what clearing the neighbouring couple takes.
+ */
+function expectParentsAbove(l: Layout) {
+  const card = 176;
+  const pstep = card + 8;
+  const row = 114;
+  const slack = (2 * card + 8 + 40 - card) / 2 + 1;
+  let couples = 0;
+  for (const id of l.chosen) {
+    const me = l.nodes.find((n) => n.id === id)!;
+    const ps = l.parents.filter((e) => e.to === id).map((e) => l.nodes.find((n) => n.id === e.from)!);
+    if (ps.length < 2) continue;
+    couples++;
+    const [a, b] = ps.sort((p, q) => p.x - q.x);
+    expect(Math.abs(a.y - (me.y - row))).toBeLessThan(1);
+    expect(Math.abs(b.y - a.y)).toBeLessThan(1);
+    expect(Math.abs(b.x - a.x - pstep)).toBeLessThan(1);
+    expect(Math.abs((a.x + b.x + card) / 2 - (me.x + card / 2))).toBeLessThan(slack);
+  }
+  expect(couples).toBeGreaterThan(0);
 }
 
 /** Both names are rows at the top level of the outline. */
@@ -133,6 +202,8 @@ async function expectTopRows(first: string, second: string) {
   expect(rows.some((r) => r.includes(second))).toBe(true);
 }
 
+let pair = { first: '', second: '' };
+
 describe('The screen built around several people', () => {
   before(async () => {
     await ready();
@@ -145,10 +216,11 @@ describe('The screen built around several people', () => {
   });
 
   it('builds one chart around two marked people, lists both in the outline and goes back', async () => {
-    const { first, second } = names();
     await importSynthetic('Around many');
     await openTreeFromReport();
     await toWholeTree('Whole tree', 'Whole tree');
+    pair = await pickPair();
+    const { first, second } = pair;
     await markBoth('Find a person…', first, second);
     await expect($('[data-testid="marked-count"]')).toHaveText('2 people selected');
     await $('//button[normalize-space(.)="Build around these people (2)"]').waitForDisplayed();
@@ -160,9 +232,11 @@ describe('The screen built around several people', () => {
 
     // Both cards are in the chart, and the wider kin choices are shown but cannot be picked.
     const cards = await cardNames(first, second);
-    expect(cards.chosen).toBe(2);
-    expect(cards.names).toContain(first);
-    expect(cards.names).toContain(second);
+    expect(cards.chosen.length).toBe(2);
+    const onChart = cards.nodes.map((n) => n.name);
+    expect(onChart).toContain(first);
+    expect(onChart).toContain(second);
+    expectParentsAbove(cards);
     await expect($('//label[normalize-space(.)="Line only"]//input')).toBeSelected();
     await expect($('//label[normalize-space(.)="All relatives"]//input')).toBeDisabled();
     await shot('around-many-en.png');
@@ -179,7 +253,7 @@ describe('The screen built around several people', () => {
   });
 
   it('shows the same screen in Ukrainian', async () => {
-    const { first, second } = names();
+    const { first, second } = pair;
     await $('//nav//a[normalize-space(.)="Settings"]').click();
     await choose('Language', 'uk');
     await $('h1=Налаштування').waitForDisplayed({ timeout: 20000 });
