@@ -50,7 +50,7 @@ async function aroundCards(name: string, siblings = false): Promise<Card[]> {
       const whole = (await invoke('chart_open_whole')) as { meta: { chartId: number } };
       const all = (await invoke('chart_window', { chartId: whole.meta.chartId, rect: big, zoom: 1 })) as { nodes: { person?: { id: string; name: string } }[] };
       const root = all.nodes.find((n) => n.person?.name === who)!.person!.id;
-      const m = (await invoke('chart_open', { req: { kind: 'around', root, generations: 255, siblings: sibs } })) as { chartId: number; rootNode: number };
+      const m = (await invoke('chart_open', { req: { kind: 'around', root, generations: 255, kin: sibs ? 'siblings' : 'line' } })) as { chartId: number; rootNode: number };
       const w = (await invoke('chart_window', { chartId: m.chartId, rect: big, zoom: 1 })) as { nodes: { id: number; y: number; relation?: string; person?: { name: string } }[] };
       (window as unknown as { __gtAround?: Card[] }).__gtAround = w.nodes
         .filter((n) => n.person)
@@ -104,7 +104,7 @@ describe('A tree built around one person', () => {
     await $('//label[contains(normalize-space(.),"Brothers and sisters")]').click();
     await browser.pause(1500);
     await shot('arrange-siblings-en.png');
-    await $('//label[contains(normalize-space(.),"Brothers and sisters")]').click();
+    await $('//label[contains(normalize-space(.),"Line only")]').click();
     await browser.pause(800);
 
     // Back to the whole tree.

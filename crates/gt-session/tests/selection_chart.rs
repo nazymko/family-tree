@@ -278,7 +278,7 @@ fn the_chart_of_everyone_is_not_touched_by_a_selection_chart() {
             root: taras,
             generations: 3,
             aunts_uncles: None,
-            siblings: None,
+            kin: None,
         })
         .unwrap();
     }

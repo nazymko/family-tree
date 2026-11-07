@@ -46,7 +46,7 @@ fn request(s: &Session, given: &str, generations: u32) -> ChartRequest {
         root: find(s.tree(), given),
         generations,
         aunts_uncles: None,
-        siblings: None,
+        kin: None,
     }
 }
 
@@ -104,7 +104,7 @@ fn only_the_line_is_shown_ancestors_above_and_descendants_below() {
 fn the_brothers_and_sisters_option_adds_them_and_their_children_only() {
     let (_d, mut s) = open_tree(&tree_of(KOVAL));
     let mut req = request(&s, "Ivan Petrovych", 255);
-    req.siblings = Some(true);
+    req.kin = Some(AroundKin::Siblings);
     let m = s.chart_open(&req).unwrap();
     let v = shown(&s, &m);
     let names: Vec<&str> = v.iter().map(|(n, _)| n.as_str()).collect();

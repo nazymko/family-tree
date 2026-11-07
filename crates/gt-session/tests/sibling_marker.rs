@@ -373,7 +373,7 @@ fn marker_is_not_a_chart_root_family_view_or_person() {
                 root: m,
                 generations: 3,
                 aunts_uncles: None,
-                siblings: None,
+                kin: None,
             })
             .unwrap_err();
         assert_eq!(err.code, ErrorCode::NotFound);

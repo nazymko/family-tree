@@ -88,6 +88,11 @@ pub enum PartnerOf {
     AuntUncle,
     /// A descendant of the focus person, this many generations down.
     Descendant(u8),
+    /// A partner of a more distant relative (see [`Rel::Kin`]).
+    Kin {
+        up: u8,
+        down: u8,
+    },
 }
 
 /// How a person on the relatives chart is related to the centred person.
@@ -109,6 +114,12 @@ pub enum Rel {
     NieceNephew,
     /// A child of a parent's brother or sister.
     Cousin,
+    /// Any other blood relative on the chart with all relatives: `up` generations from the centred person
+    /// to the nearest common ancestor, then `down` generations from that ancestor to this person.
+    Kin {
+        up: u8,
+        down: u8,
+    },
     Partner(PartnerOf),
 }
 

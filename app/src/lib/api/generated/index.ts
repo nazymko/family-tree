@@ -4,6 +4,7 @@ export * from './AiPerson';
 export * from './AiReadResult';
 export * from './AiRelation';
 export * from './ApiError';
+export * from './AroundKin';
 export * from './AttachFailure';
 export * from './AttachResult';
 export * from './BatchDto';

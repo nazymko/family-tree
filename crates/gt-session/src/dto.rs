@@ -402,8 +402,12 @@ pub struct DatePreview {
 
 wire_enum!(RoleKind, "snake_case", {
     SelfPerson, Focus, Ancestor, Descendant, Sibling, AuntUncle, NieceNephew, Cousin, Partner,
-    PartnerOfSibling, PartnerOfAuntUncle, PartnerOfDescendant, AncestorNo, DescendantNo, Generation
+    PartnerOfSibling, PartnerOfAuntUncle, PartnerOfDescendant, AncestorNo, DescendantNo, Generation,
+    Kin, PartnerOfKin
 });
+// What the chart built around a person shows besides their own line: nothing, their brothers and sisters, or
+// all relatives (the brothers and sisters of every ancestor too, with all their descendants).
+wire_enum!(AroundKin, "lowercase", { Line, Siblings, All });
 wire_enum!(OutlineGroupKind, "snake_case", { Parents, Siblings, Partners, Children, AuntsUncles });
 wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants, Relatives, Around, Whole });
 wire_enum!(EdgeKindDto, "lowercase", { Parent, Partner, Dup });
@@ -418,10 +422,10 @@ pub struct ChartRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub aunts_uncles: Option<bool>,
-    /// Chart built around a person only: also show their brothers and sisters and those families (default off).
+    /// Chart built around a person only: who is shown besides the line (default `line`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub siblings: Option<bool>,
+    pub kin: Option<AroundKin>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
@@ -523,7 +527,8 @@ pub struct Kinship {
 
 /// What a chart person is: how they are related, or which generation / ancestor number they are.
 /// `n` is the number of generations (or the ancestor or generation number), `k` the position among children
-/// in a descendant outline, `sex` the sex of the person described.
+/// in a descendant outline (for `kin` and `partner_of_kin`: `n` generations up to the common ancestor and `k`
+/// down from it), `sex` the sex of the person described.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct RoleDto {
     pub kind: RoleKind,

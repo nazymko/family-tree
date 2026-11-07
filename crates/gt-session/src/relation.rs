@@ -36,7 +36,13 @@ pub fn relation_role(rel: Rel, sex: SexKind) -> RoleDto {
         Rel::AuntUncle { half } => (r.kind, r.half) = (RoleKind::AuntUncle, half),
         Rel::NieceNephew => r.kind = RoleKind::NieceNephew,
         Rel::Cousin => r.kind = RoleKind::Cousin,
+        Rel::Kin { up, down } => {
+            (r.kind, r.n, r.k) = (RoleKind::Kin, i32::from(up), u32::from(down));
+        }
         Rel::Partner(of) => match of {
+            PartnerOf::Kin { up, down } => {
+                (r.kind, r.n, r.k) = (RoleKind::PartnerOfKin, i32::from(up), u32::from(down));
+            }
             PartnerOf::Focus => r.kind = RoleKind::Partner,
             PartnerOf::Sibling => r.kind = RoleKind::PartnerOfSibling,
             PartnerOf::AuntUncle => r.kind = RoleKind::PartnerOfAuntUncle,
@@ -46,6 +52,41 @@ pub fn relation_role(rel: Rel, sex: SexKind) -> RoleDto {
         },
     }
     r
+}
+
+/// English words for the blood relative `up` generations above the common ancestor and `down` below it
+/// (the screens word it themselves from the role data; this is the plain text fallback).
+fn kin_label(up: u8, down: u8, sex: SexKind) -> String {
+    let (min, diff) = (up.min(down), i32::from(up) - i32::from(down));
+    if min == 1 {
+        // A line of brothers and sisters of ancestors, or children of brothers and sisters.
+        return if up > down {
+            let w = pick(sex, "uncle", "aunt", "aunt or uncle");
+            match up {
+                2 => w,
+                3 => format!("great-{w}"),
+                n => format!("{}x great-{w}", n - 2),
+            }
+        } else {
+            let w = pick(sex, "nephew", "niece", "nephew or niece");
+            match down {
+                2 => w,
+                3 => format!("grand{w}"),
+                n => format!("{}x great-grand{w}", n - 3),
+            }
+        };
+    }
+    let degree = match min - 1 {
+        1 => "first".to_string(),
+        2 => "second".to_string(),
+        3 => "third".to_string(),
+        n => format!("{n}th"),
+    };
+    let w = pick(sex, "cousin", "cousin", "cousin");
+    match diff {
+        0 => format!("{degree} {w}"),
+        d => format!("{degree} {w}, {} removed", d.abs()),
+    }
 }
 
 /// The label for `rel`. `sex` is the sex of the person being labelled.
@@ -64,7 +105,9 @@ pub fn relation_label(rel: Rel, sex: SexKind) -> String {
         }
         Rel::NieceNephew => pick(sex, "nephew", "niece", "nephew or niece"),
         Rel::Cousin => "cousin".to_string(),
+        Rel::Kin { up, down } => kin_label(up, down, sex),
         Rel::Partner(of) => match of {
+            PartnerOf::Kin { .. } => "relative by marriage".to_string(),
             PartnerOf::Focus => "partner".to_string(),
             PartnerOf::Sibling => pick(sex, "brother-in-law", "sister-in-law", "in-law"),
             PartnerOf::AuntUncle => pick(sex, "uncle by marriage", "aunt by marriage", "in-law"),
@@ -114,6 +157,21 @@ mod tests {
         assert_eq!(relation_label(Rel::NieceNephew, Male), "nephew");
         assert_eq!(relation_label(Rel::NieceNephew, Unknown), "nephew or niece");
         assert_eq!(relation_label(Rel::Cousin, Female), "cousin");
+    }
+
+    #[test]
+    fn distant_relatives_by_generations_up_and_down() {
+        let k = |up, down, x| relation_label(Rel::Kin { up, down }, x);
+        assert_eq!(k(3, 1, Male), "great-uncle");
+        assert_eq!(k(4, 1, Female), "2x great-aunt");
+        assert_eq!(k(1, 3, Female), "grandniece");
+        assert_eq!(k(2, 2, Female), "first cousin");
+        assert_eq!(k(3, 3, Male), "second cousin");
+        assert_eq!(k(3, 2, Male), "first cousin, 1 removed");
+        let r = relation_role(Rel::Kin { up: 3, down: 2 }, Male);
+        assert_eq!((r.kind, r.n, r.k), (RoleKind::Kin, 3, 2));
+        let p = relation_role(Rel::Partner(PartnerOf::Kin { up: 2, down: 2 }), Female);
+        assert_eq!((p.kind, p.n, p.k), (RoleKind::PartnerOfKin, 2, 2));
     }
 
     #[test]
