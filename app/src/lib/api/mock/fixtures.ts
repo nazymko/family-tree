@@ -191,9 +191,12 @@ export function fixtureTree(n: number, seed = 1): Fixture {
       changed: 1_700_000_000_000 + tick++ * 60_000,
     };
     if (o.sex === 'female' && o.year < 1990 && rng() < 0.3) {
+      // Every other one goes by the married surname (shown with the birth surname under it); no random draw, so the rest of the tree stays as it was.
+      const byMarried = persons.length % 2 === 0;
       rec.names.push(
-        makeName(ids.next(), { kind: 'married', preferred: false, private: false, given, surnames: [pick(rng, SURNAMES)] }),
+        makeName(ids.next(), { kind: 'married', preferred: byMarried, private: false, given, surnames: [pick(rng, SURNAMES)] }),
       );
+      if (byMarried) rec.names[0].preferred = false;
     }
     if (rng() < 0.06) {
       const mid = ids.next();

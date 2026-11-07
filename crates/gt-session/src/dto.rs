@@ -68,6 +68,11 @@ pub struct PersonRef {
     pub sex: SexKind,
     pub living: bool,
     pub private: bool,
+    /// The surname of the birth name, only when it differs from the surname the person is shown under
+    /// (see `names::birth_surname_shown`). Absent for hidden or replaced names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub birth_surname: Option<String>,
     /// The "more brothers and sisters, unnamed" entry: it has no name or dates and the app draws
     /// its label.
     pub sibling_marker: bool,

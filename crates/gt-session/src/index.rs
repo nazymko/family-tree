@@ -283,6 +283,8 @@ pub struct PersonSummary {
     pub surname: String,
     pub given: String,
     pub lifespan: String,
+    /// See `names::birth_surname_shown`.
+    pub birth_surname: Option<String>,
     pub birth: String,
     pub death: String,
     pub birth_sort: Option<i32>,
@@ -308,6 +310,7 @@ impl PersonSummary {
             sex: self.sex,
             living: self.living,
             private: self.private,
+            birth_surname: self.birth_surname.clone(),
             sibling_marker: self.sibling_marker,
         }
     }
@@ -404,6 +407,11 @@ fn summarize(
         surname,
         given,
         lifespan,
+        birth_surname: if p.sibling_marker {
+            None
+        } else {
+            crate::names::birth_surname_shown(p)
+        },
         birth: birth
             .and_then(|e| e.date.as_ref())
             .map(|d| d.display())

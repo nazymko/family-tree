@@ -19,6 +19,7 @@
   import { flipMove, snapshotRects } from './flip';
   import { agentChanges } from '../state/agentChanges.svelte';
   import { t, type MessageKey } from '../i18n';
+  import { birthSurnameText } from '../ui/birthSurname';
 
   let { onQuickAdd }: { onQuickAdd?: (relation: AddRelation, opts?: { newParentSet?: boolean; parentRel?: ParentRelId }) => void } = $props();
 
@@ -242,6 +243,7 @@
             <PersonCard
               name={p.name}
               lifespan={p.lifespan}
+              birthSurname={p.birthSurname}
               sex={p.sex}
               living={p.living}
               isPrivate={p.private}
@@ -273,6 +275,7 @@
                   <PersonCard
                     name={p.name}
                     lifespan={p.lifespan}
+                    birthSurname={p.birthSurname}
                     sex={p.sex}
                     living={p.living}
                     isPrivate={p.private}
@@ -294,6 +297,7 @@
     <div class="mid" class:solo={mode === 'tree'}>
       <IndexCard as="section" ribbon={focus.id === homeId} flipKey={focus.id}>
         <h1 class="fname"><bdi dir="auto">{focus.name}</bdi></h1>
+        {#if birthSurnameText(focus)}<p class="fmaiden">{birthSurnameText(focus)}</p>{/if}
         <p class="flife tnum">
           {#if focus.living}<span class="living"><span class="dot" aria-hidden="true"></span>{t('common.living')}</span>{/if}
           {#if focus.lifespan}<span>{focus.lifespan}</span>{/if}
@@ -339,6 +343,7 @@
                 <PersonCard
                   name={union.partner.name}
                   lifespan={union.partner.lifespan}
+                  birthSurname={union.partner.birthSurname}
                   sex={union.partner.sex}
                   living={union.partner.living}
                   isPrivate={union.partner.private}
@@ -372,6 +377,7 @@
               <PersonCard
                 name={c.person.name}
                 lifespan={c.person.lifespan}
+                birthSurname={c.person.birthSurname}
                 sex={c.person.sex}
                 living={c.person.living}
                 isPrivate={c.person.private}
@@ -401,6 +407,7 @@
               <PersonCard
                 name={s.name}
                 lifespan={s.lifespan}
+                birthSurname={s.birthSurname}
                 sex={s.sex}
                 living={s.living}
                 isPrivate={s.private}
@@ -514,6 +521,7 @@
     padding-inline-end: var(--s-8);
     overflow-wrap: anywhere;
   }
+  .fmaiden,
   .flife,
   .fsum {
     line-height: var(--rule-step);

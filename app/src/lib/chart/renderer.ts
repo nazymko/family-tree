@@ -2,6 +2,7 @@ import type { ChartEdge, ChartKind, ChartNode, ChartWindow } from '../api/types'
 import type { Camera } from './camera';
 import { HANDLE_R, handleSpots } from './hit';
 import { t } from '../i18n';
+import { birthSurnameText } from '../ui/birthSurname';
 import { relationText } from '../i18n/relation';
 import { kinshipText } from '../family/kinship';
 
@@ -102,6 +103,14 @@ export function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): 
  * two lines at a word break. With dates, the middle words (a patronymic or middle name) are dropped before cutting
  * with "…", so "Given Patronymic Surname" reads "Given Surname".
  */
+/**
+ * Baselines (from the card's top) of the text rows. A card is tall enough for three rows: name, the surname at birth, then dates and
+ * relationship. Without a birth surname the rows keep two-row spacing, centred in the same card.
+ */
+export function cardRows(maiden: boolean): { name: number; maiden: number; sub: number; step: number } {
+  return maiden ? { name: 21, maiden: 37, sub: 53, step: 18 } : { name: 28, maiden: 0, sub: 48, step: 18 };
+}
+
 export function nameLines(measure: (s: string) => number, name: string, maxW: number, hasSub: boolean): string[] {
   const cut = (t: string) => {
     if (measure(t) <= maxW) return t;
@@ -300,9 +309,15 @@ export function draw(
       const sub = isDup ? t('role.shownElsewhere') : (n.person?.lifespan ?? '');
       // How this person is related to the centred one, at the right of the second line.
       const rel = isDup || n.id === focus ? '' : kind === 'relatives' || kind === 'around' ? relationText(n) : kinshipText(n.kinship);
-      const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '' || rel !== '');
-      lines.forEach((line, i) => ctx.fillText(line, left, n.y + 23 + i * 18));
+      const maiden = birthSurnameText(n.person);
+      const rows = cardRows(maiden !== '');
+      const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '' || rel !== '' || maiden !== '');
+      lines.forEach((line, i) => ctx.fillText(line, left, n.y + rows.name + i * rows.step));
       ctx.fillStyle = theme.ink2;
+      if (maiden) {
+        ctx.font = `11px ${theme.font}`;
+        ctx.fillText(fit(ctx, maiden, n.x + n.w - 10 - left), left, n.y + rows.maiden);
+      }
       ctx.font = `11px ${theme.font}`;
       let relW = 0;
       if (rel) {
@@ -310,11 +325,11 @@ export function draw(
         const text = fit(ctx, rel, n.w * 0.5);
         relW = ctx.measureText(text).width + 8;
         ctx.textAlign = 'right';
-        ctx.fillText(text, n.x + n.w - 8, n.y + 43);
+        ctx.fillText(text, n.x + n.w - 8, n.y + rows.sub);
         ctx.textAlign = 'left';
         ctx.font = `11px ${theme.font}`;
       }
-      if (sub) ctx.fillText(fit(ctx, sub, n.w - 20 - relW), n.x + 10, n.y + 43);
+      if (sub) ctx.fillText(fit(ctx, sub, n.w - 20 - relW), n.x + 10, n.y + rows.sub);
       if (n.ahnen !== null) {
         ctx.font = `10px ${theme.font}`;
         ctx.textAlign = 'right';

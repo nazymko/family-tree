@@ -13,7 +13,7 @@ function node(id: number, over: Partial<ChartNode> = {}): ChartNode {
     x: id * 216,
     y: 0,
     w: 176,
-    h: 56,
+    h: 66,
     gen: id,
     ahnen: id + 1,
     dupOf: null,
@@ -41,6 +41,20 @@ describe('renderer', () => {
     const ctx = makeFakeContext();
     draw(ctx, win, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });
     expect(ops(ctx, 'fillText').length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('draws_the_birth_surname_as_a_third_line_under_the_name_only_when_there_is_one', () => {
+    const withMaiden = node(0, { person: { ...node(0).person!, name: 'Olena Koval', sex: 'female', birthSurname: 'Bondar' } });
+    const ctx = makeFakeContext();
+    draw(ctx, { nodes: [withMaiden], edges: [] }, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });
+    const rows = ops(ctx, 'fillText').map((c) => [c.args[0], c.args[2]]);
+    const y = (text: string) => rows.find((r) => r[0] === text)?.[1] as number;
+    expect(y('née Bondar')).toBeGreaterThan(y('Olena Koval'));
+    expect(y('1850-1900')).toBeGreaterThan(y('née Bondar'));
+    expect(y('1850-1900')).toBeLessThan(withMaiden.h);
+    const plain = makeFakeContext();
+    draw(plain, { nodes: [node(0)], edges: [] }, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });
+    expect(ops(plain, 'fillText').map((c) => String(c.args[0])).some((s) => s.includes('née'))).toBe(false);
   });
 
   it('draws_how_each_person_is_related_to_the_starting_person', () => {

@@ -63,8 +63,11 @@ async function proveAudioPlays() {
       new Promise<{ ok: boolean; err: string }>((done) => {
         const a = document.querySelector('audio')!;
         a.muted = true;
+        // Under load (the gate running beside the windows) the clock can take well over 500 ms to start moving.
+        const until = Date.now() + 10000;
+        const check = () => (a.currentTime > 0 ? done({ ok: true, err: '' }) : Date.now() > until ? done({ ok: false, err: '' }) : setTimeout(check, 100));
         a.play()
-          .then(() => setTimeout(() => done({ ok: a.currentTime > 0, err: '' }), 500))
+          .then(check)
           .catch((e: unknown) => done({ ok: false, err: String(e) }));
       }),
   );
@@ -85,13 +88,6 @@ async function proveAudioPlays() {
 describe('Voice samples on a note', () => {
   before(async () => {
     await ready();
-  });
-
-  // The settings outlive this spec: the next one starts in English.
-  after(async () => {
-    await $('//nav//a[normalize-space(.)="Налаштування"]').click();
-    await choose('Мова', 'en');
-    await $('h1=Settings').waitForDisplayed({ timeout: 20000 });
   });
 
   it('attaches a generated wav to a note and plays it on the person page', async () => {

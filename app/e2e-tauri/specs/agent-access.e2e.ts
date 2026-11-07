@@ -11,7 +11,7 @@ import { expect } from '@wdio/globals';
 import { $, $$, browser, click, clearFocus, expectNoWindowScroll, goTo, importSynthetic, meta, openTreeFromReport, ready, search, shot, text } from './helpers';
 
 const TREE = 'Agent tree';
-const PORT = 48765;
+const PORT = Number(process.env.GT_E2E_AGENT_PORT);
 const AGENT = 'Transcript reader';
 const TITLE = 'Recording 2 summary';
 const CHILD = 'Zenobia';

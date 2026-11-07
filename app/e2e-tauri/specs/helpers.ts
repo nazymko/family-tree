@@ -80,7 +80,7 @@ export async function importSynthetic(name: string): Promise<string> {
 /** Opens the imported tree (it lands on the whole tree) and goes to Family, where the flows start. */
 export async function openTreeFromReport() {
   await click('Open the tree');
-  await $('aria/Main').waitForExist({ timeout: 60000 });
+  await $('aria/Main').waitForExist({ timeout: 180000 });
   await toFamily();
 }
 
@@ -104,7 +104,8 @@ export async function ensureOpen(name: string) {
   const row = await $(`//a[contains(@class,"row")][.//*[normalize-space(.)="${name}"]]`);
   await row.waitForClickable({ timeout: 20000 });
   await row.click();
-  await $('aria/Main').waitForExist({ timeout: 60000 });
+  // Opening a 1000-person tree after a relaunch took over 60 s while the gate ran beside the windows; a wait costs nothing when fast.
+  await $('aria/Main').waitForExist({ timeout: 180000 });
   await toFamily();
 }
 

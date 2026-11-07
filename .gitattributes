@@ -1,2 +1,4 @@
 tests/fixtures/gedcom/*.ged binary
 crates/gt-mcp/src/rules.md text eol=lf
+*.sh text eol=lf
+*.mjs text eol=lf

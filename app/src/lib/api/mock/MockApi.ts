@@ -636,7 +636,7 @@ export class MockApi implements Api {
       const f = folded.get(r.id)!;
       const at = f.indexOf(q);
       if (at < 0) continue;
-      const person: PersonRef = { id: r.id, name: r.name, lifespan: r.lifespan, sex: r.sex, living: r.living, private: r.private, siblingMarker: false };
+      const person: PersonRef = { id: r.id, name: r.name, lifespan: r.lifespan, sex: r.sex, living: r.living, private: r.private, ...(r.birthSurname ? { birthSurname: r.birthSurname } : {}), siblingMarker: false };
       const hit: SearchHitDto = { kind: 'person', id: r.id, label: r.name, snippet: r.lifespan || null, person };
       (at === 0 || f[at - 1] === ' ' ? starts : contains).push(hit);
       if (starts.length >= lim) break;
@@ -1000,7 +1000,7 @@ export class MockApi implements Api {
     const laid =
       req.kind === 'around'
         ? req.siblings
-          ? layoutRelatives(req.root, generations, false, src)
+          ? layoutRelatives(req.root, generations, false, src, true, true)
           : layoutAround(req.root, generations, line)
         : req.kind === 'pedigree'
         ? layoutPedigree(req.root, generations, src)
@@ -1170,7 +1170,7 @@ export class MockApi implements Api {
       // Far out the backend sends the surname and sex only.
       const surnames = c.whole.surnames;
       return structuredClone({
-        nodes: nodes.map((n) => ({ ...n, label: '', person: { ...n.person!, name: surnames[n.id], lifespan: '' } })),
+        nodes: nodes.map((n) => ({ ...n, label: '', person: { ...n.person!, name: surnames[n.id], lifespan: '', birthSurname: undefined } })),
         edges,
       });
     }
@@ -1665,7 +1665,19 @@ export class MockApi implements Api {
     return lifespanText(this.birth(p)?.date ?? null, this.death(p)?.date ?? null);
   }
 
+  /** The surname of the birth name when the person is shown under another one (the same rule as the Rust index). */
+  private birthSurname(p: PersonRec): string | undefined {
+    if (p.siblingMarker) return undefined;
+    const shown = this.prefName(p);
+    if (!shown || shown.kind === 'birth') return undefined;
+    const surnameOf = (n: NameDto) => [n.surnamePrefix, n.surnames.join(' ')].filter(Boolean).join(' ').trim();
+    const birth = p.names.filter((n) => n.kind === 'birth' && !n.private).map(surnameOf).find((s) => s !== '');
+    if (!birth || birth.toLowerCase() === surnameOf(shown).toLowerCase()) return undefined;
+    return birth;
+  }
+
   private ref(p: PersonRec): PersonRef {
+    const birthSurname = this.birthSurname(p);
     return {
       id: p.id,
       name: this.prefName(p)?.display ?? '',
@@ -1673,6 +1685,7 @@ export class MockApi implements Api {
       sex: p.sex,
       living: !p.siblingMarker && this.isLiving(p),
       private: p.private,
+      ...(birthSurname ? { birthSurname } : {}),
       siblingMarker: p.siblingMarker === true,
     };
   }

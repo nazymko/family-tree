@@ -609,6 +609,8 @@ export const uk: Messages = {
     atBirth: 'Прізвище при народженні',
     atBirthHint: 'Початкове (дівоче) прізвище.',
     afterMarriage: 'Прізвище після шлюбу',
+    maiden: 'дів. {surname}',
+    maidenMale: 'при нар. {surname}',
     afterMarriageHint: 'Залиште порожнім, якщо прізвище не змінювалося.',
     useMarried: 'Показувати прізвище після шлюбу як основне',
     looksPatronymic: '«{value}» схоже на по батькові, а не на прізвище.',
