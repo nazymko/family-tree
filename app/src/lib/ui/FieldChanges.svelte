@@ -4,6 +4,7 @@
   import { dateText, eventKindLabel } from '../i18n/backend';
   import { withSexIcon } from './sex';
   import type { SexKind } from '../api/types';
+  import { collapse, diffText, sideOf, type TextDiff, type ViewSeg } from './textDiff';
 
   /** A table of a person's changed fields: the field, its value before and its value after. */
   let { fields }: { fields: FieldChangeDto[] } = $props();
@@ -120,6 +121,39 @@
     return t('fieldChange.nameTag', { n: f.nameNumber, kind });
   }
 
+  /** Free-text fields: a change inside one is shown word by word. */
+  const TEXT = new Set(['text', 'description', 'title', 'author', 'publication', 'address', 'cause', 'raw', 'nickname', 'given', 'placeRaw', 'page']);
+  /** A text longer than this many characters is shown as its changes with a little context around them. */
+  const LONG = 300;
+
+  interface RowDiff {
+    diff: TextDiff;
+    long: boolean;
+  }
+
+  /** The word-level diff of a row with a text on both sides and some words in common; otherwise `null` (shown plainly). */
+  function rowDiff(f: FieldChangeDto): RowDiff | null {
+    if (!TEXT.has(f.field) || !f.before || !f.after) return null;
+    const diff = diffText(f.before, f.after);
+    if (diff.sharedWords === 0 || (diff.removedWords === 0 && diff.addedWords === 0)) return null;
+    return { diff, long: Math.max(f.before.length, f.after.length) > LONG };
+  }
+
+  function summary(d: TextDiff): string {
+    const removed = d.removedWords > 0 ? plural('fieldChange.words', d.removedWords) : '';
+    const added = d.addedWords > 0 ? plural('fieldChange.words', d.addedWords) : '';
+    if (removed && added) return t('fieldChange.summaryBoth', { removed, added });
+    return removed ? t('fieldChange.summaryRemoved', { words: removed }) : added ? t('fieldChange.summaryAdded', { words: added }) : '';
+  }
+
+  /** Rows (by group and position) whose whole text is shown instead of the changes only. */
+  let full = $state<Record<string, boolean>>({});
+
+  function parts(rd: RowDiff, side: 'before' | 'after', showAll: boolean): ViewSeg[] {
+    const view = sideOf(rd.diff.segs, side);
+    return rd.long && !showAll ? collapse(view) : view;
+  }
+
   /** Neighbouring rows about the same name share one heading instead of repeating it. */
   const groups = $derived.by(() => {
     const out: { heading: string; id: string | undefined; rows: FieldChangeDto[] }[] = [];
@@ -138,6 +172,10 @@
   {#if v === null}<em class="none">{t('fieldChange.empty')}</em>{:else}<bdi dir="auto">{v}</bdi>{/if}
 {/snippet}
 
+{#snippet marked(segs: ViewSeg[])}
+  <bdi dir="auto">{#each segs as s, k (k)}{#if s.kind === 'del'}<del>{s.text}</del>{:else if s.kind === 'ins'}<ins>{s.text}</ins>{:else if s.kind === 'gap'}<span class="gap" title={t('fieldChange.unchangedHidden')}>{s.text}</span>{:else}{s.text}{/if}{/each}</bdi>
+{/snippet}
+
 {#if fields.length > 0}
   <table class="fields">
     <thead>
@@ -151,10 +189,20 @@
       <tbody>
         {#if g.heading}<tr><th class="who" colspan="3" scope="rowgroup">{g.heading}</th></tr>{/if}
         {#each g.rows as f, j (j)}
+          {@const rd = rowDiff(f)}
+          {@const key = `${i}-${j}`}
           <tr>
-            <th scope="row">{label(f.field, f) + (f.of ? ' · ' : '')}{#if f.of}<bdi dir="auto">{ofText(f.of).replaceAll(REMOVED, t('fieldChange.removed'))}</bdi>{/if}</th>
-            <td>{@render value(word(f.field, f.before))}</td>
-            <td>{@render value(word(f.field, f.after))}</td>
+            <th scope="row">{label(f.field, f) + (f.of ? ' · ' : '')}{#if f.of}<bdi dir="auto">{ofText(f.of).replaceAll(REMOVED, t('fieldChange.removed'))}</bdi>{/if}{#if rd}
+                <span class="sum">{summary(rd.diff)}</span>
+                {#if rd.long}<button type="button" class="toggle" aria-expanded={full[key] === true} onclick={() => (full[key] = !full[key])}>{t(full[key] ? 'fieldChange.showChanges' : 'fieldChange.showFull')}</button>{/if}
+              {/if}</th>
+            {#if rd}
+              <td>{@render marked(parts(rd, 'before', full[key] === true))}</td>
+              <td>{@render marked(parts(rd, 'after', full[key] === true))}</td>
+            {:else}
+              <td>{@render value(word(f.field, f.before))}</td>
+              <td>{@render value(word(f.field, f.after))}</td>
+            {/if}
           </tr>
         {/each}
       </tbody>
@@ -192,6 +240,38 @@
   }
   td {
     white-space: pre-wrap;
+  }
+  .sum {
+    display: block;
+    margin-top: 2px;
+    font-size: var(--t-xs, 0.85em);
+    color: var(--ink-2);
+  }
+  .toggle {
+    margin-top: 2px;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-size: var(--t-xs, 0.85em);
+    color: var(--focus);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  del {
+    background: color-mix(in srgb, var(--danger) 18%, transparent);
+    color: var(--ink-0);
+    text-decoration: line-through;
+    text-decoration-color: var(--danger);
+  }
+  ins {
+    background: color-mix(in srgb, var(--verdigris) 22%, transparent);
+    color: var(--ink-0);
+    text-decoration: underline;
+    text-decoration-color: var(--verdigris);
+  }
+  .gap {
+    color: var(--ink-2);
   }
   .none {
     color: var(--ink-2);
