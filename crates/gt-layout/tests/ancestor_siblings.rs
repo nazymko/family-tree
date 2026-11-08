@@ -203,8 +203,8 @@ fn orders(chosen: &[Key]) -> Vec<Vec<Key>> {
     go(&mut idx, 0, &mut |p| {
         let o: Vec<Key> = p.iter().map(|&i| chosen[i]).collect();
         let (a, b) = (
-            o.iter().position(|&k| k == H).unwrap(),
-            o.iter().position(|&k| k == F).unwrap(),
+            o.iter().position(|&k| k == H).expect("H chosen"),
+            o.iter().position(|&k| k == F).expect("F chosen"),
         );
         if a.abs_diff(b) == 1 {
             out.push(o);
