@@ -232,7 +232,8 @@ fn a_couple_and_a_sibling_of_one_of_them_in_every_order() {
 }
 
 #[test]
-fn two_deep_pedigrees_with_all_kin_lay_out_fast_without_overlaps() {
+#[ignore = "heavy tier"]
+fn heavy_two_deep_pedigrees_with_all_kin_lay_out_fast_without_overlaps() {
     let s = MapSource::ahnen_tree(1 << 13);
     let t = std::time::Instant::now();
     let l = around_many_kin(&s, &[4, 5], 255, ManyKin::All, &Metrics::default(), 100_000);

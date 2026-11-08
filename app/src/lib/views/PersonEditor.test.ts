@@ -110,6 +110,28 @@ describe('PersonEditor', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
+  it('a_family_note_of_a_marriage_names_the_husband_or_wife', async () => {
+    const person = await findPerson(api, (d) => d.partnerships.some((p) => p.kind === 'married' && (p.partner?.sex === 'male' || p.partner?.sex === 'female')));
+    id = person.ref.id;
+    const p = person.partnerships.find((x) => x.kind === 'married' && (x.partner?.sex === 'male' || x.partner?.sex === 'female'))!;
+    await api.apply({ type: 'saveNote', target: { kind: 'family', id: p.familyId }, note: { kind: 'general', text: 'They married in May.' } });
+    await open();
+    await screen.findByText('They married in May.');
+    const role = p.partner!.sex === 'male' ? 'husband' : 'wife';
+    expect(screen.getByRole('heading', { level: 3, name: `Shared family notes, ${role}: ${p.partner!.name}` })).toBeInTheDocument();
+  });
+
+  it('a_note_on_the_parents_family_shows_on_the_childs_page', async () => {
+    const child = await findPerson(api, (d) => d.parentSets.length > 0 && d.notes.length === 0);
+    id = child.ref.id;
+    const family = child.parentSets[0].familyId;
+    await api.apply({ type: 'saveNote', target: { kind: 'family', id: family }, note: { kind: 'story', text: 'The parents kept a shop.' } });
+    await open();
+    await screen.findByText('The parents kept a shop.');
+    expect(screen.getByRole('heading', { level: 3, name: /Notes of the parents' family/ })).toBeInTheDocument();
+    expect(screen.queryByText('No notes yet.')).toBeNull();
+  });
+
   it('event_rows_show_what_the_description_says', async () => {
     const person = await findPerson(api, (d) => d.events.some((e) => !!e.description));
     const text = person.events.find((e) => !!e.description)!.description!;
