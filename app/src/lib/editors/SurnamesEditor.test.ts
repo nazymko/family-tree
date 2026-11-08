@@ -26,12 +26,14 @@ async function openSurnames() {
   return user;
 }
 
+const BOX = 'Show the surname after marriage as the main name';
 const names = async () => (await api.getPerson(id)).names;
 
 describe('Surnames dialog', () => {
-  it('adds_a_married_surname_and_keeps_the_birth_name_main', async () => {
+  it('adds_a_married_surname_as_the_main_name_by_default', async () => {
     const user = await openSurnames();
     expect(screen.getByRole('textbox', { name: 'Surname at birth' })).toHaveValue('Koval');
+    expect(screen.getByRole('checkbox', { name: BOX })).toBeChecked();
     await user.type(screen.getByRole('textbox', { name: 'Surname after marriage' }), 'Shevchuk');
     await user.click(screen.getByRole('button', { name: 'Save surnames' }));
     await waitFor(async () => expect((await names()).length).toBe(2));
@@ -39,23 +41,43 @@ describe('Surnames dialog', () => {
     const married = n.find((x) => x.kind === 'married')!;
     expect(married.surnames).toEqual(['Shevchuk']);
     expect(married.given).toBe('Olena');
-    expect(married.preferred).toBe(false);
-    expect(n.find((x) => x.kind === 'birth')!.preferred).toBe(true);
+    expect(married.preferred).toBe(true);
+    expect(n.find((x) => x.kind === 'birth')!.preferred).toBe(false);
+    expect((await api.getPerson(id)).ref.name).toMatch(/Shevchuk/);
     // The card shows both surnames.
     expect(await screen.findByText('Surname after marriage')).toBeInTheDocument();
+  });
+
+  it('unticked_keeps_the_birth_name_main', async () => {
+    const user = await openSurnames();
+    await user.type(screen.getByRole('textbox', { name: 'Surname after marriage' }), 'Shevchuk');
+    await user.click(screen.getByRole('checkbox', { name: BOX }));
+    await user.click(screen.getByRole('button', { name: 'Save surnames' }));
+    await waitFor(async () => expect((await names()).length).toBe(2));
+    const n = await names();
+    expect(n.find((x) => x.kind === 'married')!.preferred).toBe(false);
+    expect(n.find((x) => x.kind === 'birth')!.preferred).toBe(true);
+    expect((await api.getPerson(id)).ref.name).toMatch(/Koval/);
+  });
+
+  it('an_existing_married_surname_shows_what_is_saved', async () => {
+    await api.apply({ type: 'saveName', person: id, name: { kind: 'married', preferred: false, private: false, given: 'Olena', surnames: ['Shevchuk'] } });
+    await openSurnames();
+    expect(screen.getByRole('checkbox', { name: BOX })).not.toBeChecked();
+    // Nothing changed, so there is nothing to save.
+    expect((await api.getPerson(id)).ref.name).toMatch(/Koval/);
   });
 
   it('can_make_the_married_surname_the_main_name_and_back', async () => {
     let user = await openSurnames();
     await user.type(screen.getByRole('textbox', { name: 'Surname after marriage' }), 'Shevchuk');
-    await user.click(screen.getByRole('checkbox', { name: 'Show the surname after marriage as the main name' }));
     await user.click(screen.getByRole('button', { name: 'Save surnames' }));
     await waitFor(async () => expect((await api.getPerson(id)).ref.name).toMatch(/Shevchuk/));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
     user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Surnames…' }));
-    const box = await screen.findByRole('checkbox', { name: 'Show the surname after marriage as the main name' });
+    const box = await screen.findByRole('checkbox', { name: BOX });
     expect(box).toBeChecked();
     await user.click(box);
     await user.click(screen.getByRole('button', { name: 'Save surnames' }));
