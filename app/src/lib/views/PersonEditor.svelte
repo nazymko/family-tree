@@ -103,7 +103,7 @@
   let detailAt = 0;
   /** Notes on this person's own families: they belong to the family, and are read here too. */
   /** Notes on the person's own families, then on the families of their parents (`parents` names them). */
-  let familyNotes = $state<{ familyId: string; partner: string | null; parents?: string; notes: NoteDto[] }[]>([]);
+  let familyNotes = $state<{ familyId: string; partner: string | null; role?: 'husband' | 'wife'; parents?: string; notes: NoteDto[] }[]>([]);
   let basics = $state<HTMLElement>();
   /** What was last written into the "describe" field, so anything else there is text not yet committed. */
   let sexTextShown = '';
@@ -144,6 +144,13 @@
         d.partnerships.map(async (p) => ({
           familyId: p.familyId,
           partner: p.partner?.name ?? null,
+          // In a marriage the partner is the husband or the wife, not just "partner".
+          role:
+            p.kind === 'married' && p.partner?.sex === 'male'
+              ? ('husband' as const)
+              : p.kind === 'married' && p.partner?.sex === 'female'
+                ? ('wife' as const)
+                : undefined,
           notes: (await api.getFamily(p.familyId).catch(() => null))?.notes ?? [],
         })),
       );
@@ -599,7 +606,7 @@
       {/each}
       {#each familyNotes as fam (fam.familyId)}
         <div class="sec-head">
-          <h3>{fam.parents !== undefined ? t('person.parentsFamilyNotes', { names: fam.parents }) : fam.partner ? t('person.familyNotesWith', { name: fam.partner }) : t('person.familyNotes')}</h3>
+          <h3>{fam.parents !== undefined ? t('person.parentsFamilyNotes', { names: fam.parents }) : fam.partner && fam.role ? t(fam.role === 'husband' ? 'person.familyNotesHusband' : 'person.familyNotesWife', { name: fam.partner }) : fam.partner ? t('person.familyNotesWith', { name: fam.partner }) : t('person.familyNotes')}</h3>
           <Button onclick={() => nav.go({ name: 'familyPage', id: fam.familyId })} aria-label={fam.partner ? t('familyPage.openWith', { name: fam.partner }) : t('familyPage.open')}>{t('familyPage.open')}</Button>
           <Button onclick={() => (dialog = { kind: 'family', family: fam.familyId })}>{t('person.openFamily')}</Button>
         </div>
