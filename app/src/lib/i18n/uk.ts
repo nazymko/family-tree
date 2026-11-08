@@ -716,6 +716,13 @@ export const uk: Messages = {
     and: 'та',
     removed: '(запис вилучено)',
     items: { one: '{n} елемент', few: '{n} елементи', many: '{n} елементів', other: '{n} елемента' },
+    words: { one: '{n} слово', few: '{n} слова', many: '{n} слів', other: '{n} слова' },
+    summaryRemoved: 'Вилучено {words}',
+    summaryAdded: 'Додано {words}',
+    summaryBoth: 'Вилучено {removed}, додано {added}',
+    showFull: 'Показати весь текст',
+    showChanges: 'Згорнути',
+    unchangedHidden: 'Незмінений текст приховано',
     role: {
       principal: 'головна особа',
       witness: 'свідок',
