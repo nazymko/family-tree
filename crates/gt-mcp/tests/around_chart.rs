@@ -200,3 +200,51 @@ fn heavy_twenty_people_of_a_5000_person_tree() {
         assert_eq!(r["count"].as_u64().unwrap() as usize, names(&r).len());
     }
 }
+
+/// Brothers and sisters reached through a family that has children only (no father or mother entered) are in the
+/// chart, and so is the unnamed-siblings marker of that family.
+#[test]
+fn a_family_without_partners_brings_its_children_and_marker() {
+    let host = empty_host();
+    let f = family(&host);
+    with(&host, |s| {
+        // Oleh (Maria's father) has no parents: his brother goes into a family with children only.
+        let oleh = s
+            .tree()
+            .persons
+            .values()
+            .find(|p| p.names.iter().any(|n| n.given.as_deref() == Some("Oleh")))
+            .unwrap()
+            .common
+            .id;
+        let d = named(s, "Ostap", SexKind::Male);
+        add_relative(s, oleh, Relation::Sibling, d);
+        let childless_of_partners = s
+            .tree()
+            .families
+            .values()
+            .find(|x| x.partner1.is_none() && x.partner2.is_none() && x.children.len() == 2)
+            .unwrap()
+            .common
+            .id;
+        s.apply(EditCommand::AddSiblingMarker {
+            family: childless_of_partners,
+        })
+        .unwrap();
+    });
+    for order in [[f.maria, f.ivan], [f.ivan, f.maria]] {
+        let all = call(
+            &host,
+            "get_around_chart",
+            json!({"people": order, "kin": "all", "generations": 5}),
+        );
+        assert!(names(&all).contains(&"Ostap Koval".to_string()), "{all}");
+        let markers = all["people"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p["name"] == "more brothers and sisters, not named")
+            .count();
+        assert_eq!(markers, 1, "{all}");
+    }
+}
