@@ -52,7 +52,7 @@ import type {
   UndoState,
   WholeMeta,
 } from './types';
-import type { AgentAccessState, NewConnectionDto } from './types';
+import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus } from './types';
 
 export type * from './types';
 
@@ -179,6 +179,14 @@ export interface Api {
   /** The rules every connecting agent receives, as plain text. */
   agentRules(): Promise<string>;
   // --- end of Agent access ---
+  // --- About ---
+  /** The version of this build: the release it is based on and how far past it the build is. */
+  appInfo(): Promise<AppInfo>;
+  /** Asks GitHub for the newest release. The only network call the app makes by itself, and only on request. Never rejects. */
+  checkForUpdate(): Promise<UpdateStatus>;
+  /** Opens a page of the project's repository in the system browser; false for any other address. */
+  openProjectLink(url: string): Promise<boolean>;
+  // --- end of About ---
 }
 
 /** What an agent's write tells the open window. `touched` holds the ids of the people and records it changed. */
