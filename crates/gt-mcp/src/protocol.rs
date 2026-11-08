@@ -35,7 +35,7 @@ const UNSUPPORTED_VERSION: i64 = -32022;
 const TOOLS_AT_ONCE: usize = 2;
 /// How long a tool call waits its turn before it is told the server is busy.
 const TOOL_WAIT: Duration = Duration::from_secs(2);
-const BUSY: &str = "Gene Tree is busy with other tool calls. Try again in a moment.";
+const BUSY: &str = "Family Tree is busy with other tool calls. Try again in a moment.";
 
 /// A semaphore for tool calls.
 #[derive(Debug, Default)]
@@ -388,7 +388,7 @@ fn call_tool<H: Host>(
 
 fn tool_error_text(e: &ApiError) -> String {
     if e.code == ErrorCode::NoProject {
-        return "No tree is open. Ask the owner to open a tree in Gene Tree, then try again."
+        return "No tree is open. Ask the owner to open a tree in Family Tree, then try again."
             .to_string();
     }
     e.message.clone()
@@ -411,7 +411,7 @@ fn modern_result(mut result: Value) -> Value {
 }
 
 fn server_info() -> Value {
-    json!({"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")})
+    json!({"name": SERVER_NAME, "title": "Family Tree", "version": env!("CARGO_PKG_VERSION")})
 }
 
 fn is_supported(version: &str) -> bool {

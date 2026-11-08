@@ -61,7 +61,7 @@ async function findPerson(given: string): Promise<number> {
   return n;
 }
 
-describe('Gene Tree end to end', () => {
+describe('Family Tree end to end', () => {
   before(async () => {
     await ready();
   });

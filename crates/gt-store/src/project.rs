@@ -21,7 +21,7 @@ pub enum StoreError {
     Corrupt(String),
     #[error("a project already exists at {0}")]
     AlreadyExists(PathBuf),
-    #[error("This tree is open in another Gene Tree window.")]
+    #[error("This tree is open in another Family Tree window.")]
     Locked(PathBuf),
 }
 

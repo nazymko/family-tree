@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Builds Gene Tree in release mode on macOS or Linux and copies the shareable file into dist-release/.
-#   macOS : dist-release/Gene-Tree-<version>-macos-universal.dmg  (aarch64 + x86_64)
-#   Linux : dist-release/Gene-Tree-<version>-linux-<arch>.AppImage
+# Builds Family Tree in release mode on macOS or Linux and copies the shareable file into dist-release/.
+#   macOS : dist-release/Family-Tree-<version>-macos-universal.dmg  (aarch64 + x86_64)
+#   Linux : dist-release/Family-Tree-<version>-linux-<arch>.AppImage
 # Run from anywhere: bash scripts/build-release.sh
 set -euo pipefail
 
@@ -42,7 +42,7 @@ if [ ${#missing[@]} -gt 0 ]; then
 fi
 
 VERSION="$(node -p "require('$APP/src-tauri/tauri.conf.json').version")"
-PRODUCT="Gene-Tree"
+PRODUCT="Family-Tree"
 
 if [ ! -d "$APP/node_modules" ]; then
   echo "Installing frontend packages (npm ci)..."

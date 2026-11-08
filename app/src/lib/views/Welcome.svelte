@@ -81,8 +81,8 @@
 <main class="welcome">
   <div class="col">
     <header class="hero">
-      <Ribbon title="Gene Tree" size="2rem" />
-      <h1>Gene Tree</h1>
+      <Ribbon title="Family Tree" size="2rem" />
+      <h1>Family Tree</h1>
       <p class="lede">{t('welcome.lede')}</p>
     </header>
 

@@ -78,7 +78,7 @@ pub struct MergeLineDto {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum MergeCheckKind {
-    /// The folder or zip is a Gene Tree copy that can be read.
+    /// The folder or zip is a Family Tree copy that can be read.
     ReadableCopy,
     /// It is a copy of this tree (they share people or history).
     SameTree,

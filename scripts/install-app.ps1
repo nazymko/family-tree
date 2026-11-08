@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Puts a release build of Gene Tree in %LOCALAPPDATA%\GeneTree\gene-tree.exe, also while that copy is running.
+  Puts a release build of Family Tree in %LOCALAPPDATA%\GeneTree\gene-tree.exe, also while that copy is running.
 .DESCRIPTION
   The owner runs the INSTALLED copy, so a build never meets a locked target\release\gene-tree.exe.
   Windows lets a running exe be renamed but not overwritten or deleted, so the swap is:
@@ -18,7 +18,7 @@
 .PARAMETER Dest
   The install folder. Default: %LOCALAPPDATA%\GeneTree. (Tests use a scratch folder.)
 .PARAMETER Shortcut
-  Also create the Start Menu shortcut "Gene Tree" that points at the installed exe.
+  Also create the Start Menu shortcut "Family Tree" that points at the installed exe.
 .PARAMETER ShortcutDir
   Where the shortcut goes. Default: the user's Start Menu Programs folder. (Tests use a scratch folder.)
 #>
@@ -76,13 +76,15 @@ if ($left -gt 0) { Write-Host "$left old copy(ies) still in use stay until the n
 
 if ($Shortcut) {
   New-Item -ItemType Directory -Force -Path $ShortcutDir | Out-Null
-  $lnk = Join-Path $ShortcutDir 'Gene Tree.lnk'
+  $old = Join-Path $ShortcutDir 'Gene Tree.lnk'
+  if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Force }
+  $lnk = Join-Path $ShortcutDir 'Family Tree.lnk'
   $shell = New-Object -ComObject WScript.Shell
   $s = $shell.CreateShortcut($lnk)
   $s.TargetPath = $target
   $s.WorkingDirectory = $Dest
   $s.IconLocation = "$target,0"
-  $s.Description = 'Gene Tree'
+  $s.Description = 'Family Tree'
   $s.Save()
   Write-Host "Shortcut: $lnk"
 }

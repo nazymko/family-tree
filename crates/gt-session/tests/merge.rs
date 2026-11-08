@@ -657,7 +657,7 @@ fn a_copy_from_a_newer_app_is_refused_with_a_plain_message() {
     drop(c);
     let err = f.owner.merge_preview(&dir, "x").unwrap_err();
     assert_eq!(err.code, ErrorCode::Invalid);
-    assert!(err.message.contains("newer Gene Tree"), "{}", err.message);
+    assert!(err.message.contains("newer Family Tree"), "{}", err.message);
 }
 
 #[test]

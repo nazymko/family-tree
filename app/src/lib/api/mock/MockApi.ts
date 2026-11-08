@@ -365,7 +365,7 @@ export class MockApi implements Api {
   readonly receivedCopies: { zip: string; dest: string }[] = [];
 
   async openReceivedCopy(zip: string, dest: string): Promise<ProjectInfo> {
-    if (!/\.zip$/i.test(zip)) throw invalid('This is not a zip file Gene Tree can read.');
+    if (!/\.zip$/i.test(zip)) throw invalid('This is not a zip file Family Tree can read.');
     this.receivedCopies.push({ zip, dest });
     return this.info(dest);
   }
@@ -382,7 +382,7 @@ export class MockApi implements Api {
   private merges = new Map<string, number>();
 
   async mergePreview(source: string, name: string): Promise<MergePreviewDto> {
-    if (/bad|broken/i.test(source)) throw invalid('This is not a copy of a Gene Tree tree.');
+    if (/bad|broken/i.test(source)) throw invalid('This is not a Family Tree copy.');
     this.mergeSources.push(source);
     const base = this.mergeFixture ?? this.sampleMerge(name);
     const dto: MergePreviewDto = {
@@ -1428,7 +1428,7 @@ export class MockApi implements Api {
   async openMediaExternally(id: Id): Promise<void> {
     const m = this.db.media.get(id);
     if (m && !(m.mime ?? '').match(/^(image\/(jpeg|png|webp|gif|tiff)|application\/pdf)$/)) {
-      throw new Error('Gene Tree will only open photos and PDF documents. This file is some other kind of file, so it was not opened.');
+      throw new Error('Family Tree will only open photos and PDF documents. This file is some other kind of file, so it was not opened.');
     }
     this.openedMedia.push(id);
   }

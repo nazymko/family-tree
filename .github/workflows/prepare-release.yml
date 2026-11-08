@@ -54,7 +54,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a "$TAG" -m "Gene Tree ${TAG#v}"
+          git tag -a "$TAG" -m "Family Tree ${TAG#v}"
           git push origin "$TAG"
           # A tag pushed with the workflow token starts no workflow, so start the release explicitly.
           gh workflow run release.yml --ref main -f tag="$TAG"

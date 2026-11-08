@@ -362,7 +362,7 @@ fn export_of_an_open_project_is_a_clean_conflict_error() {
     let out = tmp.path().join("o.ged");
     let err = stderr_of(gt().arg("export").arg(&dir).arg("-o").arg(&out), 1);
     assert!(
-        err.contains("This tree is open in another Gene Tree window."),
+        err.contains("This tree is open in another Family Tree window."),
         "{err}"
     );
 }

@@ -781,7 +781,7 @@ pub fn checked_original_path(state: &AppState, id: Uuid) -> ApiResult<PathBuf> {
         let refused = || {
             ApiError::new(
                 ErrorCode::Invalid,
-                "Gene Tree will only open photos and PDF documents. This file is some other kind of file, so it was not opened.",
+                "Family Tree will only open photos and PDF documents. This file is some other kind of file, so it was not opened.",
             )
         };
         match s.media_bytes(id, gt_session::MediaSize::Original) {

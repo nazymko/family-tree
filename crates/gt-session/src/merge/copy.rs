@@ -134,9 +134,9 @@ pub(crate) fn zip_refusal(e: GedzipError) -> ApiError {
         GedzipError::Io(e) => {
             ApiError::new(ErrorCode::Io, format!("Cannot read the zip file: {e}"))
         }
-        GedzipError::Zip(_) => refuse("This is not a zip file Gene Tree can read."),
+        GedzipError::Zip(_) => refuse("This is not a zip file Family Tree can read."),
         GedzipError::MissingEntry(_) | GedzipError::MissingGedcom => {
-            refuse("This zip file is not a copy of a Gene Tree tree: it has no tree.db.")
+            refuse("This zip file is not a Family Tree copy: it has no tree.db.")
         }
         GedzipError::TooManyEntries(_)
         | GedzipError::EntryTooLarge(_)
@@ -158,9 +158,9 @@ pub(crate) fn store_refusal(e: StoreError) -> ApiError {
     match e {
         StoreError::NewerSchema { .. } => ApiError::new(
             ErrorCode::Invalid,
-            "This copy was saved by a newer Gene Tree. Update the app first.",
+            "This copy was saved by a newer Family Tree. Update the app first.",
         ),
-        StoreError::NotAProject(_) => refuse("This is not a copy of a Gene Tree tree."),
+        StoreError::NotAProject(_) => refuse("This is not a Family Tree copy."),
         StoreError::Io(e) => ApiError::new(ErrorCode::Io, format!("Cannot read this copy: {e}")),
         StoreError::Locked(_) => ApiError::new(ErrorCode::Conflict, "This copy is in use."),
         StoreError::Sql(_) | StoreError::Corrupt(_) | StoreError::AlreadyExists(_) => {
@@ -189,12 +189,11 @@ pub(crate) fn open_copy(source: &Path) -> Result<OpenedCopy, ApiError> {
     let media_root;
     if meta.is_dir() {
         let db = source.join(DB_FILE);
-        let db_meta = std::fs::symlink_metadata(&db).map_err(|_| {
-            refuse("This folder is not a copy of a Gene Tree tree: it has no tree.db.")
-        })?;
+        let db_meta = std::fs::symlink_metadata(&db)
+            .map_err(|_| refuse("This folder is not a Family Tree copy: it has no tree.db."))?;
         if db_meta.file_type().is_symlink() || !db_meta.is_file() {
             return Err(refuse(
-                "This folder is not a copy of a Gene Tree tree: it has no tree.db.",
+                "This folder is not a Family Tree copy: it has no tree.db.",
             ));
         }
         if db_meta.len() > MAX_DB_BYTES {

@@ -1,6 +1,6 @@
 # Security
 
-Gene Tree keeps family data on the user's own computer, so a flaw that exposes a tree, a file outside the tree folder,
+Family Tree keeps family data on the user's own computer, so a flaw that exposes a tree, a file outside the tree folder,
 or the optional agent-access server (MCP, local only) matters.
 
 ## Reporting

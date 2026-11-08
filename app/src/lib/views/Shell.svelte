@@ -292,8 +292,8 @@
 <div class="shell">
   <aside class="side">
     <div class="brand">
-      <Ribbon title="Gene Tree" size="1.25rem" />
-      <span class="brand-name">Gene Tree</span>
+      <Ribbon title="Family Tree" size="1.25rem" />
+      <span class="brand-name">Family Tree</span>
     </div>
     <nav aria-label={t('shell.main')}>
       <ul>

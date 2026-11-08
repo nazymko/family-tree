@@ -17,7 +17,7 @@ use std::process::ExitCode;
 const META_GEDCOM_VERSION: &str = "source_gedcom_version";
 
 #[derive(Parser)]
-#[command(name = "gt", version, about = "gene-tree command-line tool")]
+#[command(name = "gt", version, about = "Family Tree command-line tool")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,

@@ -111,7 +111,7 @@ function variants(text: string): { text: string; markers: string[]; shape: strin
 }
 
 /** Words that stay Latin in Ukrainian text: names of the app and of file formats, and fixed table names. */
-const KEEP = /\b(Gene|Tree|tree\.db|GEDCOM|GEDZIP|Gramps|zip|gzip|XML|UTF|JPG|JPEG|PNG|png|svg|SVG|WebP|TIFF|GIF|PDF|Anthropic|API|Persons|Events|EventDetails|gedcom\.ged|atdb|db)\b/g;
+const KEEP = /\b(Gene|Family|Tree|tree\.db|GEDCOM|GEDZIP|Gramps|zip|gzip|XML|UTF|JPG|JPEG|PNG|png|svg|SVG|WebP|TIFF|GIF|PDF|Anthropic|API|Persons|Events|EventDetails|gedcom\.ged|atdb|db)\b/g;
 const latinLeft = (text: string, markers: string[]) => {
   let rest = text;
   for (const m of markers) rest = rest.replaceAll(m, '');
