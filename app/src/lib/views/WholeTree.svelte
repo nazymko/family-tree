@@ -2,6 +2,7 @@
   import { getApi } from '../api/context';
   import type { Id, WholeMeta } from '../api/types';
   import WholeCanvas from '../chart/WholeCanvas.svelte';
+  import { directionOf } from '../chart/direction';
   import { nav } from '../state/nav.svelte';
   import { settings } from '../state/settings.svelte';
   import Button from '../ui/Button.svelte';
@@ -92,7 +93,7 @@
         onOpenPerson={openPerson}
         onOpenInPedigree={inPedigree}
         onOpened={(m) => (meta = m)}
-        reversed={settings.value.treeDirection === 'reversed'}
+        direction={directionOf(settings.value.chartDirections, 'whole')}
         {people}
         {descendants}
         onShowSelection={showSelection}

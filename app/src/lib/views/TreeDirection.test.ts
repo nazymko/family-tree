@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import FamilyView from './FamilyView.svelte';
 import Settings from './Settings.svelte';
-import FlipTreeButton from '../ui/FlipTreeButton.svelte';
+import DirectionControl from '../ui/DirectionControl.svelte';
+import { DEFAULT_DIRECTIONS } from '../chart/direction';
 import { apiContext } from '../api/context';
 import type { Api, FamilyViewDto, PersonRef } from '../api/api';
 import { MockApi } from '../api/mock/MockApi';
@@ -19,48 +20,63 @@ import { uk } from '../i18n/uk';
 const BIG = { x: -1e6, y: -1e6, w: 2e6, h: 2e6 };
 
 afterEach(() => {
-  settings.value = { ...settings.value, treeDirection: 'normal' };
+  settings.value = { ...settings.value, chartDirections: { ...DEFAULT_DIRECTIONS } };
 });
 
 describe('tree direction setting', () => {
-  it('is_chosen_in_settings_and_persists', async () => {
+  it('is_chosen_per_kind_of_chart_in_settings_and_persists', async () => {
     const api = new MockApi(fixtureTree(80));
     await settings.load(api);
-    expect(settings.value.treeDirection).toBe('normal');
+    expect(settings.value.chartDirections).toEqual(DEFAULT_DIRECTIONS);
     renderWith(Settings, {}, { api });
     const user = userEvent.setup();
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Tree direction' }), 'Ancestors at the bottom, like a real tree (pedigree: on the left)');
-    await waitFor(() => expect(settings.value.treeDirection).toBe('reversed'));
-    expect((await api.getSettings()).treeDirection).toBe('reversed');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Pedigree' }), 'Ancestors at the bottom');
+    await waitFor(() => expect(settings.value.chartDirections.pedigree).toBe('bottom'));
+    // The other kinds keep what they had.
+    expect(settings.value.chartDirections.descendants).toBe('top');
+    expect((await api.getSettings()).chartDirections.pedigree).toBe('bottom');
+    // Every chart offers four sides; the family view two.
+    expect(screen.getByRole('combobox', { name: 'Descendants' }).querySelectorAll('option')).toHaveLength(4);
+    expect(screen.getByRole('combobox', { name: 'Family view' }).querySelectorAll('option')).toHaveLength(2);
   });
 
-  it('flip_button_toggles_the_same_setting_and_shows_its_state', async () => {
+  it('the_control_offers_four_sides_and_remembers_the_choice_per_chart', async () => {
     const api = new MockApi(fixtureTree(80));
     await settings.load(api);
-    renderWith(FlipTreeButton, {}, { api });
+    renderWith(DirectionControl, { chart: 'pedigree' }, { api });
     const user = userEvent.setup();
-    const btn = screen.getByRole('button', { name: 'Flip tree' });
-    expect(btn).toHaveAttribute('aria-pressed', 'false');
-    // An icon button: no visible words, the tooltip says what a click does.
-    expect(btn.textContent?.trim()).toBe('');
-    expect(btn.querySelector('svg')).not.toBeNull();
-    expect(btn).toHaveAttribute('title', 'Ancestors at the top. Click to put them at the bottom (the tree grows up).');
-    await user.click(btn);
-    await waitFor(() => expect(btn).toHaveAttribute('aria-pressed', 'true'));
-    expect(btn).toHaveAttribute('title', 'Ancestors at the bottom. Click to put them back at the top.');
-    expect((await api.getSettings()).treeDirection).toBe('reversed');
-    await user.click(btn);
-    await waitFor(() => expect(btn).toHaveAttribute('aria-pressed', 'false'));
-    expect((await api.getSettings()).treeDirection).toBe('normal');
+    const group = screen.getByRole('radiogroup', { name: 'Where the ancestors are' });
+    const radios = within(group).getAllByRole('radio');
+    expect(radios.map((r) => r.getAttribute('aria-label'))).toEqual(['Ancestors on top', 'Ancestors at the bottom', 'Ancestors on the left', 'Ancestors on the right']);
+    // A pedigree starts with the ancestors on the right, as before.
+    expect(screen.getByRole('radio', { name: 'Ancestors on the right' })).toBeChecked();
+    await user.click(screen.getByRole('radio', { name: 'Ancestors on the left' }));
+    await waitFor(() => expect(settings.value.chartDirections.pedigree).toBe('left'));
+    expect(screen.getByRole('radio', { name: 'Ancestors on the left' })).toBeChecked();
+    expect((await api.getSettings()).chartDirections).toEqual({ ...DEFAULT_DIRECTIONS, pedigree: 'left' });
+    // The arrow keys move between the choices (a native radio group).
+    screen.getByRole('radio', { name: 'Ancestors on the left' }).focus();
+    await user.keyboard('{ArrowDown}');
+    await waitFor(() => expect(settings.value.chartDirections.pedigree).toBe('right'));
+  });
+
+  it('the_family_view_control_has_top_and_bottom_only', async () => {
+    const api = new MockApi(fixtureTree(80));
+    await settings.load(api);
+    renderWith(DirectionControl, { chart: 'family' }, { api });
+    expect(screen.getAllByRole('radio').map((r) => r.getAttribute('aria-label'))).toEqual(['Ancestors on top', 'Ancestors at the bottom']);
   });
 
   it('has_english_and_ukrainian_words', () => {
-    for (const k of ['treeDirection', 'treeDirectionHint', 'treeNormal', 'treeReversed'] as const) {
+    for (const k of ['treeDirection', 'treeDirectionHint', 'dirPedigree', 'dirDescendants', 'dirRelatives', 'dirAround', 'dirWhole', 'dirFamily'] as const) {
       expect(en.settings[k]).toBeTruthy();
       expect(uk.settings[k]).toBeTruthy();
     }
-    expect(uk.tree.flip).toBe('Перевернути родовід');
-    expect(en.tree.flip).toBe('Flip tree');
+    expect(uk.tree.left).toBe('Предки ліворуч');
+    expect(uk.tree.right).toBe('Предки праворуч');
+    expect(uk.tree.top).toBe('Предки вгорі');
+    expect(uk.tree.bottom).toBe('Предки внизу');
+    expect(en.tree.left).toBe('Ancestors on the left');
   });
 });
 
@@ -71,13 +87,33 @@ describe('MockApi honours the direction', () => {
     return api.chartWindow(meta.chartId, BIG, 1);
   }
 
+  it('every_kind_turns_to_each_of_the_four_sides', async () => {
+    const api = new MockApi(fixtureTree(300));
+    const cx = (n: { x: number; w: number }) => n.x + n.w / 2;
+    const cy = (n: { y: number; h: number }) => n.y + n.h / 2;
+    for (const dir of ['top', 'bottom', 'left', 'right'] as const) {
+      await api.setSettings({ chartDirections: { ...DEFAULT_DIRECTIONS, pedigree: dir, descendants: dir } });
+      const p = await chart(api, 'pedigree');
+      const root = p.nodes.find((n) => n.ahnen === 1)!;
+      const father = p.nodes.find((n) => n.ahnen === 2)!;
+      expect({ top: cy(father) < cy(root), bottom: cy(father) > cy(root), left: cx(father) < cx(root), right: cx(father) > cx(root) }[dir]).toBe(true);
+      // Cards keep their size.
+      expect([father.w, father.h]).toEqual([root.w, root.h]);
+      const d = await chart(api, 'descendants');
+      const top = d.nodes.find((n) => n.id === 0)!;
+      const kid = d.nodes.find((n) => n.nav.parent === 0);
+      // The root is the oldest generation: its children lie on the far side.
+      if (kid) expect({ top: cy(kid) > cy(top), bottom: cy(kid) < cy(top), left: cx(kid) > cx(top), right: cx(kid) < cx(top) }[dir]).toBe(true);
+    }
+  });
+
   it('pedigree_parents_move_to_the_left_and_descendants_children_above', async () => {
     const api = new MockApi(fixtureTree(300));
     const normal = await chart(api, 'pedigree');
     const root = normal.nodes.find((n) => n.ahnen === 1)!;
     const father = normal.nodes.find((n) => n.ahnen === 2)!;
     expect(father.x).toBeGreaterThan(root.x);
-    await api.setSettings({ treeDirection: 'reversed' });
+    await api.setSettings({ chartDirections: { ...DEFAULT_DIRECTIONS, pedigree: 'left', descendants: 'bottom' } });
     const rev = await chart(api, 'pedigree');
     const r2 = rev.nodes.find((n) => n.ahnen === 1)!;
     const f2 = rev.nodes.find((n) => n.ahnen === 2)!;
@@ -88,12 +124,12 @@ describe('MockApi honours the direction', () => {
       const a = rev.nodes.find((n) => n.id === e.from)!;
       expect(e.pts[0]).toBe(a.x);
     }
-    await api.setSettings({ treeDirection: 'normal' });
+    await api.setSettings({ chartDirections: { ...DEFAULT_DIRECTIONS } });
     const d = await chart(api, 'descendants');
     const top = d.nodes.find((n) => n.id === 0)!;
     const kid = d.nodes.find((n) => n.nav.parent === 0);
     if (kid) expect(kid.y).toBeGreaterThan(top.y);
-    await api.setSettings({ treeDirection: 'reversed' });
+    await api.setSettings({ chartDirections: { ...DEFAULT_DIRECTIONS, descendants: 'bottom' } });
     const dr = await chart(api, 'descendants');
     const top2 = dr.nodes.find((n) => n.id === 0)!;
     const kid2 = dr.nodes.find((n) => n.nav.parent === 0);
@@ -104,7 +140,7 @@ describe('MockApi honours the direction', () => {
     const api = new MockApi(fixtureTree(300));
     const a = await api.chartOpenWhole();
     const wa = await api.chartWindow(a.meta.chartId, BIG, 1);
-    await api.setSettings({ treeDirection: 'reversed' });
+    await api.setSettings({ chartDirections: { ...DEFAULT_DIRECTIONS, whole: 'bottom' } });
     const b = await api.chartOpenWhole();
     expect(b.meta.chartId).not.toBe(a.meta.chartId);
     expect(b.blocks.map((x) => x.rect)).toEqual(a.blocks.map((x) => x.rect));
@@ -157,17 +193,17 @@ describe('FamilyTree direction', () => {
     return render(FamilyView, { context: apiContext(api, new MockPlatform()) });
   }
 
-  it('reversed_marks_the_tree_and_the_button_flips_it', async () => {
+  it('reversed_marks_the_tree_and_the_control_flips_it', async () => {
     const user = userEvent.setup();
     mount();
     const tree = await screen.findByRole('group', { name: /^Family tree of/ });
     expect(tree).toHaveAttribute('data-direction', 'normal');
     expect(tree).not.toHaveClass('reversed');
-    const btn = screen.getByRole('button', { name: 'Flip tree' });
-    await user.click(btn);
+    const bottom = screen.getByRole('radio', { name: 'Ancestors at the bottom' });
+    await user.click(bottom);
     await waitFor(() => expect(tree).toHaveAttribute('data-direction', 'reversed'));
     expect(tree).toHaveClass('reversed');
-    expect(btn).toHaveAttribute('aria-pressed', 'true');
+    expect(bottom).toBeChecked();
     // The DOM (and tab) order is unchanged: parents still come before the children.
     const dadBox = screen.getByRole('button', { name: /^Ivan Koval/ });
     const sonBox = screen.getByRole('button', { name: /^Andriy Koval/ });
@@ -176,7 +212,7 @@ describe('FamilyTree direction', () => {
 
   it('arrow_up_goes_to_the_row_that_is_visually_above', async () => {
     const user = userEvent.setup();
-    settings.value = { ...settings.value, treeDirection: 'reversed' };
+    settings.value = { ...settings.value, chartDirections: { ...DEFAULT_DIRECTIONS, family: 'bottom' } };
     mount();
     await screen.findByRole('group', { name: /^Family tree of/ });
     const self = await screen.findByRole('button', { name: 'Taras Koval, 1850-1921' });

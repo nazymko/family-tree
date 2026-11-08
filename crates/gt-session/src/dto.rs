@@ -18,8 +18,11 @@ wire_enum!(DayOrder, "lowercase", { Dmy, Mdy });
 wire_enum!(SexKind, "lowercase", { Male, Female, Intersex, Unknown, Other });
 wire_enum!(Theme, "lowercase", { Light, Dark, System });
 wire_enum!(Language, "lowercase", { En, Uk, System });
-// Which way the tree charts grow: `reversed` puts the ancestors at the bottom (pedigree: on the left).
+// The one-switch setting of the first versions: `reversed` put the ancestors at the bottom (pedigree: on the left).
+// Only read from an old settings file; see `ChartDirections::from_legacy`.
 wire_enum!(TreeDirection, "lowercase", { Normal, Reversed });
+// The side of a chart where the ancestors are drawn.
+wire_enum!(ChartDirection, "lowercase", { Top, Bottom, Left, Right });
 wire_enum!(DateStatus, "lowercase", { Ok, Phrase, Unparsed });
 wire_enum!(HitKindDto, "lowercase", { Person, Place, Source, Note });
 wire_enum!(LivingOverrideDto, "lowercase", { Living, Deceased });
@@ -364,8 +367,8 @@ pub struct Settings {
     /// Interface language; `system` follows the OS language.
     pub language: Language,
     pub backups_to_keep: u32,
-    /// App setting: which way the tree charts and the family tree grow.
-    pub tree_direction: TreeDirection,
+    /// App setting: the side the ancestors are drawn on, for each kind of chart.
+    pub chart_directions: ChartDirections,
     /// Project setting.
     pub living_max_age: u32,
     /// Project setting.
@@ -380,9 +383,75 @@ impl Default for Settings {
             theme: Theme::System,
             language: Language::Uk,
             backups_to_keep: 10,
-            tree_direction: TreeDirection::Normal,
+            chart_directions: ChartDirections::default(),
             living_max_age: 100,
             home_person: None,
+        }
+    }
+}
+
+/// Where the ancestors are drawn, per kind of chart. The family view only has top and bottom.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ChartDirections {
+    pub pedigree: ChartDirection,
+    pub descendants: ChartDirection,
+    pub relatives: ChartDirection,
+    pub around: ChartDirection,
+    pub whole: ChartDirection,
+    pub family: ChartDirection,
+}
+
+impl Default for ChartDirections {
+    /// What the charts looked like before the direction could be chosen: the pedigree grows to the right, the
+    /// others have the ancestors on top.
+    fn default() -> Self {
+        Self {
+            pedigree: ChartDirection::Right,
+            descendants: ChartDirection::Top,
+            relatives: ChartDirection::Top,
+            around: ChartDirection::Top,
+            whole: ChartDirection::Top,
+            family: ChartDirection::Top,
+        }
+    }
+}
+
+impl ChartDirections {
+    /// The directions an old settings file's switch stood for: normal is the default of every chart, reversed the
+    /// ancestors at the bottom (the pedigree on the left), as it drew before.
+    pub fn from_legacy(old: TreeDirection) -> Self {
+        match old {
+            TreeDirection::Normal => Self::default(),
+            TreeDirection::Reversed => Self {
+                pedigree: ChartDirection::Left,
+                descendants: ChartDirection::Bottom,
+                relatives: ChartDirection::Bottom,
+                around: ChartDirection::Bottom,
+                whole: ChartDirection::Bottom,
+                family: ChartDirection::Bottom,
+            },
+        }
+    }
+
+    pub fn for_kind(&self, kind: ChartKind) -> ChartDirection {
+        match kind {
+            ChartKind::Pedigree => self.pedigree,
+            ChartKind::Descendants => self.descendants,
+            ChartKind::Relatives => self.relatives,
+            ChartKind::Around => self.around,
+            ChartKind::Whole => self.whole,
+        }
+    }
+}
+
+impl From<ChartDirection> for gt_layout::Direction {
+    fn from(d: ChartDirection) -> Self {
+        match d {
+            ChartDirection::Top => gt_layout::Direction::Top,
+            ChartDirection::Bottom => gt_layout::Direction::Bottom,
+            ChartDirection::Left => gt_layout::Direction::Left,
+            ChartDirection::Right => gt_layout::Direction::Right,
         }
     }
 }

@@ -77,7 +77,8 @@ import { personFieldChanges } from './fieldDiff';
 import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } from './build';
 import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
-import { mirrorLayout, type Layout } from './mockLayout';
+import { orientLayout, type Layout } from './mockLayout';
+import { DEFAULT_DIRECTIONS } from '../../chart/direction';
 import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } from './layout';
 import { GROUP_BASE, layoutAround, layoutAroundAll, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
 import { layoutWhole, lineageOf, type WholeResult } from './wholeLayout';
@@ -307,7 +308,7 @@ export class MockApi implements Api {
       theme: 'system',
       language: 'system',
       backupsToKeep: 10,
-      treeDirection: 'normal',
+      chartDirections: { ...DEFAULT_DIRECTIONS },
       livingMaxAge: 100,
       homePerson: fixture.homePerson,
     };
@@ -1014,8 +1015,8 @@ export class MockApi implements Api {
         : req.kind === 'descendants'
           ? layoutDescendants(req.root, generations, src)
           : layoutRelatives(req.root, Math.min(generations, 6), req.auntsUncles ?? true, src);
-    // Reversed tree: ancestors at the bottom (the left-to-right pedigree grows leftward instead).
-    const layout = this.settings.treeDirection === 'reversed' ? mirrorLayout(laid, req.kind !== 'pedigree') : laid;
+    // The side the ancestors are drawn on, for this kind of chart.
+    const layout = orientLayout(laid, req.kind, this.settings.chartDirections[req.kind]);
     const chartId = this.nextChart++;
     this.charts.set(chartId, { kind: req.kind, layout, version: this.version, reference: req.root });
     return {
@@ -1094,7 +1095,8 @@ export class MockApi implements Api {
     for (const id of extra.keys()) on.add(id);
     const persons = [...this.db.persons.values()].filter((p) => on.has(p.id) && !p.siblingMarker);
     const rows = new Map(this.rows().rows.map((r) => [r.id, r]));
-    const reversed = this.settings.treeDirection === 'reversed';
+    // The mock draws a family of the whole-tree charts with the ancestors on top or at the bottom only.
+    const reversed = ['bottom', 'right'].includes(this.settings.chartDirections.around);
     const result = layoutWhole({
       persons: persons.map((p) => ({ id: p.id, surname: rows.get(p.id)?.surname ?? '', birth: this.birthSort(p) })),
       families: [...this.db.families.values()].map((f) => ({ partners: [f.partner1, f.partner2], children: f.children.map((c) => c.person) })),
@@ -1196,7 +1198,8 @@ export class MockApi implements Api {
   }
 
   private async openWholeChart(selection: { people: Id[]; descendants: boolean } | null, subset: Set<Id> | null): Promise<WholeMeta> {
-    const reversed = this.settings.treeDirection === 'reversed';
+    // The mock draws a family of the whole-tree charts with the ancestors on top or at the bottom only.
+    const reversed = ['bottom', 'right'].includes(this.settings.chartDirections.whole);
     // Two kinds are held side by side, one chart each: everyone and chosen people.
     const kindOf = (c: ChartState) => (c.whole!.selection ? 'selection' : 'plain');
     const kind = selection ? 'selection' : 'plain';

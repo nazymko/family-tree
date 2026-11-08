@@ -1,6 +1,7 @@
 import type { ChartEdge, ChartKind, ChartNode, ChartWindow } from '../api/types';
 import { connectorMarks, segKey, type Marks } from './junctions';
 import type { Camera } from './camera';
+import type { ChartDirection } from './direction';
 import { HANDLE_R, handleSpots } from './hit';
 import { t } from '../i18n';
 import { birthSurnameText } from '../ui/birthSurname';
@@ -33,8 +34,8 @@ export interface DrawOpts {
   theme: Theme;
   /** Where the "+" handle sits; defaults to pedigree (right edge). */
   kind?: ChartKind;
-  /** The tree grows the other way (ancestors at the bottom / on the left): the handles sit on the opposite edge. */
-  reversed?: boolean;
+  /** The side the ancestors are on; the handles sit on the edge that faces the people they would show. */
+  dir?: ChartDirection;
   /** Draw the "+" handles of boxes with more people hidden (default true; a saved picture leaves them out). */
   handles?: boolean;
   /** People an agent changed and nobody has reviewed; their boxes carry a dot. A saved picture leaves this out. */
@@ -375,7 +376,7 @@ export function draw(
     ctx.fill();
   }
 
-  if (opts.handles !== false) for (const n of win.nodes.filter((x) => !x.person?.siblingMarker)) for (const h of handleSpots(n, kind, opts.reversed ?? false)) drawHandle(ctx, h, theme, z);
+  if (opts.handles !== false) for (const n of win.nodes.filter((x) => !x.person?.siblingMarker)) for (const h of handleSpots(n, kind, opts.dir)) drawHandle(ctx, h, theme, z);
 
   if (lod === 'boxes') for (const n of win.nodes) if (n.person?.siblingMarker) drawMarkerLabel(ctx, n, theme, z, 'far');
   if (lod === 'full') {

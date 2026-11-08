@@ -150,7 +150,7 @@ fn app_patch(state: &AppState) -> SettingsPatch {
         theme: Some(s.theme),
         language: Some(s.language),
         backups_to_keep: Some(s.backups_to_keep),
-        tree_direction: Some(s.tree_direction),
+        chart_directions: Some(s.chart_directions),
         ..SettingsPatch::default()
     }
 }
@@ -959,7 +959,7 @@ pub struct SettingsPatchWire {
     pub theme: Option<gt_session::Theme>,
     pub language: Option<gt_session::Language>,
     pub backups_to_keep: Option<u32>,
-    pub tree_direction: Option<gt_session::TreeDirection>,
+    pub chart_directions: Option<gt_session::ChartDirections>,
     pub living_max_age: Option<u32>,
     #[serde(deserialize_with = "some_or_null")]
     pub home_person: Option<Option<Uuid>>,
@@ -980,7 +980,7 @@ pub fn get_settings_impl(state: &AppState) -> Settings {
         theme: a.theme,
         language: a.language,
         backups_to_keep: a.backups_to_keep,
-        tree_direction: a.tree_direction,
+        chart_directions: a.chart_directions,
         ..Settings::default()
     }
 }
@@ -1004,7 +1004,7 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
             theme: patch.theme,
             language: patch.language,
             backups_to_keep: patch.backups_to_keep,
-            tree_direction: patch.tree_direction,
+            chart_directions: patch.chart_directions,
             living_max_age: patch.living_max_age,
             home_person: patch.home_person,
         };
@@ -1027,8 +1027,8 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
         if let Some(v) = patch.backups_to_keep {
             a.backups_to_keep = v;
         }
-        if let Some(v) = patch.tree_direction {
-            a.tree_direction = v;
+        if let Some(v) = patch.chart_directions {
+            a.chart_directions = v;
         }
         // Under the lock: agent access saves this file too, and neither may undo the other.
         settings_file::save_settings(&state.config_dir, &a)?;

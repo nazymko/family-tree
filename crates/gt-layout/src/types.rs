@@ -173,6 +173,56 @@ pub struct Edge {
     pub pts: Vec<f32>,
 }
 
+/// Where the oldest generation of a chart is drawn: the side the ancestors sit on (for a chart of descendants, the
+/// side of the person it starts from).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Direction {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+impl Direction {
+    /// True when generations follow the x axis (ancestors on the left or on the right).
+    pub fn is_horizontal(self) -> bool {
+        matches!(self, Direction::Left | Direction::Right)
+    }
+}
+
+impl Metrics {
+    /// The sizes to lay a chart out with so that, once turned by [`Layout::orient`] from its `native` direction
+    /// to `to`, the cards keep their real size and the spacing fits the new direction: a card is wider than tall,
+    /// so a chart turned a quarter has its generation axis along the card width and its sibling axis along the
+    /// card height. The layout code sees a chart in its own native direction with the card sides swapped.
+    pub fn for_direction(&self, native: Direction, to: Direction) -> Metrics {
+        if native.is_horizontal() == to.is_horizontal() {
+            return *self;
+        }
+        if native.is_horizontal() {
+            // Native generations along x, wanted along y: the generation step is a card height plus a line gap
+            // as wide as a vertical chart's, the siblings are spaced like the columns of a vertical chart.
+            Metrics {
+                node_w: self.node_h,
+                node_h: self.node_w,
+                gap_x: self.gap_y * 4.0,
+                gap_y: self.gap_x,
+                couple_gap: self.couple_gap,
+            }
+        } else {
+            // Native generations along y, wanted along x: a generation step as wide as a pedigree column,
+            // siblings one card height apart with room for the lines between them.
+            Metrics {
+                node_w: self.node_h,
+                node_h: self.node_w,
+                gap_x: self.gap_y * 2.0,
+                gap_y: self.gap_x / 4.0,
+                couple_gap: self.couple_gap,
+            }
+        }
+    }
+}
+
 /// The line a layout is mirrored about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Axis {
@@ -231,6 +281,55 @@ impl Layout {
             }
         }
         self.grid = Grid::build(&self.nodes, &self.edges);
+    }
+
+    /// Swaps the x and y axes of the whole drawing: boxes (with their width and height), edge polylines and
+    /// bounds. Ids and navigation links stay as they are.
+    pub fn transpose(&mut self) {
+        for n in &mut self.nodes {
+            let r = n.rect;
+            n.rect = Rect {
+                x: r.y,
+                y: r.x,
+                w: r.h,
+                h: r.w,
+            };
+        }
+        for e in &mut self.edges {
+            for p in e.pts.chunks_exact_mut(2) {
+                p.swap(0, 1);
+            }
+        }
+        let b = self.bounds;
+        self.bounds = Rect {
+            x: b.y,
+            y: b.x,
+            w: b.h,
+            h: b.w,
+        };
+        self.grid = Grid::build(&self.nodes, &self.edges);
+    }
+
+    /// Turns a layout made in its `native` direction (laid out with [`Metrics::for_direction`]) to `to`.
+    pub fn orient(&mut self, native: Direction, to: Direction) {
+        let mut side = native;
+        if native.is_horizontal() != to.is_horizontal() {
+            self.transpose();
+            // Low coordinates stay low: top becomes left, and a high side (bottom, right) the same in turn.
+            side = match native {
+                Direction::Top => Direction::Left,
+                Direction::Left => Direction::Top,
+                Direction::Bottom => Direction::Right,
+                Direction::Right => Direction::Bottom,
+            };
+        }
+        if side != to {
+            self.mirror(if to.is_horizontal() {
+                Axis::Horizontal
+            } else {
+                Axis::Vertical
+            });
+        }
     }
 
     /// Nodes and edges whose boxes intersect `r`, in id order.

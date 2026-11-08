@@ -1,4 +1,5 @@
 import type { ChartKind, ChartNode, ChartWindow } from '../api/types';
+import { ancestorsSide, descendantsSide, edgeCentre, type ChartDirection } from './direction';
 
 export type Dir = 'up' | 'down' | 'left' | 'right' | 'parent' | 'child';
 
@@ -15,38 +16,36 @@ export function hitTest(win: ChartWindow, worldX: number, worldY: number): Chart
 export const HANDLE_R = 9;
 
 /**
- * Centre of the "+" handle: right edge for pedigrees (ancestors go right), bottom edge for descendants.
- * Reversed tree: left edge and top edge.
+ * Centre of the "+" handle: on the ancestors' side of a pedigree card (default: the right edge), on the descendants'
+ * side of a card of a chart of descendants (default: the bottom edge).
  */
-export function handlePos(n: ChartNode, kind: ChartKind, reversed = false): { x: number; y: number } {
-  if (kind === 'pedigree') return { x: reversed ? n.x : n.x + n.w, y: n.y + n.h / 2 };
-  return { x: n.x + n.w / 2, y: reversed ? n.y : n.y + n.h };
+export function handlePos(n: ChartNode, kind: ChartKind, dir: ChartDirection = kind === 'pedigree' ? 'right' : 'top'): { x: number; y: number } {
+  return edgeCentre(n, kind === 'pedigree' ? ancestorsSide(dir) : descendantsSide(dir));
 }
 
 /**
- * Where the "+" handles of a node sit. Pedigree: right edge when ancestors are hidden. Descendants: bottom edge when
- * children are hidden. Relatives: top edge for hidden ancestors and bottom edge for hidden children.
+ * Where the "+" handles of a node sit. Pedigree: the ancestors' edge when ancestors are hidden. Descendants: the
+ * children's edge when children are hidden. Relatives: the ancestors' edge for hidden ancestors and the opposite edge
+ * for hidden children.
  */
-export function handleSpots(n: ChartNode, kind: ChartKind, reversed = false): { x: number; y: number }[] {
+export function handleSpots(n: ChartNode, kind: ChartKind, dir: ChartDirection = kind === 'pedigree' ? 'right' : 'top'): { x: number; y: number }[] {
   if (kind === 'relatives' || kind === 'around') {
     const out: { x: number; y: number }[] = [];
-    const top = { x: n.x + n.w / 2, y: n.y };
-    const bottom = { x: n.x + n.w / 2, y: n.y + n.h };
-    if (n.moreUp) out.push(reversed ? bottom : top);
-    if (n.moreDown) out.push(reversed ? top : bottom);
+    if (n.moreUp) out.push(edgeCentre(n, ancestorsSide(dir)));
+    if (n.moreDown) out.push(edgeCentre(n, descendantsSide(dir)));
     return out;
   }
-  return (kind === 'pedigree' ? n.moreUp : n.moreDown) ? [handlePos(n, kind, reversed)] : [];
+  return (kind === 'pedigree' ? n.moreUp : n.moreDown) ? [handlePos(n, kind, dir)] : [];
 }
 
 /** Screen radius (px) a handle must be hittable at, converted to world units. */
 export const HANDLE_HIT_PX = 8;
 
-export function hitHandle(win: ChartWindow, kind: ChartKind, wx: number, wy: number, zoom = 1, reversed = false): ChartNode | null {
+export function hitHandle(win: ChartWindow, kind: ChartKind, wx: number, wy: number, zoom = 1, dir: ChartDirection = kind === 'pedigree' ? 'right' : 'top'): ChartNode | null {
   if (zoom < 0.25) return null; // dots LOD draws no handles
   const r = Math.max(HANDLE_R, HANDLE_HIT_PX / zoom);
   for (const n of win.nodes) {
-    for (const h of handleSpots(n, kind, reversed)) if ((wx - h.x) ** 2 + (wy - h.y) ** 2 <= r * r) return n;
+    for (const h of handleSpots(n, kind, dir)) if ((wx - h.x) ** 2 + (wy - h.y) ** 2 <= r * r) return n;
   }
   return null;
 }

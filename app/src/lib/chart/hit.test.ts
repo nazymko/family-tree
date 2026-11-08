@@ -39,15 +39,22 @@ describe('hit', () => {
     expect(hitHandle({ nodes: [n], edges: [] }, 'pedigree', n.x + 5, n.y + 5)).toBeNull();
   });
 
-  it('handles_sit_on_the_opposite_edge_when_reversed', () => {
+  it('handles_sit_on_the_ancestors_edge_of_every_direction', () => {
     const n = { ...win.nodes[0], moreUp: true, moreDown: true };
-    expect(handleSpots(n, 'pedigree', true)).toEqual([{ x: n.x, y: n.y + n.h / 2 }]);
-    expect(handleSpots(n, 'descendants', true)).toEqual([{ x: n.x + n.w / 2, y: n.y }]);
-    expect(handleSpots(n, 'relatives', true)).toEqual([
-      { x: n.x + n.w / 2, y: n.y + n.h },
-      { x: n.x + n.w / 2, y: n.y },
-    ]);
-    expect(hitHandle({ nodes: [n], edges: [] }, 'pedigree', n.x - 2, n.y + n.h / 2, 1, true)?.id).toBe(n.id);
-    expect(hitHandle({ nodes: [n], edges: [] }, 'pedigree', n.x + n.w + 2, n.y + n.h / 2, 1, true)).toBeNull();
+    const top = { x: n.x + n.w / 2, y: n.y };
+    const bottom = { x: n.x + n.w / 2, y: n.y + n.h };
+    const left = { x: n.x, y: n.y + n.h / 2 };
+    const right = { x: n.x + n.w, y: n.y + n.h / 2 };
+    const at = { top, bottom, left, right };
+    const far = { top: bottom, bottom: top, left: right, right: left };
+    for (const d of ['top', 'bottom', 'left', 'right'] as const) {
+      expect(handleSpots(n, 'pedigree', d)).toEqual([at[d]]);
+      expect(handleSpots(n, 'descendants', d)).toEqual([far[d]]);
+      expect(handleSpots(n, 'relatives', d)).toEqual([at[d], far[d]]);
+      expect(handleSpots(n, 'around', d)).toEqual([at[d], far[d]]);
+    }
+    expect(hitHandle({ nodes: [n], edges: [] }, 'pedigree', n.x - 2, n.y + n.h / 2, 1, 'left')?.id).toBe(n.id);
+    expect(hitHandle({ nodes: [n], edges: [] }, 'pedigree', n.x + n.w + 2, n.y + n.h / 2, 1, 'left')).toBeNull();
+    expect(hitHandle({ nodes: [n], edges: [] }, 'pedigree', n.x + n.w / 2, n.y + n.h + 2, 1, 'bottom')?.id).toBe(n.id);
   });
 });

@@ -2,7 +2,7 @@
   import { tick } from 'svelte';
   import Ribbon from '../ui/Ribbon.svelte';
   import Lock from '../ui/Lock.svelte';
-  import FlipTreeButton from '../ui/FlipTreeButton.svelte';
+  import DirectionControl from '../ui/DirectionControl.svelte';
   import { settings } from '../state/settings.svelte';
   import { getApi } from '../api/context';
   import type { ChildDto, FamilyViewDto, ParentRelId, ParentSetDto, PartnershipDto, PersonRef } from '../api/types';
@@ -37,7 +37,7 @@
 
   const api = getApi();
   /** Ancestors at the bottom and the descendants on top: the rows are shown in reverse (the DOM order stays). */
-  const reversed = $derived(settings.value.treeDirection === 'reversed');
+  const reversed = $derived(settings.value.chartDirections.family === 'bottom');
   const SIBLING_LIMIT = 4;
   const CHILD_LIMIT = 6;
   /** Children per partner, in order; "Add child" goes at the end of the last group. */
@@ -638,7 +638,7 @@
   </button>
 {/snippet}
 
-<div class="treebar" class:fitted={paneFit} style:width={paneFit && `${paneFit.width}px`} style:margin-inline-start={paneFit && `${paneFit.shift}px`}><FlipTreeButton /></div>
+<div class="treebar" class:fitted={paneFit} style:width={paneFit && `${paneFit.width}px`} style:margin-inline-start={paneFit && `${paneFit.shift}px`}><DirectionControl chart="family" /></div>
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div class="tree" class:reversed class:fitted={paneFit} style:width={paneFit && `${paneFit.width}px`} style:margin-inline-start={paneFit && `${paneFit.shift}px`} data-direction={reversed ? 'reversed' : 'normal'} bind:this={treeEl} role="group" aria-label={t('family.treeLabel', { who: focus.name })} onkeydown={keys}>
   <!-- Every row keeps to one line (wrapped rows would lose their lines); the tree scrolls sideways when wider. -->

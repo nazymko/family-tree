@@ -17,11 +17,19 @@ describe('founderOf', () => {
     expect(founderOf([], [])).toBeNull();
   });
 
-  it('reversed_picks_the_bottom_row_of_the_family_not_a_block_below', () => {
+  it('bottom_picks_the_bottom_row_of_the_family_not_a_block_below', () => {
     // The family's body spans y 40..440; another block starts below it. Reversed, its oldest generation is the bottom row.
     const blocks = [{ ...block(0, 0, 80000), bodyH: 400 }, block(0, 9000, 240, true)];
     const cards = [card(1, 60000, 40), card(2, 100, 384), card(3, 61000, 384), card(4, 10, 9040)];
-    expect(founderOf(blocks, cards, true)?.id).toBe(2);
+    expect(founderOf(blocks, cards, 'bottom')?.id).toBe(2);
     expect(founderOf(blocks, cards)?.id).toBe(1);
+  });
+
+  it('left_and_right_pick_the_first_column_of_the_family', () => {
+    // A turned family: its generations are columns inside the block's body (y 40..440), siblings stack down.
+    const blocks = [{ ...block(0, 0, 900), bodyH: 400 }, block(0, 9000, 240, true)];
+    const cards = [card(1, 700, 100), card(2, 0, 300), card(3, 0, 40), card(4, 350, 40), card(5, 10, 9040)];
+    expect(founderOf(blocks, cards, 'left')?.id).toBe(3);
+    expect(founderOf(blocks, cards, 'right')?.id).toBe(1);
   });
 });
