@@ -946,6 +946,71 @@ pub fn around_many_kin(
     m: &Metrics,
     max_nodes: usize,
 ) -> Layout {
+    let first = around_many_kin_ordered(src, chosen, generations, kin, m, max_nodes);
+    // Brothers and sisters with families of a line ancestor cannot always stand on the outer side whatever the
+    // order of the chosen row: with two or three chosen people try the other orders (chosen partners stay
+    // adjacent) and keep the one with the fewest crossing lines, then the shortest lines; ties keep the given order.
+    if kin != ManyKin::All || !(2..=3).contains(&chosen.len()) {
+        return first;
+    }
+    let score = |l: &Layout| {
+        let q = crate::quality(l);
+        (q.line_crossings, q.line_length)
+    };
+    let mut best = (score(&first), first);
+    if best.0.0 == 0 {
+        return best.1;
+    }
+    let apart = |order: &[Key]| {
+        // Partners among the chosen people must stand next to each other.
+        order.iter().enumerate().all(|(i, &k)| {
+            src.unions(k).iter().all(|(p, _)| {
+                let Some(p) = p else { return true };
+                match order.iter().position(|x| x == p) {
+                    Some(j) => i.abs_diff(j) == 1 || order.len() == 2,
+                    None => true,
+                }
+            })
+        })
+    };
+    let mut orders: Vec<Vec<Key>> = Vec::new();
+    let mut idx: Vec<usize> = (0..chosen.len()).collect();
+    permute(&mut idx, 0, &mut |p| {
+        let o: Vec<Key> = p.iter().map(|&i| chosen[i]).collect();
+        if o != chosen && apart(&o) {
+            orders.push(o);
+        }
+    });
+    for o in orders {
+        let l = around_many_kin_ordered(src, &o, generations, kin, m, max_nodes);
+        let sc = score(&l);
+        if sc.0 < best.0.0 || (sc.0 == best.0.0 && sc.1 < best.0.1 - 0.5) {
+            best = (sc, l);
+        }
+    }
+    best.1
+}
+
+fn permute(v: &mut Vec<usize>, k: usize, f: &mut dyn FnMut(&[usize])) {
+    if k == v.len() {
+        f(v);
+        return;
+    }
+    for i in k..v.len() {
+        v.swap(k, i);
+        permute(v, k + 1, f);
+        v.swap(k, i);
+    }
+}
+
+fn around_many_kin_ordered(
+    src: &dyn ChartSource,
+    chosen: &[Key],
+    generations: u8,
+    kin: ManyKin,
+    m: &Metrics,
+    max_nodes: usize,
+) -> Layout {
     // One chosen person with every relative: the all-relatives layout puts each ancestor's brothers and sisters on the
     // outer side of the ancestor's couple, which the several-people layout below cannot do.
     // A chosen partner without known parents or siblings adds nothing the one-person layout does not draw.

@@ -164,10 +164,6 @@ fn check(name: &str, s: &MapSource, chosen: &[Key]) {
             "{name}: {sib} (sibling of {anc}) on the wrong side of the couple"
         );
     }
-    // The chosen people keep their order.
-    for w in chosen.windows(2) {
-        assert!(cx(&l, w[0]) < cx(&l, w[1]), "{name}: {w:?} order");
-    }
     // Parents hang over their children: the couple's middle is not far from the middle of its children.
     for ((a, b), kids) in [
         ((P, M), vec![F, B]),
@@ -188,6 +184,53 @@ fn check(name: &str, s: &MapSource, chosen: &[Key]) {
     }
 }
 
+/// Every order of `chosen` in which H and F stand next to each other.
+fn orders(chosen: &[Key]) -> Vec<Vec<Key>> {
+    let mut out = Vec::new();
+    let n = chosen.len();
+    let mut idx: Vec<usize> = (0..n).collect();
+    fn go(v: &mut Vec<usize>, k: usize, f: &mut dyn FnMut(&[usize])) {
+        if k == v.len() {
+            f(v);
+            return;
+        }
+        for i in k..v.len() {
+            v.swap(k, i);
+            go(v, k + 1, f);
+            v.swap(k, i);
+        }
+    }
+    go(&mut idx, 0, &mut |p| {
+        let o: Vec<Key> = p.iter().map(|&i| chosen[i]).collect();
+        let (a, b) = (
+            o.iter().position(|&k| k == H).unwrap(),
+            o.iter().position(|&k| k == F).unwrap(),
+        );
+        if a.abs_diff(b) == 1 {
+            out.push(o);
+        }
+    });
+    out
+}
+
+#[test]
+fn a_married_couple_whose_both_sides_have_families_in_every_order() {
+    for mirror in [false, true] {
+        for o in orders(&[H, F]) {
+            check(&format!("{o:?} mirror={mirror}"), &world(mirror), &o);
+        }
+    }
+}
+
+#[test]
+fn a_couple_and_a_sibling_of_one_of_them_in_every_order() {
+    for mirror in [false, true] {
+        for o in orders(&[H, F, B]) {
+            check(&format!("{o:?} mirror={mirror}"), &world(mirror), &o);
+        }
+    }
+}
+
 #[test]
 fn two_deep_pedigrees_with_all_kin_lay_out_fast_without_overlaps() {
     let s = MapSource::ahnen_tree(1 << 13);
@@ -197,16 +240,4 @@ fn two_deep_pedigrees_with_all_kin_lay_out_fast_without_overlaps() {
     assert_eq!(q.box_overlaps, 0, "{q:?}");
     assert!(l.nodes.len() > 1000);
     assert!(t.elapsed().as_secs() < 20, "{:?}", t.elapsed());
-}
-
-#[test]
-fn a_married_couple_whose_both_sides_have_families() {
-    check("H,F", &world(false), &[H, F]);
-    check("F,H mirrored", &world(true), &[F, H]);
-}
-
-#[test]
-fn a_couple_and_a_sibling_of_one_of_them() {
-    check("H,F,B", &world(false), &[H, F, B]);
-    check("B,F,H mirrored", &world(true), &[B, F, H]);
 }
