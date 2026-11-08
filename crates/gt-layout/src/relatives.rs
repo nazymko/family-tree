@@ -1571,6 +1571,8 @@ enum Goal {
     Stay,
     /// Over the middle of these cards.
     Over(Vec<u32>),
+    /// Under a couple of parents: the body of the couple and the offset of the child card in this body.
+    Under(usize, f32),
     /// Right beside its neighbour on the inner side: a brother or sister on the left hugs the one to its right.
     Hug(bool),
 }
@@ -1763,6 +1765,18 @@ fn arrange_ancestors(
             goal: Goal::Over(g.kids.clone()),
         });
     }
+    // A chosen person whose couple of parents is centred over them alone follows the couple when it has to move.
+    for (gi, g) in groups.iter().enumerate() {
+        if g.row != -1 || g.kids.len() != 1 {
+            continue;
+        }
+        let Some(&(ub, off)) = at.get(&g.kids[0]) else {
+            continue;
+        };
+        if (off + (uw(&b.units[roots[ub]]) - nw) / 2.0).abs() < 0.01 {
+            bodies[ub].goal = Goal::Under(roots.len() + gi, off);
+        }
+    }
     // First guess for the brothers and sisters: side by side outward from the ancestor, nearest first.
     let mut edge: HashMap<(u32, bool), f32> = HashMap::new();
     let mut guess: Vec<f32> = vec![0.0; sibs.len()];
@@ -1882,6 +1896,7 @@ fn solve_order(bodies: &mut [Body], at: &HashMap<u32, (usize, f32)>, gap: f32) {
                         (l + h) / 2.0
                     }
                 }
+                Goal::Under(g, off) => bodies[*g].x - off,
                 Goal::Hug(true) if hi.is_finite() => hi,
                 Goal::Hug(false) if lo.is_finite() => lo,
                 Goal::Hug(_) => bodies[j].x,
