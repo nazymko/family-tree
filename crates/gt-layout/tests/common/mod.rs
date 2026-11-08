@@ -5,13 +5,14 @@ use std::collections::HashMap;
 use gt_layout::{ChartSource, Key};
 
 pub type Union = (Option<Key>, Vec<Key>);
+pub type ChildFamily = ([Option<Key>; 2], Vec<Key>);
 
 #[derive(Default)]
 pub struct MapSource {
     pub parents: HashMap<Key, [Option<Key>; 2]>,
     pub unions: HashMap<Key, Vec<Union>>,
     pub births: HashMap<Key, i32>,
-    pub child_fams: HashMap<Key, Vec<([Option<Key>; 2], Vec<Key>)>>,
+    pub child_fams: HashMap<Key, Vec<ChildFamily>>,
 }
 
 impl ChartSource for MapSource {
