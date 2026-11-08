@@ -24,6 +24,13 @@ minor version (0.2.0 → 0.3.0), otherwise only fixes raise the patch version (0
 between the previous tag and this one (`node scripts/release.mjs notes vX.Y.Z`), which is why those messages are written
 for users (CONTRIBUTING.md).
 
+**The version the app shows** (Settings, About; quietly on the start page) is not read from the manifests, which keep an old
+number. `app/src-tauri/build.rs` asks the repository for the newest release tag reachable from the commit (`describe --tags --long`),
+the commit and its date. A build exactly on a tag shows `Version 0.3.0`; a local or nightly build shows
+`Version 0.3.0+12 (a1b2c3d, 8 Nov 2026)`: twelve commits after release 0.3.0. Without the repository (a source tarball) it falls back to
+the manifest version. The CI checkouts use `fetch-depth: 0`, so the tags are there. "Check for a newer version" in About asks
+`api.github.com/repos/nazymko/family-tree/releases/latest` from the Rust side, only when pressed; the app makes no automatic calls.
+
 **A red `main` is not released.** `prepare-release` stops when the latest CI run on `main`'s head did not pass; fix it
 and press "Run workflow" on *Prepare release*.
 
