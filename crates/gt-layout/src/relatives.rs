@@ -594,6 +594,9 @@ pub fn around_all_kin(
     lay_out(src, root, &o, true, true, true, m, max_nodes)
 }
 
+/// An ancestor block whose brothers and sisters stand inside the line: block, anchor, left side, units, offsets.
+type InnerGroup = (usize, usize, bool, Vec<usize>, Vec<f32>);
+
 /// All-relatives mode: absolute places for the line and the families. The line is a compact spine: the centred
 /// person in the middle, each couple of parents side by side (one card width plus the partner gap apart) over the
 /// middle of their child; where the couples of one row would meet, the father's side moves left and the
@@ -685,7 +688,7 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
             }
             // Brothers and sisters on the inner side of their ancestor stand right beside it, so the couple makes
             // room for them (and for everything below them) before it is placed.
-            let mut inner: Vec<(usize, usize, bool, Vec<usize>, Vec<f32>)> = Vec::new();
+            let mut inner: Vec<InnerGroup> = Vec::new();
             for (pi, &ub) in parents.iter().enumerate() {
                 let Some((left, true)) = sibling_side(units, blocks, ub) else {
                     continue;
