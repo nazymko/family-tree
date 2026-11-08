@@ -168,6 +168,10 @@ describe('The Relatives choice on the around screen', () => {
 
     await $('//label[normalize-space(.)="Brothers and sisters"]').click();
     await browser.pause(1200);
+    // The connector lines: one bus per family, lanes apart, a dot at every branch (screenshot for a look).
+    await $('//button[normalize-space(.)="Fit"]').click();
+    await browser.pause(900);
+    await shot('around-siblings-connectors-en.png');
     await $('//label[normalize-space(.)="All relatives"]').click();
     await browser.pause(1800);
     await shot('around-all-kin-default-en.png');

@@ -1,4 +1,5 @@
 import type { ChartEdge, ChartKind, ChartNode, ChartWindow } from '../api/types';
+import { connectorMarks, segKey, type Marks } from './junctions';
 import type { Camera } from './camera';
 import { HANDLE_R, handleSpots } from './hit';
 import { t } from '../i18n';
@@ -107,19 +108,62 @@ export function themeFromCss(el: Element = document.documentElement): Theme {
   };
 }
 
-function strokeEdges(ctx: CanvasRenderingContext2D, edges: ChartEdge[], color: string, widthPx: number, zoom: number, dash: number[] | null) {
+/** The branches and crossings of one window's edges, worked out once per window, not once per frame. */
+const marksCache = new WeakMap<ChartEdge[], Marks>();
+
+/** Half-width, in screen pixels, of the gap a line leaves where another family's line crosses it. */
+const BRIDGE_PX = 3.5;
+/** Radius, in screen pixels, of the dot at a branch. */
+const DOT_PX = 2.4;
+
+function strokeEdges(
+  ctx: CanvasRenderingContext2D,
+  edges: ChartEdge[],
+  color: string,
+  widthPx: number,
+  zoom: number,
+  dash: number[] | null,
+  crossings?: Map<string, number[]>,
+) {
   if (edges.length === 0) return;
+  const gap = Math.min(BRIDGE_PX / zoom, 8);
   ctx.beginPath();
   for (const e of edges) {
     const p = e.pts;
     if (p.length < 4) continue;
     ctx.moveTo(p[0], p[1]);
-    for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]);
+    for (let i = 2; i < p.length; i += 2) {
+      const xs = crossings && p[i + 1] === p[i - 1] ? crossings.get(segKey(p[i - 2], p[i], p[i + 1])) : undefined;
+      if (!xs) {
+        ctx.lineTo(p[i], p[i + 1]);
+        continue;
+      }
+      // Leave a small gap at every crossing, walking the line in its own direction.
+      const right = p[i] >= p[i - 2];
+      for (const x of right ? xs : [...xs].reverse()) {
+        ctx.lineTo(x + (right ? -gap : gap), p[i + 1]);
+        ctx.moveTo(x + (right ? gap : -gap), p[i + 1]);
+      }
+      ctx.lineTo(p[i], p[i + 1]);
+    }
   }
   ctx.strokeStyle = color;
   ctx.lineWidth = widthPx / zoom;
   ctx.setLineDash(dash ?? []);
   ctx.stroke();
+}
+
+/** A filled dot at every branch of the connectors, so a branch and a crossing look different. */
+function drawDots(ctx: CanvasRenderingContext2D, dots: number[], color: string, zoom: number) {
+  if (dots.length === 0) return;
+  ctx.beginPath();
+  const r = DOT_PX / zoom;
+  for (let i = 0; i < dots.length; i += 2) {
+    ctx.moveTo(dots[i] + r, dots[i + 1]);
+    ctx.arc(dots[i], dots[i + 1], r, 0, Math.PI * 2);
+  }
+  ctx.fillStyle = color;
+  ctx.fill();
 }
 
 export function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
@@ -244,10 +288,16 @@ export function draw(
   const partner: ChartEdge[] = [];
   const dup: ChartEdge[] = [];
   for (const e of win.edges) (e.kind === 'parent' || e.kind === 'sibling' ? parent : e.kind === 'partner' ? partner : dup).push(e);
-  strokeEdges(ctx, parent, theme.ink2, 1, z, null);
+  let marks = marksCache.get(win.edges);
+  if (!marks) {
+    marks = connectorMarks(win.edges);
+    marksCache.set(win.edges, marks);
+  }
+  strokeEdges(ctx, parent, theme.ink2, 1, z, null, marks.crossings);
   strokeEdges(ctx, partner, theme.ink2, 2, z, null);
   strokeEdges(ctx, dup, theme.ribbon, 1, z, [6 / z, 4 / z]);
   ctx.setLineDash([]);
+  if (lod !== 'dots') drawDots(ctx, marks.dots, theme.ink2, z);
 
   if (lod === 'dots') {
     ctx.beginPath();

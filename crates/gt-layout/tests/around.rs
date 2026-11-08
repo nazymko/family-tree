@@ -13,7 +13,7 @@ use gt_layout::{
 const ALL: u8 = 255;
 
 fn run(s: &MapSource, root: Key) -> Layout {
-    around(s, root, ALL, &Metrics::default(), 100_000)
+    common::assert_connectors_readable(&around(s, root, ALL, &Metrics::default(), 100_000))
 }
 
 fn node_of(l: &Layout, key: Key) -> &Node {
@@ -184,7 +184,7 @@ fn partners_are_adjacent_and_children_sit_under_the_couple() {
     assert_eq!(partner.rel, Some(Rel::Partner(PartnerOf::Focus)));
     assert_eq!(me.rect.y, partner.rect.y);
     let gap = partner.rect.x - (me.rect.x + me.rect.w);
-    assert!((0.0..=Metrics::default().couple_gap + 0.01).contains(&gap));
+    assert!((0.0..=Metrics::default().couple_gap.max(24.0) + 0.01).contains(&gap));
     let couple = (me.rect.x + partner.rect.x + partner.rect.w) / 2.0;
     // The first child has a partner, so their couple (not just their box) is what is centred.
     let first = (node_of(&l, 30).rect.x + node_of(&l, 40).rect.x + node_of(&l, 40).rect.w) / 2.0;

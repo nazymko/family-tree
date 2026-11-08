@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use gt_layout::{ChartSource, Key};
+use gt_layout::{ChartSource, Key, Layout, quality};
 
 pub type Union = (Option<Key>, Vec<Key>);
 pub type ChildFamily = ([Option<Key>; 2], Vec<Key>);
@@ -69,4 +69,19 @@ impl MapSource {
         }
         s
     }
+}
+
+/// No two families' connectors read as one: no lines on top of each other, no buses end to end on one lane, no
+/// vertical lines lined up across families; and no card is crossed by a line.
+pub fn assert_connectors_readable(l: &Layout) -> Layout {
+    let q = quality(l);
+    assert_eq!(q.box_overlaps, 0, "{q:?}");
+    // The "appears earlier" links of repeated people run around the cards and may touch other lines.
+    if l.nodes.iter().all(|n| n.dup_of.is_none()) {
+        assert_eq!(q.lines_through_boxes, 0, "{q:?}");
+        assert_eq!(q.line_overlaps, 0, "{q:?}");
+    }
+    assert_eq!(q.bus_clashes, 0, "{q:?}");
+    assert_eq!(q.aligned_verticals, 0, "{q:?}");
+    l.clone()
 }

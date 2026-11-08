@@ -108,7 +108,8 @@ describe('renderer', () => {
 
   it('edges_batched', () => {
     const ctx = makeFakeContext();
-    const edges = Array.from({ length: 50 }, (_, i) => edge(i));
+    // Far apart, so no branch dots (their own fill) are drawn.
+    const edges = Array.from({ length: 50 }, (_, i) => ({ ...edge(i), pts: [i * 100, 0, i * 100 + 10, 0, i * 100 + 10, 5, i * 100 + 20, 5] }));
     draw(ctx, { nodes: [], edges }, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });
     expect(ops(ctx, 'beginPath')).toHaveLength(1);
     expect(ops(ctx, 'stroke')).toHaveLength(1);
