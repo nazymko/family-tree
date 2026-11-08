@@ -30,7 +30,9 @@
   const init = {
     birthSurname: (birth?.surnames ?? []).join(', '),
     marriedSurname: (married?.surnames ?? []).join(', '),
-    useMarried: married?.preferred ?? false,
+    // A married surname being added becomes the main name unless unticked; an existing one shows what is saved, so
+    // opening the dialog never changes a person's main name by itself.
+    useMarried: married ? married.preferred : true,
   };
   let f = $state({ ...init });
   /** Set when the user moved a patronymic out of the "after marriage" field (old imports put it there). */

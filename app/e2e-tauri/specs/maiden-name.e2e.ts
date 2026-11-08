@@ -34,7 +34,9 @@ describe('Surname at birth under the name', () => {
     const field = await $(`//input[@id=//label[starts-with(normalize-space(.),"Surname after marriage")]/@for]`);
     await field.waitForDisplayed({ timeout: 20000 });
     await field.setValue(MARRIED);
-    await (await $('//label[contains(.,"Show the surname after marriage as the main name")]')).click();
+    // Ticked by default: a married surname being added becomes the main name.
+    const box = await $(`//input[@id=//label[contains(.,"Show the surname after marriage as the main name")]/@for]`);
+    expect(await box.isSelected()).toBe(true);
     await click('Save surnames');
     await $('//*[@role="dialog"]').waitForDisplayed({ reverse: true, timeout: 20000 });
 
