@@ -7,7 +7,10 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 use common::MapSource;
-use gt_layout::{EdgeKind, Key, Layout, Metrics, Node, PartnerOf, Rel, around, around_all_kin};
+use gt_layout::{
+    EdgeKind, Key, Layout, Metrics, Node, PartnerOf, Rel, around, around_all_kin,
+    around_with_siblings,
+};
 
 const ALL: u8 = 255;
 
@@ -494,4 +497,86 @@ fn heavy_five_thousand_people_with_all_relatives() {
     assert!(l.nodes.len() <= 20_000);
     assert!(took.as_secs_f32() < 10.0, "took {took:?}");
     assert_no_overlap(&l);
+}
+
+/// Person 1 + 20 have child 30; 1's parents 2 + 3; 2 is a child of family 100 with no partners, whose other children
+/// are 90 and 91 (90 has partner 92 and child 93); 3's parents 4 + 5. Person 7 is a child of a family with no partners
+/// with 9 and 10, and is the partner of 8.
+fn parentless() -> MapSource {
+    let mut s = MapSource::default();
+    s.family(None, None, &[2, 90, 91]);
+    s.family(Some(2), Some(3), &[1]);
+    s.family(Some(4), Some(5), &[3]);
+    s.family(Some(1), Some(20), &[30]);
+    s.family(Some(90), Some(92), &[93]);
+    s.family(None, None, &[7, 9, 10]);
+    s.family(Some(7), Some(8), &[11]);
+    s.births.extend([(2, 1), (90, 2), (91, 3)]);
+    s
+}
+
+fn bars(l: &Layout) -> usize {
+    l.edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Sibling)
+        .count()
+}
+
+#[test]
+fn brothers_and_sisters_in_a_family_without_partners_are_shown_beside_the_person() {
+    let s = parentless();
+    let l = around_all_kin(&s, 1, ALL, &Metrics::default(), 100_000);
+    for k in [90, 91, 92, 93] {
+        assert!(keys(&l).contains(&k), "{k} shown");
+    }
+    assert_eq!(y(&l, 90), y(&l, 2));
+    assert_eq!(y(&l, 91), y(&l, 2));
+    assert_eq!(bars(&l), 2, "a bar to each brother");
+    assert_clean(&l);
+    // Their own children are below, linked as parent edges.
+    assert!(l.edges.iter().any(|e| e.kind == EdgeKind::Parent
+        && l.nodes[e.from as usize].key == 90
+        && l.nodes[e.to as usize].key == 93));
+    // The chart of the line alone does not show them.
+    let line = around(&s, 1, ALL, &Metrics::default(), 100_000);
+    assert!(!keys(&line).contains(&90));
+}
+
+#[test]
+fn own_brothers_and_sisters_through_a_family_without_partners() {
+    let s = parentless();
+    let l = around_with_siblings(&s, 7, ALL, &Metrics::default(), 100_000);
+    for k in [9, 10] {
+        assert_eq!(y(&l, k), y(&l, 7), "{k} beside 7");
+    }
+    assert_eq!(bars(&l), 2);
+    assert_clean(&l);
+    let o = gt_layout::RelativesOptions {
+        generations: 3,
+        aunts: true,
+    };
+    let l = gt_layout::relatives(&s, 7, &o, &Metrics::default(), 100_000);
+    assert!(keys(&l).contains(&9) && keys(&l).contains(&10));
+    assert_clean(&l);
+}
+
+#[test]
+fn several_chosen_people_get_the_siblings_of_a_family_without_partners() {
+    use gt_layout::{ManyKin, around_many_kin};
+    let s = parentless();
+    for chosen in [[1, 7], [7, 1], [7, 8], [8, 7]] {
+        for kin in [ManyKin::Siblings, ManyKin::All] {
+            let l = around_many_kin(&s, &chosen, ALL, kin, &Metrics::default(), 100_000);
+            assert_eq!(l.nodes.iter().filter(|n| n.key == 9).count(), 1);
+            assert_eq!(l.nodes.iter().filter(|n| n.key == 10).count(), 1);
+            if kin == ManyKin::All && chosen.contains(&1) {
+                for k in [90, 91, 92, 93] {
+                    assert_eq!(l.nodes.iter().filter(|n| n.key == k).count(), 1, "{k}");
+                }
+                assert_eq!(y(&l, 90), y(&l, 2));
+            }
+            assert!(bars(&l) >= 2);
+            assert_clean(&l);
+        }
+    }
 }

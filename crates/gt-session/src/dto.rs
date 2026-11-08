@@ -410,7 +410,7 @@ wire_enum!(RoleKind, "snake_case", {
 wire_enum!(AroundKin, "lowercase", { Line, Siblings, All });
 wire_enum!(OutlineGroupKind, "snake_case", { Parents, Siblings, Partners, Children, AuntsUncles });
 wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants, Relatives, Around, Whole });
-wire_enum!(EdgeKindDto, "lowercase", { Parent, Partner, Dup });
+wire_enum!(EdgeKindDto, "lowercase", { Parent, Partner, Dup, Sibling });
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

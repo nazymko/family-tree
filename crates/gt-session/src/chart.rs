@@ -123,6 +123,36 @@ impl ChartSource for TreeSource<'_> {
             .and_then(|s| s.birth_sort)
     }
 
+    fn child_families(&self, p: Key) -> Vec<([Option<Key>; 2], Vec<Key>)> {
+        let Some(s) = self.index.summaries.get(p as usize) else {
+            return Vec::new();
+        };
+        let Some(links) = self.links.child_in.get(&s.id) else {
+            return Vec::new();
+        };
+        let mut out: Vec<([Option<Key>; 2], Vec<Key>)> = Vec::new();
+        for (fid, _) in links {
+            let Some(fam) = self.tree.families.get(fid) else {
+                continue;
+            };
+            let ps = [fam.partner1, fam.partner2].map(|id| id.and_then(|id| self.index.slot(id)));
+            let mut kids: Vec<Key> = fam
+                .children
+                .iter()
+                .filter_map(|c| self.index.slot(c.person))
+                .collect();
+            kids.sort_by_key(|k| {
+                self.index
+                    .summaries
+                    .get(*k as usize)
+                    .and_then(|s| s.birth_sort)
+                    .unwrap_or(i32::MAX)
+            });
+            out.push((ps, kids));
+        }
+        out
+    }
+
     fn unions(&self, p: Key) -> Vec<(Option<Key>, Vec<Key>)> {
         let Some(s) = self.index.summaries.get(p as usize) else {
             return Vec::new();
@@ -1415,6 +1445,7 @@ impl Session {
                     EdgeKind::Parent => EdgeKindDto::Parent,
                     EdgeKind::Partner => EdgeKindDto::Partner,
                     EdgeKind::Dup => EdgeKindDto::Dup,
+                    EdgeKind::Sibling => EdgeKindDto::Sibling,
                 },
                 pts: e.pts.clone(),
             })
