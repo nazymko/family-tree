@@ -23,6 +23,7 @@ import {
   ready,
   relaunch,
   search,
+  shot,
   slash,
   text,
   work, clearFocus
@@ -249,5 +250,17 @@ describe('Family Tree end to end', () => {
       expect(dirs.length).toBeGreaterThan(0);
       expect(dirs.every((d) => d === 'auto')).toBe(true);
     }
+  });
+
+  it('settings_about_shows_the_version_without_asking_the_network', async () => {
+    await ensureOpen(TREE);
+    await goTo('Settings');
+    const line = await $('[data-testid="version-line"]');
+    await line.waitForDisplayed({ timeout: 20000 });
+    // A local build reads "Version 0.3.0+12 (a1b2c3d, 8 Nov 2026)", a release "Version 0.3.0". The check button is not pressed: no network in the specs.
+    expect(await line.getText()).toMatch(/^Version \d+\.\d+\.\d+/);
+    await $('button=Check for a newer version').waitForDisplayed();
+    await line.scrollIntoView();
+    await shot('about-section.png');
   });
 });

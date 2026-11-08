@@ -116,6 +116,9 @@ command_list!(
     agent_connection_create,
     agent_connection_revoke,
     agent_rules,
+    app_info,
+    check_for_update,
+    open_project_link,
 );
 
 type ApiResult<T> = Result<T, ApiError>;
@@ -830,6 +833,26 @@ pub fn open_media_externally<R: Runtime>(
     app.opener()
         .open_path(path.to_string_lossy().into_owned(), None::<&str>)
         .map_err(|e| ApiError::new(ErrorCode::Io, format!("Cannot open the file: {e}")))
+}
+
+// ------------------------------------------------------------ about
+
+/// The version of this build (see `about.rs`).
+#[tauri::command]
+pub fn app_info() -> crate::about::AppInfo {
+    crate::about::current()
+}
+
+/// Asks GitHub for the newest release; runs only when the person presses the button. Never fails: the answer says why.
+#[tauri::command]
+pub async fn check_for_update() -> crate::about::UpdateStatus {
+    crate::about::check_for_update().await
+}
+
+/// Opens a page of the project's repository in the system browser; false for any other address.
+#[tauri::command(async)]
+pub fn open_project_link<R: Runtime>(app: AppHandle<R>, url: String) -> bool {
+    crate::about::open_project_link(app, url)
 }
 
 // ------------------------------------------------------------ export

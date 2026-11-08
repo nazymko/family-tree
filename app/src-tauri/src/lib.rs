@@ -1,5 +1,6 @@
 //! Family Tree desktop shell.
 
+pub mod about;
 pub mod agent_access;
 pub mod ai;
 pub mod commands;

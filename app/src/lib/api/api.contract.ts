@@ -323,6 +323,21 @@ export function runApiContract(make: () => Promise<Api>): void {
       expect((await api.getSettings()).theme).toBe('dark');
     });
 
+    it('app_info_names_a_release_and_the_build', async () => {
+      const api = await make();
+      const info = await api.appInfo();
+      expect(info.base).toMatch(/^\d+\.\d+\.\d+/);
+      expect(info.version.startsWith(info.base)).toBe(true);
+      // a build exactly on a release tag shows the bare version
+      if (info.release) expect(info.version).toBe(info.base);
+    });
+
+    it('only_project_links_open', async () => {
+      const api = await make();
+      expect(await api.openProjectLink('https://example.com/')).toBe(false);
+      expect(await api.openProjectLink('file:///C:/Windows/notepad.exe')).toBe(false);
+    });
+
     // --- Agent access (Task 7 defines this contract; Task 6 implements the Rust commands) ---
     it('agent_access_is_off_by_default', async () => {
       const api = await make();
