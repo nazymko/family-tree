@@ -1061,13 +1061,22 @@ pub fn around_many_kin(
         groups.push((Vec::new(), false));
         // A chosen person whose partner is chosen too stands last in the group, next to the partner who follows
         // the unit; the partner's own brothers and sisters then go on that side of the pair.
-        let partner_chosen = src.unions(key).iter().any(|(p, _)| {
-            p.is_some_and(|p| p != key && chosen_set.contains(&p) && !b.visited.contains_key(&p))
-        });
+        let partner_chosen = |k: Key| {
+            src.unions(k).iter().any(|(p, _)| {
+                p.is_some_and(|p| p != k && chosen_set.contains(&p) && !b.visited.contains_key(&p))
+            })
+        };
         let mut bar_keys: Vec<Key> = vec![key];
         let group: Vec<(Key, Rel, bool)> = if with_sibs {
             let mut sibs = siblings(src, key);
-            if partner_chosen && let Some(i) = sibs.iter().position(|s| s.key == key) {
+            // Also when it is a chosen brother or sister who has the chosen partner.
+            let last = if partner_chosen(key) {
+                sibs.iter().position(|s| s.key == key)
+            } else {
+                sibs.iter()
+                    .position(|s| chosen_set.contains(&s.key) && partner_chosen(s.key))
+            };
+            if let Some(i) = last {
                 let me = sibs.remove(i);
                 sibs.push(me);
             }
@@ -1150,6 +1159,22 @@ pub fn around_many_kin(
     let mut couples: Vec<(u32, u32)> = Vec::new();
     // Every ancestor drawn on the lines.
     let mut spine: Vec<u32> = Vec::new();
+    // The planar order of the lines: every card's chain of digits (see `arrange_ancestors`) and every couple of
+    // parents with the children it hangs over.
+    let mut chain: HashMap<u32, Vec<i32>> = HashMap::new();
+    for (i, &r) in roots.iter().enumerate() {
+        for j in 0..=b.units[r].partners {
+            chain.insert(b.units[r].person + j, vec![i as i32, 2 * j as i32]);
+        }
+    }
+    let mut spine_groups: Vec<SpineGroup> = Vec::new();
+    let mut root_of: HashMap<u32, usize> = HashMap::new();
+    let mut unit_key: HashMap<usize, Vec<i32>> = HashMap::new();
+    for (i, &r) in roots.iter().enumerate() {
+        for j in 0..=b.units[r].partners {
+            root_of.insert(b.units[r].person + j, i);
+        }
+    }
     let mut row = 0i32;
     while !frontier.is_empty() {
         frontier.sort_by(|a, b| a.1.total_cmp(&b.1));
@@ -1282,6 +1307,56 @@ pub fn around_many_kin(
                 let a = b.visited[&plan.fresh[0]];
                 couples.push((a, a + 1));
             }
+            if !plan.fresh.is_empty() {
+                // The children: the chosen ones on the chart and the brothers and sisters of the chosen people.
+                let mut kid_nodes: Vec<u32> = kids.iter().map(|k| k.0).collect();
+                for &r in &roots {
+                    let person = b.units[r].person;
+                    if sib_roots.contains(&r)
+                        && src.parents(b.nodes[person as usize].key) == *ps
+                        && !kid_nodes.contains(&person)
+                    {
+                        kid_nodes.push(person);
+                    }
+                }
+                kid_nodes.sort_by(|x, y| chain.get(x).cmp(&chain.get(y)));
+                let kmin = kid_nodes
+                    .first()
+                    .and_then(|k| chain.get(k))
+                    .cloned()
+                    .unwrap_or_default();
+                let left = 2 * kmin.first().copied().unwrap_or(0) < roots.len() as i32 - 1;
+                let digits: &[i32] = match (plan.fresh.len(), left) {
+                    (2, _) => &[0, 2],
+                    (_, true) => &[0],
+                    _ => &[2],
+                };
+                let ids: Vec<u32> = plan.fresh.iter().map(|k| b.visited[k]).collect();
+                for (&id, &d) in ids.iter().zip(digits) {
+                    let mut c = kmin.clone();
+                    c.push(d);
+                    chain.insert(id, c);
+                }
+                let mut key = kmin;
+                key.push(1);
+                // A unit whose own card is a child stands among the children, between the two parents' sides.
+                for (n, k) in kid_nodes.iter().enumerate() {
+                    if let Some(&ri) = root_of.get(k)
+                        && b.units[roots[ri]].person == *k
+                    {
+                        let mut ok = key.clone();
+                        ok.push(n as i32);
+                        unit_key.entry(ri).or_insert(ok);
+                    }
+                }
+                spine_groups.push(SpineGroup {
+                    ids,
+                    row,
+                    key,
+                    kids: kids.iter().map(|k| k.0).collect(),
+                    order: kid_nodes,
+                });
+            }
             for p in ps.iter().flatten() {
                 if let Some(&pn) = b.visited.get(p) {
                     for k in kids {
@@ -1308,7 +1383,16 @@ pub fn around_many_kin(
     }
 
     if kin == ManyKin::All {
-        hang_ancestor_siblings(&mut b, &spine, &roots, &mut links, &mut bars, m);
+        arrange_ancestors(
+            &mut b,
+            &spine_groups,
+            &chain,
+            &unit_key,
+            &roots,
+            &mut links,
+            &mut bars,
+            m,
+        );
     }
 
     let Builder {
@@ -1404,46 +1488,82 @@ fn place_units(units: &mut [Unit], nodes: &mut [Node], from: usize, m: &Metrics)
     }
 }
 
+/// One couple (or lone parent) of ancestors on the lines of [`around_many_kin`]: its cards, their row, the order key
+/// of the couple and the children it hangs over.
+struct SpineGroup {
+    ids: Vec<u32>,
+    row: i32,
+    key: Vec<i32>,
+    /// The chosen children, which the couple is centred over.
+    kids: Vec<u32>,
+    /// All the children on the chart, the chosen people's brothers and sisters too, left to right.
+    order: Vec<u32>,
+}
+
+/// Where a body of [`arrange_ancestors`] wants to stand.
+enum Goal {
+    /// Where it started.
+    Stay,
+    /// Over the middle of these cards.
+    Over(Vec<u32>),
+    /// Right beside its neighbour on the inner side: a brother or sister on the left hugs the one to its right.
+    Hug(bool),
+}
+
+/// A rigid piece of the all-kin chart of several people: a unit with its descendants, or a couple of ancestors.
+struct Body {
+    row0: i32,
+    ctr: Vec<(f32, f32)>,
+    key: Vec<i32>,
+    x: f32,
+    base: f32,
+    goal: Goal,
+}
+
+/// The extent of a contour over all its rows.
+fn span(ctr: &[(f32, f32)]) -> (f32, f32) {
+    ctr.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |a, c| {
+        (a.0.min(c.0), a.1.max(c.1))
+    })
+}
+
 /// All-kin chart of several people: the brothers and sisters of every ancestor on the lines, with partners and all
-/// descendants, nearest generation first. Families of ancestors left of the middle of the chosen row go to the left,
-/// the others to the right; each unit stands outside everything placed so far in every row it reaches.
-fn hang_ancestor_siblings(
+/// descendants, on the outer side of the ancestor's couple (a left partner's to the left, a right partner's to the
+/// right), and the whole of the lines placed again to make room.
+///
+/// Every piece (a chosen unit with its descendants, a couple of ancestors, a brother or sister with the descendants)
+/// gets an order key, so that sorting the pieces of any row by key gives the planar left-to-right order of that row:
+/// a card's chain is its first child's chain plus 0 (father or left lone parent) or 2 (mother or right lone parent);
+/// a couple's key is its first child's chain plus 1; the brothers and sisters of a card are keyed by the card's chain
+/// plus 1 and their distance from it, negative on the left. The pieces of a row then keep that order and clear each
+/// other in every row they share; couples stay centred over their children as far as that allows.
+#[allow(clippy::too_many_arguments)]
+fn arrange_ancestors(
     b: &mut Builder<'_>,
-    spine: &[u32],
+    groups: &[SpineGroup],
+    chain: &HashMap<u32, Vec<i32>>,
+    unit_key: &HashMap<usize, Vec<i32>>,
     roots: &[usize],
     links: &mut Vec<(u32, u32)>,
     bars: &mut Vec<Vec<u32>>,
     m: &Metrics,
 ) {
-    let placed = b.nodes.len();
-    let from = b.units.len();
-    let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
-    for &r in roots {
-        let (p, k) = (b.units[r].person, b.units[r].partners);
-        for id in p..=p + k {
-            let rect = b.nodes[id as usize].rect;
-            lo = lo.min(rect.x);
-            hi = hi.max(rect.right());
-        }
-    }
-    let mid = (lo + hi) / 2.0;
-    let mut anc: Vec<(u32, f32)> = spine
-        .iter()
-        .map(|&id| (id, b.nodes[id as usize].rect.cx()))
-        .collect();
-    anc.sort_by(|a, c| {
-        b.nodes[c.0 as usize]
-            .r#gen
-            .cmp(&b.nodes[a.0 as usize].r#gen)
-            .then((a.1 - mid).abs().total_cmp(&(c.1 - mid).abs()))
-    });
-    let mut fams: Vec<(bool, Vec<usize>)> = Vec::new();
-    for (id, cx) in anc {
+    let nw = m.node_w;
+    let pstep = nw + m.couple_gap;
+    let gap = m.gap_x;
+    let uw = |u: &Unit| nw * (1.0 + u.partners as f32) + m.couple_gap * u.partners as f32;
+    let mut spine: Vec<u32> = groups.iter().flat_map(|g| g.ids.iter().copied()).collect();
+    spine.sort_by_key(|&id| (std::cmp::Reverse(b.nodes[id as usize].r#gen), id));
+    // The brothers and sisters of every ancestor: unit, order key, side, ancestor.
+    let mut sibs: Vec<(usize, Vec<i32>, bool, u32)> = Vec::new();
+    for id in spine {
+        let Some(ch) = chain.get(&id) else { continue };
+        let left = ch.last() == Some(&0);
         let key = b.nodes[id as usize].key;
         let row = i32::from(b.nodes[id as usize].r#gen);
         let gens = u8::try_from(-row).unwrap_or(u8::MAX);
         let up = gens.saturating_add(1);
-        let mut made = Vec::new();
+        let mut made: Vec<usize> = Vec::new();
         let mut bar = vec![id];
         for s in siblings(b.src, key) {
             if s.key == key {
@@ -1484,54 +1604,231 @@ fn hang_ancestor_siblings(
             made.push(u);
         }
         bars.push(bar);
-        fams.push((cx < mid, made));
+        let k = made.len() as i32;
+        for (i, u) in made.into_iter().enumerate() {
+            let mut kk = ch.clone();
+            kk.push(1);
+            kk.push(if left { i as i32 - k } else { i as i32 + 1 });
+            sibs.push((u, kk, left, id));
+        }
     }
     fill_contours(&mut b.units, m);
-    let gap = m.gap_x;
-    let mut lf: HashMap<i32, f32> = HashMap::new();
-    let mut rf: HashMap<i32, f32> = HashMap::new();
-    for n in &b.nodes[..placed] {
-        let r = i32::from(n.r#gen);
-        let l = lf.entry(r).or_insert(f32::INFINITY);
-        *l = l.min(n.rect.x);
-        let h = rf.entry(r).or_insert(f32::NEG_INFINITY);
-        *h = h.max(n.rect.right());
+    let ukey = |i: usize| {
+        unit_key
+            .get(&i)
+            .cloned()
+            .unwrap_or_else(|| vec![i as i32, 1])
+    };
+    // A brother or sister with a family, on the side of the chosen row's parents that faces a partner of the chosen
+    // row (the children of those parents have a chosen partner beside them there), cannot stand between the two
+    // partners: its family goes outside the whole chart instead, on that side.
+    let mut inner: HashMap<(i32, i32), (bool, bool)> = HashMap::new();
+    for g in groups.iter().filter(|g| g.row == -1) {
+        let mut kids: Vec<&Vec<i32>> = g.order.iter().filter_map(|k| chain.get(k)).collect();
+        kids.sort();
+        let (Some(first), Some(last)) = (kids.first(), kids.last()) else {
+            continue;
+        };
+        let partners = |c: &Vec<i32>| {
+            roots
+                .get(c[0] as usize)
+                .map_or(0, |&r| b.units[r].partners as i32)
+        };
+        inner.insert(
+            (first[0], first[1]),
+            (first[1] > 0, last[1] / 2 < partners(last)),
+        );
     }
-    for (left, mut made) in fams {
+    for sib in &mut sibs {
+        let Some(ch) = chain.get(&sib.3) else {
+            continue;
+        };
+        if b.units[sib.0].ctr.len() < 2 || ch.len() < 3 {
+            continue;
+        }
+        let Some(&(il, ir)) = inner.get(&(ch[0], ch[1])) else {
+            continue;
+        };
+        if (sib.2 && il) || (!sib.2 && ir) {
+            let mut kk = vec![if sib.2 { -1 } else { i32::MAX }];
+            kk.extend_from_slice(&sib.1);
+            sib.1 = kk;
+        }
+    }
+
+    // The pieces: chosen units, couples of ancestors, brothers and sisters.
+    let mut bodies: Vec<Body> = Vec::new();
+    let mut at: HashMap<u32, (usize, f32)> = HashMap::new();
+    for (i, &r) in roots.iter().enumerate() {
+        let w = uw(&b.units[r]);
+        for k in 0..=b.units[r].partners {
+            at.insert(
+                b.units[r].person + k,
+                (bodies.len(), -w / 2.0 + nw / 2.0 + k as f32 * pstep),
+            );
+        }
+        let x = b.units[r].cx;
+        bodies.push(Body {
+            row0: b.units[r].row,
+            ctr: b.units[r].ctr.clone(),
+            key: {
+                let mut k = ukey(i);
+                k.push(0);
+                k
+            },
+            x,
+            base: x,
+            goal: Goal::Stay,
+        });
+    }
+    for g in groups {
+        let w = if g.ids.len() > 1 { nw + pstep } else { nw };
+        let first = b.nodes[g.ids[0] as usize].rect;
+        let last = b.nodes[g.ids[g.ids.len() - 1] as usize].rect;
+        let x = (first.x + last.right()) / 2.0;
+        for (k, &id) in g.ids.iter().enumerate() {
+            at.insert(id, (bodies.len(), -w / 2.0 + nw / 2.0 + k as f32 * pstep));
+        }
+        bodies.push(Body {
+            row0: g.row,
+            ctr: vec![(-w / 2.0, w / 2.0)],
+            key: g.key.clone(),
+            x,
+            base: x,
+            goal: Goal::Over(g.kids.clone()),
+        });
+    }
+    // First guess for the brothers and sisters: side by side outward from the ancestor, nearest first.
+    let mut edge: HashMap<(u32, bool), f32> = HashMap::new();
+    let mut guess: Vec<f32> = vec![0.0; sibs.len()];
+    let mut walk: Vec<usize> = (0..sibs.len()).collect();
+    walk.sort_by(|&p, &q| {
+        let (a, c) = (&sibs[p], &sibs[q]);
+        a.3.cmp(&c.3)
+            .then(if a.2 { c.1.cmp(&a.1) } else { a.1.cmp(&c.1) })
+    });
+    for i in walk {
+        let (u, _, left, a) = (sibs[i].0, 0, sibs[i].2, sibs[i].3);
+        let r = b.nodes[a as usize].rect;
+        let (lo, hi) = span(&b.units[u].ctr);
+        let e = edge
+            .entry((a, left))
+            .or_insert(if left { r.x - gap } else { r.right() + gap });
         if left {
-            made.reverse();
-        }
-        for u in made {
-            let row0 = b.units[u].row;
-            let mut cx = if left {
-                f32::INFINITY
-            } else {
-                f32::NEG_INFINITY
-            };
-            for (d, &(l, h)) in b.units[u].ctr.iter().enumerate() {
-                let r = row0 + d as i32;
-                if left {
-                    if let Some(&e) = lf.get(&r) {
-                        cx = cx.min(e - gap - h);
-                    }
-                } else if let Some(&e) = rf.get(&r) {
-                    cx = cx.max(e + gap - l);
-                }
-            }
-            if !cx.is_finite() {
-                cx = mid;
-            }
-            b.units[u].cx = cx;
-            for (d, &(l, h)) in b.units[u].ctr.iter().enumerate() {
-                let r = row0 + d as i32;
-                let a = lf.entry(r).or_insert(f32::INFINITY);
-                *a = a.min(cx + l);
-                let z = rf.entry(r).or_insert(f32::NEG_INFINITY);
-                *z = z.max(cx + h);
-            }
+            guess[i] = *e - hi;
+            *e = guess[i] + lo - gap;
+        } else {
+            guess[i] = *e - lo;
+            *e = guess[i] + hi + gap;
         }
     }
-    place_units(&mut b.units, &mut b.nodes, from, m);
+    let first_sib = bodies.len();
+    for (i, (u, key, left, _)) in sibs.iter().enumerate() {
+        bodies.push(Body {
+            row0: b.units[*u].row,
+            ctr: b.units[*u].ctr.clone(),
+            key: key.clone(),
+            x: guess[i],
+            base: guess[i],
+            goal: Goal::Hug(*left),
+        });
+    }
+    solve_order(&mut bodies, &at, gap);
+
+    // The result back into the cards and units.
+    for g in groups {
+        for &id in &g.ids {
+            let (bi, off) = at[&id];
+            b.nodes[id as usize].rect.x = bodies[bi].x + off - nw / 2.0;
+        }
+    }
+    for (i, &r) in roots.iter().enumerate() {
+        b.units[r].cx = bodies[i].x;
+    }
+    for (i, (u, ..)) in sibs.iter().enumerate() {
+        b.units[*u].cx = bodies[first_sib + i].x;
+    }
+    place_units(&mut b.units, &mut b.nodes, 0, m);
+}
+
+/// Place the bodies: the pieces of every row keep the order of their keys and clear each other by `gap` in every row
+/// they share. Start from the left with everything pushed right just far enough, then let each piece move towards
+/// where it wants to stand, between its neighbours, sweeping left to right and back until nothing moves.
+fn solve_order(bodies: &mut [Body], at: &HashMap<u32, (usize, f32)>, gap: f32) {
+    let n = bodies.len();
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &c| bodies[a].key.cmp(&bodies[c].key));
+    let mut rows: std::collections::BTreeMap<i32, Vec<usize>> = std::collections::BTreeMap::new();
+    for &i in &order {
+        for d in 0..bodies[i].ctr.len() {
+            rows.entry(bodies[i].row0 + d as i32).or_default().push(i);
+        }
+    }
+    let mut cons: HashMap<(usize, usize), f32> = HashMap::new();
+    for (&r, list) in &rows {
+        for w in list.windows(2) {
+            let (a, c) = (w[0], w[1]);
+            let need = bodies[a].ctr[(r - bodies[a].row0) as usize].1
+                - bodies[c].ctr[(r - bodies[c].row0) as usize].0
+                + gap;
+            let e = cons.entry((a, c)).or_insert(need);
+            *e = e.max(need);
+        }
+    }
+    let mut preds: Vec<Vec<(usize, f32)>> = vec![Vec::new(); n];
+    let mut succs: Vec<Vec<(usize, f32)>> = vec![Vec::new(); n];
+    for (&(a, c), &w) in &cons {
+        preds[c].push((a, w));
+        succs[a].push((c, w));
+    }
+    for &j in &order {
+        let lo = preds[j]
+            .iter()
+            .map(|&(i, w)| bodies[i].x + w)
+            .fold(f32::NEG_INFINITY, f32::max);
+        bodies[j].x = bodies[j].x.max(lo);
+    }
+    let centre = |bodies: &[Body], c: u32| at.get(&c).map(|&(bi, off)| bodies[bi].x + off);
+    for sweep in 0..400 {
+        let mut moved = 0.0f32;
+        let seq: Vec<usize> = if sweep % 2 == 0 {
+            order.clone()
+        } else {
+            order.iter().rev().copied().collect()
+        };
+        for j in seq {
+            let lo = preds[j]
+                .iter()
+                .map(|&(i, w)| bodies[i].x + w)
+                .fold(f32::NEG_INFINITY, f32::max);
+            let hi = succs[j]
+                .iter()
+                .map(|&(k, w)| bodies[k].x - w)
+                .fold(f32::INFINITY, f32::min);
+            let want = match &bodies[j].goal {
+                Goal::Stay => bodies[j].base,
+                Goal::Over(kids) => {
+                    let cs: Vec<f32> = kids.iter().filter_map(|&k| centre(bodies, k)).collect();
+                    if cs.is_empty() {
+                        bodies[j].x
+                    } else {
+                        let l = cs.iter().copied().fold(f32::INFINITY, f32::min);
+                        let h = cs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                        (l + h) / 2.0
+                    }
+                }
+                Goal::Hug(true) if hi.is_finite() => hi,
+                Goal::Hug(false) if lo.is_finite() => lo,
+                Goal::Hug(_) => bodies[j].x,
+            };
+            let x = if lo > hi { lo } else { want.clamp(lo, hi) };
+            moved = moved.max((x - bodies[j].x).abs());
+            bodies[j].x = x;
+        }
+        if moved < 0.01 {
+            break;
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
