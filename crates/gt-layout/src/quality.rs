@@ -9,6 +9,12 @@ use crate::types::{EdgeKind, Layout};
 const SAME_LINE: f32 = 1.0;
 /// A line this far inside a box is on top of it, not touching its edge.
 const INSIDE: f32 = 0.5;
+/// Buses of different families on one lane (closer than this in y) must be at least this far apart along x.
+const BUS_LANE: f32 = 6.0;
+const BUS_GAP: f32 = 40.0;
+/// Vertical lines of different families closer than this in x, with nothing but the width of a gap between them in
+/// y, read as one line.
+const ALIGNED: f32 = 20.0;
 
 /// What overlaps what in one chart. Lines of one couple's children share a bar on purpose: those don't count.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -23,6 +29,12 @@ pub struct Quality {
     pub line_overlaps: usize,
     /// Pairs of segments of different families that cross.
     pub line_crossings: usize,
+    /// Pairs of horizontal bars of different families on one lane that overlap or end closer than a gap apart: they
+    /// read as one bar.
+    pub bus_clashes: usize,
+    /// Pairs of vertical lines of different families that run within half a gap of each other in the same gap
+    /// between rows, or across a partner connector from a line in the next gap: they read as one line.
+    pub aligned_verticals: usize,
     /// Total length of the lines.
     pub line_length: f32,
     /// The longest straight piece of a line.
@@ -39,6 +51,21 @@ struct Seg {
     owner: usize,
     from: u32,
     to: u32,
+    /// Part of a parent-to-child connector.
+    family: bool,
+    /// The card this (vertical) segment lands on / leaves, when it is the last / first of its line.
+    lands: Option<u32>,
+    leaves: Option<u32>,
+    /// A vertical line that starts between two partner cards also counts from the top of their row.
+    reach_top: Option<f32>,
+}
+
+fn find(parent: &mut [usize], mut i: usize) -> usize {
+    while parent[i] != i {
+        parent[i] = parent[parent[i]];
+        i = parent[i];
+    }
+    i
 }
 
 /// Measures a chart. Quadratic in the worst case; meant for tests and measurements, not for drawing.
@@ -52,20 +79,43 @@ pub fn quality(l: &Layout) -> Quality {
         q.width = q.width.max(n.rect.x + n.rect.w);
         q.height = q.height.max(n.rect.y + n.rect.h);
     }
-    let mut starts: HashMap<(u32, u32), usize> = HashMap::new();
+    // The edges of one family start at one point (a couple's) or end at one point (a child's), or both.
+    let mut dsu: Vec<usize> = (0..l.edges.len()).collect();
+    let mut seen: HashMap<(u32, u32), usize> = HashMap::new();
+    for (i, e) in l.edges.iter().enumerate() {
+        if !matches!(e.kind, EdgeKind::Parent | EdgeKind::Sibling) || e.pts.len() < 4 {
+            continue;
+        }
+        let n = e.pts.len();
+        for (x, y) in [(e.pts[0], e.pts[1]), (e.pts[n - 2], e.pts[n - 1])] {
+            match seen.entry((x.to_bits(), y.to_bits())) {
+                std::collections::hash_map::Entry::Occupied(o) => {
+                    let (a, b) = (find(&mut dsu, i), find(&mut dsu, *o.get()));
+                    dsu[a] = b;
+                }
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert(i);
+                }
+            }
+        }
+    }
     let mut horizontal: Vec<Seg> = Vec::new();
     let mut vertical: Vec<Seg> = Vec::new();
     for (i, e) in l.edges.iter().enumerate() {
-        // The children of one couple start at one point and share a bar: they are one owner.
-        let owner = if matches!(e.kind, EdgeKind::Parent | EdgeKind::Sibling) && e.pts.len() >= 2 {
-            let next = starts.len();
-            *starts
-                .entry((e.pts[0].to_bits(), e.pts[1].to_bits()))
-                .or_insert(next)
+        let family = matches!(e.kind, EdgeKind::Parent | EdgeKind::Sibling) && e.pts.len() >= 2;
+        let owner = if family {
+            find(&mut dsu, i)
         } else {
             usize::MAX - i
         };
-        for p in e.pts.windows(4).step_by(2) {
+        let segs = (e.pts.len() / 2).saturating_sub(1);
+        let reach_top = (family && e.pts.len() >= 4)
+            .then(|| {
+                let from = &l.nodes[e.from as usize].rect;
+                (e.pts[1] < from.y + from.h - 1.0 && e.pts[1] > from.y + 1.0).then_some(from.y)
+            })
+            .flatten();
+        for (k, p) in e.pts.windows(4).step_by(2).enumerate() {
             let (dx, dy) = ((p[2] - p[0]).abs(), (p[3] - p[1]).abs());
             q.line_length += dx + dy;
             q.longest_segment = q.longest_segment.max(dx.max(dy));
@@ -76,6 +126,10 @@ pub fn quality(l: &Layout) -> Quality {
                 owner,
                 from: e.from,
                 to: e.to,
+                family,
+                lands: (k + 1 == segs).then_some(e.to),
+                leaves: (k == 0).then_some(e.from),
+                reach_top: if k == 0 { reach_top } else { None },
             };
             if dy < 0.01 && dx >= 0.01 {
                 horizontal.push(seg(p[1], p[0], p[2]));
@@ -117,6 +171,8 @@ pub fn quality(l: &Layout) -> Quality {
     }
 
     q.line_overlaps = overlaps(&mut horizontal) + overlaps(&mut vertical);
+    q.bus_clashes = bus_clashes(&horizontal);
+    q.aligned_verticals = aligned(&vertical);
     for h in &horizontal {
         for v in &vertical {
             if h.owner != v.owner && v.a > h.lo && v.a < h.hi && h.a > v.lo && h.a < v.hi {
@@ -142,4 +198,130 @@ fn overlaps(segs: &mut [Seg]) -> usize {
         }
     }
     count
+}
+
+/// Pairs of bars of different families on one lane that overlap or end less than [`BUS_GAP`] apart.
+fn bus_clashes(horizontal: &[Seg]) -> usize {
+    let mut bars: Vec<&Seg> = horizontal.iter().filter(|s| s.family).collect();
+    bars.sort_by(|p, q| p.a.total_cmp(&q.a));
+    let mut count = 0;
+    for (i, s) in bars.iter().enumerate() {
+        for t in &bars[i + 1..] {
+            if t.a - s.a >= BUS_LANE {
+                break;
+            }
+            if s.owner != t.owner && t.lo < s.hi + BUS_GAP && s.lo < t.hi + BUS_GAP {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+/// Pairs of vertical lines of different families that line up: closer than [`ALIGNED`] along x and touching along y.
+/// A line that lands on a card and the line that leaves the same card are one line through it: not a pair.
+fn aligned(vertical: &[Seg]) -> usize {
+    let mut v: Vec<&Seg> = vertical.iter().filter(|s| s.family).collect();
+    v.sort_by(|p, q| p.a.total_cmp(&q.a));
+    let mut count = 0;
+    for (i, s) in v.iter().enumerate() {
+        for t in &v[i + 1..] {
+            if t.a - s.a >= ALIGNED {
+                break;
+            }
+            if s.owner == t.owner {
+                continue;
+            }
+            let top = |u: &Seg| u.reach_top.map_or(u.lo, |r| r.min(u.lo));
+            if top(t) > s.hi + SAME_LINE || top(s) > t.hi + SAME_LINE {
+                continue;
+            }
+            let chain = |p: &Seg, q: &Seg| p.lands.is_some() && p.lands == q.leaves;
+            if chain(s, t) || chain(t, s) {
+                continue;
+            }
+            count += 1;
+        }
+    }
+    count
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Edge, Rect, new_node};
+
+    fn card(id: u32, x: f32, y: f32) -> crate::types::Node {
+        new_node(
+            id,
+            id,
+            Rect {
+                x,
+                y,
+                w: 100.0,
+                h: 50.0,
+            },
+            0,
+        )
+    }
+
+    fn parent(from: u32, to: u32, pts: Vec<f32>) -> Edge {
+        Edge {
+            from,
+            to,
+            kind: EdgeKind::Parent,
+            pts,
+        }
+    }
+
+    /// Two families (0 -> 2, 3 and 1 -> 4, 5) in one gap.
+    fn two_families(bus_a: (f32, f32, f32), bus_b: (f32, f32, f32), xa: f32, xb: f32) -> Layout {
+        let nodes = vec![
+            card(0, 0.0, 0.0),
+            card(1, 400.0, 0.0),
+            card(2, 0.0, 150.0),
+            card(3, 100.0, 150.0),
+            card(4, 400.0, 150.0),
+            card(5, 500.0, 150.0),
+        ];
+        let line = |from, to, x: f32, bus: (f32, f32, f32), tx: f32| {
+            parent(from, to, vec![x, 50.0, x, bus.0, tx, bus.0, tx, 150.0])
+        };
+        let edges = vec![
+            line(0, 2, xa, bus_a, 50.0),
+            line(0, 3, xa, bus_a, 150.0),
+            line(1, 4, xb, bus_b, 450.0),
+            line(1, 5, xb, bus_b, 550.0),
+        ];
+        Layout::finish(nodes, edges, 0, false)
+    }
+
+    #[test]
+    fn buses_of_two_families_end_to_end_on_one_lane_are_flagged() {
+        // 50..150 and 150..250 on one lane: touching.
+        let l = two_families((100.0, 0.0, 0.0), (100.0, 0.0, 0.0), 50.0, 250.0);
+        // Rebuild the second family's tail to start at x = 170 (20 apart from the first's end).
+        let mut l2 = l.clone();
+        for e in l2.edges.iter_mut().skip(2) {
+            e.pts[4] -= 280.0;
+        }
+        let q = quality(&Layout::finish(
+            l2.nodes.clone(),
+            l2.edges.clone(),
+            0,
+            false,
+        ));
+        assert!(q.bus_clashes > 0, "{q:?}");
+        // On different lanes, or far apart, they are clean.
+        let apart = two_families((100.0, 0.0, 0.0), (80.0, 0.0, 0.0), 50.0, 450.0);
+        assert_eq!(quality(&apart).bus_clashes, 0);
+    }
+
+    #[test]
+    fn vertical_lines_of_two_families_lined_up_are_flagged() {
+        let near = two_families((100.0, 0.0, 0.0), (100.0, 0.0, 0.0), 50.0, 60.0);
+        assert!(quality(&near).aligned_verticals > 0);
+        let far = two_families((100.0, 0.0, 0.0), (100.0, 0.0, 0.0), 50.0, 450.0);
+        assert_eq!(quality(&far).aligned_verticals, 0);
+    }
 }

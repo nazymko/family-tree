@@ -329,7 +329,7 @@ fn heavy_twenty_people_of_a_5000_person_tree_with_siblings_and_all_relatives() {
 // ---- Geometry: parents adjacent and centred over the child, grandparents over the midpoint, nothing crossed ----
 
 const CARD: f32 = 176.0;
-const COUPLE_GAP: f32 = 8.0;
+const COUPLE_GAP: f32 = 24.0;
 const FAMILY_GAP: f32 = 40.0;
 const ROW: f32 = 114.0;
 

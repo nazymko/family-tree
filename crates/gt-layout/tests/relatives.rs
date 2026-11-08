@@ -10,13 +10,13 @@ fn opts(generations: u8, aunts: bool) -> RelativesOptions {
 }
 
 fn run(s: &MapSource, root: Key, generations: u8, aunts: bool) -> Layout {
-    relatives(
+    common::assert_connectors_readable(&relatives(
         s,
         root,
         &opts(generations, aunts),
         &Metrics::default(),
         100_000,
-    )
+    ))
 }
 
 fn node_of(l: &Layout, key: Key) -> &Node {
@@ -107,7 +107,7 @@ fn partners_sit_next_to_their_person_and_nieces_hang_below() {
     let a = node_of(&l, 11);
     let p = node_of(&l, 50);
     assert_eq!(p.rel, Some(Rel::Partner(PartnerOf::Sibling)));
-    assert_eq!(p.rect.x, a.rect.x + m.node_w + m.couple_gap);
+    assert_eq!(p.rect.x, a.rect.x + m.node_w + m.couple_gap.max(24.0));
     assert_eq!(p.rect.y, a.rect.y);
     assert_eq!(node_of(&l, 60).rel, Some(Rel::NieceNephew));
     assert!(node_of(&l, 60).rect.y > a.rect.y);

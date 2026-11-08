@@ -15,7 +15,7 @@ use gt_layout::{
 const ALL: u8 = 255;
 
 fn run(s: &MapSource, root: Key) -> Layout {
-    around_all_kin(s, root, ALL, &Metrics::default(), 100_000)
+    common::assert_connectors_readable(&around_all_kin(s, root, ALL, &Metrics::default(), 100_000))
 }
 
 fn node_of(l: &Layout, key: Key) -> &Node {
@@ -170,7 +170,7 @@ fn assert_couple_adjacent(l: &Layout, a: Key, b: Key) {
     let (na, nb) = (node_of(l, a), node_of(l, b));
     assert_eq!(na.rect.y, nb.rect.y, "{a} and {b} in one row");
     assert!(
-        ((cx(nb) - cx(na)) - (m.node_w + m.couple_gap)).abs() < 0.01,
+        ((cx(nb) - cx(na)) - (m.node_w + m.couple_gap.max(24.0))).abs() < 0.01,
         "{a} and {b} are next to each other, not {} apart",
         cx(nb) - cx(na)
     );

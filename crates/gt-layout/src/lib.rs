@@ -9,6 +9,7 @@ mod grid;
 mod pedigree;
 mod quality;
 mod relatives;
+mod route;
 mod types;
 mod whole;
 

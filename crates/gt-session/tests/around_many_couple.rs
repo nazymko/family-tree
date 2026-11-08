@@ -8,7 +8,7 @@ use common::*;
 use gt_session::*;
 
 const CARD: f32 = 176.0;
-const COUPLE_GAP: f32 = 8.0;
+const COUPLE_GAP: f32 = 24.0;
 const ROW: f32 = 114.0;
 
 /// People as (key, given, surname, sex, famc, fams...). Families as (id, husband, wife, children).
