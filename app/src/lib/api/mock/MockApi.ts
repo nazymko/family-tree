@@ -1,5 +1,5 @@
 import type { Api } from '../api';
-import type { AgentAccessState, NewConnectionDto } from '../types';
+import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus } from '../types';
 import type {
   ActorDto,
   BatchDto,
@@ -2899,5 +2899,25 @@ export class MockApi implements Api {
       }
     }
     return { focus: created.id, touched };
+  }
+
+  // --- About: no network. Tests set what the build reports and what GitHub "answers". ---
+  about: AppInfo = { version: '0.3.0+12', base: '0.3.0', release: false, commit: 'a1b2c3d', date: '2026-11-08' };
+  updateAnswer: UpdateStatus = { kind: 'latest', latest: '0.3.0' };
+  updateChecks = 0;
+  openedLinks: string[] = [];
+
+  async appInfo(): Promise<AppInfo> {
+    return { ...this.about };
+  }
+
+  async checkForUpdate(): Promise<UpdateStatus> {
+    this.updateChecks += 1;
+    return this.updateAnswer;
+  }
+
+  async openProjectLink(url: string): Promise<boolean> {
+    this.openedLinks.push(url);
+    return url.startsWith('https://github.com/nazymko/family-tree');
   }
 }

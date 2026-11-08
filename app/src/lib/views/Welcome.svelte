@@ -9,6 +9,7 @@
   import { enterProject } from '../state/openTree';
   import { openReceivedCopy } from '../state/openReceived';
   import { t, currentLocale } from '../i18n';
+  import { versionLine } from './about';
 
   const api = getApi();
   const platform = getPlatform();
@@ -16,8 +17,14 @@
   let recents = $state<RecentProject[] | null>(null);
   let mode = $state<'home' | 'import' | 'create' | 'trace'>('home');
   let error = $state('');
+  let version = $state('');
 
   onMount(() => {
+    // Quiet footer: which version this is. Settings > About has the rest (where to download, the check for a newer one).
+    void api
+      .appInfo()
+      .then((i) => (version = versionLine(i)))
+      .catch(() => (version = ''));
     void api
       .recentProjects()
       .then((r) => (recents = r))
@@ -184,6 +191,7 @@
     {:else}
       <ImportWizard mode={mode === 'import' ? 'import' : 'create'} thenTrace={mode === 'trace'} oncancel={() => (mode = 'home')} />
     {/if}
+    {#if version}<footer class="ver tnum" data-testid="welcome-version">{version}</footer>{/if}
   </div>
 </main>
 
@@ -198,6 +206,10 @@
     gap: var(--s-7);
     max-width: 52rem;
     margin-inline: auto;
+  }
+  .ver {
+    color: var(--ink-2);
+    font-size: var(--t-sm);
   }
   .hero {
     display: grid;

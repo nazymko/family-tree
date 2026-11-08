@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Api } from '../api';
-import type { AgentAccessState, NewConnectionDto } from '../types';
+import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus } from '../types';
 import type {
   BatchDto,
   CopySizeDto,
@@ -313,4 +313,13 @@ export class TauriApi implements Api {
     return call('agent_rules');
   }
   // --- end of Agent access ---
+  appInfo(): Promise<AppInfo> {
+    return call('app_info');
+  }
+  checkForUpdate(): Promise<UpdateStatus> {
+    return call('check_for_update');
+  }
+  openProjectLink(url: string): Promise<boolean> {
+    return call('open_project_link', { url });
+  }
 }

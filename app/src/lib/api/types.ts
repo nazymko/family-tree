@@ -19,6 +19,25 @@ export interface ConnectionDto {
   created: number;
 }
 
+/** The build's version (Settings, About). `version` is what to show: `0.3.0`, or `0.3.0+12` twelve commits after the release. */
+export interface AppInfo {
+  version: string;
+  /** The release the build is based on; the newest release is compared with it. */
+  base: string;
+  /** True for a build that is exactly a release tag. */
+  release: boolean;
+  commit: string | null;
+  /** `YYYY-MM-DD` of the commit. */
+  date: string | null;
+}
+
+export type UpdateFailure = 'offline' | 'server' | 'badReply';
+
+export type UpdateStatus =
+  | { kind: 'latest'; latest: string }
+  | { kind: 'newer'; version: string; url: string; published: string | null }
+  | { kind: 'failed'; reason: UpdateFailure };
+
 export interface AgentAccessState {
   enabled: boolean;
   port: number;
