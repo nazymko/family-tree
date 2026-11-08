@@ -15,6 +15,12 @@ pub trait ChartSource {
     }
     /// Partnerships of `p` in display order: (partner or None, children in birth order).
     fn unions(&self, p: Key) -> Vec<(Option<Key>, Vec<Key>)>;
+    /// Every family in which `p` is a child: its partners (either may be unknown, both may be: a family with only
+    /// children) and its children. `unions` cannot reach a family without partners, nor the families beside the
+    /// preferred one; the brothers and sisters of `p` are the other children of all of them.
+    fn child_families(&self, _p: Key) -> Vec<([Option<Key>; 2], Vec<Key>)> {
+        Vec::new()
+    }
 }
 
 /// Sizes in world units.
@@ -154,6 +160,8 @@ pub enum EdgeKind {
     Parent,
     Partner,
     Dup,
+    /// Brothers and sisters of a family without partners, joined by a short bar above their row.
+    Sibling,
 }
 
 /// An orthogonal polyline: `pts` is `x0, y0, x1, y1, ...`.

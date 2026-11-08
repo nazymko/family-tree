@@ -243,7 +243,7 @@ export function draw(
   const parent: ChartEdge[] = [];
   const partner: ChartEdge[] = [];
   const dup: ChartEdge[] = [];
-  for (const e of win.edges) (e.kind === 'parent' ? parent : e.kind === 'partner' ? partner : dup).push(e);
+  for (const e of win.edges) (e.kind === 'parent' || e.kind === 'sibling' ? parent : e.kind === 'partner' ? partner : dup).push(e);
   strokeEdges(ctx, parent, theme.ink2, 1, z, null);
   strokeEdges(ctx, partner, theme.ink2, 2, z, null);
   strokeEdges(ctx, dup, theme.ribbon, 1, z, [6 / z, 4 / z]);

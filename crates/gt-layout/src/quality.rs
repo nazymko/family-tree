@@ -57,7 +57,7 @@ pub fn quality(l: &Layout) -> Quality {
     let mut vertical: Vec<Seg> = Vec::new();
     for (i, e) in l.edges.iter().enumerate() {
         // The children of one couple start at one point and share a bar: they are one owner.
-        let owner = if e.kind == EdgeKind::Parent && e.pts.len() >= 2 {
+        let owner = if matches!(e.kind, EdgeKind::Parent | EdgeKind::Sibling) && e.pts.len() >= 2 {
             let next = starts.len();
             *starts
                 .entry((e.pts[0].to_bits(), e.pts[1].to_bits()))

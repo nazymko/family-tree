@@ -200,6 +200,21 @@ fn siblings(src: &dyn ChartSource, x: Key) -> Vec<Sibling> {
             }
         }
     }
+    // The other children of every family `x` is a child of, partners or not: a family without partners is not
+    // reached from any parent, and a family beside the preferred one belongs to other parents.
+    for (fps, kids) in src.child_families(x) {
+        let half = fps.iter().any(Option::is_some);
+        for k in kids {
+            if k == x || ps.contains(&Some(k)) || out.iter().any(|s| s.key == k) {
+                continue;
+            }
+            out.push(Sibling {
+                key: k,
+                hang: [false, false],
+                half,
+            });
+        }
+    }
     if !out.iter().any(|s| s.key == x) {
         out.push(Sibling {
             key: x,
@@ -210,6 +225,42 @@ fn siblings(src: &dyn ChartSource, x: Key) -> Vec<Sibling> {
     // Stable: undated people keep their listed order after the dated ones.
     out.sort_by_key(|s| src.birth_sort(s.key).unwrap_or(i32::MAX));
     out
+}
+
+impl Sibling {
+    /// Hangs from no parent drawn on the chart: joined to its brothers and sisters by a bar instead.
+    fn barred(&self) -> bool {
+        self.hang == [false, false]
+    }
+}
+
+/// The bar joining brothers and sisters that hang from no parent: from the leftmost card, a short bar above the row
+/// out to every other one. Nothing is drawn for fewer than two.
+fn sibling_bar(nodes: &[Node], ids: &[u32], m: &Metrics) -> Vec<Edge> {
+    let mut v: Vec<u32> = ids.to_vec();
+    v.sort_by(|&a, &b| {
+        nodes[a as usize]
+            .rect
+            .x
+            .total_cmp(&nodes[b as usize].rect.x)
+    });
+    v.dedup();
+    let Some((&first, rest)) = v.split_first() else {
+        return Vec::new();
+    };
+    let f = nodes[first as usize].rect;
+    let mid = f.y - m.gap_y * 2.0;
+    rest.iter()
+        .map(|&id| {
+            let t = nodes[id as usize].rect;
+            Edge {
+                from: first,
+                to: id,
+                kind: EdgeKind::Sibling,
+                pts: vec![f.cx(), f.y, f.cx(), mid, t.cx(), mid, t.cx(), t.y],
+            }
+        })
+        .collect()
 }
 
 struct Builder<'a> {
@@ -887,6 +938,8 @@ pub fn around_many_kin(
     let mut groups: Vec<(Vec<usize>, bool)> = Vec::new();
     // Brothers and sisters who are not chosen themselves.
     let mut sib_roots: Vec<usize> = Vec::new();
+    // Brothers and sisters that hang from no parent, per set: joined by a bar.
+    let mut bars: Vec<Vec<u32>> = Vec::new();
     'roots: for key in order {
         if let Some(&node) = b.visited.get(&key) {
             // Already drawn. A chosen partner (of a chosen person or of a brother or sister) still brings his or
@@ -906,6 +959,7 @@ pub fn around_many_kin(
                 at += 1;
             }
             let mut made = Vec::new();
+            let mut bar = vec![node];
             for s in siblings(src, key) {
                 if s.key == key || b.visited.contains_key(&s.key) || chosen_set.contains(&s.key) {
                     continue;
@@ -922,7 +976,11 @@ pub fn around_many_kin(
                 b.expand(u, Tree::Kin(1));
                 sib_roots.push(u);
                 made.push(u);
+                if s.barred() {
+                    bar.push(b.units[u].person);
+                }
             }
+            bars.push(bar);
             if !made.is_empty() {
                 groups.insert(at, (made, true));
             }
@@ -934,12 +992,14 @@ pub fn around_many_kin(
         let partner_chosen = src.unions(key).iter().any(|(p, _)| {
             p.is_some_and(|p| p != key && chosen_set.contains(&p) && !b.visited.contains_key(&p))
         });
+        let mut bar_keys: Vec<Key> = vec![key];
         let group: Vec<(Key, Rel, bool)> = if with_sibs {
             let mut sibs = siblings(src, key);
             if partner_chosen && let Some(i) = sibs.iter().position(|s| s.key == key) {
                 let me = sibs.remove(i);
                 sibs.push(me);
             }
+            bar_keys.extend(sibs.iter().filter(|s| s.barred()).map(|s| s.key));
             sibs.into_iter()
                 .map(|s| {
                     if chosen_set.contains(&s.key) {
@@ -952,6 +1012,7 @@ pub fn around_many_kin(
         } else {
             vec![(key, Rel::Focus, true)]
         };
+        let mut bar: Vec<u32> = Vec::new();
         for (k, rel, is_chosen) in group {
             if b.visited.contains_key(&k) {
                 continue;
@@ -970,10 +1031,14 @@ pub fn around_many_kin(
                 b.expand(u, Tree::Kin(1));
                 sib_roots.push(u);
             }
+            if bar_keys.contains(&k) {
+                bar.push(b.units[u].person);
+            }
             if let Some(g) = groups.last_mut() {
                 g.0.push(u);
             }
         }
+        bars.push(bar);
     }
     let roots: Vec<usize> = groups.into_iter().flat_map(|g| g.0).collect();
     if roots.is_empty() {
@@ -1171,7 +1236,7 @@ pub fn around_many_kin(
     }
 
     if kin == ManyKin::All {
-        hang_ancestor_siblings(&mut b, &spine, &roots, &mut links, m);
+        hang_ancestor_siblings(&mut b, &spine, &roots, &mut links, &mut bars, m);
     }
 
     let Builder {
@@ -1214,6 +1279,9 @@ pub fn around_many_kin(
         nodes[c as usize].nav.parent.get_or_insert(p);
         nodes[p as usize].nav.child.get_or_insert(c);
     }
+    for bar in &bars {
+        edges.extend(sibling_bar(&nodes, bar, m));
+    }
     for v in 0..nodes.len() {
         if let Some(orig) = nodes[v].dup_of {
             edges.push(dup_edge(&nodes, v as u32, orig, m.gap_x));
@@ -1255,6 +1323,7 @@ fn hang_ancestor_siblings(
     spine: &[u32],
     roots: &[usize],
     links: &mut Vec<(u32, u32)>,
+    bars: &mut Vec<Vec<u32>>,
     m: &Metrics,
 ) {
     let placed = b.nodes.len();
@@ -1286,6 +1355,7 @@ fn hang_ancestor_siblings(
         let gens = u8::try_from(-row).unwrap_or(u8::MAX);
         let up = gens.saturating_add(1);
         let mut made = Vec::new();
+        let mut bar = vec![id];
         for s in siblings(b.src, key) {
             if s.key == key {
                 continue;
@@ -1301,6 +1371,9 @@ fn hang_ancestor_siblings(
                 // Drawn already: it only gets its link.
                 if i32::from(b.nodes[n as usize].r#gen) == row {
                     links.extend(parents.iter().map(|&pn| (pn, n)));
+                    if s.barred() {
+                        bar.push(n);
+                    }
                 }
                 continue;
             }
@@ -1316,8 +1389,12 @@ fn hang_ancestor_siblings(
             b.expand(u, Tree::Kin(up));
             let person = b.units[u].person;
             links.extend(parents.iter().map(|&pn| (pn, person)));
+            if s.barred() {
+                bar.push(person);
+            }
             made.push(u);
         }
+        bars.push(bar);
         fams.push((cx < mid, made));
     }
     fill_contours(&mut b.units, m);
@@ -1624,6 +1701,15 @@ fn lay_out(
                 });
             }
         }
+    }
+    for blk in &blocks {
+        let bar: Vec<u32> = blk
+            .group
+            .iter()
+            .filter(|&&r| r == blk.anchor || units[r].hang == [false, false])
+            .map(|&r| units[r].person)
+            .collect();
+        edges.extend(sibling_bar(&nodes, &bar, m));
     }
     for v in 0..nodes.len() {
         if let Some(orig) = nodes[v].dup_of {
