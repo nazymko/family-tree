@@ -844,6 +844,7 @@ export const uk: Messages = {
     deleteNote: 'Видалити нотатку: {kind}',
     familyNotes: 'Спільні нотатки родини',
     familyNotesWith: 'Спільні нотатки родини, партнер: {name}',
+    parentsFamilyNotes: 'Нотатки родини батьків: {names}',
     openFamily: 'Відкрити родину',
     noNotes: 'Нотаток ще немає.',
     attachedCount: 'Прикріплено: {n}.',

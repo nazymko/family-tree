@@ -846,6 +846,7 @@ export const en = {
     noNotes: 'No notes yet.',
     familyNotes: 'Shared family notes',
     familyNotesWith: 'Shared family notes, with {name}',
+    parentsFamilyNotes: "Notes of the parents' family: {names}",
     openFamily: 'Open family',
     attachedCount: '{n} attached.',
     citedCount: '{n} cited.',

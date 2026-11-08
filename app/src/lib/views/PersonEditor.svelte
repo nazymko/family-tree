@@ -102,7 +102,8 @@
   /** The agent event count when `detail` was read; an editor built from `detail` counts from here. */
   let detailAt = 0;
   /** Notes on this person's own families: they belong to the family, and are read here too. */
-  let familyNotes = $state<{ familyId: string; partner: string | null; notes: NoteDto[] }[]>([]);
+  /** Notes on the person's own families, then on the families of their parents (`parents` names them). */
+  let familyNotes = $state<{ familyId: string; partner: string | null; parents?: string; notes: NoteDto[] }[]>([]);
   let basics = $state<HTMLElement>();
   /** What was last written into the "describe" field, so anything else there is text not yet committed. */
   let sexTextShown = '';
@@ -139,13 +140,23 @@
       const d = await api.getPerson(id);
       const h = await loadRows((o, l) => api.personHistory(id, o, l), untrack(() => history.length));
       const fv = await api.getFamilyView(id).catch(() => null);
-      const fn = await Promise.all(
+      const fn: typeof familyNotes = await Promise.all(
         d.partnerships.map(async (p) => ({
           familyId: p.familyId,
           partner: p.partner?.name ?? null,
           notes: (await api.getFamily(p.familyId).catch(() => null))?.notes ?? [],
         })),
       );
+      // The parents' family notes too: the history of this page lists changes to them.
+      const fp = await Promise.all(
+        d.parentSets.map(async (ps) => ({
+          familyId: ps.familyId,
+          partner: null,
+          parents: ps.parents.flatMap((x) => (x ? [x.name] : [])).join(', '),
+          notes: (await api.getFamily(ps.familyId).catch(() => null))?.notes ?? [],
+        })),
+      );
+      fn.push(...fp.filter((f) => !fn.some((o) => o.familyId === f.familyId)));
       if (mine !== loadSeq) return false; // a newer load is in flight
       detail = d;
       familyNotes = fn.filter((f) => f.notes.length > 0);
@@ -588,7 +599,7 @@
       {/each}
       {#each familyNotes as fam (fam.familyId)}
         <div class="sec-head">
-          <h3>{fam.partner ? t('person.familyNotesWith', { name: fam.partner }) : t('person.familyNotes')}</h3>
+          <h3>{fam.parents !== undefined ? t('person.parentsFamilyNotes', { names: fam.parents }) : fam.partner ? t('person.familyNotesWith', { name: fam.partner }) : t('person.familyNotes')}</h3>
           <Button onclick={() => nav.go({ name: 'familyPage', id: fam.familyId })} aria-label={fam.partner ? t('familyPage.openWith', { name: fam.partner }) : t('familyPage.open')}>{t('familyPage.open')}</Button>
           <Button onclick={() => (dialog = { kind: 'family', family: fam.familyId })}>{t('person.openFamily')}</Button>
         </div>

@@ -110,6 +110,17 @@ describe('PersonEditor', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
+  it('a_note_on_the_parents_family_shows_on_the_childs_page', async () => {
+    const child = await findPerson(api, (d) => d.parentSets.length > 0 && d.notes.length === 0);
+    id = child.ref.id;
+    const family = child.parentSets[0].familyId;
+    await api.apply({ type: 'saveNote', target: { kind: 'family', id: family }, note: { kind: 'story', text: 'The parents kept a shop.' } });
+    await open();
+    await screen.findByText('The parents kept a shop.');
+    expect(screen.getByRole('heading', { level: 3, name: /Notes of the parents' family/ })).toBeInTheDocument();
+    expect(screen.queryByText('No notes yet.')).toBeNull();
+  });
+
   it('event_rows_show_what_the_description_says', async () => {
     const person = await findPerson(api, (d) => d.events.some((e) => !!e.description));
     const text = person.events.find((e) => !!e.description)!.description!;
