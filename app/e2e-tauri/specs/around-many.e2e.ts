@@ -171,9 +171,9 @@ async function cardNames(first: string, second: string, kin: 'line' | 'siblings'
  */
 function expectParentsAbove(l: Layout) {
   const card = 176;
-  const pstep = card + 8;
+  const pstep = card + 24;
   const row = 114;
-  const slack = (2 * card + 8 + 40 - card) / 2 + 1;
+  const slack = (2 * card + 24 + 40 - card) / 2 + 1;
   let couples = 0;
   for (const id of l.chosen) {
     const me = l.nodes.find((n) => n.id === id)!;

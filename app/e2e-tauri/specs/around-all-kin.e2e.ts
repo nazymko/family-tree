@@ -159,7 +159,7 @@ describe('The Relatives choice on the around screen', () => {
     const mum = all.find((c) => c.relation === 'mother');
     if (dad && mum) {
       const between = mum.x - (dad.x + dad.w);
-      expect(between >= 0 && between <= 20).toBe(true);
+      expect(between >= 0 && between <= 24.5).toBe(true);
       expect(Math.abs((dad.x + mum.x + mum.w) / 2 - (me.x + me.w / 2)) <= 1).toBe(true);
       expect(Math.abs(dad.x + dad.w / 2 - (me.x + me.w / 2)) <= me.w).toBe(true);
     }

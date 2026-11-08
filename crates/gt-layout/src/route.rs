@@ -359,9 +359,13 @@ pub(crate) fn route(
     for f in &fams {
         for s in &f.srcs {
             let sx = s.x;
-            let from = if f.couple { f.parents[0] } else { s.node };
-            let ks: &[u32] = &f.kids;
-            for &k in ks {
+            // A couple's line belongs to both parents: one edge each, on the same path.
+            let froms: Vec<u32> = if f.couple {
+                f.parents.clone()
+            } else {
+                vec![s.node]
+            };
+            for &k in &f.kids {
                 let t = nodes[k as usize].rect;
                 let tx = t.cx();
                 let pts = if (sx - tx).abs() < 0.01 {
@@ -369,12 +373,14 @@ pub(crate) fn route(
                 } else {
                     vec![sx, s.y, sx, f.bus_y, tx, f.bus_y, tx, t.y]
                 };
-                edges.push(Edge {
-                    from,
-                    to: k,
-                    kind: f.kind,
-                    pts,
-                });
+                for &from in &froms {
+                    edges.push(Edge {
+                        from,
+                        to: k,
+                        kind: f.kind,
+                        pts: pts.clone(),
+                    });
+                }
             }
         }
     }
