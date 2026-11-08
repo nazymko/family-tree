@@ -241,6 +241,7 @@ pub fn open_project_link<R: Runtime>(app: AppHandle<R>, url: String) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
