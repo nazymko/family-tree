@@ -960,7 +960,7 @@ fn whole_tree_of_an_empty_project_is_empty() {
 
 fn set_direction(s: &mut Session, d: TreeDirection) {
     s.set_settings(SettingsPatch {
-        tree_direction: Some(d),
+        chart_directions: Some(ChartDirections::from_legacy(d)),
         ..SettingsPatch::default()
     })
     .unwrap();
@@ -1027,4 +1027,98 @@ fn reversed_whole_tree_is_reopened_and_keeps_headings_above_their_people() {
     assert_eq!(loc.rect.y, node_named(&w, "Me X").y);
     // Asking again with the same direction reuses the chart.
     assert_eq!(s.chart_open_whole().unwrap(), b);
+}
+
+fn set_directions(s: &mut Session, d: ChartDirections) {
+    s.set_settings(SettingsPatch {
+        chart_directions: Some(d),
+        ..SettingsPatch::default()
+    })
+    .unwrap();
+}
+
+#[test]
+fn every_chart_opens_in_the_four_directions_each_kind_with_its_own() {
+    let (_d, mut s) = open_ged(&pedigree_ged());
+    let mut d = ChartDirections::default();
+    // Each kind of chart has its own direction: the pedigree and the descendants differ here.
+    for (pedigree, descendants) in [
+        (ChartDirection::Right, ChartDirection::Top),
+        (ChartDirection::Left, ChartDirection::Bottom),
+        (ChartDirection::Top, ChartDirection::Left),
+        (ChartDirection::Bottom, ChartDirection::Right),
+    ] {
+        d.pedigree = pedigree;
+        d.descendants = descendants;
+        set_directions(&mut s, d);
+        let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+        let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+        let (me, dad, gus) = (
+            node_named(&w, "Me X"),
+            node_named(&w, "Fred X"),
+            node_named(&w, "Gus X"),
+        );
+        let older = |a: &ChartNode, b: &ChartNode| match pedigree {
+            ChartDirection::Right => a.x > b.x,
+            ChartDirection::Left => a.x < b.x,
+            ChartDirection::Top => a.y < b.y,
+            ChartDirection::Bottom => a.y > b.y,
+        };
+        assert!(
+            older(&dad, &me) && older(&gus, &dad),
+            "pedigree {pedigree:?}"
+        );
+        // Cards keep their size however the chart is turned.
+        assert_eq!((me.w, me.h), (dad.w, dad.h));
+        let m = s.chart_open(&descendants_req(&s, "Gus X", 3)).unwrap();
+        let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+        let (gus, fred, me) = (
+            node_named(&w, "Gus X"),
+            node_named(&w, "Fred X"),
+            node_named(&w, "Me X"),
+        );
+        let older = |a: &ChartNode, b: &ChartNode| match descendants {
+            ChartDirection::Right => a.x > b.x,
+            ChartDirection::Left => a.x < b.x,
+            ChartDirection::Top => a.y < b.y,
+            ChartDirection::Bottom => a.y > b.y,
+        };
+        // Gus is the root, the oldest generation: on the chosen side of his child and grandchild.
+        assert!(
+            older(&gus, &fred) && older(&fred, &me),
+            "descendants {descendants:?}"
+        );
+    }
+}
+
+#[test]
+fn the_whole_tree_in_each_direction_is_reopened_with_unchanged_headings() {
+    let (_d, mut s) = open_ged(&whole_ged());
+    let mut d = ChartDirections::default();
+    let a = s.chart_open_whole().unwrap();
+    let mut seen = vec![a.meta.chart_id];
+    for dir in [
+        ChartDirection::Bottom,
+        ChartDirection::Left,
+        ChartDirection::Right,
+    ] {
+        d.whole = dir;
+        set_directions(&mut s, d);
+        let b = s.chart_open_whole().unwrap();
+        assert!(
+            !seen.contains(&b.meta.chart_id),
+            "{dir:?} reopens the chart"
+        );
+        seen.push(b.meta.chart_id);
+        let w = s.chart_window(b.meta.chart_id, &everything(), 1.0).unwrap();
+        let (mary, me) = (node_named(&w, "Mary Y"), node_named(&w, "Me X"));
+        match dir {
+            ChartDirection::Bottom => assert!(mary.y > me.y),
+            ChartDirection::Left => assert!(mary.x < me.x),
+            _ => assert!(mary.x > me.x),
+        }
+        assert_eq!(a.blocks.len(), b.blocks.len());
+        // Asking again in the same direction reuses the chart.
+        assert_eq!(s.chart_open_whole().unwrap(), b);
+    }
 }

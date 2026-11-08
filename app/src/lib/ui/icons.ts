@@ -23,9 +23,8 @@ export const icons = {
     'M1 14h6', 'M9 8h6', 'M17 16h6',
   ],
   search: ['M19 11a8 8 0 1 0-16 0 8 8 0 0 0 16 0', 'm21 21-4.3-4.3'],
-  // Tree direction, drawn as the tree looks: two parents over one child, or the child over its parents.
+  // Tree direction: two parents over one child; the direction control turns it a quarter or half.
   'tree-normal': ['M8 5a2 2 0 1 0-4 0 2 2 0 0 0 4 0', 'M20 5a2 2 0 1 0-4 0 2 2 0 0 0 4 0', 'M6 7v3', 'M18 7v3', 'M6 10h12', 'M12 10v7', 'M14 19a2 2 0 1 0-4 0 2 2 0 0 0 4 0'],
-  'tree-reversed': ['M14 5a2 2 0 1 0-4 0 2 2 0 0 0 4 0', 'M12 7v7', 'M6 14h12', 'M6 14v3', 'M18 14v3', 'M8 19a2 2 0 1 0-4 0 2 2 0 0 0 4 0', 'M20 19a2 2 0 1 0-4 0 2 2 0 0 0 4 0'],
   plus: ['M5 12h14', 'M12 5v14'],
   minus: ['M5 12h14'],
   x: ['M18 6 6 18', 'm6 6 12 12'],

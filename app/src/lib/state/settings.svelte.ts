@@ -2,6 +2,7 @@ import type { Api, Settings } from '../api/api';
 import { applyTheme } from './theme';
 import { project } from './project.svelte';
 import { setLanguage } from '../i18n';
+import { DEFAULT_DIRECTIONS } from '../chart/direction';
 
 const DEFAULTS: Settings = {
   dayOrder: 'dmy',
@@ -9,7 +10,7 @@ const DEFAULTS: Settings = {
   theme: 'system',
   language: 'system',
   backupsToKeep: 10,
-  treeDirection: 'normal',
+  chartDirections: { ...DEFAULT_DIRECTIONS },
   livingMaxAge: 100,
   homePerson: null,
 };

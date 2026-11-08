@@ -9,6 +9,7 @@
   import { settings } from '../state/settings.svelte';
   import { t, LANGUAGES } from '../i18n';
   import type { Id, SearchHitDto, Settings } from '../api/api';
+  import { CHART_LABEL, DIRECTION_KEYS, DIRECTION_LABEL, choicesFor, directionOf, type ChartDirection } from '../chart/direction';
 
   const api = getApi();
   let error = $state('');
@@ -151,22 +152,40 @@
       value={settings.value.theme}
       onchange={(v) => change({ theme: v as Settings['theme'] })}
     />
-    <Select
-      label={t('settings.treeDirection')}
-      hint={t('settings.treeDirectionHint')}
-      options={[
-        { value: 'normal', label: t('settings.treeNormal') },
-        { value: 'reversed', label: t('settings.treeReversed') },
-      ]}
-      value={settings.value.treeDirection}
-      onchange={(v) => change({ treeDirection: v as Settings['treeDirection'] })}
-    />
+    <fieldset class="dirs">
+      <legend>{t('settings.treeDirection')}</legend>
+      <p class="hint">{t('settings.treeDirectionHint')}</p>
+      {#each DIRECTION_KEYS as key (key)}
+        <Select
+          label={t(CHART_LABEL[key])}
+          options={choicesFor(key).map((d) => ({ value: d, label: t(DIRECTION_LABEL[d]) }))}
+          value={directionOf(settings.value.chartDirections, key)}
+          onchange={(v) => change({ chartDirections: { ...settings.value.chartDirections, [key]: v as ChartDirection } })}
+        />
+      {/each}
+    </fieldset>
     <TextField label={t('settings.backups')} type="number" min="1" max="50" bind:value={backups} onchange={commitBackups} />
   </div>
   <AgentAccessSettings />
 </section>
 
 <style>
+  .dirs {
+    display: grid;
+    gap: var(--s-4);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-inline-size: 0;
+  }
+  .dirs legend {
+    padding: 0;
+    font-weight: 500;
+  }
+  .hint {
+    margin: 0;
+    color: var(--ink-2);
+  }
   .settings {
     display: grid;
     gap: var(--s-5);

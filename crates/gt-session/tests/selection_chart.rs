@@ -342,7 +342,7 @@ fn reversed_direction_puts_the_ancestors_below() {
     };
     assert!(y(&s, &m, "Ivan") < y(&s, &m, "Taras"));
     s.set_settings(SettingsPatch {
-        tree_direction: Some(TreeDirection::Reversed),
+        chart_directions: Some(ChartDirections::from_legacy(TreeDirection::Reversed)),
         ..SettingsPatch::default()
     })
     .unwrap();

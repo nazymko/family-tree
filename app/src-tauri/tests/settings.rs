@@ -1,7 +1,9 @@
 #![allow(clippy::unwrap_used)]
 
 use gt_app_lib::settings_file::*;
-use gt_session::{DayOrder, Language, NameOrder, Theme, TreeDirection};
+use gt_session::{
+    ChartDirection, ChartDirections, DayOrder, Language, NameOrder, Theme, TreeDirection,
+};
 
 #[test]
 fn settings_atomic_write_and_defaults() {
@@ -15,20 +17,56 @@ fn settings_atomic_write_and_defaults() {
     assert_eq!(d.theme, Theme::System);
     assert_eq!(d.language, Language::Uk);
     assert_eq!(d.backups_to_keep, 10);
-    assert_eq!(d.tree_direction, TreeDirection::Normal);
+    assert_eq!(d.chart_directions, ChartDirections::default());
+    assert_eq!(d.chart_directions.pedigree, ChartDirection::Right);
+    assert_eq!(d.chart_directions.descendants, ChartDirection::Top);
 
     let mut s = d.clone();
     s.language = Language::Uk;
     s.theme = Theme::Dark;
     s.backups_to_keep = 3;
     s.day_order = DayOrder::Mdy;
-    s.tree_direction = TreeDirection::Reversed;
+    s.chart_directions.pedigree = ChartDirection::Bottom;
+    s.chart_directions.around = ChartDirection::Left;
     save_settings(&cfg, &s).unwrap();
     assert_eq!(load_settings(&cfg), s);
     // The temp file was renamed away, and the JSON is camelCase on disk.
     assert!(!cfg.join("settings.json.tmp").exists());
     let text = std::fs::read_to_string(cfg.join(SETTINGS_FILE)).unwrap();
-    assert!(text.contains("\"dayOrder\"") && text.contains("\"treeDirection\": \"reversed\""));
+    assert!(
+        text.contains("\"dayOrder\"")
+            && text.contains("\"chartDirections\"")
+            && text.contains("\"pedigree\": \"bottom\"")
+    );
+
+    // The file of an earlier version had one switch: normal keeps every default, reversed becomes what it drew.
+    std::fs::write(cfg.join(SETTINGS_FILE), r#"{"treeDirection":"reversed"}"#).unwrap();
+    let old = load_settings(&cfg);
+    assert_eq!(
+        old.chart_directions,
+        ChartDirections::from_legacy(TreeDirection::Reversed)
+    );
+    assert_eq!(old.chart_directions.pedigree, ChartDirection::Left);
+    assert_eq!(old.chart_directions.whole, ChartDirection::Bottom);
+    assert_eq!(old.chart_directions.family, ChartDirection::Bottom);
+    std::fs::write(cfg.join(SETTINGS_FILE), r#"{"treeDirection":"normal"}"#).unwrap();
+    assert_eq!(
+        load_settings(&cfg).chart_directions,
+        ChartDirections::default()
+    );
+    // Once saved, the old key is gone and the new setting wins.
+    save_settings(&cfg, &old).unwrap();
+    let text = std::fs::read_to_string(cfg.join(SETTINGS_FILE)).unwrap();
+    assert!(!text.contains("treeDirection"));
+    assert_eq!(load_settings(&cfg).chart_directions, old.chart_directions);
+    std::fs::write(
+        cfg.join(SETTINGS_FILE),
+        r#"{"treeDirection":"reversed","chartDirections":{"pedigree":"top"}}"#,
+    )
+    .unwrap();
+    let both = load_settings(&cfg).chart_directions;
+    assert_eq!(both.pedigree, ChartDirection::Top);
+    assert_eq!(both.descendants, ChartDirection::Top);
 
     // A partial file keeps the other defaults; a corrupt one falls back entirely.
     std::fs::write(cfg.join(SETTINGS_FILE), r#"{"theme":"light"}"#).unwrap();

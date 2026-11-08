@@ -8,7 +8,8 @@
   import { undoState as undo } from '../state/undo.svelte';
   import Button from '../ui/Button.svelte';
   import Combobox from '../ui/Combobox.svelte';
-  import FlipTreeButton from '../ui/FlipTreeButton.svelte';
+  import DirectionControl from '../ui/DirectionControl.svelte';
+  import { arrowStep, isHorizontal, type ChartDirection } from './direction';
   import IconButton from '../ui/IconButton.svelte';
   import { centerOn, fit, fitZoom, panBy, tween, viewRect, ZOOM_MIN, zoomAt, type Camera } from './camera';
   import { hitTest, neighbor, type Dir } from './hit';
@@ -31,7 +32,7 @@
     onOpenPerson,
     onOpenInPedigree,
     onOpened,
-    reversed = false,
+    direction = 'top',
     people = [],
     descendants = false,
     onShowSelection,
@@ -45,8 +46,8 @@
     onOpenInPedigree: (id: Id) => void;
     /** Called with the chart each time it is (re)opened. */
     onOpened?: (meta: WholeMeta) => void;
-    /** Every family is drawn upside down: its oldest generation at the bottom (headings stay above their people). */
-    reversed?: boolean;
+    /** The side each family's oldest generation is on, inside its block (headings stay above their people). */
+    direction?: ChartDirection;
     /** Chosen people: when there are any, the chart holds only them, their ancestors and partners (and with `descendants` everyone below them). */
     people?: Id[];
     descendants?: boolean;
@@ -334,7 +335,7 @@
         }
       }
       // Back from the screen built around a person: the same person selected and the view where it was left.
-      const back = keepView ? null : recallWholeView(wholeViewKey(chosen, descendants, reversed), focusId);
+      const back = keepView ? null : recallWholeView(wholeViewKey(chosen, descendants, direction), focusId);
       if (back) {
         const loc = await api.chartLocate(id, back.person);
         if (seq !== openSeq) return;
@@ -359,7 +360,7 @@
       if (seq !== openSeq) return;
       miniWin = all;
       if (!startRect && !inSel) {
-        const f = founderOf(m.blocks, all.nodes, reversed);
+        const f = founderOf(m.blocks, all.nodes, direction);
         if (f) {
           startRect = f.rect;
           startId = f.id;
@@ -444,7 +445,7 @@
     });
   });
 
-  let lastReversed = untrack(() => reversed);
+  let lastDirection = untrack(() => direction);
   let flipKeep: Id | null = null;
   const peopleKey = $derived(people.join(','));
   $effect(() => {
@@ -452,8 +453,8 @@
     void focusId;
     void peopleKey;
     void descendants;
-    const flipped = reversed !== lastReversed;
-    lastReversed = reversed;
+    const flipped = direction !== lastDirection;
+    lastDirection = direction;
     untrack(() => {
       flipKeep = flipped ? (selNode?.person?.id ?? null) : null;
       void open();
@@ -764,7 +765,7 @@
     const p = realPerson(selNode);
     const first = many ? markedIds[0] : p?.id;
     if (!first) return;
-    rememberWholeView({ key: wholeViewKey([...people], descendants, reversed), person: first, cam: { ...cam }, marked: many ? [...markedIds] : undefined });
+    rememberWholeView({ key: wholeViewKey([...people], descendants, direction), person: first, cam: { ...cam }, marked: many ? [...markedIds] : undefined });
     onBuildAround?.(many ? [...markedIds] : [first]);
   }
 
@@ -879,10 +880,9 @@
   // ------------------------------------------------------------ keyboard
 
   function dirFor(key: string): Dir | null {
-    // Reversed, the children are above their parents: Up goes to a child, Down to a parent.
-    const down = reversed ? 'ArrowUp' : 'ArrowDown';
-    const up = reversed ? 'ArrowDown' : 'ArrowUp';
-    return key === down ? 'child' : key === up ? 'parent' : key === 'ArrowLeft' ? 'up' : key === 'ArrowRight' ? 'down' : null;
+    // An arrow goes the way it points: to the ancestors' side is a parent, the other way a child, across a brother or sister.
+    const step = arrowStep(key, direction);
+    return step === 'ancestors' ? 'parent' : step === 'descendants' ? 'child' : step === 'prev' ? 'up' : step === 'next' ? 'down' : null;
   }
 
   const PAN_STEP = 80;
@@ -894,14 +894,20 @@
     setCam(panBy(cam, dx, dy, meta?.meta.bounds ?? { w: 1, h: 1 }, size));
   }
 
-  /** The next card to the left or right in the same row; reaches people (a married-in partner) that no sibling link leads to. */
+  /**
+   * The next card along the generation (the row of a chart that grows up or down, the column of one that grows sideways);
+   * reaches people (a married-in partner) that no sibling link leads to.
+   */
   function rowStep(win: ChartWindow, from: number, dir: 1 | -1): ChartNode | null {
     const n = win.nodes.find((x) => x.id === from);
     if (!n) return null;
+    const side = isHorizontal(direction);
+    const same = (o: ChartNode) => (side ? o.x === n.x : o.y === n.y);
+    const at = (o: ChartNode) => (side ? o.y - n.y : o.x - n.x);
     let best: ChartNode | null = null;
     for (const o of win.nodes) {
-      if (o.y !== n.y || o.id === n.id || (o.x - n.x) * dir <= 0) continue;
-      if (!best || Math.abs(o.x - n.x) < Math.abs(best.x - n.x)) best = o;
+      if (!same(o) || o.id === n.id || at(o) * dir <= 0) continue;
+      if (!best || Math.abs(at(o)) < Math.abs(at(best))) best = o;
     }
     return best;
   }
@@ -996,7 +1002,7 @@
     <Button onclick={fitAll}>{t('whole.fitAll')}</Button>
     <Button disabled={selected === null} onclick={actualSize}>{t('whole.actualSize')}</Button>
     <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={homeNode === null} onclick={goHome} />
-    <FlipTreeButton />
+    <DirectionControl chart="whole" />
     <Button aria-pressed={lineageOn} onclick={() => (lineageOn = !lineageOn)}>{t('whole.lineage')}</Button>
     <Button disabled={!realPerson(selNode) && markedIds.length < 2} onclick={buildAround}>{markedIds.length >= 2 ? t('whole.buildAroundMany', { n: markedIds.length }) : t('whole.buildAround')}</Button>
     <Button disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id)}>{t('whole.openPerson')}</Button>
