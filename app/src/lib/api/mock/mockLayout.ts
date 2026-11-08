@@ -1,4 +1,5 @@
-import type { ChartEdge, ChartNode, Id, OutlineItem, PersonRef } from '../types';
+import type { ChartEdge, ChartKind, ChartNode, Id, OutlineItem, PersonRef } from '../types';
+import { isHorizontal, type ChartDirection } from '../../chart/direction';
 
 // A deliberately simple chart layout for the mock (a generation grid for pedigrees, an indented
 // list for descendants). It is not Walker; it only has to give the views real shapes to draw.
@@ -39,6 +40,47 @@ export function mirrorLayout<T extends { nodes: ChartNode[]; edges: ChartEdge[] 
     else n.x = lo + hi - n.x - n.w;
   }
   for (const e of layout.edges) e.pts = e.pts.map((v, i) => (i % 2 === (vertical ? 1 : 0) ? lo + hi - v : v));
+  return layout;
+}
+
+/**
+ * Turns a layout the way the real `Layout::orient` does: a chart is laid out with the pedigree growing right and the
+ * others with the oldest generation on top; here the turned axes are stretched to the new spacing (the mock does not
+ * lay out again), cards keep their size, then the layout is mirrored to put the ancestors on the asked side.
+ */
+export function orientLayout<T extends { nodes: ChartNode[]; edges: ChartEdge[]; bounds: { w: number; h: number } }>(layout: T, kind: ChartKind, dir: ChartDirection): T {
+  const native = (kind === 'pedigree' ? 'right' : 'top') as ChartDirection;
+  if (dir === native) return layout;
+  let side: ChartDirection = native;
+  if (isHorizontal(native) !== isHorizontal(dir)) {
+    // Generation step along x: a card width plus a gap; along y: about a card height plus a gap.
+    const toX = isHorizontal(native) ? 1 : (NODE_W + GAP_X) / (NODE_H + GAP_Y * 4);
+    const toY = isHorizontal(native) ? (NODE_H + GAP_Y * 4) / (NODE_W + GAP_X) : (NODE_H + GAP_Y * 2) / (NODE_W + GAP_X);
+    const fromRows = isHorizontal(native) ? (NODE_H + GAP_Y * 4) / (NODE_H + GAP_Y) : toX;
+    for (const n of layout.nodes) {
+      const { x, y } = n;
+      if (isHorizontal(native)) {
+        n.x = y * fromRows;
+        n.y = x * toY;
+      } else {
+        n.x = y * toX;
+        n.y = x * toY;
+      }
+    }
+    for (const e of layout.edges) {
+      const next = e.pts.slice();
+      for (let i = 0; i + 1 < next.length; i += 2) {
+        const x = e.pts[i];
+        const y = e.pts[i + 1];
+        next[i] = isHorizontal(native) ? y * fromRows : y * toX;
+        next[i + 1] = x * toY;
+      }
+      e.pts = next;
+    }
+    side = native === 'top' ? 'left' : native === 'left' ? 'top' : native === 'bottom' ? 'right' : 'bottom';
+    layout.bounds = { w: Math.max(0, ...layout.nodes.map((n) => n.x + n.w)), h: Math.max(0, ...layout.nodes.map((n) => n.y + n.h)) };
+  }
+  if (side !== dir && layout.nodes.length > 0) mirrorLayout(layout, !isHorizontal(dir));
   return layout;
 }
 

@@ -10,6 +10,7 @@
   import type { AroundKin, ChartKind, ChartMeta, Id } from '../api/types';
   import ChartCanvas from '../chart/ChartCanvas.svelte';
   import OutlineMirror from '../chart/OutlineMirror.svelte';
+  import { directionOf } from '../chart/direction';
   import { OUTLINE_GROUP_BASE } from '../chart/outline';
   import { nav } from '../state/nav.svelte';
   import { settings } from '../state/settings.svelte';
@@ -227,7 +228,7 @@
         roots={around && aroundIds.length > 1 ? aroundIds : undefined}
         {generations}
         hidden={mode !== 'chart'}
-        reversed={settings.value.treeDirection === 'reversed'}
+        direction={directionOf(settings.value.chartDirections, kind)}
         onRecentre={recentre}
         onOpenPerson={openPerson}
         onGenerations={(n) => (chosenGenerations[genKey] = n)}

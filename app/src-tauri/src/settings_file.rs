@@ -2,7 +2,8 @@
 //! Writes go to a temp file that is renamed into place, so a crash never leaves half a file.
 
 use gt_session::{
-    ApiError, DayOrder, ErrorCode, Language, NameOrder, RecentProject, Theme, TreeDirection,
+    ApiError, ChartDirections, DayOrder, ErrorCode, Language, NameOrder, RecentProject, Theme,
+    TreeDirection,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -21,7 +22,11 @@ pub struct AppSettings {
     pub theme: Theme,
     pub language: Language,
     pub backups_to_keep: u32,
-    pub tree_direction: TreeDirection,
+    /// The side the ancestors are drawn on, per kind of chart.
+    pub chart_directions: ChartDirections,
+    /// The one switch of the first versions; read once to fill `chart_directions` and never written back.
+    #[serde(skip_serializing)]
+    pub tree_direction: Option<TreeDirection>,
     pub agent_access: AgentAccessSettings,
 }
 
@@ -70,7 +75,8 @@ impl Default for AppSettings {
             theme: Theme::System,
             language: Language::Uk,
             backups_to_keep: 10,
-            tree_direction: TreeDirection::Normal,
+            chart_directions: ChartDirections::default(),
+            tree_direction: None,
             agent_access: AgentAccessSettings::default(),
         }
     }
@@ -103,10 +109,22 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 /// A missing or unreadable file gives the defaults; the app must start either way.
 pub fn load_settings(config_dir: &Path) -> AppSettings {
-    std::fs::read_to_string(config_dir.join(SETTINGS_FILE))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+    let Some(text) = std::fs::read_to_string(config_dir.join(SETTINGS_FILE)).ok() else {
+        return AppSettings::default();
+    };
+    let Some(mut s) = serde_json::from_str::<AppSettings>(&text).ok() else {
+        return AppSettings::default();
+    };
+    // A file from before the direction could be chosen per chart: its switch becomes the directions it drew.
+    if let Some(old) = s.tree_direction.take() {
+        let has_new = serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .is_some_and(|v| v.get("chartDirections").is_some());
+        if !has_new {
+            s.chart_directions = ChartDirections::from_legacy(old);
+        }
+    }
+    s
 }
 
 pub fn save_settings(config_dir: &Path, s: &AppSettings) -> Result<(), ApiError> {

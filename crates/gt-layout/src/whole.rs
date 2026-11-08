@@ -19,7 +19,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::types::{Edge, EdgeKind, Key, Layout, Metrics, Node, Rect, new_node};
+use crate::types::{Direction, Edge, EdgeKind, Key, Layout, Metrics, Node, Rect, new_node};
 
 /// One family: up to two partners and the children, as dense person keys.
 #[derive(Debug, Clone, Default)]
@@ -224,6 +224,21 @@ struct CompOut {
     edges: Vec<(usize, usize, EdgeKind, Vec<f64>)>,
     w: f64,
     h: f64,
+}
+
+impl CompOut {
+    /// Swaps the axes: the family laid out for a turned chart becomes a block of real cards.
+    fn transpose(&mut self) {
+        for p in &mut self.people {
+            std::mem::swap(&mut p.1, &mut p.2);
+        }
+        for e in &mut self.edges {
+            for q in e.3.chunks_exact_mut(2) {
+                q.swap(0, 1);
+            }
+        }
+        std::mem::swap(&mut self.w, &mut self.h);
+    }
 }
 
 struct Unit {
@@ -1392,12 +1407,14 @@ struct Placed {
 
 /// Lay out every person once. Deterministic for a given input.
 pub fn whole(input: &WholeInput, m: &Metrics) -> WholeLayout {
-    whole_directed(input, m, false)
+    whole_directed(input, m, Direction::Top)
 }
 
-/// Like [`whole`]; with `reversed` every family is drawn upside down (the oldest generation at the
-/// bottom of its block). Headings, block positions, node ids and navigation links stay as they are.
-pub fn whole_directed(input: &WholeInput, m: &Metrics, reversed: bool) -> WholeLayout {
+/// Like [`whole`]; every family is drawn with its oldest generation on the side `dir` of its block (on the left
+/// or the right a family is turned a quarter, laid out for cards that stay upright). Headings, block positions,
+/// node ids and navigation links stay as they are.
+pub fn whole_directed(input: &WholeInput, m: &Metrics, dir: Direction) -> WholeLayout {
+    let turned = m.for_direction(Direction::Top, dir);
     let n = input.count;
     let fams = sanitise(input);
     let mut partner_in: Vec<Vec<usize>> = vec![Vec::new(); n];
@@ -1419,7 +1436,7 @@ pub fn whole_directed(input: &WholeInput, m: &Metrics, reversed: bool) -> WholeL
         fams: &fams,
         partner_in: &partner_in,
         child_in: &child_in,
-        m,
+        m: &turned,
     };
 
     let mut comp_of_root = vec![NONE; n];
@@ -1452,7 +1469,10 @@ pub fn whole_directed(input: &WholeInput, m: &Metrics, reversed: bool) -> WholeL
     };
     let mut placed: Vec<Placed> = Vec::new();
     for members in &comps {
-        let out = layout_component(members, &sh, &mut sc);
+        let mut out = layout_component(members, &sh, &mut sc);
+        if dir.is_horizontal() {
+            out.transpose();
+        }
         let mut count: HashMap<&str, usize> = HashMap::new();
         for &p in members {
             let s = input.surname.get(p).map_or("", String::as_str);
@@ -1534,9 +1554,13 @@ pub fn whole_directed(input: &WholeInput, m: &Metrics, reversed: bool) -> WholeL
                     id,
                     person as Key,
                     Rect {
-                        x: (x + px) as f32,
+                        x: (x + if dir == Direction::Right {
+                            c.w - px - f64::from(m.node_w)
+                        } else {
+                            px
+                        }) as f32,
                         y: (oy
-                            + if reversed {
+                            + if dir == Direction::Bottom {
                                 c.h - py - f64::from(m.node_h)
                             } else {
                                 py
@@ -1552,8 +1576,17 @@ pub fn whole_directed(input: &WholeInput, m: &Metrics, reversed: bool) -> WholeL
                 let pts: Vec<f32> = pts
                     .chunks_exact(2)
                     .flat_map(|q| {
-                        let qy = if reversed { c.h - q[1] } else { q[1] };
-                        [(x + q[0]) as f32, (oy + qy) as f32]
+                        let qy = if dir == Direction::Bottom {
+                            c.h - q[1]
+                        } else {
+                            q[1]
+                        };
+                        let qx = if dir == Direction::Right {
+                            c.w - q[0]
+                        } else {
+                            q[0]
+                        };
+                        [(x + qx) as f32, (oy + qy) as f32]
                     })
                     .collect();
                 raw_edges.push((*from, *to, *kind, pts));

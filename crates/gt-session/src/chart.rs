@@ -4,7 +4,7 @@
 use crate::dto::{
     AroundKin, ChartEdge, ChartKind, ChartLocation, ChartMeta, ChartNav, ChartNode, ChartRequest,
     ChartSize, ChartWindow, EdgeKindDto, Kinship, KinshipKind, OutlineGroupKind, OutlineItem,
-    PersonRef, Rect, RoleDto, RoleKind, SexKind, TreeDirection, WholeBlockDto, WholeMeta,
+    PersonRef, Rect, RoleDto, RoleKind, SexKind, WholeBlockDto, WholeMeta,
 };
 use crate::error::{ApiError, ErrorCode};
 use crate::index::{Links, PersonIndex};
@@ -13,7 +13,7 @@ use crate::relation::{relation_label, relation_role};
 use crate::session::Session;
 use gt_core::tree::Tree;
 use gt_layout::{
-    Axis, BlockKind, ChartSource, EdgeKind, Key, Layout, Metrics, Rel, RelativesOptions,
+    BlockKind, ChartSource, Direction, EdgeKind, Key, Layout, Metrics, Rel, RelativesOptions,
     WholeExtras, WholeFamily, WholeInput,
 };
 use std::cell::{Cell, RefCell};
@@ -26,6 +26,15 @@ const MAX_CHARTS: usize = 2;
 const MAX_OUTLINE: usize = 100;
 /// Below this zoom the canvas draws dots only, so the window carries no text.
 const TEXT_ZOOM: f32 = 0.25;
+/// The direction a chart of `kind` is laid out in before it is turned: the pedigree grows to the right, the others
+/// have the oldest generation on top.
+fn native_direction(kind: ChartKind) -> Direction {
+    if kind == ChartKind::Pedigree {
+        Direction::Right
+    } else {
+        Direction::Top
+    }
+}
 const STALE: &str = "The tree changed since this chart was opened. Reopen the chart.";
 
 /// `gt-layout` input over a loaded tree; keys are person-index slots.
@@ -324,8 +333,8 @@ struct OpenChart {
     id: u32,
     kind: ChartKind,
     version: u64,
-    /// Laid out with the ancestors at the bottom (the tree-direction setting at open time).
-    reversed: bool,
+    /// The side the ancestors were drawn on (the chart-direction setting of its kind at open time).
+    direction: Direction,
     layout: Layout,
     /// Partner boxes of each descendants node, in order.
     partners: HashMap<u32, Vec<u32>>,
@@ -589,8 +598,9 @@ impl Session {
             links: &self.links,
             index: &self.index,
         };
-        let m = Metrics::default();
-        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
+        let direction = self.direction_of(req.kind);
+        let native = native_direction(req.kind);
+        let m = Metrics::default().for_direction(native, direction);
         let mut layout = match req.kind {
             ChartKind::Pedigree => {
                 // No lower limit than the type's: "Show all" asks for u8::MAX. Each person is expanded once, so
@@ -610,7 +620,7 @@ impl Session {
                 };
                 gt_layout::relatives(&src, root, &o, &m, MAX_NODES)
             }
-            ChartKind::Around => self.around_layout(req, root),
+            ChartKind::Around => self.around_layout(req, root, &m),
             ChartKind::Whole => {
                 return Err(ApiError::new(
                     ErrorCode::Invalid,
@@ -618,14 +628,7 @@ impl Session {
                 ));
             }
         };
-        if reversed {
-            // Ancestors at the bottom; the left-to-right pedigree grows leftward instead.
-            layout.mirror(if req.kind == ChartKind::Pedigree {
-                Axis::Horizontal
-            } else {
-                Axis::Vertical
-            });
-        }
+        layout.orient(native, direction);
         let charts = &mut self.charts;
         charts.make_room();
         charts.next_id += 1;
@@ -655,7 +658,7 @@ impl Session {
             id: meta.chart_id,
             kind: req.kind,
             version: charts.revision,
-            reversed,
+            direction,
             layout,
             partners,
             partner_owner,
@@ -674,19 +677,24 @@ impl Session {
     /// The layout of the chart around one person. "All generations" asks for u8::MAX. Each person is placed once,
     /// so the chart is bounded by the tree and by MAX_NODES; unnamed-siblings markers are not part of anyone's
     /// line, but they are brothers and sisters, so they appear when those are asked for.
-    fn around_layout(&self, req: &ChartRequest, root: u32) -> Layout {
+    fn around_layout(&self, req: &ChartRequest, root: u32, m: &Metrics) -> Layout {
         let src = TreeSource {
             tree: &self.tree,
             links: &self.links,
             index: &self.index,
         };
-        let m = Metrics::default();
+        let m = *m;
         let g = u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
         match req.kin.unwrap_or(AroundKin::Line) {
             AroundKin::All => gt_layout::around_all_kin(&src, root, g, &m, MAX_NODES),
             AroundKin::Siblings => gt_layout::around_with_siblings(&src, root, g, &m, MAX_NODES),
             AroundKin::Line => gt_layout::around(&LineSource(&src), root, g, &m, MAX_NODES),
         }
+    }
+
+    /// The side the ancestors of a chart of `kind` are drawn on, from the settings.
+    fn direction_of(&self, kind: ChartKind) -> Direction {
+        self.settings.chart_directions.for_kind(kind).into()
     }
 
     /// Everybody a chart built around people is built around: the root first, then `roots` in the order given,
@@ -716,7 +724,7 @@ impl Session {
         req: &ChartRequest,
         chosen: &[Uuid],
     ) -> Result<ChartMeta, ApiError> {
-        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
+        let direction = self.direction_of(ChartKind::Around);
         let ManyLayout {
             layout,
             chosen_nodes,
@@ -724,7 +732,7 @@ impl Session {
             partner_owner,
             parents_of,
             kids_of,
-        } = self.around_many_layout(req, chosen)?;
+        } = self.around_many_layout(req, chosen, direction)?;
         let first = chosen_nodes.first().copied().unwrap_or(0);
         let n = layout.nodes.len();
         let root_slot = self
@@ -751,7 +759,7 @@ impl Session {
             id: meta.chart_id,
             kind: ChartKind::Around,
             version: charts.revision,
-            reversed,
+            direction,
             layout,
             partners,
             partner_owner,
@@ -772,8 +780,9 @@ impl Session {
         &self,
         req: &ChartRequest,
         chosen: &[Uuid],
+        direction: Direction,
     ) -> Result<ManyLayout, ApiError> {
-        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
+        let m = Metrics::default().for_direction(Direction::Top, direction);
         let generations =
             u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
         let slots: Vec<u32> = chosen
@@ -791,27 +800,11 @@ impl Session {
             AroundKin::All => gt_layout::ManyKin::All,
         };
         let mut layout = if kin == gt_layout::ManyKin::Line {
-            gt_layout::around_many_kin(
-                &LineSource(&src),
-                &slots,
-                generations,
-                kin,
-                &Metrics::default(),
-                MAX_NODES,
-            )
+            gt_layout::around_many_kin(&LineSource(&src), &slots, generations, kin, &m, MAX_NODES)
         } else {
-            gt_layout::around_many_kin(
-                &src,
-                &slots,
-                generations,
-                kin,
-                &Metrics::default(),
-                MAX_NODES,
-            )
+            gt_layout::around_many_kin(&src, &slots, generations, kin, &m, MAX_NODES)
         };
-        if reversed {
-            layout.mirror(Axis::Vertical);
-        }
+        layout.orient(Direction::Top, direction);
         let chosen_nodes: Vec<u32> = slots
             .iter()
             .filter_map(|k| layout.nodes.iter().position(|n| n.key == *k))
@@ -902,9 +895,10 @@ impl Session {
         }
         let chosen = self.chosen_people(req);
         let layout = if chosen.len() >= 2 {
-            self.around_many_layout(req, &chosen)?.layout
+            self.around_many_layout(req, &chosen, Direction::Top)?
+                .layout
         } else {
-            self.around_layout(req, root)
+            self.around_layout(req, root, &Metrics::default())
         };
         let mut order: Vec<&gt_layout::Node> = layout.nodes.iter().collect();
         order.sort_by(|a, b| {
@@ -971,11 +965,11 @@ impl Session {
     /// A chart of chosen people (`chart_open_selection`) is a different chart and is left alone.
     pub fn chart_open_whole(&mut self) -> Result<WholeMeta, ApiError> {
         let revision = self.charts.revision;
-        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
+        let direction = self.direction_of(ChartKind::Whole);
         if let Some(c) = self.charts.open.iter().find(|c| {
             c.kind == ChartKind::Whole
                 && c.version == revision
-                && c.reversed == reversed
+                && c.direction == direction
                 && c.whole.as_ref().is_some_and(Whole::is_plain)
         }) {
             self.charts.touch(c);
@@ -985,7 +979,7 @@ impl Session {
             !(c.kind == ChartKind::Whole && c.whole.as_ref().is_some_and(Whole::is_plain))
         });
         let input = self.whole_input();
-        Ok(self.lay_out_whole(&input, None, revision, reversed))
+        Ok(self.lay_out_whole(&input, None, revision, direction))
     }
 
     /// The chart of chosen people: each of them, all their ancestors and the partners of the chosen
@@ -999,7 +993,7 @@ impl Session {
         all_descendants: bool,
     ) -> Result<WholeMeta, ApiError> {
         let revision = self.charts.revision;
-        let reversed = self.settings.tree_direction == TreeDirection::Reversed;
+        let direction = self.direction_of(ChartKind::Whole);
         let (include, kept) = self.selection_subset(people, all_descendants, u32::MAX);
         if kept.is_empty() {
             return Err(ApiError::new(
@@ -1013,7 +1007,7 @@ impl Session {
         };
         if let Some(c) = self.charts.open.iter().find(|c| {
             c.version == revision
-                && c.reversed == reversed
+                && c.direction == direction
                 && c.whole
                     .as_ref()
                     .is_some_and(|w| w.selection.as_ref().is_some_and(|s| *s == want))
@@ -1027,7 +1021,7 @@ impl Session {
             .retain(|c| !c.whole.as_ref().is_some_and(|w| w.selection.is_some()));
         let mut input = self.whole_input();
         input.include = Some(include);
-        Ok(self.lay_out_whole(&input, Some(want), revision, reversed))
+        Ok(self.lay_out_whole(&input, Some(want), revision, direction))
     }
 
     /// Who is on the chart of `people`: a flag per index slot, and the chosen people that exist (sorted, once each).
@@ -1158,10 +1152,10 @@ impl Session {
         input: &WholeInput,
         selection: Option<Selection>,
         revision: u64,
-        reversed: bool,
+        direction: Direction,
     ) -> WholeMeta {
         let gt_layout::WholeLayout { layout, extras } =
-            gt_layout::whole_directed(input, &Metrics::default(), reversed);
+            gt_layout::whole_directed(input, &Metrics::default(), direction);
         // The markers are laid out like people but are not counted as people.
         let marker_at: Vec<(f32, f32)> = layout
             .nodes
@@ -1214,7 +1208,7 @@ impl Session {
             id: charts.next_id,
             kind: ChartKind::Whole,
             version: revision,
-            reversed,
+            direction,
             layout,
             partners: HashMap::new(),
             partner_owner: HashMap::new(),

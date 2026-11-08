@@ -1,5 +1,6 @@
 import type { Id } from '../api/types';
 import type { Camera } from './camera';
+import type { ChartDirection } from './direction';
 
 /**
  * Where the whole-tree chart was looked at when its reader left it for the screen built around a person. Coming back
@@ -17,8 +18,8 @@ export interface WholeView {
 
 let remembered: WholeView | null = null;
 
-export const wholeViewKey = (people: Id[], descendants: boolean, reversed: boolean): string =>
-  `${people.join(',')}|${descendants ? 'd' : ''}|${reversed ? 'r' : ''}`;
+export const wholeViewKey = (people: Id[], descendants: boolean, dir: ChartDirection): string =>
+  `${people.join(',')}|${descendants ? 'd' : ''}|${dir}`;
 
 export function rememberWholeView(v: WholeView): void {
   remembered = { ...v, cam: { ...v.cam }, marked: v.marked ? [...v.marked] : undefined };

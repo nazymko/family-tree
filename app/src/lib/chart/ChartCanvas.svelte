@@ -8,7 +8,8 @@
   import { undoState as undo } from '../state/undo.svelte';
   import Button from '../ui/Button.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
-  import FlipTreeButton from '../ui/FlipTreeButton.svelte';
+  import DirectionControl from '../ui/DirectionControl.svelte';
+  import { DEFAULT_DIRECTIONS, arrowStep, camAtSide, edgeStrip, isHorizontal, opposite, rootSide, type ChartDirection } from './direction';
   import IconButton from '../ui/IconButton.svelte';
   import Segmented from '../ui/Segmented.svelte';
   import Select from '../ui/Select.svelte';
@@ -42,7 +43,7 @@
     onGone,
     selectId = null,
     hidden = false,
-    reversed = false,
+    direction,
   }: {
     kind: ChartKind;
     root: Id;
@@ -74,9 +75,10 @@
     selectId?: number | null;
     /** Keeps the chart open but not drawn (the outline view is showing). */
     hidden?: boolean;
-    /** The tree grows the other way: ancestors at the bottom (pedigree: on the left). */
-    reversed?: boolean;
+    /** The side the ancestors are drawn on (absent: what this kind of chart always had: the pedigree's on the right, the others' on top). */
+    direction?: ChartDirection;
   } = $props();
+  const dirNow = $derived(direction ?? DEFAULT_DIRECTIONS[kind]);
 
   const api = getApi();
   const platform = getPlatform();
@@ -165,7 +167,7 @@
     const ctx = canvas.getContext('2d');
     if (!cur || !ctx) return;
     theme ??= themeFromCss();
-    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, focusMore: chosenMore, marked: new Set(markedIds), theme, kind, reversed, badged: agentChanges.unreviewed });
+    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, focusMore: chosenMore, marked: new Set(markedIds), theme, kind, dir: dirNow, badged: agentChanges.unreviewed });
   }
 
   $effect(() => {
@@ -206,8 +208,7 @@
       const z = Math.min(1, (size.w - 2 * m) / u.w, (size.h - 2 * m) / u.h);
       if (z >= 0.55) cam = { zoom: z, x: u.x + u.w / 2 - size.w / z / 2, y: u.y + u.h / 2 - size.h / z / 2 };
       else {
-        const y = reversed ? rootRect.y + rootRect.h + 40 / 0.55 - size.h / 0.55 : rootRect.y - 40 / 0.55;
-        cam = { zoom: 0.55, x: rootRect.x + rootRect.w / 2 - size.w / 0.55 / 2, y };
+        cam = camAtSide(rootRect, dirNow, 0.55, size, 40 / 0.55);
         hint = plural('chartCanvas.wide', childCount);
       }
     } else if (kind === 'around' && centreRect) {
@@ -251,11 +252,9 @@
     } else if (kind === 'pedigree' && (f.zoom >= 0.55 || generations >= ALL_GENERATIONS)) cam = f;
     else if (kind === 'descendants' && f.zoom >= 0.55) cam = f;
     else if (kind === 'pedigree') {
-      const x = reversed ? rootRect.x + rootRect.w + 40 - size.w : rootRect.x - 40;
-      cam = { zoom: 1, x, y: rootRect.y + rootRect.h / 2 - size.h / 2 };
+      cam = camAtSide(rootRect, rootSide(kind, dirNow), 1, size, 40);
     } else {
-      const y = reversed ? rootRect.y + 2 * rootRect.h - size.h : rootRect.y - rootRect.h;
-      cam = { zoom: 1, x: rootRect.x + rootRect.w / 2 - size.w / 2, y };
+      cam = camAtSide(rootRect, rootSide(kind, dirNow), 1, size, rootRect.h);
     }
     cache?.need(viewRect(cam, size), cam.zoom);
     invalidate();
@@ -349,9 +348,7 @@
     const probe: Rect =
       related
         ? { x: 0, y: 0, w: Math.max(1, m.bounds.w), h: Math.max(1, m.bounds.h) }
-        : kind === 'pedigree'
-          ? { x: reversed ? m.bounds.w - 177 : -1, y: 0, w: 178, h: Math.max(1, m.bounds.h) }
-          : { x: 0, y: reversed ? m.bounds.h - 57 : -1, w: Math.max(1, m.bounds.w), h: 58 };
+        : edgeStrip(m.bounds, rootSide(kind, dirNow));
     let first: ChartWindow;
     try {
       first = await api.chartWindow(m.chartId, probe, 1);
@@ -369,11 +366,15 @@
     }
     rootName = rn?.person?.name ?? '';
     // Descendants: the root couple is the root card plus its partners (same row, same depth).
-    const couple = kind === 'descendants' && rn ? first.nodes.filter((n) => n.y === rn.y) : rn ? [rn] : [];
+    // (The same row on a chart that grows up or down; the same column on one that grows sideways.)
+    const sideways = isHorizontal(dirNow);
+    const couple = kind === 'descendants' && rn ? first.nodes.filter((n) => (sideways ? n.x === rn.x : n.y === rn.y)) : rn ? [rn] : [];
     if (couple.length) {
       const x0 = Math.min(...couple.map((n) => n.x));
       const x1 = Math.max(...couple.map((n) => n.x + n.w));
-      rootRect = { x: x0, y: rn!.y, w: x1 - x0, h: rn!.h };
+      const y0 = Math.min(...couple.map((n) => n.y));
+      const y1 = Math.max(...couple.map((n) => n.y + n.h));
+      rootRect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
     } else rootRect = null;
     childrenRect = null;
     childCount = 0;
@@ -421,16 +422,26 @@
     }
     if (kind === 'descendants' && rn && rootRect) {
       try {
-        // The children's row is the nearest one below the root (above it when the tree is reversed).
-        const bandY = reversed ? rn.y - 1 - 400 : rn.y + rn.h + 1;
-        const band = await api.chartWindow(m.chartId, { x: -1, y: bandY, w: Math.max(1, m.bounds.w + 2), h: 400 }, 1);
+        // The children's generation is the nearest one beyond the root, away from the side the ancestors are on.
+        const d = dirNow;
+        const strip: Rect =
+          d === 'top'
+            ? { x: -1, y: rn.y + rn.h + 1, w: Math.max(1, m.bounds.w + 2), h: 400 }
+            : d === 'bottom'
+              ? { x: -1, y: rn.y - 1 - 400, w: Math.max(1, m.bounds.w + 2), h: 400 }
+              : d === 'left'
+                ? { x: rn.x + rn.w + 1, y: -1, w: 400, h: Math.max(1, m.bounds.h + 2) }
+                : { x: rn.x - 1 - 400, y: -1, w: 400, h: Math.max(1, m.bounds.h + 2) };
+        const band = await api.chartWindow(m.chartId, strip, 1);
         if (seq !== openSeq) return;
-        const ys = band.nodes.map((n) => n.y);
-        const rowY = ys.length ? (reversed ? Math.max(...ys) : Math.min(...ys)) : null;
-        const row = band.nodes.filter((n) => n.y === rowY);
+        const along = (n: ChartNode) => (isHorizontal(d) ? n.x : n.y);
+        const keys = band.nodes.map(along);
+        const nearest = keys.length ? (d === 'top' || d === 'left' ? Math.min(...keys) : Math.max(...keys)) : null;
+        const row = band.nodes.filter((n) => along(n) === nearest);
         if (row.length) {
           const x0 = Math.min(...row.map((n) => n.x));
-          childrenRect = { x: x0, y: row[0].y, w: Math.max(...row.map((n) => n.x + n.w)) - x0, h: row[0].h };
+          const y0 = Math.min(...row.map((n) => n.y));
+          childrenRect = { x: x0, y: y0, w: Math.max(...row.map((n) => n.x + n.w)) - x0, h: Math.max(...row.map((n) => n.y + n.h)) - y0 };
           childCount = row.length;
         }
       } catch (e) {
@@ -528,8 +539,8 @@
     });
   });
 
-  // A flip re-lays the chart out: the selected person stays selected and is brought back into view.
-  let lastReversed = untrack(() => reversed);
+  // Turning the chart re-lays it out: the selected person stays selected and is brought back into view.
+  let lastDirection = untrack(() => dirNow);
   let flipKeep: Id | null = null;
   $effect(() => {
     void kind;
@@ -538,8 +549,8 @@
     void auntsUncles;
     void kin;
     void roots?.join();
-    const flipped = reversed !== lastReversed;
-    lastReversed = reversed;
+    const flipped = dirNow !== lastDirection;
+    lastDirection = dirNow;
     untrack(() => {
       flipKeep = flipped ? (selNode?.person?.id ?? null) : null;
       if (!flipped) markedIds = [];
@@ -690,16 +701,23 @@
       // Towards the root: use the start of an edge that leaves the node.
       const out = win.edges.find((x) => x.kind === 'parent' && x.from === id && x.pts.length >= 4);
       if (!out) return null;
-      const sx = out.pts[0];
-      const sy = out.pts[1];
-      if (kind === 'pedigree') return { x: reversed ? sx : sx - ref.w, y: sy - ref.h / 2, w: ref.w, h: ref.h };
-      return { x: sx - ref.w / 2, y: reversed ? sy : sy - ref.h, w: ref.w, h: ref.h };
+      // An edge leaves a card by the side that faces the card it leads to.
+      return rectAtEdge(out.pts[0], out.pts[1], kind === 'pedigree' ? dirNow : opposite(dirNow), ref);
     }
     const px = e.pts[e.pts.length - 2];
     const py = e.pts[e.pts.length - 1];
-    if (e.kind === 'dup') return { x: reversed && kind === 'pedigree' ? px : px - ref.w, y: py - ref.h / 2, w: ref.w, h: ref.h };
-    if (kind === 'pedigree') return { x: reversed ? px - ref.w : px, y: py - ref.h / 2, w: ref.w, h: ref.h };
-    return { x: px - ref.w / 2, y: reversed ? py - ref.h : py, w: ref.w, h: ref.h };
+    // A link back to where the person was drawn first reaches that card on its far (right-hand) side.
+    if (e.kind === 'dup') return rectAtEdge(px, py, kind === 'pedigree' ? dirNow : isHorizontal(dirNow) ? 'bottom' : 'right', ref);
+    return rectAtEdge(px, py, kind === 'pedigree' ? opposite(dirNow) : dirNow, ref);
+  }
+
+  /** The card the size of `ref` whose side `side` has the middle point (px, py). */
+  function rectAtEdge(px: number, py: number, side: ChartDirection, ref: ChartNode): Rect {
+    const { w, h } = ref;
+    if (side === 'left') return { x: px, y: py - h / 2, w, h };
+    if (side === 'right') return { x: px - w, y: py - h / 2, w, h };
+    if (side === 'top') return { x: px - w / 2, y: py, w, h };
+    return { x: px - w / 2, y: py - h, w, h };
   }
 
   /** Select node `id`, scrolling to it even when it is not in the cached window yet. */
@@ -833,7 +851,7 @@
       if (hit) toggleMark(hit);
       return;
     }
-    const handle = hitHandle(cur.win, kind, w.x, w.y, cam.zoom, reversed);
+    const handle = hitHandle(cur.win, kind, w.x, w.y, cam.zoom, dirNow);
     if (handle?.person && !handle.person.siblingMarker) {
       if (handle.relation) onRecentre(handle.person.id, relationText(handle));
       else onRecentre(handle.person.id);
@@ -915,7 +933,7 @@
       theme: { paper: th.paper, ink2: th.ink2, font: th.font },
       caption: captionText(kind, rootName),
       paint: (ctx, p) =>
-        draw(ctx, scene, p.cam, { w: p.view.w, h: p.view.h, dpr: p.scale }, { selected: scope === 'screen' ? sel : null, focus, focusMore, theme: th, kind, reversed, handles: scope === 'screen' }),
+        draw(ctx, scene, p.cam, { w: p.view.w, h: p.view.h, dpr: p.scale }, { selected: scope === 'screen' ? sel : null, focus, focusMore, theme: th, kind, dir: dirNow, handles: scope === 'screen' }),
     };
   }
 
@@ -958,17 +976,15 @@
   // ------------------------------------------------------------ keyboard
 
   function dirFor(key: string): Dir | null {
-    // Relatives: up to a parent, down to a child, left and right along the row (siblings and partners).
-    // A reversed tree swaps the two arrows along its growing axis, so an arrow still moves the way it points.
-    const swap: Record<string, string> = { ArrowUp: 'ArrowDown', ArrowDown: 'ArrowUp', ArrowLeft: 'ArrowRight', ArrowRight: 'ArrowLeft' };
-    const k = reversed ? (swap[key] ?? key) : key;
-    if (related) {
-      return k === 'ArrowUp' ? 'parent' : k === 'ArrowDown' ? 'child' : key === 'ArrowLeft' ? 'up' : key === 'ArrowRight' ? 'down' : null;
-    }
-    if (kind === 'pedigree') {
-      return k === 'ArrowRight' ? 'child' : k === 'ArrowLeft' ? 'parent' : key === 'ArrowUp' ? 'up' : key === 'ArrowDown' ? 'down' : null;
-    }
-    return k === 'ArrowDown' ? 'child' : k === 'ArrowUp' ? 'parent' : key === 'ArrowLeft' ? 'up' : key === 'ArrowRight' ? 'down' : null;
+    // An arrow still moves the way it points, however the chart is turned: towards the ancestors' side goes to a
+    // parent (a pedigree's links run the other way: that is a "child" link), the opposite way to a child, and across
+    // to the previous / next brother, sister or partner.
+    const step = arrowStep(key, dirNow);
+    if (step === null) return null;
+    if (step === 'prev') return 'up';
+    if (step === 'next') return 'down';
+    if (kind === 'pedigree') return step === 'ancestors' ? 'child' : 'parent';
+    return step === 'ancestors' ? 'parent' : 'child';
   }
 
   function onkeydown(e: KeyboardEvent): void {
@@ -1037,7 +1053,7 @@
     <Button onclick={() => zoomBy(1.25)}>{t('chartCanvas.zoomIn')}</Button>
     <Button onclick={() => zoomBy(0.8)}>{t('chartCanvas.zoomOut')}</Button>
     <Button onclick={fitAll}>{t('chartCanvas.fit')}</Button>
-    <FlipTreeButton />
+    <DirectionControl chart={kind} />
     {#if onBuildAround}
       <Button disabled={markedIds.length < 2 && !realPerson(selNode)} onclick={buildAround}>{markedIds.length >= 2 ? t('whole.buildAroundMany', { n: markedIds.length }) : t('whole.buildAround')}</Button>
       <Button disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id)}>{t('whole.openPerson')}</Button>

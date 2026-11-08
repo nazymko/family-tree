@@ -234,7 +234,7 @@ fn people_who_left_the_project_or_repeat_are_dropped() {
 fn reversed_direction_puts_the_ancestors_below() {
     let (_d, mut s) = open_tree(&tree_of(KOVAL));
     s.set_settings(SettingsPatch {
-        tree_direction: Some(TreeDirection::Reversed),
+        chart_directions: Some(ChartDirections::from_legacy(TreeDirection::Reversed)),
         ..SettingsPatch::default()
     })
     .unwrap();

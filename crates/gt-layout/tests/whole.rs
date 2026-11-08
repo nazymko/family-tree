@@ -559,7 +559,7 @@ fn reversed_flips_each_family_but_keeps_headings_ids_and_blocks() {
     // 0 and 1 are the parents of 2; 3 is alone.
     let i = input(4, &[(Some(0), Some(1), &[2])]);
     let a = run(&i);
-    let b = gt_layout::whole_directed(&i, &Metrics::default(), true);
+    let b = gt_layout::whole_directed(&i, &Metrics::default(), gt_layout::Direction::Bottom);
     assert_eq!(a.layout.nodes.len(), b.layout.nodes.len());
     assert_eq!(a.extras.blocks.len(), b.extras.blocks.len());
     for (x, y) in a.extras.blocks.iter().zip(&b.extras.blocks) {
@@ -797,4 +797,48 @@ fn people_left_out_by_the_mask_are_not_drawn_or_linked() {
     assert_eq!(w.layout.nodes.len(), 2);
     assert_eq!(w.extras.blocks.len(), 1);
     assert_eq!(w.extras.blocks[0].kind, BlockKind::Unconnected);
+}
+
+#[test]
+fn every_family_can_be_drawn_in_all_four_directions() {
+    use gt_layout::Direction::{Bottom, Left, Right, Top};
+    // A couple with two children, one of whom has a child; a second family; one person alone.
+    let i = input(
+        8,
+        &[
+            (Some(0), Some(1), &[2, 3]),
+            (Some(2), Some(4), &[5]),
+            (Some(6), None, &[7]),
+        ],
+    );
+    let m = Metrics::default();
+    for dir in [Top, Bottom, Left, Right] {
+        let w = gt_layout::whole_directed(&i, &m, dir);
+        assert_eq!(w.layout.nodes.len(), 8);
+        for n in &w.layout.nodes {
+            assert_eq!((n.rect.w, n.rect.h), (m.node_w, m.node_h), "{dir:?}");
+        }
+        let q = gt_layout::quality(&w.layout);
+        assert_eq!(q.box_overlaps, 0, "{dir:?}: {q:?}");
+        assert_eq!(q.lines_through_boxes, 0, "{dir:?}: {q:?}");
+        for blk in &w.extras.blocks {
+            for n in &w.layout.nodes {
+                assert!(
+                    !overlaps(&blk.rect, &n.rect),
+                    "{dir:?}: heading over node {}",
+                    n.id
+                );
+            }
+        }
+        let (p, c) = (node(&w, 0).rect, node(&w, 2).rect);
+        let (gp, gc) = (node(&w, 2).rect, node(&w, 5).rect);
+        for (older, younger) in [(p, c), (gp, gc)] {
+            match dir {
+                Top => assert!(older.y + older.h <= younger.y),
+                Bottom => assert!(younger.y + younger.h <= older.y),
+                Left => assert!(older.x + older.w <= younger.x),
+                Right => assert!(younger.x + younger.w <= older.x),
+            }
+        }
+    }
 }

@@ -21,7 +21,8 @@ pub use relatives::{
     around_with_siblings, relatives,
 };
 pub use types::{
-    Axis, ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Nav, Node, PartnerOf, Rect, Rel,
+    Axis, ChartSource, Direction, Edge, EdgeKind, Key, Layout, Metrics, Nav, Node, PartnerOf, Rect,
+    Rel,
 };
 pub use whole::{
     Block, BlockKind, WholeExtras, WholeFamily, WholeInput, WholeLayout, whole, whole_directed,
