@@ -50,6 +50,18 @@ Your family history stays on your computer, in open formats, and is yours to kee
     <td><img src="docs/images/people.png" alt="The people list with filters for living, deceased, no source"></td>
     <td><img src="docs/images/search.png" alt="Search across names in any script"></td>
   </tr>
+  <tr>
+    <td><img src="docs/images/notes.png" alt="A person's notes, with a note shared by the whole family"></td>
+    <td><img src="docs/images/family-page.png" alt="A family page: partners, marriage, children and the shared note"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/relatives.png" alt="The relatives chart: grandparents, uncles and aunts, in-laws and children, each labelled by relationship"></td>
+    <td><img src="docs/images/around.png" alt="A chart built around a married couple with all their relatives"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/whole.png" alt="The whole tree with a highlighted family line"></td>
+    <td></td>
+  </tr>
 </table>
 
 <sub>All screenshots show a generated test tree; no real people.</sub>
