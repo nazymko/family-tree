@@ -1,0 +1,67 @@
+# Nightly build (docs/release.md): every night that main has new commits, builds main for Windows, macOS and Linux and
+# replaces the "nightly" pre-release. For trying the newest changes; the monthly releases are the ones to share.
+name: Nightly
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    outputs:
+      build: ${{ steps.c.outputs.build }}
+      sha: ${{ steps.c.outputs.sha }}
+      version: ${{ steps.c.outputs.version }}
+      label: ${{ steps.c.outputs.label }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - id: c
+        run: |
+          sha=$(git rev-parse HEAD)
+          built=$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)
+          if [ "$sha" = "$built" ] && [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "main has not changed since the last nightly"; echo "build=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          base=$(node scripts/release.mjs current)
+          date=$(date -u +%Y%m%d)
+          echo "build=true" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "version=$base-nightly.$date" >> "$GITHUB_OUTPUT"
+          echo "label=nightly-$date-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+  build:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.check.outputs.sha }}
+      version: ${{ needs.check.outputs.version }}
+      label: ${{ needs.check.outputs.label }}
+  publish:
+    needs: [check, build]
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ needs.check.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-release
+          pattern: gene-tree-*
+          merge-multiple: true
+      - name: Replace the nightly pre-release
+        run: |
+          (cd dist-release && sha256sum * > SHA256SUMS.txt)
+          gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+          git push origin ":refs/tags/nightly" 2>/dev/null || true
+          gh release create nightly dist-release/* --target "$SHA" --prerelease --latest=false \
+            --title "Nightly build ($(date -u +%Y-%m-%d))" \
+            --notes "The newest state of main ($SHA), built automatically. It may have rough edges; the monthly releases are tested more and are the ones to share. Unsigned: see the Download notes of a release."

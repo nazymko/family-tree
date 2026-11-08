@@ -1,0 +1,28 @@
+name: Feature request
+description: An idea that would make Gene Tree better for your research
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task or question from your family research, and what gets in the way today.
+      placeholder: When two relatives send me their copies, I want to see who appears in both...
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you imagine it working. Sketches and examples from other programs are welcome.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do now instead
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: This request contains no real people's data.
+          required: true
