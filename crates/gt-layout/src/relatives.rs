@@ -946,49 +946,65 @@ pub fn around_many_kin(
     m: &Metrics,
     max_nodes: usize,
 ) -> Layout {
-    let first = around_many_kin_ordered(src, chosen, generations, kin, m, max_nodes);
     // Brothers and sisters with families of a line ancestor cannot always stand on the outer side whatever the
-    // order of the chosen row: with two or three chosen people try the other orders (chosen partners stay
+    // order of the chosen row: with two or three chosen people try the other orders too (chosen partners stay
     // adjacent) and keep the one with the fewest crossing lines, then the shortest lines; ties keep the given order.
-    if kin != ManyKin::All || !(2..=3).contains(&chosen.len()) {
-        return first;
+    let mut orders: Vec<Vec<Key>> = vec![chosen.to_vec()];
+    if kin == ManyKin::All && (2..=3).contains(&chosen.len()) {
+        let apart = |order: &[Key]| {
+            // Partners among the chosen people must stand next to each other.
+            order.iter().enumerate().all(|(i, &k)| {
+                src.unions(k).iter().all(|(p, _)| {
+                    let Some(p) = p else { return true };
+                    match order.iter().position(|x| x == p) {
+                        Some(j) => i.abs_diff(j) == 1 || order.len() == 2,
+                        None => true,
+                    }
+                })
+            })
+        };
+        let mut idx: Vec<usize> = (0..chosen.len()).collect();
+        permute(&mut idx, 0, &mut |p| {
+            let o: Vec<Key> = p.iter().map(|&i| chosen[i]).collect();
+            if o != chosen && apart(&o) {
+                orders.push(o);
+            }
+        });
     }
     let score = |l: &Layout| {
         let q = crate::quality(l);
         (q.line_crossings, q.line_length)
     };
-    let mut best = (score(&first), first);
-    if best.0.0 == 0 {
-        return best.1;
-    }
-    let apart = |order: &[Key]| {
-        // Partners among the chosen people must stand next to each other.
-        order.iter().enumerate().all(|(i, &k)| {
-            src.unions(k).iter().all(|(p, _)| {
-                let Some(p) = p else { return true };
-                match order.iter().position(|x| x == p) {
-                    Some(j) => i.abs_diff(j) == 1 || order.len() == 2,
-                    None => true,
-                }
-            })
-        })
-    };
-    let mut orders: Vec<Vec<Key>> = Vec::new();
-    let mut idx: Vec<usize> = (0..chosen.len()).collect();
-    permute(&mut idx, 0, &mut |p| {
-        let o: Vec<Key> = p.iter().map(|&i| chosen[i]).collect();
-        if o != chosen && apart(&o) {
-            orders.push(o);
+    // The spine solve first; where it cannot keep the parents over the chosen people in any order, the older way.
+    for legacy in [false, true] {
+        let mut best: Option<((usize, f32), Layout)> = None;
+        for o in &orders {
+            let Some((l, off)) =
+                around_many_kin_with(src, o, generations, kin, m, max_nodes, legacy)
+            else {
+                continue;
+            };
+            let sc = score(&l);
+            // The spine solve is kept only where the parents stand over the chosen people (within the slack of a
+            // card), or at most two cards off when that is what it takes to draw no crossing line.
+            if !legacy && off > 120.5 && !(sc.0 == 0 && off <= 450.0) {
+                continue;
+            }
+            if sc.0 == 0 && best.is_none() {
+                return l;
+            }
+            if best
+                .as_ref()
+                .is_none_or(|b| sc.0 < b.0.0 || (sc.0 == b.0.0 && sc.1 < b.0.1 - 0.5))
+            {
+                best = Some((sc, l));
+            }
         }
-    });
-    for o in orders {
-        let l = around_many_kin_ordered(src, &o, generations, kin, m, max_nodes);
-        let sc = score(&l);
-        if sc.0 < best.0.0 || (sc.0 == best.0.0 && sc.1 < best.0.1 - 0.5) {
-            best = (sc, l);
+        if let Some((_, l)) = best {
+            return l;
         }
     }
-    best.1
+    Layout::finish(Vec::new(), Vec::new(), 0, false)
 }
 
 fn permute(v: &mut Vec<usize>, k: usize, f: &mut dyn FnMut(&[usize])) {
@@ -1003,14 +1019,17 @@ fn permute(v: &mut Vec<usize>, k: usize, f: &mut dyn FnMut(&[usize])) {
     }
 }
 
-fn around_many_kin_ordered(
+/// `legacy` hangs the brothers and sisters of the ancestors the older way, one family at a time beside the couple, which
+/// keeps the parents over the chosen people when the spine solve cannot (None: the spine solve could not).
+fn around_many_kin_with(
     src: &dyn ChartSource,
     chosen: &[Key],
     generations: u8,
     kin: ManyKin,
     m: &Metrics,
     max_nodes: usize,
-) -> Layout {
+    legacy: bool,
+) -> Option<(Layout, f32)> {
     // One chosen person with every relative: the all-relatives layout puts each ancestor's brothers and sisters on the
     // outer side of the ancestor's couple, which the several-people layout below cannot do.
     // A chosen partner without known parents or siblings adds nothing the one-person layout does not draw.
@@ -1026,7 +1045,10 @@ fn around_many_kin_ordered(
             generations,
             aunts: false,
         };
-        return lay_out(src, chosen[0], &o, true, true, true, m, max_nodes);
+        return Some((
+            lay_out(src, chosen[0], &o, true, true, true, m, max_nodes),
+            0.0,
+        ));
     }
     let m = &partner_room(m);
     let with_sibs = kin != ManyKin::Line;
@@ -1188,7 +1210,7 @@ fn around_many_kin_ordered(
     }
     let roots: Vec<usize> = groups.into_iter().flat_map(|g| g.0).collect();
     if roots.is_empty() {
-        return Layout::finish(Vec::new(), Vec::new(), 0, b.truncated);
+        return Some((Layout::finish(Vec::new(), Vec::new(), 0, b.truncated), 0.0));
     }
     fill_contours(&mut b.units, m);
     let gap = m.gap_x;
@@ -1447,17 +1469,22 @@ fn around_many_kin_ordered(
         }
     }
 
+    let mut off = 0.0;
     if kin == ManyKin::All {
-        arrange_ancestors(
-            &mut b,
-            &spine_groups,
-            &chain,
-            &unit_key,
-            &roots,
-            &mut links,
-            &mut bars,
-            m,
-        );
+        if legacy {
+            hang_ancestor_siblings_legacy(&mut b, &spine, &roots, &mut links, &mut bars, m);
+        } else {
+            off = arrange_ancestors(
+                &mut b,
+                &spine_groups,
+                &chain,
+                &unit_key,
+                &roots,
+                &mut links,
+                &mut bars,
+                m,
+            );
+        }
     }
 
     let Builder {
@@ -1527,7 +1554,7 @@ fn around_many_kin_ordered(
     }
     link_rows(&mut nodes);
     let root = units[roots[0]].person;
-    Layout::finish(nodes, edges, root, truncated)
+    Some((Layout::finish(nodes, edges, root, truncated), off))
 }
 
 /// Set the boxes of every unit from `from` on from its centre, and the centres of its children. The units whose
@@ -1614,7 +1641,7 @@ fn arrange_ancestors(
     links: &mut Vec<(u32, u32)>,
     bars: &mut Vec<Vec<u32>>,
     m: &Metrics,
-) {
+) -> f32 {
     let nw = m.node_w;
     let pstep = nw + m.couple_gap;
     let gap = m.gap_x;
@@ -1812,7 +1839,7 @@ fn arrange_ancestors(
             goal: Goal::Hug(*left),
         });
     }
-    solve_order(&mut bodies, &at, gap);
+    let fit = solve_order(&mut bodies, &at, gap);
 
     // The result back into the cards and units.
     for g in groups {
@@ -1828,12 +1855,13 @@ fn arrange_ancestors(
         b.units[*u].cx = bodies[first_sib + i].x;
     }
     place_units(&mut b.units, &mut b.nodes, 0, m);
+    fit
 }
 
 /// Place the bodies: the pieces of every row keep the order of their keys and clear each other by `gap` in every row
 /// they share. Start from the left with everything pushed right just far enough, then let each piece move towards
 /// where it wants to stand, between its neighbours, sweeping left to right and back until nothing moves.
-fn solve_order(bodies: &mut [Body], at: &HashMap<u32, (usize, f32)>, gap: f32) {
+fn solve_order(bodies: &mut [Body], at: &HashMap<u32, (usize, f32)>, gap: f32) -> f32 {
     let n = bodies.len();
     let mut order: Vec<usize> = (0..n).collect();
     order.sort_by(|&a, &c| bodies[a].key.cmp(&bodies[c].key));
@@ -1867,21 +1895,64 @@ fn solve_order(bodies: &mut [Body], at: &HashMap<u32, (usize, f32)>, gap: f32) {
             .fold(f32::NEG_INFINITY, f32::max);
         bodies[j].x = bodies[j].x.max(lo);
     }
-    let centre = |bodies: &[Body], c: u32| at.get(&c).map(|&(bi, off)| bodies[bi].x + off);
-    for sweep in 0..400 {
-        let mut moved = 0.0f32;
-        let seq: Vec<usize> = if sweep % 2 == 0 {
-            order.clone()
-        } else {
-            order.iter().rev().copied().collect()
-        };
-        for j in seq {
+    gauss(bodies, at, &order, &preds, &succs, false);
+    if misfit(bodies, at) > 0.5 {
+        let before = misfit(bodies, at);
+        let saved: Vec<f32> = bodies.iter().map(|b| b.x).collect();
+        gauss(bodies, at, &order, &preds, &succs, true);
+        for &j in &order {
             let lo = preds[j]
                 .iter()
                 .map(|&(i, w)| bodies[i].x + w)
                 .fold(f32::NEG_INFINITY, f32::max);
+            bodies[j].x = bodies[j].x.max(lo);
+        }
+        gauss(bodies, at, &order, &preds, &succs, false);
+        if misfit(bodies, at) >= before {
+            for (b, x) in bodies.iter_mut().zip(saved) {
+                b.x = x;
+            }
+        }
+    }
+    push_fix(bodies, at, &order, &preds, &succs);
+    // How far off the worst couple stands, the parents of the chosen people at full weight, higher ones a bit less.
+    bodies
+        .iter()
+        .filter_map(|b| match &b.goal {
+            Goal::Over(kids) => middle(bodies, at, kids)
+                .map(|m| (m - b.x).abs() * if b.row0 == -1 { 1.0 } else { 0.27 }),
+            _ => None,
+        })
+        .fold(0.0, f32::max)
+}
+
+/// Every piece moves towards where it wants to stand, between its neighbours, sweeping left to right and back.
+fn gauss(
+    bodies: &mut [Body],
+    at: &HashMap<u32, (usize, f32)>,
+    order: &[usize],
+    preds: &[Vec<(usize, f32)>],
+    succs: &[Vec<(usize, f32)>],
+    free: bool,
+) {
+    let centre = |bodies: &[Body], c: u32| at.get(&c).map(|&(bi, off)| bodies[bi].x + off);
+    for sweep in 0..400 {
+        let mut moved = 0.0f32;
+        let seq: Vec<usize> = if sweep % 2 == 0 {
+            order.to_vec()
+        } else {
+            order.iter().rev().copied().collect()
+        };
+        for j in seq {
+            // With `free`, brothers and sisters hugging this piece follow it instead of holding it back.
+            let lo = preds[j]
+                .iter()
+                .filter(|&&(i, _)| !(free && matches!(bodies[i].goal, Goal::Hug(true))))
+                .map(|&(i, w)| bodies[i].x + w)
+                .fold(f32::NEG_INFINITY, f32::max);
             let hi = succs[j]
                 .iter()
+                .filter(|&&(k, _)| !(free && matches!(bodies[k].goal, Goal::Hug(false))))
                 .map(|&(k, w)| bodies[k].x - w)
                 .fold(f32::INFINITY, f32::min);
             let want = match &bodies[j].goal {
@@ -1909,6 +1980,217 @@ fn solve_order(bodies: &mut [Body], at: &HashMap<u32, (usize, f32)>, gap: f32) {
             break;
         }
     }
+}
+
+/// The middle of the chosen children of a couple of parents.
+fn middle(bodies: &[Body], at: &HashMap<u32, (usize, f32)>, kids: &[u32]) -> Option<f32> {
+    let cs: Vec<f32> = kids
+        .iter()
+        .filter_map(|&k| at.get(&k).map(|&(bi, off)| bodies[bi].x + off))
+        .collect();
+    if cs.is_empty() {
+        return None;
+    }
+    let l = cs.iter().copied().fold(f32::INFINITY, f32::min);
+    let h = cs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    Some((l + h) / 2.0)
+}
+
+/// How far the worst couple of parents stands off the middle of its chosen children.
+fn misfit(bodies: &[Body], at: &HashMap<u32, (usize, f32)>) -> f32 {
+    bodies
+        .iter()
+        .filter_map(|b| match &b.goal {
+            Goal::Over(kids) => middle(bodies, at, kids).map(|m| (m - b.x).abs()),
+            _ => None,
+        })
+        .fold(0.0, f32::max)
+}
+
+/// A couple of parents that cannot stand over its chosen children because the pieces beside it are in the way: take
+/// the worst one, move it over them and push the pieces in its way aside (right ones right, left ones left), settle
+/// the rest, and repeat while that brings the worst offender closer.
+fn push_fix(
+    bodies: &mut [Body],
+    at: &HashMap<u32, (usize, f32)>,
+    order: &[usize],
+    preds: &[Vec<(usize, f32)>],
+    succs: &[Vec<(usize, f32)>],
+) {
+    for _ in 0..60 {
+        let mut worst: Option<(usize, f32)> = None;
+        for (j, b) in bodies.iter().enumerate() {
+            if let Goal::Over(kids) = &b.goal
+                && let Some(m) = middle(bodies, at, kids)
+            {
+                let d = m - b.x;
+                if d.abs() > 0.5 && worst.is_none_or(|(_, w)| d.abs() > w.abs()) {
+                    worst = Some((j, d));
+                }
+            }
+        }
+        let Some((j, d)) = worst else { return };
+        let before = misfit(bodies, at);
+        let saved: Vec<f32> = bodies.iter().map(|b| b.x).collect();
+        bodies[j].x += d;
+        let mut stack = vec![j];
+        if d > 0.0 {
+            while let Some(i) = stack.pop() {
+                for &(k, w) in &succs[i] {
+                    if bodies[k].x < bodies[i].x + w {
+                        bodies[k].x = bodies[i].x + w;
+                        stack.push(k);
+                    }
+                }
+            }
+        } else {
+            while let Some(i) = stack.pop() {
+                for &(k, w) in &preds[i] {
+                    if bodies[k].x > bodies[i].x - w {
+                        bodies[k].x = bodies[i].x - w;
+                        stack.push(k);
+                    }
+                }
+            }
+        }
+        gauss(bodies, at, order, preds, succs, false);
+        if misfit(bodies, at) >= before {
+            for (b, x) in bodies.iter_mut().zip(saved) {
+                b.x = x;
+            }
+            return;
+        }
+    }
+}
+
+/// All-kin chart of several people: the brothers and sisters of every ancestor on the lines, with partners and all
+/// descendants, nearest generation first. Families of ancestors left of the middle of the chosen row go to the left,
+/// the others to the right; each unit stands outside everything placed so far in every row it reaches.
+fn hang_ancestor_siblings_legacy(
+    b: &mut Builder<'_>,
+    spine: &[u32],
+    roots: &[usize],
+    links: &mut Vec<(u32, u32)>,
+    bars: &mut Vec<Vec<u32>>,
+    m: &Metrics,
+) {
+    let placed = b.nodes.len();
+    let from = b.units.len();
+    let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+    for &r in roots {
+        let (p, k) = (b.units[r].person, b.units[r].partners);
+        for id in p..=p + k {
+            let rect = b.nodes[id as usize].rect;
+            lo = lo.min(rect.x);
+            hi = hi.max(rect.right());
+        }
+    }
+    let mid = (lo + hi) / 2.0;
+    let mut anc: Vec<(u32, f32)> = spine
+        .iter()
+        .map(|&id| (id, b.nodes[id as usize].rect.cx()))
+        .collect();
+    anc.sort_by(|a, c| {
+        b.nodes[c.0 as usize]
+            .r#gen
+            .cmp(&b.nodes[a.0 as usize].r#gen)
+            .then((a.1 - mid).abs().total_cmp(&(c.1 - mid).abs()))
+    });
+    let mut fams: Vec<(bool, Vec<usize>)> = Vec::new();
+    for (id, cx) in anc {
+        let key = b.nodes[id as usize].key;
+        let row = i32::from(b.nodes[id as usize].r#gen);
+        let gens = u8::try_from(-row).unwrap_or(u8::MAX);
+        let up = gens.saturating_add(1);
+        let mut made = Vec::new();
+        let mut bar = vec![id];
+        for s in siblings(b.src, key) {
+            if s.key == key {
+                continue;
+            }
+            let parents: Vec<u32> = b
+                .src
+                .parents(s.key)
+                .into_iter()
+                .flatten()
+                .filter_map(|p| b.visited.get(&p).copied())
+                .collect();
+            if let Some(&n) = b.visited.get(&s.key) {
+                // Drawn already: it only gets its link.
+                if i32::from(b.nodes[n as usize].r#gen) == row {
+                    links.extend(parents.iter().map(|&pn| (pn, n)));
+                    if s.barred() {
+                        bar.push(n);
+                    }
+                }
+                continue;
+            }
+            let Some(u) = b.make_unit(
+                s.key,
+                row,
+                sibling_rel(gens, s.half),
+                Some(kin_partner(up, 1)),
+                None,
+            ) else {
+                break;
+            };
+            b.expand(u, Tree::Kin(up));
+            let person = b.units[u].person;
+            links.extend(parents.iter().map(|&pn| (pn, person)));
+            if s.barred() {
+                bar.push(person);
+            }
+            made.push(u);
+        }
+        bars.push(bar);
+        fams.push((cx < mid, made));
+    }
+    fill_contours(&mut b.units, m);
+    let gap = m.gap_x;
+    let mut lf: HashMap<i32, f32> = HashMap::new();
+    let mut rf: HashMap<i32, f32> = HashMap::new();
+    for n in &b.nodes[..placed] {
+        let r = i32::from(n.r#gen);
+        let l = lf.entry(r).or_insert(f32::INFINITY);
+        *l = l.min(n.rect.x);
+        let h = rf.entry(r).or_insert(f32::NEG_INFINITY);
+        *h = h.max(n.rect.right());
+    }
+    for (left, mut made) in fams {
+        if left {
+            made.reverse();
+        }
+        for u in made {
+            let row0 = b.units[u].row;
+            let mut cx = if left {
+                f32::INFINITY
+            } else {
+                f32::NEG_INFINITY
+            };
+            for (d, &(l, h)) in b.units[u].ctr.iter().enumerate() {
+                let r = row0 + d as i32;
+                if left {
+                    if let Some(&e) = lf.get(&r) {
+                        cx = cx.min(e - gap - h);
+                    }
+                } else if let Some(&e) = rf.get(&r) {
+                    cx = cx.max(e + gap - l);
+                }
+            }
+            if !cx.is_finite() {
+                cx = mid;
+            }
+            b.units[u].cx = cx;
+            for (d, &(l, h)) in b.units[u].ctr.iter().enumerate() {
+                let r = row0 + d as i32;
+                let a = lf.entry(r).or_insert(f32::INFINITY);
+                *a = a.min(cx + l);
+                let z = rf.entry(r).or_insert(f32::NEG_INFINITY);
+                *z = z.max(cx + h);
+            }
+        }
+    }
+    place_units(&mut b.units, &mut b.nodes, from, m);
 }
 
 #[allow(clippy::too_many_arguments)]
