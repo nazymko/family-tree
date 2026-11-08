@@ -37,6 +37,15 @@ const PERSON_NOTE =
 const FAMILY_NOTE =
   'They married in the town church and opened a bakery on the market square. It stayed in the family for three generations.';
 const SHIFT = '';
+// A granddaughter and her husband from the synthetic tree: a small family, so the charts stay readable when they fit the frame.
+const SMALL = { name: 'Greta Aaberg', husband: 'Heinrich Ostturulm35' };
+
+async function focusSmall() {
+  await search(SMALL.name);
+  await $(HITS).waitForDisplayed();
+  await browser.keys('Enter');
+  await $(`//h1[contains(.,"${SMALL.name}")]`).waitForDisplayed();
+}
 
 /** Closes every toast so none covers the picture. */
 async function clearToasts() {
@@ -44,6 +53,43 @@ async function clearToasts() {
     document.querySelectorAll<HTMLButtonElement>('[role="region"][aria-live="polite"] button[aria-label="Dismiss"]').forEach((b) => b.click()),
   );
   await browser.pause(700);
+}
+
+/** Picks "<n> generations" and fits the chart so every card is whole. */
+async function fitGenerations(text: string) {
+  const select = await $('//select[@id=//label[starts-with(normalize-space(.),"Generations")]/@for]');
+  await select.waitForDisplayed();
+  await select.selectByVisibleText(text);
+  await browser.pause(1200);
+  // Ancestors on the left: the chart grows downward instead of sideways, so it fits the frame at a readable size.
+  await $('//label[.//input[@data-direction="left"]]').click();
+  await browser.pause(1500);
+  await $('//button[normalize-space(.)="Fit"]').click();
+  await browser.pause(1200);
+}
+
+/** Drags the chart by (dx, dy) pixels. */
+async function dragChart(dx: number, dy: number) {
+  const canvas = await $('canvas[role="application"]');
+  const { x, y } = await canvas.getLocation();
+  const { width, height } = await canvas.getSize();
+  const sx = Math.round(x + width / 2);
+  const sy = Math.round(y + height * 0.8);
+  await browser.performActions([
+    {
+      type: 'pointer',
+      id: 'mouse',
+      parameters: { pointerType: 'mouse' },
+      actions: [
+        { type: 'pointerMove', duration: 0, x: sx, y: sy, origin: 'viewport' },
+        { type: 'pointerDown', button: 0 },
+        { type: 'pointerMove', duration: 400, x: sx + dx, y: sy + dy, origin: 'viewport' },
+        { type: 'pointerUp', button: 0 },
+      ],
+    },
+  ]);
+  await browser.releaseActions();
+  await browser.pause(800);
 }
 
 async function toWholeTreePage() {
@@ -103,42 +149,6 @@ async function markBoth(findLabel: string, first: string, second: string) {
   await flyTo(findLabel, second);
   await shiftClickCentre();
   await expect($('[data-testid="marked-count"]')).toHaveText('2 people selected');
-}
-
-/** A married couple of the synthetic tree, both with names that appear once and both with parents (from the backend's whole chart). */
-async function pickCouple(home: string): Promise<{ first: string; second: string }> {
-  await browser.execute((home: string) => {
-    delete (window as unknown as { __gtCouple?: unknown }).__gtCouple;
-    type Inv = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
-    const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Inv } }).__TAURI_INTERNALS__.invoke;
-    const big = { x: -1e7, y: -1e7, w: 2e7, h: 2e7 };
-    const set = (v: unknown) => ((window as unknown as { __gtCouple?: unknown }).__gtCouple = v);
-    void (async () => {
-      const whole = (await invoke('chart_open_whole')) as { meta: { chartId: number } };
-      const w = (await invoke('chart_window', { chartId: whole.meta.chartId, rect: big, zoom: 1 })) as {
-        nodes: { id: number; person?: { id: string; name: string } }[];
-        edges: { from: number; to: number; kind: string }[];
-      };
-      const count = new Map<string, number>();
-      for (const n of w.nodes) if (n.person) count.set(n.person.name, (count.get(n.person.name) ?? 0) + 1);
-      const byId = new Map(w.nodes.map((n) => [n.id, n]));
-      
-      const couples = w.edges
-        .filter((e) => e.kind === 'partner')
-        .filter((e) => {
-          const a = byId.get(e.from)?.person;
-          const b = byId.get(e.to)?.person;
-          return a && b && count.get(a.name) === 1 && count.get(b.name) === 1;
-        });
-      if (!couples.length) return set({ error: 'no couple: ' + JSON.stringify([...new Set(w.edges.map((x) => x.kind))]) + ' ' + w.nodes.length });
-      const e = couples.find((c) => byId.get(c.from)?.person?.name === home || byId.get(c.to)?.person?.name === home) ?? couples[Math.floor(couples.length / 3)];
-      set({ first: byId.get(e.from)!.person!.name, second: byId.get(e.to)!.person!.name });
-    })().catch((x) => set({ error: String(x) }));
-  }, home);
-  await browser.waitUntil(() => browser.execute(() => !!(window as unknown as { __gtCouple?: unknown }).__gtCouple), { timeout: 60000 });
-  const got = await browser.execute(() => (window as unknown as { __gtCouple: { first: string; second: string; error?: string } }).__gtCouple);
-  if (got.error) throw new Error(got.error);
-  return got;
 }
 
 describe('Screenshots of the real app', () => {
@@ -284,17 +294,22 @@ describe('Screenshots of the real app', () => {
 
   it('relatives chart', async () => {
     await goTo('Family');
+    await focusSmall();
     await $('//nav//a[normalize-space(.)="Relatives"]').click();
     await $('[role="toolbar"]').waitForDisplayed({ timeout: 30000 });
     await $('canvas').waitForDisplayed();
-    await browser.pause(2500);
+    await browser.pause(1500);
+    await fitGenerations('2 generations');
     await clearToasts();
     await shot('real-relatives.png');
   });
 
   it('whole tree', async () => {
     await toWholeTreePage();
-    await flyTo('Find a person…', meta().home.name);
+    await flyTo('Find a person…', SMALL.name);
+    await click('Zoom out');
+    await browser.pause(500);
+    await dragChart(0, -230);
     await browser.execute(() => (document.activeElement as HTMLElement | null)?.blur());
     await clearToasts();
     await browser.pause(1200);
@@ -303,15 +318,16 @@ describe('Screenshots of the real app', () => {
 
   it('built around a married couple, all relatives', async () => {
     await toWholeTreePage();
-    const { first, second } = await pickCouple(meta().home.name);
+    const first = SMALL.name;
+    const second = SMALL.husband;
     await markBoth('Find a person…', first, second);
     await $('//button[normalize-space(.)="Build around these people (2)"]').waitForDisplayed();
     await $('//button[normalize-space(.)="Build around these people (2)"]').click();
     await $(`//h1[contains(.,"Built around:")][contains(.,"${first}")]`).waitForDisplayed({ timeout: 30000 });
     await $('canvas[role="application"]').waitForDisplayed();
-    await $('//label[normalize-space(.)="All relatives"]').click();
+    await $('//label[normalize-space(.)="Brothers and sisters"]').click();
     await browser.pause(1800);
-    await browser.pause(1200);
+    await fitGenerations('2 generations');
     await clearToasts();
     await shot('real-around.png');
     await $('//button[normalize-space(.)="Back to the whole tree"]').click();
