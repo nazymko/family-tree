@@ -1,0 +1,53 @@
+name: Bug report
+description: Something does not work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting. **Please do not include real people's names, dates or files**: family trees hold
+        living people. Describe the shape of the data instead ("a woman with two marriages and no parents entered"),
+        or reproduce the bug with the generated test tree.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        1. Opened Relatives for a person whose parents are not entered
+        2. Chose "All relatives"
+        3. Expected their brother; he is missing
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Gene Tree version
+      description: From the name of the file you downloaded, or "nightly", or the commit you built from.
+      placeholder: 0.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows 11, Windows 10, macOS, Linux]
+    validations:
+      required: true
+  - type: dropdown
+    id: language
+    attributes:
+      label: App language
+      options: [English, Ukrainian]
+  - type: textarea
+    id: more
+    attributes:
+      label: Screenshots or log
+      description: Screenshots of a test tree, or an error message. Blur any real names.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: This report contains no real people's data.
+          required: true

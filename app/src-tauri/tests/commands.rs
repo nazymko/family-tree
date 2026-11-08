@@ -15,6 +15,13 @@ use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_context, noop_
 use tauri::webview::InvokeRequest;
 use tauri::{App, Listener, WebviewWindow};
 
+/// The origin the app's own page has: `http://tauri.localhost` on Windows, `tauri://localhost` elsewhere. A request from
+/// any other origin is a remote one and the capabilities refuse every command.
+#[cfg(windows)]
+const APP_ORIGIN: &str = "http://tauri.localhost";
+#[cfg(not(windows))]
+const APP_ORIGIN: &str = "tauri://localhost";
+
 const NOW_MS: i64 = 1_793_664_000_000; // 2026-11-03
 
 fn today() -> i32 {
@@ -78,7 +85,7 @@ fn invoke(w: &WebviewWindow<MockRuntime>, cmd: &str, body: Value) -> Result<Valu
         cmd: cmd.into(),
         callback: CallbackFn(0),
         error: CallbackFn(1),
-        url: "http://tauri.localhost".parse().unwrap(),
+        url: APP_ORIGIN.parse().unwrap(),
         body: InvokeBody::Json(body),
         headers: Default::default(),
         invoke_key: INVOKE_KEY.to_string(),
@@ -816,7 +823,7 @@ fn invoke_save_picture(
         cmd: "save_picture".into(),
         callback: CallbackFn(0),
         error: CallbackFn(1),
-        url: "http://tauri.localhost".parse().unwrap(),
+        url: APP_ORIGIN.parse().unwrap(),
         body: InvokeBody::Raw(bytes),
         headers,
         invoke_key: INVOKE_KEY.to_string(),
@@ -905,7 +912,7 @@ fn save_picture_without_a_path_header_or_with_a_json_body_is_a_plain_error() {
         cmd: "save_picture".into(),
         callback: CallbackFn(0),
         error: CallbackFn(1),
-        url: "http://tauri.localhost".parse().unwrap(),
+        url: APP_ORIGIN.parse().unwrap(),
         body,
         headers: Default::default(),
         invoke_key: INVOKE_KEY.to_string(),

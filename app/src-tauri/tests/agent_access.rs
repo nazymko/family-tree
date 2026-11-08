@@ -22,6 +22,13 @@ use tauri::webview::InvokeRequest;
 use tauri::{App, Listener, Manager, WebviewWindow};
 use uuid::Uuid;
 
+/// The origin the app's own page has: `http://tauri.localhost` on Windows, `tauri://localhost` elsewhere. A request from
+/// any other origin is a remote one and the capabilities refuse every command.
+#[cfg(windows)]
+const APP_ORIGIN: &str = "http://tauri.localhost";
+#[cfg(not(windows))]
+const APP_ORIGIN: &str = "tauri://localhost";
+
 fn state_in(root: &Path) -> AppState {
     let config = root.join("config");
     let hashes = FileHashes::new(&config);
@@ -45,7 +52,7 @@ fn invoke(w: &WebviewWindow<MockRuntime>, cmd: &str, body: Value) -> Result<Valu
         cmd: cmd.into(),
         callback: CallbackFn(0),
         error: CallbackFn(1),
-        url: "http://tauri.localhost".parse().unwrap(),
+        url: APP_ORIGIN.parse().unwrap(),
         body: InvokeBody::Json(body),
         headers: Default::default(),
         invoke_key: INVOKE_KEY.to_string(),

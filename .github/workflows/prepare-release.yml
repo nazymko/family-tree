@@ -1,0 +1,61 @@
+# The release cycle (docs/release.md): on the 1st of every month (06:00 UTC), or on "Run workflow",
+# this checks that main is green in CI, picks the next version from the commits since the last release, tags main and
+# starts release.yml. It never commits: the tag is the release. With nothing new since the last tag it does nothing.
+name: Prepare release
+on:
+  schedule:
+    - cron: '0 6 1 * *'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to raise (auto = minor when there are new features, else patch)
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: prepare-release
+jobs:
+  tag:
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Main must be green
+        run: |
+          sha=$(git rev-parse HEAD)
+          result=$(gh run list --workflow ci.yml --commit "$sha" --json conclusion,status --jq '[.[] | select(.status=="completed")][0].conclusion // "none"')
+          echo "CI on $sha: $result"
+          if [ "$result" != "success" ]; then
+            echo "::error::CI has not passed on main ($sha): $result. Fix main, or wait for CI to finish, then run this again."
+            exit 1
+          fi
+      - name: Next version
+        id: next
+        run: |
+          v=$(node scripts/release.mjs next "${{ inputs.bump || 'auto' }}")
+          if [ -z "$v" ]; then echo "Nothing new since the last release."; exit 0; fi
+          if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then echo "::error::v$v exists already"; exit 1; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Next release: v$v"
+      - name: Tag and start the release
+        if: steps.next.outputs.version != ''
+        env:
+          TAG: v${{ steps.next.outputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$TAG" -m "Gene Tree ${TAG#v}"
+          git push origin "$TAG"
+          # A tag pushed with the workflow token starts no workflow, so start the release explicitly.
+          gh workflow run release.yml --ref main -f tag="$TAG"
+          echo "### Release $TAG started" >> "$GITHUB_STEP_SUMMARY"
