@@ -25,19 +25,19 @@ async function pedigreeNow(name: string): Promise<Placed> {
       const id = all.nodes.find((x) => x.person?.name === n)!.person!.id;
       const m = (await invoke('chart_open', { req: { kind: 'pedigree', root: id, generations: 3 } })) as { chartId: number; rootNode: number };
       const w = (await invoke('chart_window', { chartId: m.chartId, rect: big, zoom: 1 })) as {
-        nodes: { id: number; x: number; y: number; w: number; h: number }[];
-        edges: { from: number; to: number; kind: string }[];
+        nodes: { id: number; x: number; y: number; w: number; h: number; ahnen?: number }[];
       };
-      const box = (i: number) => {
-        const q = w.nodes.find((k) => k.id === i)!;
+      const box = (ahnen: number) => {
+        const q = w.nodes.find((k) => k.ahnen === ahnen)!;
         return { x: q.x, y: q.y, w: q.w, h: q.h };
       };
-      const parents = w.edges.filter((e) => e.kind === 'parent' && e.to === m.rootNode).map((e) => e.from);
-      (window as unknown as { __gtDir?: unknown }).__gtDir = { root: box(m.rootNode), father: box(parents[0]) };
-    })();
+      (window as unknown as { __gtDir?: unknown }).__gtDir = { root: box(1), father: box(2) };
+    })().catch((e) => ((window as unknown as { __gtDir?: unknown }).__gtDir = { error: String(e) }));
   }, name);
   await browser.waitUntil(() => browser.execute(() => !!(window as unknown as { __gtDir?: unknown }).__gtDir), { timeout: 30000 });
-  return browser.execute(() => (window as unknown as { __gtDir: Placed }).__gtDir);
+  const got = await browser.execute(() => (window as unknown as { __gtDir: Placed & { error?: string } }).__gtDir);
+  if ((got as { error?: string }).error) throw new Error((got as { error?: string }).error);
+  return got;
 }
 
 const cx = (b: Box) => b.x + b.w / 2;
@@ -63,7 +63,7 @@ describe('Direction of the charts', () => {
     ] as const;
     for (const c of cases) {
       const radio = await group.$(`input[aria-label="${c.label}"]`);
-      await radio.click();
+      await (await radio.parentElement()).click();
       await browser.waitUntil(() => radio.isSelected(), { timeout: 10000 });
       await browser.pause(700);
       const p = await pedigreeNow(meta().home.name);
