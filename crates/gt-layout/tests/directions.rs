@@ -10,6 +10,8 @@ use gt_layout::{
     around_many_kin, around_with_siblings, descendants, pedigree, quality, relatives,
 };
 
+type Maker<'a> = Box<dyn Fn(&Metrics) -> Layout + 'a>;
+
 const ALL: [Direction; 4] = [
     Direction::Top,
     Direction::Bottom,
@@ -168,7 +170,7 @@ fn relatives_and_around_modes_in_all_four_directions() {
     for to in ALL {
         for chosen in [vec![F], vec![F, H], vec![F, B]] {
             let root = chosen[0];
-            let makers: Vec<(&str, Box<dyn Fn(&Metrics) -> Layout>)> = vec![
+            let makers: Vec<(&str, Maker)> = vec![
                 ("line", Box::new(|m| around(&s, root, 255, m, 10_000))),
                 (
                     "siblings",
