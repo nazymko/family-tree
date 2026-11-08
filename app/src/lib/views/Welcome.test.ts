@@ -35,6 +35,22 @@ describe('Welcome', () => {
     expect(link).toBeInTheDocument();
   });
 
+  it('the_opened_date_shows_only_for_a_tree_opened_in_the_last_week', async () => {
+    const api = new MockApi(fixtureTree(80));
+    const day = 86_400_000;
+    vi.spyOn(api, 'recentProjects').mockResolvedValue([
+      { dir: 'C:/Trees/Fresh', name: 'Fresh tree', openedAt: Date.now() - 2 * day, missing: false },
+      { dir: 'C:/Trees/Old', name: 'Old tree', openedAt: Date.now() - 8 * day, missing: false },
+    ]);
+    setup(api);
+    const fresh = await screen.findByRole('link', { name: /Fresh tree/ });
+    const old = await screen.findByRole('link', { name: /Old tree/ });
+    expect(fresh).toHaveTextContent(/Opened /);
+    expect(old).not.toHaveTextContent(/Opened /);
+    // The tree itself stays in the list.
+    expect(old).toHaveTextContent('C:/Trees/Old');
+  });
+
   it('opening_a_tree_that_is_open_elsewhere_shows_the_conflict_message_plainly', async () => {
     const api = new MockApi(fixtureTree(80));
     const msg = 'This tree is open in another Gene Tree window.';
