@@ -307,6 +307,42 @@ describe('Agent access end to end', () => {
     await browser.keys('Escape');
   });
 
+  it('marks the changed words of a long note and folds the text that did not change', async () => {
+    const part = (p: string) => Array.from({ length: 70 }, (_, k) => `${p}${k}`).join(' ');
+    const first = await client.tool('begin_batch', { title: 'Long note added', source_file: 'long_note.md' });
+    const note = await client.tool('add_note', { batch: first.batch, target: { kind: 'person', id: home }, text: `${part('north')} (a remark the agent will drop) ${part('south')}` });
+    expect(note.error).toBeUndefined();
+    await client.tool('end_batch', { batch: first.batch, report: 'Added a long note.' });
+    const second = await client.tool('begin_batch', { title: 'Long note trimmed', source_file: 'long_note.md' });
+    const changed = await client.tool('update_own_note', { batch: second.batch, note: note.id, text: `${part('north')} ${part('south')} Added closing words.` });
+    expect(changed.error).toBeUndefined();
+    await client.tool('end_batch', { batch: second.batch, report: 'Trimmed the note.' });
+
+    // The person page's panel has the values whole (the change log clips them to a short window around the edit).
+    await open('Family');
+    await click('Edit person');
+    await panelCount();
+    // The History list above holds the same change in a closed section: look only inside the panel.
+    const panel = '//details[./summary[contains(.,"What an agent changed")]]';
+    const summary = await $(`${panel}/summary`);
+    await summary.scrollIntoView({ block: 'center' });
+    await browser.pause(1000);
+    if (!(await panelOpen())) await summary.click();
+    const toggle = await $(`${panel}//button[normalize-space(.)="Show full text"]`);
+    await toggle.waitForDisplayed({ timeout: 20000 });
+    await toggle.scrollIntoView({ block: 'center' });
+    expect(await $$(`${panel}//del`)).not.toHaveLength(0);
+    expect(await $$(`${panel}//ins`)).not.toHaveLength(0);
+    await browser.pause(400);
+    await shot('change-diff-collapsed-en.png');
+    await toggle.click();
+    const back = await $(`${panel}//button[normalize-space(.)="Show changes only"]`);
+    await back.waitForDisplayed();
+    await back.scrollIntoView({ block: 'center' });
+    await browser.pause(400);
+    await shot('change-diff-expanded-en.png');
+  });
+
   it('stops the agent at once when the connection is revoked', async () => {
     await open('Settings');
     await (await $(`aria/Revoke ${AGENT}`)).click();

@@ -1,12 +1,80 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 import FieldChanges from './FieldChanges.svelte';
 import { setLanguage } from '../i18n';
 import type { FieldChangeDto } from '../api/types';
 
 afterEach(() => setLanguage('en'));
 
-const surname: FieldChangeDto = { field: 'surnames', before: 'Koval', after: 'Kovalchuk' };
+const words = (n: number, p: string) => Array.from({ length: n }, (_, k) => `${p}${k}`).join(' ');
+const small: FieldChangeDto = { field: 'text', before: 'The red house stands here', after: 'The big house stands here' };
+
+describe('FieldChanges text diff', () => {
+  const note: FieldChangeDto = {
+    field: 'text',
+    before: `${words(60, 'alpha')} (a removed remark here) ${words(60, 'omega')}`,
+    after: `${words(60, 'alpha')} ${words(60, 'omega')}`,
+  };
+
+  it('marks_removed_words_with_del_and_added_words_with_ins', () => {
+    const { container } = render(FieldChanges, { fields: [small] });
+    expect([...container.querySelectorAll('del')].map((e) => e.textContent)).toEqual(['red']);
+    expect([...container.querySelectorAll('ins')].map((e) => e.textContent)).toEqual(['big']);
+  });
+
+  it('says_how_many_words_were_removed_and_added', () => {
+    render(FieldChanges, { fields: [small] });
+    expect(document.body.textContent).toContain('Removed 1 word, added 1 word');
+  });
+
+  it('uses_ukrainian_plural_forms_in_the_summary', () => {
+    setLanguage('uk');
+    const summaryFor = (n: number) => {
+      const { unmount } = render(FieldChanges, { fields: [{ field: 'text', before: `Початок ${words(n, 'слово')} кінець`, after: 'Початок кінець' }] });
+      const s = document.querySelector('.sum')?.textContent;
+      unmount();
+      return s;
+    };
+    expect(summaryFor(1)).toBe('Вилучено 1 слово');
+    expect(summaryFor(2)).toBe('Вилучено 2 слова');
+    expect(summaryFor(6)).toBe('Вилучено 6 слів');
+    expect(summaryFor(21)).toBe('Вилучено 21 слово');
+  });
+
+  it('shows_only_the_changes_with_gaps_for_a_long_text_and_expands_on_request', async () => {
+    const { container } = render(FieldChanges, { fields: [note] });
+    const cell = () => container.querySelectorAll('td')[0].textContent ?? '';
+    expect(cell()).toContain('…');
+    expect(cell()).toContain('(a removed remark here)');
+    expect(cell()).not.toContain('alpha5 ');
+    const toggle = screen.getByRole('button', { name: 'Show full text' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    await userEvent.click(toggle);
+    expect(cell()).not.toContain('…');
+    expect(cell()).toContain('alpha5 ');
+    await userEvent.click(screen.getByRole('button', { name: 'Show changes only' }));
+    expect(cell()).toContain('…');
+  });
+
+  it('shows_a_short_text_in_full_without_a_toggle', () => {
+    render(FieldChanges, { fields: [small] });
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(document.body.textContent).not.toContain('…');
+  });
+
+  it('leaves_created_and_non_text_values_without_marks', () => {
+    const { container } = render(FieldChanges, {
+      fields: [
+        { field: 'text', before: null, after: 'A new note about the house' },
+        { field: 'sex', before: 'male', after: 'female' },
+      ],
+    });
+    expect(container.querySelectorAll('del, ins')).toHaveLength(0);
+  });
+});
+
+const surname: FieldChangeDto ={ field: 'surnames', before: 'Koval', after: 'Kovalchuk' };
 
 /** Each body row as text with single spaces, headings included. */
 const rows = () =>

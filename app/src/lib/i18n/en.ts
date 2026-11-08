@@ -717,6 +717,13 @@ export const en = {
     and: 'and',
     removed: '(record removed)',
     items: { one: '{n} item', other: '{n} items' },
+    words: { one: '{n} word', other: '{n} words' },
+    summaryRemoved: 'Removed {words}',
+    summaryAdded: 'Added {words}',
+    summaryBoth: 'Removed {removed}, added {added}',
+    showFull: 'Show full text',
+    showChanges: 'Show changes only',
+    unchangedHidden: 'Unchanged text hidden',
     role: {
       principal: 'principal',
       witness: 'witness',
