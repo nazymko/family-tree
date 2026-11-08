@@ -37,7 +37,7 @@ const FAMILY: &str = "\
 0 @F7@ FAM\n1 HUSB @I15@\n1 WIFE @I16@\n1 CHIL @I17@\n";
 
 const CARD: f32 = 176.0;
-const COUPLE_GAP: f32 = 8.0;
+const COUPLE_GAP: f32 = 24.0;
 const ROW: f32 = 114.0;
 
 fn everything() -> Rect {

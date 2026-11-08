@@ -167,7 +167,7 @@ fn assert_parents_over(w: &ChartWindow, father: &str, mother: &str, child: &str)
     let (f, m, c) = (one(w, father), one(w, mother), one(w, child));
     assert!((f.y - (c.y - 114.0)).abs() < 0.5 && (m.y - f.y).abs() < 0.5);
     assert!(
-        (m.x - f.x - (176.0 + 8.0)).abs() < 0.5,
+        (m.x - f.x - (176.0 + 24.0)).abs() < 0.5,
         "{father} and {mother} adjacent"
     );
 }
