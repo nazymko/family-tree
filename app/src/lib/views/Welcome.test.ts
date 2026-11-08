@@ -53,7 +53,7 @@ describe('Welcome', () => {
 
   it('opening_a_tree_that_is_open_elsewhere_shows_the_conflict_message_plainly', async () => {
     const api = new MockApi(fixtureTree(80));
-    const msg = 'This tree is open in another Gene Tree window.';
+    const msg = 'This tree is open in another Family Tree window.';
     vi.spyOn(api, 'openProject').mockRejectedValue(Object.assign(new Error(msg), { code: 'conflict' }));
     const { platform, user } = setup(api);
     platform.next = { folder: 'C:/Trees/Busy' };

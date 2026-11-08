@@ -800,7 +800,7 @@ fn opening_a_session_twice_is_a_conflict_until_the_first_closes() {
     assert_eq!(err.code, ErrorCode::Conflict);
     assert_eq!(
         err.message,
-        "This tree is open in another Gene Tree window."
+        "This tree is open in another Family Tree window."
     );
     drop(s);
     Session::open(&dir, SessionClock::fixed(today(), 0)).unwrap();

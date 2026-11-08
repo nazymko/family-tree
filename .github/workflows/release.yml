@@ -74,5 +74,5 @@ jobs:
             gh release upload "$TAG" dist-release/* --clobber
             gh release edit "$TAG" --notes-file notes.md --draft=false
           else
-            gh release create "$TAG" dist-release/* --title "Gene Tree ${TAG#v}" --notes-file notes.md --verify-tag $pre
+            gh release create "$TAG" dist-release/* --title "Family Tree ${TAG#v}" --notes-file notes.md --verify-tag $pre
           fi

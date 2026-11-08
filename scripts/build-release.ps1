@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-  Builds Gene Tree in release mode on Windows and copies the shareable files into dist-release/.
+  Builds Family Tree in release mode on Windows and copies the shareable files into dist-release/.
 .DESCRIPTION
   Produces
-    dist-release/Gene-Tree-<version>-windows-x64.exe          portable exe, no install (needs WebView2, built into Windows 10/11)
-    dist-release/Gene-Tree-<version>-windows-x64-setup.exe    NSIS installer (alternative)
+    dist-release/Family-Tree-<version>-windows-x64.exe          portable exe, no install (needs WebView2, built into Windows 10/11)
+    dist-release/Family-Tree-<version>-windows-x64-setup.exe    NSIS installer (alternative)
   Works in PowerShell 7 and Windows PowerShell 5.1. Run from anywhere: .\scripts\build-release.ps1
 .PARAMETER Msi
   Also build the .msi installer (downloads WiX on first use).

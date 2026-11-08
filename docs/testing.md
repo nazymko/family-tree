@@ -43,7 +43,7 @@ Specs are named without the suffix: `bash scripts/test.sh --e2e flows date-picke
 
 - The test exe is built into its own folder, `target/e2e`, so `cargo test` and `clippy` can never replace it with a build
   that lacks the `custom-protocol` feature. Build by hand: `CARGO_TARGET_DIR=target/e2e npm --prefix app run tauri -- build --debug --no-bundle`.
-- Each spec runs in its own wdio run, which is one isolated instance and can run next to your own Gene Tree and next to
+- Each spec runs in its own wdio run, which is one isolated instance and can run next to your own Family Tree and next to
   other runs: its own tauri-driver and native driver on ports of their own (not 4444), its own settings folder
   (`GT_E2E_CONFIG_DIR`: settings, recents, agent key hashes, the Anthropic key in a file, never the keychain), its own
   agent-access port (`GT_E2E_AGENT_PORT`), its own project folders, and a fresh settings folder for every spec file, so any
@@ -69,7 +69,7 @@ of `develop`, and never pushes.
 
 `.\scripts\install-app.ps1 [-Shortcut]` copies `target\release\gene-tree.exe` to `%LOCALAPPDATA%\GeneTree\gene-tree.exe` while
 that copy is running: the running exe is renamed to `gene-tree.exe.old-<time>` (Windows allows that), the new one is put in
-its place, old copies no longer in use are deleted. `-Shortcut` adds a "Gene Tree" Start Menu shortcut. Settings and data
+its place, old copies no longer in use are deleted. `-Shortcut` adds a "Family Tree" Start Menu shortcut. Settings and data
 follow the app identifier (`app.gene-tree.desktop`), not the exe, so they are the same.
 
 ## The three kinds of Rust test

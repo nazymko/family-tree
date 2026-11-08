@@ -60,7 +60,7 @@ impl From<gt_store::StoreError> for ApiError {
         };
         let message = match &e {
             S::NotAProject(p) => format!(
-                "The folder {} is not a Gene Tree project. Choose a folder that contains tree.db.",
+                "The folder {} is not a Family Tree project. Choose a folder that contains tree.db.",
                 p.display()
             ),
             S::NewerSchema { found, supported } => format!(

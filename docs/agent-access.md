@@ -1,6 +1,6 @@
 # Agent access
 
-Gene Tree can let an AI agent that runs on your computer read your family tree and add to it. The agent talks to the app over
+Family Tree can let an AI agent that runs on your computer read your family tree and add to it. The agent talks to the app over
 MCP (the Model Context Protocol). Every change it makes is marked with its name, can be reviewed, and can be undone.
 
 It is off until you turn it on.

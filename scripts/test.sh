@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the Gene Tree tests. The work is done by scripts/gate.mjs (independent steps run at the same time, each to its own
+# Runs the Family Tree tests. The work is done by scripts/gate.mjs (independent steps run at the same time, each to its own
 # log; a failed step does not stop the others; the exit code is non-zero if anything failed).
 #
 #   bash scripts/test.sh                  everyday: Rust tests (nextest) and the frontend tests (vitest), side by side

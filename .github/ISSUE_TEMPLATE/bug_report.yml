@@ -22,7 +22,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Gene Tree version
+      label: Family Tree version
       description: From the name of the file you downloaded, or "nightly", or the commit you built from.
       placeholder: 0.2.0
     validations:

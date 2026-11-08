@@ -161,7 +161,7 @@ fn second_open_is_locked_until_the_first_is_dropped() {
     assert!(matches!(err, gt_store::StoreError::Locked(_)), "{err}");
     assert_eq!(
         err.to_string(),
-        "This tree is open in another Gene Tree window."
+        "This tree is open in another Family Tree window."
     );
     drop(first);
     drop(Project::open(&dir).unwrap());

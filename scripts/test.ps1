@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Runs the Gene Tree tests (the same as scripts/test.sh; the work is done by scripts/gate.mjs).
+  Runs the Family Tree tests (the same as scripts/test.sh; the work is done by scripts/gate.mjs).
 .DESCRIPTION
   .\scripts\test.ps1          everyday: Rust tests (nextest) and the frontend tests, side by side
   .\scripts\test.ps1 -Quick   only what your changes can affect; says what it skipped

@@ -70,12 +70,12 @@ jobs:
           mkdir -p dist-release
           case "$RUNNER_OS" in
             Windows)
-              cp target/release/gene-tree.exe "dist-release/Gene-Tree-$LABEL-windows-x64-portable.exe"
-              cp target/release/bundle/nsis/*-setup.exe "dist-release/Gene-Tree-$LABEL-windows-x64-setup.exe" ;;
+              cp target/release/gene-tree.exe "dist-release/Family-Tree-$LABEL-windows-x64-portable.exe"
+              cp target/release/bundle/nsis/*-setup.exe "dist-release/Family-Tree-$LABEL-windows-x64-setup.exe" ;;
             macOS)
-              cp target/universal-apple-darwin/release/bundle/dmg/*.dmg "dist-release/Gene-Tree-$LABEL-macos-universal.dmg" ;;
+              cp target/universal-apple-darwin/release/bundle/dmg/*.dmg "dist-release/Family-Tree-$LABEL-macos-universal.dmg" ;;
             Linux)
-              cp target/release/bundle/appimage/*.AppImage "dist-release/Gene-Tree-$LABEL-linux-x86_64.AppImage" ;;
+              cp target/release/bundle/appimage/*.AppImage "dist-release/Family-Tree-$LABEL-linux-x86_64.AppImage" ;;
           esac
           ls -l dist-release
       - uses: actions/upload-artifact@v7
