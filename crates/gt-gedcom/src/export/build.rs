@@ -729,7 +729,7 @@ pub(crate) fn build(t: &Tree, version: GedcomVersion) -> Vec<GedNode> {
         if !has_subm {
             head.children.push(b.ptr("SUBM", OWN_SUBM.to_string()));
             let mut s = b.rec(Some(OWN_SUBM.to_string()), "SUBM", None);
-            s.children.push(b.kv("NAME", "gene-tree"));
+            s.children.push(b.kv("NAME", "Family Tree"));
             tail.push(s);
         }
     } else if !b.ext.is_empty() {

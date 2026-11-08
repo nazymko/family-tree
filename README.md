@@ -1,6 +1,6 @@
 <div align="center">
 
-# Gene Tree
+# Family Tree
 
 **A fast, private genealogy app for your desktop.**
 Your family history stays on your computer, in open formats, and is yours to keep.
@@ -19,7 +19,7 @@ Your family history stays on your computer, in open formats, and is yours to kee
 
 </div>
 
-## Why Gene Tree
+## Why Family Tree
 
 - **Private by default.** No account, no cloud, no tracking. A tree is a folder on your disk with a SQLite database and
   your photos. Living people are protected by a privacy rule on every export.
@@ -60,9 +60,9 @@ Download the file for your system from the [latest release](https://github.com/n
 
 | System | File |
 |---|---|
-| Windows 10/11 | `Gene-Tree-<version>-windows-x64-setup.exe` (installer) or `...-portable.exe` (no install) |
-| macOS 11+ | `Gene-Tree-<version>-macos-universal.dmg` (Apple Silicon and Intel) |
-| Linux | `Gene-Tree-<version>-linux-x86_64.AppImage`: `chmod +x` it, then run it |
+| Windows 10/11 | `Family-Tree-<version>-windows-x64-setup.exe` (installer) or `...-portable.exe` (no install) |
+| macOS 11+ | `Family-Tree-<version>-macos-universal.dmg` (Apple Silicon and Intel) |
+| Linux | `Family-Tree-<version>-linux-x86_64.AppImage`: `chmod +x` it, then run it |
 
 The builds are not code-signed yet. On Windows, SmartScreen asks first: choose **More info**, then **Run anyway**. On
 macOS, right-click the app and choose **Open**. Want the newest changes before a release? Try the
@@ -112,7 +112,7 @@ request against `develop`. [CONTRIBUTING.md](CONTRIBUTING.md) explains the setup
 
 ## License
 
-Gene Tree is dual-licensed under either of
+Family Tree is dual-licensed under either of
 
 - [MIT License](LICENSE-MIT)
 - [Apache License, Version 2.0](LICENSE-APACHE)

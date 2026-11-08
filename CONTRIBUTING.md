@@ -1,4 +1,4 @@
-# Contributing to Gene Tree
+# Contributing to Family Tree
 
 Thank you for helping. Bug reports, ideas, translations, documentation and code are all welcome.
 

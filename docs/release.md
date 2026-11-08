@@ -10,7 +10,7 @@
 | What | When | Workflow | Result |
 |---|---|---|---|
 | **CI** | Every push and pull request, and nightly | `ci.yml` | fmt, clippy, Rust tests on Windows, macOS and Linux; frontend checks; a debug build on each system. The window specs (e2e) run nightly. |
-| **Nightly** | 02:30 UTC each night `main` has new commits (or "Run workflow") | `nightly.yml` | The `nightly` pre-release is replaced by a build of `main`: `Gene-Tree-nightly-<date>-<sha>-...`. |
+| **Nightly** | 02:30 UTC each night `main` has new commits (or "Run workflow") | `nightly.yml` | The `nightly` pre-release is replaced by a build of `main`: `Family-Tree-nightly-<date>-<sha>-...`. |
 | **Release** | The 1st of every month, 06:00 UTC (or "Run workflow" on *Prepare release*) | `prepare-release.yml` then `release.yml` | When CI passed on `main` and something new landed since the last release: tag `vX.Y.Z`, build all three systems, publish a GitHub Release with notes and `SHA256SUMS.txt`. |
 | **Hand-made release** | `git tag v0.2.1 origin/main && git push origin v0.2.1` | `release.yml` | The same release for that tag; for a quick patch between cycles. |
 
@@ -41,9 +41,9 @@ One file per operating system; each system builds its own.
 
 | OS | File | Notes |
 |---|---|---|
-| Windows | `Gene-Tree-<version>-windows-x64-setup.exe` | NSIS installer. Also `...-portable.exe`: the release exe, no install. |
-| macOS | `Gene-Tree-<version>-macos-universal.dmg` | Universal: Apple Silicon and Intel. |
-| Linux | `Gene-Tree-<version>-linux-x86_64.AppImage` | `chmod +x` and run. |
+| Windows | `Family-Tree-<version>-windows-x64-setup.exe` | NSIS installer. Also `...-portable.exe`: the release exe, no install. |
+| macOS | `Family-Tree-<version>-macos-universal.dmg` | Universal: Apple Silicon and Intel. |
+| Linux | `Family-Tree-<version>-linux-x86_64.AppImage` | `chmod +x` and run. |
 
 ## Build locally
 
@@ -64,7 +64,7 @@ the app to `%LOCALAPPDATA%\GeneTree` (the desktop shortcut points there).
 
 - Windows SmartScreen: "Windows protected your PC": click **More info**, then **Run anyway**.
 - macOS: Gatekeeper refuses the app. Right-click the app, **Open**, **Open** again; or run
-  `xattr -dr com.apple.quarantine "/Applications/Gene Tree.app"`.
+  `xattr -dr com.apple.quarantine "/Applications/Family Tree.app"`.
 - Linux: no warning; make the file executable first.
 
 Signing would need: a Windows code-signing certificate (OV/EV, or Azure Trusted Signing); on macOS an Apple Developer

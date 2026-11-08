@@ -15,7 +15,7 @@
  * so the suite runs on Windows and Linux only.
  *
  * ONE RUN OF THIS FILE IS ONE FULLY ISOLATED INSTANCE, so several can run at the same time (scripts/e2e-parallel.mjs
- * starts one per spec) and next to the owner's own running Gene Tree:
+ * starts one per spec) and next to the owner's own running Family Tree:
  *   - its own tauri-driver and native driver, on ports the OS gave out (not 4444/4445);
  *   - its own work folder, with its own settings folder (GT_E2E_CONFIG_DIR: settings, recents, key hashes, the AI key),
  *     its own WebView2 data folder (WEBVIEW2_USER_DATA_FOLDER) and its own copy of the project folders the specs make;

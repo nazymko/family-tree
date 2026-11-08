@@ -90,7 +90,7 @@ function notes(tag) {
   const prev = lastTag(`${tag}^`);
   const header = [];
   if (!prev) {
-    header.push('The first public release. The README says what Gene Tree does and how to install it.');
+    header.push('The first public release. The README says what Family Tree does and how to install it.');
     return header.join('\n');
   }
   const list = commits(`${prev}..${tag}`);

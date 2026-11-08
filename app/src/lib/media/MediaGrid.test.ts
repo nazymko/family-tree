@@ -50,7 +50,7 @@ describe('MediaGrid', () => {
   it('refused_open_shows_a_plain_message', async () => {
     const user = userEvent.setup();
     const api = new MockApi(fixtureTree(30));
-    vi.spyOn(api, 'openMediaExternally').mockRejectedValue(new Error('Gene Tree will only open photos and PDF documents. This file is some other kind of file, so it was not opened.'));
+    vi.spyOn(api, 'openMediaExternally').mockRejectedValue(new Error('Family Tree will only open photos and PDF documents. This file is some other kind of file, so it was not opened.'));
     const items = [link(media('d2', { mime: 'application/pdf', originalName: 'baptism.pdf' }))];
     renderWith(MediaGrid, { items, onOpen: vi.fn() }, { api });
     await user.click(screen.getByRole('button', { name: 'Open baptism.pdf' }));

@@ -1,4 +1,4 @@
-//! Gene Tree desktop shell.
+//! Family Tree desktop shell.
 
 pub mod agent_access;
 pub mod ai;
@@ -115,7 +115,7 @@ pub fn run() {
     e2e_hooks::keep_windows_quiet(&mut context);
     builder
         .build(context)
-        .expect("error while building Gene Tree")
+        .expect("error while building Family Tree")
         .run(|app, event| {
             // Close the project cleanly: dropping it checkpoints the WAL into tree.db, so a
             // user who copies only that file loses nothing, and the lock file is released.

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The Gene Tree test gate. Start it through scripts/test.sh (or test.ps1); it is the same on every OS.
+// The Family Tree test gate. Start it through scripts/test.sh (or test.ps1); it is the same on every OS.
 //
 //   node scripts/gate.mjs                 everyday: Rust tests (nextest) and the frontend tests at the same time
 //   node scripts/gate.mjs --full          before merge: fmt, clippy, Rust tests, heavy tier, doctests, vitest, svelte-check, eslint

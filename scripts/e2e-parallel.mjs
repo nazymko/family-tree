@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Runs the window specs (app/e2e-tauri/specs/*.e2e.ts) several at a time, each in its own fully isolated wdio run
 // (own drivers and ports, own settings folder, own WebView2 profile, own agent-access port; see wdio.conf.ts), so they
-// also run next to the owner's own Gene Tree. Normally started by `bash scripts/test.sh --e2e`.
+// also run next to the owner's own Family Tree. Normally started by `bash scripts/test.sh --e2e`.
 //
 //   node scripts/e2e-parallel.mjs [--jobs N] [--keep] [spec names...]
 //
