@@ -69,6 +69,10 @@
   const shown = $derived((recents ?? []).filter((r) => !hidden.includes(r.dir)));
   const hiddenRecents = $derived((recents ?? []).filter((r) => hidden.includes(r.dir)));
 
+  /** "Opened <date>" is shown only for a tree opened in the last week; an older date says nothing useful. */
+  const WEEK_MS = 7 * 86_400_000;
+  const recent = (ms: number) => Date.now() - ms <= WEEK_MS;
+
   function when(ms: number): string {
     return new Date(ms).toLocaleDateString(currentLocale(), { dateStyle: 'medium' });
   }
@@ -127,7 +131,7 @@
                         >
                           <span class="rname">{r.name}</span>
                           <bdi dir="auto" class="rdir">{r.dir}</bdi>
-                          <span class="rwhen tnum">{t('welcome.opened', { date: when(r.openedAt) })}</span>
+                          <span class="rwhen tnum">{#if recent(r.openedAt)}{t('welcome.opened', { date: when(r.openedAt) })}{/if}</span>
                         </a>
                         <Button variant="quiet" onclick={() => setHidden(r.dir, true)} aria-label={t('welcome.hideNamed', { name: r.name })}>
                           {t('welcome.hide')}
@@ -162,7 +166,7 @@
                           >
                             <span class="rname">{r.name}</span>
                             <bdi dir="auto" class="rdir">{r.dir}</bdi>
-                            <span class="rwhen tnum">{t('welcome.opened', { date: when(r.openedAt) })}</span>
+                            <span class="rwhen tnum">{#if recent(r.openedAt)}{t('welcome.opened', { date: when(r.openedAt) })}{/if}</span>
                           </a>
                         {/if}
                         <Button variant="quiet" onclick={() => setHidden(r.dir, false)} aria-label={t('welcome.showNamed', { name: r.name })}>
