@@ -281,3 +281,36 @@ fn rows_grow_when_a_gap_needs_more_lanes() {
     );
     assert_connectors_readable(&l);
 }
+
+#[test]
+fn an_ancestors_brother_stands_on_the_outer_side_of_the_couple_and_no_line_crosses_another_family()
+{
+    let m = Metrics::default();
+    let s = fixture();
+    for (name, l) in [
+        ("all", around_all_kin(&s, F, 255, &m, 10_000)),
+        (
+            "many-all",
+            around_many_kin(&s, &[F], 255, ManyKin::All, &m, 10_000),
+        ),
+        (
+            "many-all-couple",
+            around_many_kin(&s, &[F, H], 255, ManyKin::All, &m, 10_000),
+        ),
+        ("siblings", around_with_siblings(&s, F, 255, &m, 10_000)),
+    ] {
+        let x = |k: Key| l.nodes[id(&l, k) as usize].rect.x;
+        let q = gt_layout::quality(&l);
+        assert_eq!(q.line_crossings, 0, "{name}: {q:?}");
+        if name != "siblings" {
+            // GM1 is the left partner of GM1 + GM2: its brother GU stands left of it.
+            assert!(
+                x(GU) < x(GM1),
+                "{name}: GU at {} left of GM1 at {}",
+                x(GU),
+                x(GM1)
+            );
+            assert!(x(GM1) < x(GM2), "{name}: parents keep their order");
+        }
+    }
+}

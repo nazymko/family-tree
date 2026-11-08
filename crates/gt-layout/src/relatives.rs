@@ -483,10 +483,18 @@ impl Builder<'_> {
         let mut sibs = siblings(self.src, key);
         if let Some(i) = sibs.iter().position(|s| s.key == key) {
             let me = sibs.remove(i);
+            // Brothers and sisters stand on the outer side of the ancestor's couple, away from the partner: the left
+            // partner's to the left, the right partner's to the right. Without a partner, on the outer side of the line.
+            let slot = self.blocks.iter().find_map(|c| {
+                (0..2)
+                    .find(|&s| c.slots[s] == Some(bi))
+                    .filter(|_| c.slots[0].is_some() && c.slots[1].is_some())
+            });
+            let left = slot.map_or(side == Some(0), |s| s == 0);
             match side {
-                Some(1) => sibs.insert(0, me),
-                Some(_) => sibs.push(me),
                 None => sibs.insert(i, me),
+                Some(_) if left => sibs.push(me),
+                Some(_) => sibs.insert(0, me),
             }
         }
         let mut group = Vec::new();
@@ -675,12 +683,63 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
                 }
                 None => {}
             }
+            // Brothers and sisters on the inner side of their ancestor stand right beside it, so the couple makes
+            // room for them (and for everything below them) before it is placed.
+            let mut inner: Vec<(usize, usize, bool, Vec<usize>, Vec<f32>)> = Vec::new();
+            for (pi, &ub) in parents.iter().enumerate() {
+                let Some((left, true)) = sibling_side(units, blocks, ub) else {
+                    continue;
+                };
+                let group = blocks[ub].group.clone();
+                let ak = group
+                    .iter()
+                    .position(|&u| u == blocks[ub].anchor)
+                    .unwrap_or(0);
+                let items: Vec<&Contour> = group.iter().map(|&u| &units[u].ctr).collect();
+                let (places, _) = pack(&items, gap);
+                let offs: Vec<f32> = places.iter().map(|p| p - places[ak]).collect();
+                let mut shift = 0.0f32;
+                for (j, &u) in group.iter().enumerate() {
+                    if j == ak {
+                        continue;
+                    }
+                    let acx = xs[pi] + (uw(&units[blocks[ub].anchor]) - nw) / 2.0;
+                    let row0 = units[u].row;
+                    for (d, &(l, h)) in units[u].ctr.iter().enumerate() {
+                        let r = idx(row0 + d as i32);
+                        if left {
+                            shift = shift.max((rf[r] + gap) - (acx + offs[j] + l));
+                        } else {
+                            shift = shift.min((lf[r] - gap) - (acx + offs[j] + h));
+                        }
+                    }
+                }
+                if shift.is_finite() && shift != 0.0 {
+                    xs.iter_mut().for_each(|x| *x += shift);
+                }
+                inner.push((pi, ak, left, group, offs));
+            }
             for (&ub, &x) in parents.iter().zip(&xs) {
                 blocks[ub].ax = x;
                 let a = blocks[ub].anchor;
                 units[a].cx = x + (uw(&units[a]) - nw) / 2.0;
                 lf[i] = lf[i].min(x - nw / 2.0);
                 rf[i] = rf[i].max(x + nw / 2.0);
+            }
+            for (pi, ak, _, group, offs) in inner {
+                let base = units[blocks[parents[pi]].anchor].cx;
+                for (j, &u) in group.iter().enumerate() {
+                    if j == ak {
+                        continue;
+                    }
+                    units[u].cx = base + offs[j];
+                    let row0 = units[u].row;
+                    for (d, &(l, h)) in units[u].ctr.iter().enumerate() {
+                        let r = idx(row0 + d as i32);
+                        lf[r] = lf[r].min(units[u].cx + l);
+                        rf[r] = rf[r].max(units[u].cx + h);
+                    }
+                }
             }
         }
     }
@@ -697,6 +756,9 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
             )
         });
         for bi in order {
+            if matches!(sibling_side(units, blocks, bi), Some((_, true))) {
+                continue;
+            }
             let group = blocks[bi].group.clone();
             let Some(k) = group.iter().position(|&u| u == blocks[bi].anchor) else {
                 continue;
@@ -733,6 +795,20 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
             }
         }
     }
+}
+
+/// Whether the brothers and sisters of block `bi` stand left of its anchor (the anchor is last in its group), and
+/// whether that is the inner side of the chart (towards the middle), where the spine has to make room for them.
+fn sibling_side(units: &[Unit], blocks: &[Block], bi: usize) -> Option<(bool, bool)> {
+    let b = &blocks[bi];
+    let side = b.side?;
+    let k = b.group.iter().position(|&u| u == b.anchor)?;
+    if b.group.len() < 2 {
+        return None;
+    }
+    let _ = units;
+    let left = k == b.group.len() - 1;
+    Some((left, left == (side == 1)))
 }
 
 /// The width of every unit and the contour of everything below it, bottom-up: children are always created after
@@ -867,6 +943,23 @@ pub fn around_many_kin(
     m: &Metrics,
     max_nodes: usize,
 ) -> Layout {
+    // One chosen person with every relative: the all-relatives layout puts each ancestor's brothers and sisters on the
+    // outer side of the ancestor's couple, which the several-people layout below cannot do.
+    // A chosen partner without known parents or siblings adds nothing the one-person layout does not draw.
+    let lone = |k: Key| {
+        src.parents(k).iter().all(Option::is_none) && siblings(src, k).iter().all(|s| s.key == k)
+    };
+    let partners_of_first = chosen.len() > 1
+        && chosen[1..]
+            .iter()
+            .all(|&k| lone(k) && src.unions(chosen[0]).iter().any(|(p, _)| *p == Some(k)));
+    if kin == ManyKin::All && (chosen.len() == 1 || partners_of_first) {
+        let o = RelativesOptions {
+            generations,
+            aunts: false,
+        };
+        return lay_out(src, chosen[0], &o, true, true, true, m, max_nodes);
+    }
     let m = &partner_room(m);
     let with_sibs = kin != ManyKin::Line;
     let g = generations.max(1);
