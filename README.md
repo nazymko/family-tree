@@ -6,7 +6,7 @@
 Your family history stays on your computer, in open formats, and is yours to keep.
 
 [![CI](https://github.com/nazymko/family-tree/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nazymko/family-tree/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/nazymko/family-tree?sort=semver&display_name=tag)](https://github.com/nazymko/family-tree/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/nazymko/family-tree?sort=semver&display_name=tag&cacheSeconds=3600)](https://github.com/nazymko/family-tree/releases/latest)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 ![Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
