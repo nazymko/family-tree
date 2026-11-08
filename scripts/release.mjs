@@ -102,7 +102,7 @@ function notes(tag) {
     for (const c of items) parts.push(`- ${c.scope ? `**${c.scope}**: ` : ''}${c.text}`);
     parts.push('');
   }
-  parts.push(`**All changes**: https://github.com/nazymko/gene-tree/compare/${prev}...${tag}`);
+  parts.push(`**All changes**: https://github.com/nazymko/family-tree/compare/${prev}...${tag}`);
   return parts.join('\n');
 }
 

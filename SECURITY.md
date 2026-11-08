@@ -6,7 +6,7 @@ or the optional agent-access server (MCP, local only) matters.
 ## Reporting
 
 Please report a vulnerability privately through
-[GitHub's private vulnerability reporting](https://github.com/nazymko/gene-tree/security/advisories/new), not in a public
+[GitHub's private vulnerability reporting](https://github.com/nazymko/family-tree/security/advisories/new), not in a public
 issue. Include the version, the system and the steps. Do not attach a real family tree; describe its shape or use the
 generated test tree.
 

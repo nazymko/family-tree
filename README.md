@@ -5,14 +5,14 @@
 **A fast, private genealogy app for your desktop.**
 Your family history stays on your computer, in open formats, and is yours to keep.
 
-[![CI](https://github.com/nazymko/gene-tree/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nazymko/gene-tree/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/nazymko/gene-tree?sort=semver&display_name=tag)](https://github.com/nazymko/gene-tree/releases/latest)
+[![CI](https://github.com/nazymko/family-tree/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nazymko/family-tree/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/nazymko/family-tree?sort=semver&display_name=tag)](https://github.com/nazymko/family-tree/releases/latest)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 ![Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
-[**Download**](https://github.com/nazymko/gene-tree/releases/latest) ·
-[Report a bug](https://github.com/nazymko/gene-tree/issues/new?template=bug_report.yml) ·
-[Suggest a feature](https://github.com/nazymko/gene-tree/issues/new?template=feature_request.yml) ·
+[**Download**](https://github.com/nazymko/family-tree/releases/latest) ·
+[Report a bug](https://github.com/nazymko/family-tree/issues/new?template=bug_report.yml) ·
+[Suggest a feature](https://github.com/nazymko/family-tree/issues/new?template=feature_request.yml) ·
 [Contribute](CONTRIBUTING.md)
 
 <img src="docs/images/family.png" alt="The family view: a person with their parents, grandparents, brothers and sisters, husband and children" width="900">
@@ -56,7 +56,7 @@ Your family history stays on your computer, in open formats, and is yours to kee
 
 ## Install
 
-Download the file for your system from the [latest release](https://github.com/nazymko/gene-tree/releases/latest):
+Download the file for your system from the [latest release](https://github.com/nazymko/family-tree/releases/latest):
 
 | System | File |
 |---|---|
@@ -66,7 +66,7 @@ Download the file for your system from the [latest release](https://github.com/n
 
 The builds are not code-signed yet. On Windows, SmartScreen asks first: choose **More info**, then **Run anyway**. On
 macOS, right-click the app and choose **Open**. Want the newest changes before a release? Try the
-[nightly build](https://github.com/nazymko/gene-tree/releases/tag/nightly).
+[nightly build](https://github.com/nazymko/family-tree/releases/tag/nightly).
 
 ## Build from source
 
@@ -74,7 +74,7 @@ You need [Rust](https://rustup.rs) (the toolchain in `rust-toolchain.toml` insta
 the WebKitGTK packages listed in [docs/release.md](docs/release.md).
 
 ```bash
-git clone https://github.com/nazymko/gene-tree.git
+git clone https://github.com/nazymko/family-tree.git
 cd gene-tree/app
 npm ci
 npm run tauri dev          # run the app with hot reload
@@ -101,7 +101,7 @@ Design notes are in [docs/](docs), decisions in [docs/adr](docs/adr).
 ## Releases
 
 A new version comes out on the 1st of every month when there is something new, built for all three systems and
-published on the [releases page](https://github.com/nazymko/gene-tree/releases) with notes made from the changes.
+published on the [releases page](https://github.com/nazymko/family-tree/releases) with notes made from the changes.
 A nightly pre-release follows `main` every day it changes. Details: [docs/release.md](docs/release.md).
 
 ## Contributing

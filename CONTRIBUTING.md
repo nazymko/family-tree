@@ -11,7 +11,7 @@ own tree, describe its shape ("a family with three children and no parents enter
 
 ## Reporting a bug or asking for a feature
 
-Use the [issue forms](https://github.com/nazymko/gene-tree/issues/new/choose). For a bug, say what you did, what you
+Use the [issue forms](https://github.com/nazymko/family-tree/issues/new/choose). For a bug, say what you did, what you
 expected and what happened, plus the version (from the file name you downloaded) and your operating system. Security problems go privately,
 see [SECURITY.md](SECURITY.md).
 
