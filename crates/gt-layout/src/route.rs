@@ -79,6 +79,8 @@ struct Fam {
     hi: f32,
     lane: usize,
     lanes: usize,
+    /// Index of the zone (the gap above one row of children) the bus runs in.
+    zone: usize,
     bus_y: f32,
 }
 
@@ -249,6 +251,7 @@ pub(crate) fn route(
             hi: 0.0,
             lane: 0,
             lanes: 1,
+            zone: 0,
             bus_y: 0.0,
         });
     }
@@ -293,6 +296,9 @@ pub(crate) fn route(
             .iter()
             .map(|&i| fams[i].zone_top)
             .fold(f32::NEG_INFINITY, f32::max);
+        for &i in group {
+            fams[i].zone = zones.len();
+        }
         zones.push((zk, fams[group[0]].zone_bot, top, most));
         at = end;
     }
@@ -338,7 +344,7 @@ pub(crate) fn route(
         }
     }
     // Bus heights.
-    for &(zk, bot, top, most) in &zones {
+    for (zi, &(_, bot, top, most)) in zones.iter().enumerate() {
         let (lo_y, hi_y) = (top + margin, (bot - margin).max(top + margin));
         let step = if most > 1 {
             ((hi_y - lo_y) / (most - 1) as f32).clamp(m.gap_y, m.gap_y * 2.0)
@@ -346,7 +352,7 @@ pub(crate) fn route(
             0.0
         };
         let mid = (top + bot) / 2.0;
-        for f in fams.iter_mut().filter(|f| f.bus() && key(f.zone_bot) == zk) {
+        for f in fams.iter_mut().filter(|f| f.bus() && f.zone == zi) {
             f.bus_y = mid + (f.lane as f32 - (f.lanes as f32 - 1.0) / 2.0) * step;
         }
     }

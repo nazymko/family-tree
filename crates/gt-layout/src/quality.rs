@@ -35,6 +35,11 @@ pub struct Quality {
     /// Pairs of vertical lines of different families that run within half a gap of each other in the same gap
     /// between rows, or across a partner connector from a line in the next gap: they read as one line.
     pub aligned_verticals: usize,
+    /// Parent-to-child connectors with a point outside the span of the two rows they join (measured along the
+    /// axis the generations run on): a bus along the edge of the chart instead of between its rows.
+    pub buses_outside_rows: usize,
+    /// Line points outside the box that holds every card.
+    pub lines_outside_cards: usize,
     /// Total length of the lines.
     pub line_length: f32,
     /// The longest straight piece of a line.
@@ -99,6 +104,21 @@ pub fn quality(l: &Layout) -> Quality {
             }
         }
     }
+    q.buses_outside_rows = buses_outside_rows(l);
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for n in &l.nodes {
+        x0 = x0.min(n.rect.x);
+        y0 = y0.min(n.rect.y);
+        x1 = x1.max(n.rect.x + n.rect.w);
+        y1 = y1.max(n.rect.y + n.rect.h);
+    }
+    q.lines_outside_cards = l
+        .edges
+        .iter()
+        .filter(|e| e.kind != EdgeKind::Dup)
+        .flat_map(|e| e.pts.chunks_exact(2))
+        .filter(|p| p[0] < x0 - 0.5 || p[0] > x1 + 0.5 || p[1] < y0 - 0.5 || p[1] > y1 + 0.5)
+        .count();
     let mut horizontal: Vec<Seg> = Vec::new();
     let mut vertical: Vec<Seg> = Vec::new();
     for (i, e) in l.edges.iter().enumerate() {
@@ -181,6 +201,43 @@ pub fn quality(l: &Layout) -> Quality {
         }
     }
     q
+}
+
+/// Parent connectors that leave the span of the two cards they join along the generation axis. The axis is the one
+/// on which most such pairs of cards are disjoint (the rows, or for a sideways chart the columns). A bus outside the
+/// span runs along the chart's edge instead of between the rows.
+fn buses_outside_rows(l: &Layout) -> usize {
+    let edges: Vec<_> = l
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Parent && e.pts.len() >= 4)
+        .collect();
+    let disjoint = |e: &&crate::types::Edge, axis: usize| {
+        let (a, b) = (&l.nodes[e.from as usize].rect, &l.nodes[e.to as usize].rect);
+        let (a0, a1, b0, b1) = if axis == 0 {
+            (a.x, a.x + a.w, b.x, b.x + b.w)
+        } else {
+            (a.y, a.y + a.h, b.y, b.y + b.h)
+        };
+        a1 <= b0 || b1 <= a0
+    };
+    let down = edges.iter().filter(|e| disjoint(e, 1)).count();
+    let across = edges.iter().filter(|e| disjoint(e, 0)).count();
+    let axis = usize::from(down >= across);
+    edges
+        .iter()
+        .filter(|e| {
+            let (a, b) = (&l.nodes[e.from as usize].rect, &l.nodes[e.to as usize].rect);
+            let (lo, hi) = if axis == 1 {
+                (a.y.min(b.y), (a.y + a.h).max(b.y + b.h))
+            } else {
+                (a.x.min(b.x), (a.x + a.w).max(b.x + b.w))
+            };
+            e.pts
+                .chunks_exact(2)
+                .any(|p| p[axis] < lo - 0.5 || p[axis] > hi + 0.5)
+        })
+        .count()
 }
 
 /// Pairs of segments of different owners on the same line that share some length.
