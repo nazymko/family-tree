@@ -357,7 +357,12 @@ fn distinct_people(index: &PersonIndex, layout: &gt_layout::Layout) -> u32 {
     let keys: std::collections::HashSet<u32> = layout
         .nodes
         .iter()
-        .filter(|n| !index.summaries.get(n.key as usize).is_some_and(|s| s.sibling_marker))
+        .filter(|n| {
+            !index
+                .summaries
+                .get(n.key as usize)
+                .is_some_and(|s| s.sibling_marker)
+        })
         .map(|n| n.key)
         .collect();
     u32::try_from(keys.len()).unwrap_or(u32::MAX)
