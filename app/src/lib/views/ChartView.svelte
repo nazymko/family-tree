@@ -29,8 +29,6 @@
   let rootName = $state('');
   /** Everybody the screen is built around, by name, root first (read from the outline's top level). */
   let aroundNames = $state<string[]>([]);
-  /** How many distinct people the chart shows right now (null until counted). */
-  let shownCount = $state<number | null>(null);
   const title = $derived(
     kind === 'pedigree'
       ? t('chart.pedigree')
@@ -139,14 +137,7 @@
     meta = m;
     rootName = '';
     aroundNames = [];
-    shownCount = null;
     const centre = root;
-    try {
-      const all = await api.chartWindow(m.chartId, { x: 0, y: 0, w: m.bounds.w, h: m.bounds.h }, 0.2);
-      if (meta?.chartId === m.chartId) shownCount = new Set(all.nodes.map((n) => n.person?.id).filter((id) => id !== undefined)).size;
-    } catch {
-      // No count is shown rather than a wrong one.
-    }
     try {
       const first = await api.chartOutline(m.chartId, null, around ? 100 : 1);
       if (meta?.chartId === m.chartId) {
@@ -185,7 +176,7 @@
     {/if}
     <h1 id="chart-title">{title}</h1>
     {#if root}
-      <p class="count" data-testid="chart-count" aria-live="polite" aria-atomic="true">{shownCount !== null && !isEmpty ? plural('chart.onChart', shownCount) : ''}</p>
+      <p class="count" data-testid="chart-count" aria-live="polite" aria-atomic="true">{meta && !isEmpty ? plural('chart.onChart', meta.personCount) : ''}</p>
     {/if}
     {#if root}
       <Tabs
