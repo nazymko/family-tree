@@ -83,7 +83,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-22.04]
+        # Linux only. windows-latest was tried and dropped: the runner process is elevated, so WebView2 (156) never opens
+        # its DevTools endpoint (fixed ports, own and default data folder, --no-sandbox --disable-gpu all got no answer on
+        # /json/version) and msedgedriver's profile lands in C:\Windows\SystemTemp\scoped_dir..., where the driver never
+        # connects. The same specs pass locally (not elevated) and every install (scripts/ship.sh) runs them on Windows.
+        # To retry: add windows-latest here, restore a msedgedriver download step (matching the Edge version from the
+        # registry key EdgeUpdate\Clients\{F3017226-...}) and a `node scripts/gate.mjs --e2e` step, and use
+        # scripts/e2e-diagnose.mjs (versions, the app started alone, msedgedriver alone with a verbose log) to see why.
+        os: [ubuntu-22.04]
     timeout-minutes: 60
     runs-on: ${{ matrix.os }}
     steps:
@@ -103,25 +110,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb gstreamer1.0-plugins-good gstreamer1.0-libav fonts-noto-cjk
       - name: Install tauri-driver
         run: cargo install tauri-driver --locked
-      - name: Matching msedgedriver (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $pv = (Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}').pv
-          $dir = "$env:GITHUB_WORKSPACE\.tools\msedgedriver"
-          New-Item -ItemType Directory -Force $dir | Out-Null
-          Invoke-WebRequest "https://msedgedriver.microsoft.com/$pv/edgedriver_win64.zip" -OutFile "$dir\e.zip"
-          Expand-Archive "$dir\e.zip" $dir -Force
       - run: npm ci
         working-directory: app
       # The same entry point as `bash scripts/test.sh --e2e`: it builds the test exe into target/e2e and runs the specs
       # several at a time, one isolated wdio run per spec, each with its own log (GT_E2E_LOGS, uploaded below).
-      - name: Run the flows
-        if: runner.os == 'Windows'
-        run: node scripts/gate.mjs --e2e
-        env:
-          GT_E2E_SHOTS: ${{ runner.temp }}/gt-e2e-shots
-          GT_E2E_LOGS: ${{ runner.temp }}/gt-e2e-logs
       - name: Run the flows (virtual display)
         if: runner.os == 'Linux'
         run: xvfb-run --auto-servernum node scripts/gate.mjs --e2e
@@ -129,9 +121,6 @@ jobs:
           GT_E2E_SHOTS: ${{ runner.temp }}/gt-e2e-shots
           GT_E2E_LOGS: ${{ runner.temp }}/gt-e2e-logs
       # Only when the run failed: versions, the app started alone, msedgedriver alone with a verbose log.
-      - name: Diagnose a run that could not start (Windows)
-        if: failure() && runner.os == 'Windows'
-        run: node scripts/e2e-diagnose.mjs
       - name: Diagnose a run that could not start (Linux)
         if: failure() && runner.os == 'Linux'
         run: xvfb-run --auto-servernum node scripts/e2e-diagnose.mjs

@@ -56,6 +56,15 @@ Specs are named without the suffix: `bash scripts/test.sh --e2e flows date-picke
   1,000 (`GT_E2E_SMALL`).
 - A run that is stopped (Ctrl+C, SIGTERM) kills its drivers and apps. If the script is killed hard, a small reaper
   process (`scripts/lib/reaper.mjs`) kills them a moment later. Nothing is ever stopped by name, only by PID.
+- On GitHub (`.github/workflows/ci.yml`, job `e2e-tauri`, schedule or manual dispatch only) the window specs run on Linux
+  only (WebKitGTK, tauri-driver, xvfb). Windows is covered by the local gate and by every `ship.sh`. The Windows runner was
+  dropped: its process is elevated, WebView2 never opens a DevTools endpoint there and msedgedriver's profile lands in
+  `C:\Windows\SystemTemp`, so the driver never connects (the same specs pass locally, not elevated). `scripts/e2e-diagnose.mjs`
+  prints versions and runs the app and the driver alone with verbose logs, for whoever retries it.
+- Linux differences: each spec gets its own `XDG_DATA_HOME`/`XDG_CACHE_HOME` (WebKitGTK keeps localStorage there, and a
+  shared one let the Outline choice of one spec reach the chart specs), page text is read with `innerText` and buttons are
+  clicked through the DOM (`helpers.ts`), and `voice-samples` does not assert playback: WebKitGTK does not play media from the
+  custom `gtmedia` scheme in CI, so the app shows its own "cannot be played here" row.
 
 ## `ship.sh`
 
