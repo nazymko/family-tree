@@ -1,7 +1,7 @@
 import type { LeafPaths, Plural, PluralForms } from './types';
 import type { Messages, Params } from './locale.svelte';
 import { en } from './en';
-import { LANGUAGES, localeStore, formatNumber } from './locale.svelte';
+import { localeStore, formatNumber } from './locale.svelte';
 
 export {
   LANGUAGES,

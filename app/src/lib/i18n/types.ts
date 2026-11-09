@@ -26,3 +26,19 @@ export type LeafPaths<T, L, P extends string = ''> = {
         : never
       : LeafPaths<T[K], L, Join<P, K>>;
 }[keyof T & string];
+
+/** Every CLDR plural category; a language uses only some of them (Arabic all six, Japanese only `other`). */
+export type PluralCategory = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other';
+
+/** Plural forms as a partial catalogue may hold them: any categories the language needs. */
+export type PluralForms = Partial<Record<PluralCategory, string>>;
+
+/**
+ * The shape of a partial catalogue: the English shape with every key optional and every plural entry allowed any
+ * categories. A key a partial catalogue lacks falls back to English (see `find` / `plural` in index.ts).
+ */
+export type WidenPartial<T> = T extends string
+  ? string
+  : T extends { one: string; other: string }
+    ? PluralForms
+    : { [K in keyof T]?: WidenPartial<T[K]> };
