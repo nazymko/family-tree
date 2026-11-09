@@ -2,7 +2,11 @@
 import type { ChartKind } from "./ChartKind";
 import type { ChartSize } from "./ChartSize";
 
-export type ChartMeta = { chartId: number, kind: ChartKind, bounds: ChartSize, nodeCount: number, rootNode: number, truncated: boolean, 
+export type ChartMeta = { chartId: number, kind: ChartKind, bounds: ChartSize, nodeCount: number, 
+/**
+ * Distinct people on the chart: a person drawn twice counts once; markers are not people.
+ */
+personCount: number, rootNode: number, truncated: boolean, 
 /**
  * Tree revision the chart was laid out at.
  */

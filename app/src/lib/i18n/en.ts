@@ -571,6 +571,7 @@ export const en = {
     noRelativesFor: 'No relatives recorded for {who}. Add a parent, a partner or a child.',
     noRelativesThis: 'No relatives recorded for this person. Add a parent, a partner or a child.',
     addRelative: 'Add a relative',
+    onChart: { one: 'On the chart: {n} person', other: 'On the chart: {n} people' },
     aroundTitle: 'Built around {name}',
     aroundTitleTwo: 'Built around: {a} and {b}',
     aroundTitleMore: 'Built around: {a}, {b} and {n} more',

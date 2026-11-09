@@ -515,6 +515,8 @@ pub struct ChartMeta {
     pub kind: ChartKind,
     pub bounds: ChartSize,
     pub node_count: u32,
+    /// Distinct people on the chart: a person drawn twice counts once; markers are not people.
+    pub person_count: u32,
     pub root_node: u32,
     pub truncated: bool,
     /// Tree revision the chart was laid out at.

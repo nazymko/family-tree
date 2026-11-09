@@ -1024,6 +1024,7 @@ export class MockApi implements Api {
       kind: req.kind,
       bounds: layout.bounds,
       nodeCount: layout.nodes.length,
+      personCount: new Set(layout.nodes.map((n) => n.person?.id)).size,
       rootNode: 0,
       truncated: layout.truncated,
       version: this.version,
@@ -1140,7 +1141,7 @@ export class MockApi implements Api {
     const layout: RelLayout = { nodes, edges: result.edges, bounds: result.bounds, truncated: false, kids: nodes.map(() => []), labels: nodes.map((n) => n.label), rels, rootNode: chosenNodes[0], chosen: chosenNodes, adj: { parents: result.parents, children: result.children } };
     const chartId = this.nextChart++;
     this.charts.set(chartId, { kind: 'around', layout, version: this.version, reference: chosen[0] });
-    return { chartId, kind: 'around', bounds: layout.bounds, nodeCount: nodes.length, rootNode: chosenNodes[0], truncated: false, version: this.version, chosenNodes: [...chosenNodes] };
+    return { chartId, kind: 'around', bounds: layout.bounds, nodeCount: nodes.length, personCount: new Set(nodes.map((n) => n.person?.id)).size, rootNode: chosenNodes[0], truncated: false, version: this.version, chosenNodes: [...chosenNodes] };
   }
 
   async chartOpenWhole(): Promise<WholeMeta> {
@@ -1237,6 +1238,7 @@ export class MockApi implements Api {
         kind: 'whole',
         bounds: result.bounds,
         nodeCount: result.nodes.length - markerAt.length,
+        personCount: new Set(result.nodes.filter((n) => !n.person?.siblingMarker).map((n) => n.person?.id)).size,
         rootNode: 0,
         truncated: false,
         version: this.version,
