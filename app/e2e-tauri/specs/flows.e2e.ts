@@ -26,6 +26,7 @@ import {
   shot,
   slash,
   text,
+  isLinux,
   work, clearFocus
 } from './helpers';
 
@@ -192,7 +193,8 @@ describe('Family Tree end to end', () => {
     // Walk three steps towards the ancestors (always the father): the selected person is then in generation 3 and the live region counts that generation.
     const announced = async () => {
       for (const el of await $$('div.sr-only[role="status"]')) {
-        const t = await el.getText();
+        // textContent: WebKitGTK reports the clipped screen-reader-only box as empty text.
+        const t = isLinux ? String(await el.getProperty('textContent')) : await el.getText();
         if (/in this generation/.test(t)) return t;
       }
       return '';

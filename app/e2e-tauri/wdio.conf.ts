@@ -31,6 +31,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { browser } from '@wdio/globals';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..', '..');
@@ -217,6 +218,22 @@ export const config: WebdriverIO.Config = {
   // Runs in the worker before the session (and so the app) starts: every spec file gets a fresh settings folder.
   beforeSession() {
     freshState();
+  },
+
+  // A failed test leaves a screenshot (FAIL-*.png in GT_E2E_SHOTS, uploaded by CI) and the start of the page text in the log.
+  async afterTest(test: { title: string }, _context: unknown, result: { passed: boolean }) {
+    if (result.passed) return;
+    try {
+      const dir = process.env.GT_E2E_SHOTS;
+      if (dir) {
+        fs.mkdirSync(dir, { recursive: true });
+        await browser.saveScreenshot(path.join(dir, `FAIL-${test.title.replace(/[^\w-]+/g, '_').slice(0, 60)}.png`));
+      }
+      const seen = await browser.execute(() => document.body.innerText.replace(/\s+/g, ' ').slice(0, 1500));
+      console.error(`[afterTest] "${test.title}" failed; page text: ${seen}`);
+    } catch (e) {
+      console.error('[afterTest] could not capture the failure:', String(e));
+    }
   },
 
   onComplete() {
