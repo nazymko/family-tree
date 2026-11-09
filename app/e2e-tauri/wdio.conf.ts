@@ -174,7 +174,8 @@ export const config: WebdriverIO.Config = {
   waitforTimeout: 30000, // a machine busy with the gate runs a spec 2-3 times slower; a wait that is not needed costs nothing
   strictSelectors: false,
   connectionRetryTimeout: 60000,
-  connectionRetryCount: 2,
+  // A session that cannot start is not helped by a retry (each one starts another app): CI fails fast and prints the diagnosis.
+  connectionRetryCount: process.env.CI ? 0 : 2,
   framework: 'mocha',
   reporters: ['spec'],
   mochaOpts: { ui: 'bdd', timeout: 240000 },
