@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import Host from '../chart/testing/Host.svelte';
 import { attachContext, fakeRaf, lastCamera, makeApi, richestRoot } from '../chart/testing/helpers';
-import { setLanguage } from '../i18n';
+import { plural, setLanguage } from '../i18n';
 import { nav } from '../state/nav.svelte';
 import { toasts } from '../state/toast.svelte';
 import Around from './Around.svelte';
@@ -253,5 +253,56 @@ describe('the screen built around several people', () => {
     expect(nav.history.length).toBe(n);
     nav.go({ name: 'around', ids: ['a'] });
     expect(nav.history.length).toBe(n + 1);
+  });
+});
+
+describe('the count of people on the chart', () => {
+  const text = () => screen.getByTestId('chart-count').textContent ?? '';
+  const distinct = async (api: ReturnType<typeof makeApi>['api'], m: { chartId: number; bounds: { w: number; h: number } }) => {
+    const w = await api.chartWindow(m.chartId, { x: 0, y: 0, w: m.bounds.w, h: m.bounds.h }, 0.2);
+    return new Set(w.nodes.map((n) => n.person?.id).filter((id) => id !== undefined)).size;
+  };
+
+  it('shows_the_number_of_distinct_people_and_follows_the_kin_choice', async () => {
+    const { api, fx } = makeApi();
+    const id = await richestRoot(api, fx, 'relatives');
+    const s = await mountAround(id);
+    const counts: Record<string, number> = {};
+    for (const [label, kin] of [
+      ['Лише лінія', 'line'],
+      ['Брати й сестри', 'siblings'],
+      ['Уся рідня', 'all'],
+    ] as const) {
+      await fireEvent.click(screen.getByRole('radio', { name: label }));
+      await waitFor(() => expect(s.spy.mock.lastCall?.[0].kin).toBe(kin));
+      const meta = await s.spy.mock.results[s.spy.mock.results.length - 1].value;
+      const n = await distinct(s.api, meta);
+      counts[kin] = n;
+      await waitFor(() => expect(text()).toBe(`На родоводі: ${n} ${n === 1 ? 'особа' : n % 10 >= 2 && n % 10 <= 4 && (n < 12 || n > 14) ? 'особи' : 'осіб'}`));
+    }
+    expect(counts.all).toBeGreaterThan(counts.line);
+    expect(screen.getByTestId('chart-count')).toHaveAttribute('aria-live', 'polite');
+    await fireEvent.click(screen.getByRole('radio', { name: 'Лише лінія' }));
+    await waitFor(() => expect(s.spy.mock.lastCall?.[0].kin).toBe('line'));
+  });
+
+  it('uses_the_right_plural_forms_in_ukrainian_and_english', () => {
+    const uk = [1, 2, 4, 5, 11, 12, 14, 21, 22, 25, 37].map((n) => plural('chart.onChart', n));
+    expect(uk).toEqual([
+      'На родоводі: 1 особа',
+      'На родоводі: 2 особи',
+      'На родоводі: 4 особи',
+      'На родоводі: 5 осіб',
+      'На родоводі: 11 осіб',
+      'На родоводі: 12 осіб',
+      'На родоводі: 14 осіб',
+      'На родоводі: 21 особа',
+      'На родоводі: 22 особи',
+      'На родоводі: 25 осіб',
+      'На родоводі: 37 осіб',
+    ]);
+    setLanguage('en');
+    expect(plural('chart.onChart', 1)).toBe('On the chart: 1 person');
+    expect(plural('chart.onChart', 37)).toBe('On the chart: 37 people');
   });
 });
