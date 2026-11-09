@@ -97,11 +97,14 @@ describe('Settings', () => {
   it('language_options_show_each_language_by_its_own_name', async () => {
     await mount();
     const box = screen.getByRole('combobox', { name: 'Language' });
-    const options = within(box).getAllByRole('option').map((o) => o.textContent ?? '');
+    const options = within(box).getAllByRole('option').map((o) => (o.textContent ?? '').replace(/[⁦-⁩]/g, ''));
     expect(options.slice(0, 3)).toEqual(['Same as the system', 'English', 'Українська']);
     expect(options).toHaveLength(22);
     // A partial language shows its translated share; its own name comes first.
     expect(options.find((o) => o.startsWith('العربية'))).toMatch(/^العربية — \d+ %$/);
     expect(options).toContain('Deutsch — 1 %');
+    // Name and share are isolated, so in Arabic the share does not flip to "% 1".
+    const ar = within(box).getAllByRole('option').find((o) => o.textContent?.includes('العربية'))?.textContent ?? '';
+    expect(ar).toMatch(/^⁨العربية⁩ — ⁦\d+ %⁩$/);
   });
 });
