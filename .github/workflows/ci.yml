@@ -84,6 +84,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-22.04]
+    timeout-minutes: 60
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -99,7 +100,7 @@ jobs:
           python-version: '3.12'
       - name: Linux webview, driver and virtual display
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb gstreamer1.0-plugins-good gstreamer1.0-libav fonts-noto-cjk
       - name: Install tauri-driver
         run: cargo install tauri-driver --locked
       - name: Matching msedgedriver (Windows)
@@ -113,23 +114,36 @@ jobs:
           Expand-Archive "$dir\e.zip" $dir -Force
       - run: npm ci
         working-directory: app
-      - run: npm run tauri -- build --debug --no-bundle
-        working-directory: app
+      # The same entry point as `bash scripts/test.sh --e2e`: it builds the test exe into target/e2e and runs the specs
+      # several at a time, one isolated wdio run per spec, each with its own log (GT_E2E_LOGS, uploaded below).
       - name: Run the flows
         if: runner.os == 'Windows'
-        run: npm run e2e
-        working-directory: app
+        run: node scripts/gate.mjs --e2e
         env:
           GT_E2E_SHOTS: ${{ runner.temp }}/gt-e2e-shots
+          GT_E2E_LOGS: ${{ runner.temp }}/gt-e2e-logs
       - name: Run the flows (virtual display)
         if: runner.os == 'Linux'
-        run: xvfb-run --auto-servernum npm run e2e
-        working-directory: app
+        run: xvfb-run --auto-servernum node scripts/gate.mjs --e2e
         env:
           GT_E2E_SHOTS: ${{ runner.temp }}/gt-e2e-shots
+          GT_E2E_LOGS: ${{ runner.temp }}/gt-e2e-logs
+      # Only when the run failed: versions, the app started alone, msedgedriver alone with a verbose log.
+      - name: Diagnose a run that could not start (Windows)
+        if: failure() && runner.os == 'Windows'
+        run: node scripts/e2e-diagnose.mjs
+      - name: Diagnose a run that could not start (Linux)
+        if: failure() && runner.os == 'Linux'
+        run: xvfb-run --auto-servernum node scripts/e2e-diagnose.mjs
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-screenshots-${{ matrix.os }}
           path: ${{ runner.temp }}/gt-e2e-shots
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-logs-${{ matrix.os }}
+          path: ${{ runner.temp }}/gt-e2e-logs
           if-no-files-found: ignore
