@@ -33,7 +33,7 @@ describe('Right-to-left and CJK interface languages', () => {
     await goTo('Settings');
 
     // The list has all 21 languages, the partial ones with their share.
-    const labels = await languageSelect().then((s) => s.$$('option').map((o) => o.getText()));
+    const labels = await languageSelect().then((s) => s.$$('option').map((o) => o.getText())).then((all) => all.map((l) => l.replace(/[⁦-⁩]/g, '')));
     expect(labels.length).toBe(22); // 21 languages + "Same as the system"
     expect(labels).toContain('English');
     expect(labels).toContain('Українська');
