@@ -507,7 +507,7 @@
         </nav>
       </div>
       <div class="qrow">
-        <span class="qlabel">{t('person.addMenu')}</span>
+        <span class="qlabel" aria-hidden="true"></span>
         <div class="qbtns"><Menu label={t('person.addMenu')} text={t('person.addMenu')} items={addItems} /></div>
       </div>
     </div>
