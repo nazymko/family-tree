@@ -246,6 +246,7 @@
 
 
   const isHome = $derived(settings.value.homePerson === id);
+  const withCount = (label: string, n: number) => (n > 0 ? `${label} (${n})` : label);
   let historyBox = $state<HTMLDetailsElement>();
   const parentNames = (s: { parents: ({ name: string } | null)[] }) => s.parents.flatMap((x) => (x ? [x.name] : [])).join(', ');
 
@@ -472,7 +473,7 @@
           <Button onclick={() => (dialog = { kind: 'event', event: deathEvent, newKind: 'death' })}>
             {deathEvent ? t('person.editDeath') : t('person.addDeath')}
           </Button>
-          <Menu label={t('person.more')} text={t('person.more')} items={moreItems} />
+          <Menu label={t('person.more')} text={t('person.more')} items={moreItems} align="start" />
         </div>
       </div>
       {#snippet body()}
@@ -482,35 +483,44 @@
       {/snippet}
     </IndexCard>
     </div>
-    <div class="quick">
+    <nav class="quick" aria-label={t('person.goto')}>
       <div class="qrow">
-        <span class="qlabel" id="goto-label">{t('person.goto')}</span>
-        <nav class="qbtns" aria-labelledby="goto-label">
-          <Button onclick={() => openChart('around')}>{t('person.gotoAround')}</Button>
-          <Button onclick={() => openChart('pedigree')}>{t('person.gotoPedigree')}</Button>
-          <Button onclick={() => openChart('descendants')}>{t('person.gotoDescendants')}</Button>
-          <Button onclick={() => openChart('relatives')}>{t('person.gotoRelatives')}</Button>
-          {#each detail.partnerships as ps (ps.familyId)}
-            <Button onclick={() => nav.go({ name: 'familyPage', id: ps.familyId })}
-              >{ps.partner ? t('person.gotoFamilyWith', { name: ps.partner.name }) : t('person.gotoFamilyUnknown')}</Button
-            >
-          {/each}
-          {#each detail.parentSets as s (s.familyId)}
-            <Button onclick={() => nav.go({ name: 'familyPage', id: s.familyId })}
-              >{detail.parentSets.length > 1 ? t('person.gotoParentsFamilyNamed', { names: parentNames(s) }) : t('person.gotoParentsFamily')}</Button
-            >
-          {/each}
-          <Button onclick={() => jump('h-notes')}>{t('person.gotoNotes', { n: detail.notes.length })}</Button>
-          <Button onclick={() => jump('h-media')}>{t('person.gotoMedia', { n: detail.media.length })}</Button>
-          <Button onclick={() => jump('h-sources')}>{t('person.gotoSources', { n: detail.citations.length })}</Button>
-          <Button onclick={() => jump('h-history')}>{t('person.history')}</Button>
-        </nav>
+        <span class="qlabel" id="g-charts">{t('person.groupCharts')}</span>
+        <div class="qbtns" role="group" aria-labelledby="g-charts">
+          <Button variant="secondary" onclick={() => openChart('around')}>{t('person.gotoAround')}</Button>
+          <Button variant="secondary" onclick={() => openChart('pedigree')}>{t('person.gotoPedigree')}</Button>
+          <Button variant="secondary" onclick={() => openChart('descendants')}>{t('person.gotoDescendants')}</Button>
+          <Button variant="secondary" onclick={() => openChart('relatives')}>{t('person.gotoRelatives')}</Button>
+        </div>
       </div>
+      {#if detail.partnerships.length + detail.parentSets.length > 0}
+        <div class="qrow">
+          <span class="qlabel" id="g-families">{t('person.groupFamilies')}</span>
+          <div class="qbtns" role="group" aria-labelledby="g-families">
+            {#each detail.partnerships as ps (ps.familyId)}
+              <Button variant="secondary" onclick={() => nav.go({ name: 'familyPage', id: ps.familyId })}
+                >{ps.partner ? t('person.gotoFamilyWith', { name: ps.partner.name }) : t('person.gotoFamilyUnknown')}</Button
+              >
+            {/each}
+            {#each detail.parentSets as s (s.familyId)}
+              <Button variant="secondary" onclick={() => nav.go({ name: 'familyPage', id: s.familyId })}
+                >{detail.parentSets.length > 1 ? t('person.gotoParentsFamilyNamed', { names: parentNames(s) }) : t('person.gotoParentsFamily')}</Button
+              >
+            {/each}
+          </div>
+        </div>
+      {/if}
       <div class="qrow">
-        <span class="qlabel" aria-hidden="true"></span>
-        <div class="qbtns"><Menu label={t('person.addMenu')} text={t('person.addMenu')} items={addItems} /></div>
+        <span class="qlabel" id="g-sections">{t('person.groupSections')}</span>
+        <div class="qbtns" role="group" aria-labelledby="g-sections">
+          <Button variant="secondary" onclick={() => jump('h-notes')}>{withCount(t('person.notes'), detail.notes.length)}</Button>
+          <Button variant="secondary" onclick={() => jump('h-media')}>{withCount(t('nav.media'), detail.media.length)}</Button>
+          <Button variant="secondary" onclick={() => jump('h-sources')}>{withCount(t('sources.title'), detail.citations.length)}</Button>
+          <Button variant="secondary" onclick={() => jump('h-history')}>{t('person.history')}</Button>
+          <Menu label={t('person.addMenu')} text={t('person.addMenu')} items={addItems} align="start" />
+        </div>
       </div>
-    </div>
+    </nav>
     {#if error}<Banner kind="error">{error}</Banner>{/if}
 
     {#if familyView}
@@ -844,6 +854,12 @@
     display: grid;
     gap: var(--s-3);
     max-width: var(--measure);
+    /* Sits against the name card: pull it back from the large page gap. */
+    margin-top: calc(var(--s-3) - var(--s-6));
+    padding: var(--s-4);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-1);
+    background: var(--paper-1);
   }
   .qrow {
     display: flex;
@@ -852,7 +868,7 @@
     gap: var(--s-3);
   }
   .qlabel {
-    min-width: 6rem;
+    min-width: 5rem;
     color: var(--ink-1);
     font-size: var(--t-sm);
   }

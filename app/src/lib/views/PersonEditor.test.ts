@@ -382,4 +382,107 @@ describe('PersonEditor', () => {
     await user.click(within(section as HTMLElement).getAllByRole('button', { name: new RegExp(`^${partner.name}`) })[0]);
     expect(go).toHaveBeenCalledWith({ name: 'person', id: partner.id });
   });
+
+  describe('quick navigation under the name card', () => {
+    const goto = () => screen.getByRole('navigation', { name: 'Go to' });
+
+    it('chart_buttons_open_the_charts_of_this_person', async () => {
+      const user = userEvent.setup();
+      await open();
+      const go = vi.spyOn(nav, 'go');
+      const charts = within(within(goto()).getByRole('group', { name: 'Charts' }));
+      await user.click(charts.getByRole('button', { name: 'Around this person' }));
+      expect(go).toHaveBeenLastCalledWith({ name: 'around', ids: [id] });
+      for (const [label, name] of [['Ancestors', 'pedigree'], ['Descendants', 'descendants'], ['Relatives', 'relatives']] as const) {
+        await user.click(charts.getByRole('button', { name: label }));
+        expect(go).toHaveBeenLastCalledWith({ name });
+        expect(nav.focusPerson).toBe(id);
+      }
+    });
+
+    it('family_buttons_list_every_family_and_the_parents_family', async () => {
+      const user = userEvent.setup();
+      const d = await findPerson(api, (x) => x.partnerships.length > 0 && x.parentSets.length > 0);
+      id = d.ref.id;
+      await open();
+      const go = vi.spyOn(nav, 'go');
+      const fams = within(within(goto()).getByRole('group', { name: 'Families' }));
+      for (const ps of d.partnerships) {
+        const label = ps.partner ? `Family with: ${ps.partner.name}` : 'Family (partner unknown)';
+        await user.click(fams.getAllByRole('button', { name: label })[0]);
+        expect(go).toHaveBeenLastCalledWith({ name: 'familyPage', id: ps.familyId });
+      }
+      await user.click(fams.getByRole('button', { name: d.parentSets.length > 1 ? /^Parents’ family/ : 'Parents’ family' }));
+      expect(go).toHaveBeenLastCalledWith({ name: 'familyPage', id: d.parentSets[0].familyId });
+    });
+
+    it('buttons_come_in_three_labelled_groups_and_counts_show_only_when_not_zero', async () => {
+      await open();
+      for (const g of ['Charts', 'Families', 'Sections']) expect(within(goto()).getByRole('group', { name: g })).toBeInTheDocument();
+      const d = await api.getPerson(id);
+      const sections = within(goto()).getByRole('group', { name: 'Sections' });
+      const media = d.media.length ? `Media (${d.media.length})` : 'Media';
+      expect(within(sections).getByRole('button', { name: media })).toBeInTheDocument();
+      expect(within(sections).queryByRole('button', { name: /\(0\)/ })).not.toBeInTheDocument();
+    });
+
+    it('section_buttons_move_focus_to_the_heading', async () => {
+      const user = userEvent.setup();
+      await open();
+      const d = await api.getPerson(id);
+      for (const [label, heading] of [
+        [d.notes.length ? `Notes (${d.notes.length})` : 'Notes', 'h-notes'],
+        [d.media.length ? `Media (${d.media.length})` : 'Media', 'h-media'],
+        [d.citations.length ? `Sources (${d.citations.length})` : 'Sources', 'h-sources'],
+      ] as const) {
+        await user.click(within(goto()).getByRole('button', { name: label }));
+        await waitFor(() => expect(document.activeElement).toBe(document.getElementById(heading)));
+      }
+      await user.click(within(goto()).getByRole('button', { name: 'History' }));
+      await waitFor(() => expect(document.activeElement).toBe(document.getElementById('h-history')));
+      expect(document.getElementById('h-history')!.closest('details')).toHaveAttribute('open');
+    });
+
+    it('add_menu_opens_the_dialogs_and_returns_focus_on_escape', async () => {
+      const user = userEvent.setup();
+      await open();
+      const addBtn = screen.getByRole('button', { name: 'Add' });
+      await user.click(addBtn);
+      const menu = await screen.findByRole('menu', { name: 'Add' });
+      expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent?.trim())).toEqual([
+        'Father', 'Mother', 'Brother or sister', 'Partner', 'Child', 'Note', 'Event', 'Media', 'Source',
+      ]);
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('menu', { name: 'Add' })).not.toBeInTheDocument();
+      expect(addBtn).toHaveFocus();
+
+      await user.click(addBtn);
+      await user.click(await screen.findByRole('menuitem', { name: 'Mother' }));
+      expect(await screen.findByRole('dialog')).toBeInTheDocument();
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+      await user.click(addBtn);
+      await user.click(await screen.findByRole('menuitem', { name: 'Note' }));
+      expect(await screen.findByRole('textbox', { name: 'Note' })).toBeInTheDocument();
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+      const go = vi.spyOn(nav, 'go');
+      await user.click(addBtn);
+      await user.click(await screen.findByRole('menuitem', { name: 'Media' }));
+      expect(go).toHaveBeenLastCalledWith({ name: 'media' });
+    });
+
+    it('more_menu_holds_surnames_and_the_home_person', async () => {
+      const user = userEvent.setup();
+      await open();
+      expect(screen.queryByRole('button', { name: 'Surnames…' })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'More…' }));
+      const menu = await screen.findByRole('menu', { name: 'More…' });
+      expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent?.trim())).toEqual(['Surnames…', 'Make home person']);
+      await user.click(within(menu).getByRole('menuitem', { name: 'Surnames…' }));
+      expect(await screen.findByRole('dialog', { name: 'Surname at birth and after marriage' })).toBeInTheDocument();
+    });
+  });
 });

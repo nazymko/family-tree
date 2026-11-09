@@ -22,12 +22,15 @@
     items,
     icon = 'more',
     text,
+    align = 'end',
   }: {
     label: string;
     items: MenuItem[];
     icon?: IconName;
     /** Show this text on a regular button instead of the icon. */
     text?: string;
+    /** Which edge of the button the popup lines up with. */
+    align?: 'start' | 'end';
   } = $props();
 
   const uid = $props.id();
@@ -102,7 +105,7 @@
     />
   {/if}
   {#if open}
-    <div id="{uid}-menu" class="menu" role="menu" aria-label={label} tabindex="-1" bind:this={menu} {onkeydown}>
+    <div id="{uid}-menu" class="menu" class:start={align === 'start'} role="menu" aria-label={label} tabindex="-1" bind:this={menu} {onkeydown}>
       {#each items as item (item.label)}
         <button
           type="button"
@@ -128,7 +131,7 @@
   .menu {
     position: absolute;
     z-index: 50;
-    inset-inline-start: 0;
+    inset-inline-end: 0;
     top: calc(100% + 4px);
     min-width: 11rem;
     padding: var(--s-2);
@@ -138,6 +141,10 @@
     border-radius: var(--r-2);
     box-shadow: var(--shadow-pop);
     animation: pop var(--dur-base) var(--ease);
+  }
+  .menu.start {
+    inset-inline-end: auto;
+    inset-inline-start: 0;
   }
   button[role='menuitem'] {
     padding: var(--s-3) var(--s-4);
