@@ -1,4 +1,6 @@
 <script lang="ts">
+  // Direction isolates around a language name and its share, so an RTL name shows "1 %", not "% 1".
+  const [FSI, LRI, PDI] = [0x2068, 0x2066, 0x2069].map((c) => String.fromCharCode(c));
   import { errMessage } from '../editors/errors';
   import Select from '../ui/Select.svelte';
   import TextField from '../ui/TextField.svelte';
@@ -138,7 +140,7 @@
       hint={t('settings.languageHint')}
       options={[
         { value: 'system', label: t('settings.languageSystem') },
-        ...LANGUAGES.map((l) => ({ value: l.code, label: l.percent < 100 ? `⁨${l.name}⁩ — ⁦${l.percent} %⁩` : l.name })),
+        ...LANGUAGES.map((l) => ({ value: l.code, label: l.percent < 100 ? `${FSI}${l.name}${PDI} — ${LRI}${l.percent} %${PDI}` : l.name })),
       ]}
       value={settings.value.language}
       onchange={(v) => change({ language: v as Settings['language'] })}
