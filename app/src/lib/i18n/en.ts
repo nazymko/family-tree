@@ -270,7 +270,7 @@ export const en = {
   },
   about: {
     title: 'About',
-    byline: 'by Nazymko Andrii',
+    byline: 'by Andrii Nazymko',
     version: 'Version {version}',
     versionBuild: 'Version {version} ({build})',
     ahead: 'This build is newer than release {base}.',
