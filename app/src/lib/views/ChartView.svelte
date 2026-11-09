@@ -17,7 +17,7 @@
   import Button from '../ui/Button.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
   import Tabs from '../ui/Tabs.svelte';
-  import { t } from '../i18n';
+  import { plural, t } from '../i18n';
   import { toasts } from '../state/toast.svelte';
 
   let { kind, onOpenPerson }: { kind: ChartKind; onOpenPerson?: (id: Id) => void } = $props();
@@ -176,6 +176,9 @@
     {/if}
     <h1 id="chart-title">{title}</h1>
     {#if root}
+      <p class="count" data-testid="chart-count" aria-live="polite" aria-atomic="true">{meta && !isEmpty ? plural('chart.onChart', meta.personCount) : ''}</p>
+    {/if}
+    {#if root}
       <Tabs
         label={t('chart.display', { title })}
         tabs={[
@@ -273,6 +276,10 @@
   }
   h1 {
     margin: 0;
+  }
+  .count {
+    margin: 0;
+    color: var(--ink-2);
   }
   .body {
     display: flex;

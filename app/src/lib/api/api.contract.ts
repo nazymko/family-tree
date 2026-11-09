@@ -243,6 +243,8 @@ export function runApiContract(make: () => Promise<Api>): void {
       const root = (await api.listPersons(baseQuery, 0, 1)).items[0];
       const meta = await api.chartOpen({ kind: 'descendants', root: root.id, generations: 4 });
       expect(meta.nodeCount).toBeGreaterThan(0);
+      expect(meta.personCount).toBeGreaterThan(0);
+      expect(meta.personCount).toBeLessThanOrEqual(meta.nodeCount);
       const rect = { x: 0, y: 0, w: 500, h: 300 };
       const win = await api.chartWindow(meta.chartId, rect, 1);
       expect(win.nodes.length).toBeGreaterThan(0);

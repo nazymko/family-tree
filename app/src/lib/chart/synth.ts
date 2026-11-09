@@ -131,6 +131,7 @@ export function synthChart(
     kind: 'pedigree',
     bounds: { w: (maxGen + 1) * stepX - GAP_X, h: Math.max(1, row) * stepY - GAP_Y },
     nodeCount: count,
+    personCount: count,
     rootNode: 0,
     truncated: false,
     version: 0,

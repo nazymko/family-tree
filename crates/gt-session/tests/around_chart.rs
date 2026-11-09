@@ -198,3 +198,19 @@ fn partner_roles_carry_whether_the_union_is_a_marriage() {
     // Blood relatives never claim to be married.
     assert!(!role_of("Taras").married);
 }
+
+#[test]
+fn person_count_is_the_number_of_distinct_people_on_the_chart() {
+    let (_d, mut s) = open_tree(&tree_of(KOVAL));
+    for (given, gens) in [("Zed", 255), ("Ivan Petrovych", 1), ("Ivan Petrovych", 255)] {
+        let m = s.chart_open(&request(&s, given, gens)).unwrap();
+        let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
+        let distinct: std::collections::HashSet<_> = w
+            .nodes
+            .iter()
+            .filter_map(|n| n.person.as_ref().map(|p| p.id))
+            .collect();
+        assert_eq!(m.person_count as usize, distinct.len(), "{given} {gens}");
+        assert!(m.person_count >= 1 && m.person_count <= m.node_count);
+    }
+}

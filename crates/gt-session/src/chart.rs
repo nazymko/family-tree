@@ -352,11 +352,29 @@ struct OpenChart {
     chosen: Vec<u32>,
 }
 
+/// How many different people a layout draws: a person placed twice counts once, unnamed-siblings markers never.
+fn distinct_people(index: &PersonIndex, layout: &gt_layout::Layout) -> u32 {
+    let keys: std::collections::HashSet<u32> = layout
+        .nodes
+        .iter()
+        .filter(|n| {
+            !index
+                .summaries
+                .get(n.key as usize)
+                .is_some_and(|s| s.sibling_marker)
+        })
+        .map(|n| n.key)
+        .collect();
+    u32::try_from(keys.len()).unwrap_or(u32::MAX)
+}
+
 struct Whole {
     extras: WholeExtras,
     blocks: Vec<WholeBlockDto>,
     /// Unnamed-siblings markers among the laid-out nodes: drawn, but not people.
     markers: u32,
+    /// Distinct people among the laid-out nodes (markers excluded).
+    people: u32,
     /// `None` for the chart of everyone; for a chart of chosen people, who they are (sorted) and whether
     /// all their descendants are on it.
     selection: Option<Selection>,
@@ -536,6 +554,7 @@ fn whole_meta(c: &OpenChart) -> WholeMeta {
             node_count: u32::try_from(c.layout.nodes.len())
                 .unwrap_or(u32::MAX)
                 .saturating_sub(c.whole.as_ref().map_or(0, |w| w.markers)),
+            person_count: c.whole.as_ref().map_or(0, |w| w.people),
             root_node: c.layout.root,
             truncated: false,
             version: c.version,
@@ -640,6 +659,7 @@ impl Session {
                 h: layout.bounds.y + layout.bounds.h,
             },
             node_count: u32::try_from(layout.nodes.len()).unwrap_or(u32::MAX),
+            person_count: distinct_people(&self.index, &layout),
             root_node: layout.root,
             truncated: layout.truncated,
             version: charts.revision,
@@ -750,6 +770,7 @@ impl Session {
                 h: layout.bounds.y + layout.bounds.h,
             },
             node_count: u32::try_from(n).unwrap_or(u32::MAX),
+            person_count: distinct_people(&self.index, &layout),
             root_node: first,
             truncated: layout.truncated,
             version: charts.revision,
@@ -1169,6 +1190,7 @@ impl Session {
             .map(|n| (n.rect.x + n.rect.w / 2.0, n.rect.y + n.rect.h / 2.0))
             .collect();
         let markers = u32::try_from(marker_at.len()).unwrap_or(u32::MAX);
+        let people = distinct_people(&self.index, &layout);
         let blocks = extras
             .blocks
             .iter()
@@ -1220,6 +1242,7 @@ impl Session {
                 extras,
                 blocks,
                 markers,
+                people,
                 selection,
             }),
             chosen: Vec::new(),
