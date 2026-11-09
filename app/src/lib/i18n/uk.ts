@@ -269,6 +269,7 @@ export const uk: Messages = {
   },
   about: {
     title: 'Про програму',
+    byline: 'автор: Назимко Андрій',
     version: 'Версія {version}',
     versionBuild: 'Версія {version} ({build})',
     ahead: 'Ця збірка новіша за випуск {base}.',

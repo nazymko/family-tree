@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "Family Tree desktop shell"
+authors = ["Nazymko Andrii"]
 
 [lib]
 name = "gt_app_lib"

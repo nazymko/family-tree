@@ -293,7 +293,7 @@
   <aside class="side">
     <div class="brand">
       <Ribbon title="Family Tree" size="1.25rem" />
-      <span class="brand-name">Family Tree</span>
+      <span class="brand-name">Family Tree<span class="byline">{t('about.byline')}</span></span>
     </div>
     <nav aria-label={t('shell.main')}>
       <ul>
@@ -530,10 +530,18 @@
     color: var(--ribbon);
   }
   .brand-name {
+    display: flex;
+    flex-direction: column;
     font-family: var(--font-serif);
     font-weight: 600;
     font-size: var(--t-lg);
     color: var(--ink-0);
+  }
+  .byline {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: var(--t-xs);
+    color: var(--ink-2);
   }
   nav {
     flex: 1;
