@@ -27,8 +27,8 @@
   import Badge from '../ui/Badge.svelte';
   import AgentBadge from '../ui/AgentBadge.svelte';
   import IndexCard from '../ui/IndexCard.svelte';
-  import Ribbon from '../ui/Ribbon.svelte';
   import Button from '../ui/Button.svelte';
+  import Menu, { type MenuItem } from '../ui/Menu.svelte';
   import EventSummary from '../editors/EventSummary.svelte';
   import Select from '../ui/Select.svelte';
   import TextField from '../ui/TextField.svelte';
@@ -244,7 +244,56 @@
     }
   }
 
+
   const isHome = $derived(settings.value.homePerson === id);
+  const withCount = (label: string, n: number) => (n > 0 ? `${label} (${n})` : label);
+  let historyBox = $state<HTMLDetailsElement>();
+  const parentNames = (s: { parents: ({ name: string } | null)[] }) => s.parents.flatMap((x) => (x ? [x.name] : [])).join(', ');
+
+  /** Charts read their root from the focus person; the "around" screen carries it in the route. */
+  function openChart(kind: 'around' | 'pedigree' | 'descendants' | 'relatives') {
+    nav.focus(id);
+    nav.go(kind === 'around' ? { name: 'around', ids: [id] } : { name: kind });
+  }
+
+  /** Scrolls to a section and moves focus to its heading (the history folds open first). */
+  async function jump(headingId: string) {
+    if (headingId === 'h-history' && historyBox) historyBox.open = true;
+    await tick();
+    const h = document.getElementById(headingId);
+    h?.scrollIntoView?.({ block: 'start' });
+    h?.focus({ preventScroll: true });
+  }
+
+  const moreItems = $derived<MenuItem[]>([
+    { label: t('surnames.button'), onselect: () => (dialog = { kind: 'surnames' }) },
+    { label: isHome ? t('common.homePerson') : t('person.makeHome'), onselect: () => void toggleHome() },
+  ]);
+
+  const addItems = $derived<MenuItem[]>([
+    { label: t('person.menu_father'), onselect: () => (dialog = { kind: 'quick', relation: 'father' }) },
+    { label: t('person.menu_mother'), onselect: () => (dialog = { kind: 'quick', relation: 'mother' }) },
+    { label: t('person.menu_sibling'), onselect: () => (dialog = { kind: 'quick', relation: 'sibling' }) },
+    { label: t('person.menu_partner'), onselect: () => (dialog = { kind: 'quick', relation: 'partner' }) },
+    { label: t('person.menu_child'), onselect: () => (dialog = { kind: 'quick', relation: 'child' }) },
+    { label: t('person.menu_note'), onselect: () => (dialog = { kind: 'note' }) },
+    { label: t('person.menu_event'), onselect: () => (dialog = { kind: 'event' }) },
+    {
+      label: t('person.menu_media'),
+      onselect: () => {
+        nav.focus(id);
+        nav.go({ name: 'media' });
+      },
+    },
+    {
+      label: t('person.menu_source'),
+      onselect: async () => {
+        await jump('h-sources');
+        document.querySelector<HTMLElement>('[aria-labelledby="h-sources"] [data-add-citation]')?.click();
+      },
+    },
+  ]);
+
   const familyCount = $derived(detail ? detail.partnerships.length + detail.parentSets.length : 0);
   const soleEvents = $derived(
     detail ? detail.events.filter((e) => e.participants.every((p) => p.person.id === id)).length : 0,
@@ -418,17 +467,13 @@
             variant="primary"
             onclick={() => (dialog = preferredName ? { kind: 'name', name: preferredName } : { kind: 'name' })}>{t('edit.editName')}</Button
           >
-          <Button onclick={() => (dialog = { kind: 'surnames' })}>{t('surnames.button')}</Button>
           <Button onclick={() => (dialog = { kind: 'event', event: birthEvent, newKind: 'birth' })}>
             {birthEvent ? t('person.editBirth') : t('person.addBirth')}
           </Button>
           <Button onclick={() => (dialog = { kind: 'event', event: deathEvent, newKind: 'death' })}>
             {deathEvent ? t('person.editDeath') : t('person.addDeath')}
           </Button>
-          <Button onclick={toggleHome} aria-pressed={isHome}>
-            <Ribbon size="1rem" />
-            {isHome ? t('common.homePerson') : t('person.makeHome')}
-          </Button>
+          <Menu label={t('person.more')} text={t('person.more')} items={moreItems} align="start" />
         </div>
       </div>
       {#snippet body()}
@@ -438,6 +483,44 @@
       {/snippet}
     </IndexCard>
     </div>
+    <nav class="quick" aria-label={t('person.goto')}>
+      <div class="qrow">
+        <span class="qlabel" id="g-charts">{t('person.groupCharts')}</span>
+        <div class="qbtns" role="group" aria-labelledby="g-charts">
+          <Button variant="secondary" onclick={() => openChart('around')}>{t('person.gotoAround')}</Button>
+          <Button variant="secondary" onclick={() => openChart('pedigree')}>{t('person.gotoPedigree')}</Button>
+          <Button variant="secondary" onclick={() => openChart('descendants')}>{t('person.gotoDescendants')}</Button>
+          <Button variant="secondary" onclick={() => openChart('relatives')}>{t('person.gotoRelatives')}</Button>
+        </div>
+      </div>
+      {#if detail.partnerships.length + detail.parentSets.length > 0}
+        <div class="qrow">
+          <span class="qlabel" id="g-families">{t('person.groupFamilies')}</span>
+          <div class="qbtns" role="group" aria-labelledby="g-families">
+            {#each detail.partnerships as ps (ps.familyId)}
+              <Button variant="secondary" onclick={() => nav.go({ name: 'familyPage', id: ps.familyId })}
+                >{ps.partner ? t('person.gotoFamilyWith', { name: ps.partner.name }) : t('person.gotoFamilyUnknown')}</Button
+              >
+            {/each}
+            {#each detail.parentSets as s (s.familyId)}
+              <Button variant="secondary" onclick={() => nav.go({ name: 'familyPage', id: s.familyId })}
+                >{detail.parentSets.length > 1 ? t('person.gotoParentsFamilyNamed', { names: parentNames(s) }) : t('person.gotoParentsFamily')}</Button
+              >
+            {/each}
+          </div>
+        </div>
+      {/if}
+      <div class="qrow">
+        <span class="qlabel" id="g-sections">{t('person.groupSections')}</span>
+        <div class="qbtns" role="group" aria-labelledby="g-sections">
+          <Button variant="secondary" onclick={() => jump('h-notes')}>{withCount(t('person.notes'), detail.notes.length)}</Button>
+          <Button variant="secondary" onclick={() => jump('h-media')}>{withCount(t('nav.media'), detail.media.length)}</Button>
+          <Button variant="secondary" onclick={() => jump('h-sources')}>{withCount(t('sources.title'), detail.citations.length)}</Button>
+          <Button variant="secondary" onclick={() => jump('h-history')}>{t('person.history')}</Button>
+          <Menu label={t('person.addMenu')} text={t('person.addMenu')} items={addItems} align="start" variant="secondary" />
+        </div>
+      </div>
+    </nav>
     {#if error}<Banner kind="error">{error}</Banner>{/if}
 
     {#if familyView}
@@ -583,7 +666,7 @@
 
     <section aria-labelledby="h-notes">
       <div class="sec-head">
-        <h2 id="h-notes">{t('person.notes')}</h2>
+        <h2 id="h-notes" tabindex="-1">{t('person.notes')}</h2>
         <Button onclick={() => (dialog = { kind: 'note' })}>{t('editor.addNote')}</Button>
       </div>
       {#each detail.notes as n (n.id)}
@@ -607,7 +690,6 @@
       {#each familyNotes as fam (fam.familyId)}
         <div class="sec-head">
           <h3>{fam.parents !== undefined ? t('person.parentsFamilyNotes', { names: fam.parents }) : fam.partner && fam.role ? t(fam.role === 'husband' ? 'person.familyNotesHusband' : 'person.familyNotesWife', { name: fam.partner }) : fam.partner ? t('person.familyNotesWith', { name: fam.partner }) : t('person.familyNotes')}</h3>
-          <Button onclick={() => nav.go({ name: 'familyPage', id: fam.familyId })} aria-label={fam.partner ? t('familyPage.openWith', { name: fam.partner }) : t('familyPage.open')}>{t('familyPage.open')}</Button>
           <Button onclick={() => (dialog = { kind: 'family', family: fam.familyId })}>{t('person.openFamily')}</Button>
         </div>
         {#each fam.notes as n (n.id)}
@@ -633,12 +715,12 @@
     </section>
 
     <section aria-labelledby="h-media">
-      <h2 id="h-media">{t('nav.media')}</h2>
+      <h2 id="h-media" tabindex="-1">{t('nav.media')}</h2>
       {#if mediaSection}{@render mediaSection(detail)}{:else}<p class="empty">{t('person.attachedCount', { n: detail.media.length })}</p>{/if}
     </section>
 
     <section aria-labelledby="h-sources">
-      <h2 id="h-sources">{t('sources.title')}</h2>
+      <h2 id="h-sources" tabindex="-1">{t('sources.title')}</h2>
       {#if sourcesSection}{@render sourcesSection(detail)}{:else}<p class="empty">{t('person.citedCount', { n: detail.citations.length })}</p>{/if}
     </section>
 
@@ -647,8 +729,8 @@
     </div>
 
     <section aria-labelledby="h-history">
-      <details>
-        <summary><h2 id="h-history">{t('person.history')}</h2></summary>
+      <details bind:this={historyBox}>
+        <summary><h2 id="h-history" tabindex="-1">{t('person.history')}</h2></summary>
         {#if history.length === 0}
           <p class="empty">{t('person.noHistory')}</p>
         {:else}
@@ -767,6 +849,34 @@
     flex-wrap: wrap;
     gap: var(--s-3);
     padding-top: var(--s-4);
+  }
+  .quick {
+    display: grid;
+    gap: var(--s-3);
+    max-width: var(--measure);
+    /* Sits against the name card: pull it back from the large page gap. */
+    margin-top: calc(var(--s-3) - var(--s-6));
+    padding: var(--s-4);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-1);
+    background: var(--paper-1);
+  }
+  .qrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-3);
+  }
+  .qlabel {
+    min-width: 5rem;
+    color: var(--ink-1);
+    font-size: var(--t-sm);
+  }
+  .qbtns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    min-width: 0;
   }
   .card-line {
     white-space: nowrap;

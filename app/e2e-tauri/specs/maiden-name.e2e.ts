@@ -30,6 +30,7 @@ describe('Surname at birth under the name', () => {
     await $('h1').waitForDisplayed({ timeout: 20000 });
     expect(await $$maiden()).toBe(0);
 
+    await click('More…');
     await click('Surnames…');
     const field = await $(`//input[@id=//label[starts-with(normalize-space(.),"Surname after marriage")]/@for]`);
     await field.waitForDisplayed({ timeout: 20000 });

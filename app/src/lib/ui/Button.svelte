@@ -3,7 +3,7 @@
   import type { HTMLButtonAttributes } from 'svelte/elements';
 
   interface Props extends Omit<HTMLButtonAttributes, 'children' | 'onclick'> {
-    variant?: 'primary' | 'quiet' | 'danger';
+    variant?: 'primary' | 'secondary' | 'quiet' | 'danger';
     type?: 'button' | 'submit' | 'reset';
     disabled?: boolean;
     onclick?: (e: MouseEvent) => void;

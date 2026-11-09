@@ -13,10 +13,28 @@
 
 <script lang="ts">
   import IconButton from './IconButton.svelte';
+  import Button from './Button.svelte';
   import type { IconName } from './icons';
   import { tick } from 'svelte';
 
-  let { label, items, icon = 'more' }: { label: string; items: MenuItem[]; icon?: IconName } = $props();
+  let {
+    label,
+    items,
+    icon = 'more',
+    text,
+    align = 'end',
+    variant = 'quiet',
+  }: {
+    label: string;
+    items: MenuItem[];
+    icon?: IconName;
+    /** Show this text on a regular button instead of the icon. */
+    text?: string;
+    /** Which edge of the button the popup lines up with. */
+    align?: 'start' | 'end';
+    /** Look of the text button. */
+    variant?: 'secondary' | 'quiet';
+  } = $props();
 
   const uid = $props.id();
   let open = $state(false);
@@ -72,16 +90,26 @@
 <svelte:window onmousedown={(e) => open && !wrap?.contains(e.target as Node) && close(false)} />
 
 <div class="menu-wrap" bind:this={wrap}>
-  <IconButton
-    {label}
-    {icon}
-    aria-haspopup="menu"
-    aria-expanded={open}
-    aria-controls={open ? `${uid}-menu` : undefined}
-    onclick={() => (open ? close() : show())}
-  />
+  {#if text}
+    <Button
+      {variant}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      aria-controls={open ? `${uid}-menu` : undefined}
+      onclick={() => (open ? close() : show())}>{text}</Button
+    >
+  {:else}
+    <IconButton
+      {label}
+      {icon}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      aria-controls={open ? `${uid}-menu` : undefined}
+      onclick={() => (open ? close() : show())}
+    />
+  {/if}
   {#if open}
-    <div id="{uid}-menu" class="menu" role="menu" aria-label={label} tabindex="-1" bind:this={menu} {onkeydown}>
+    <div id="{uid}-menu" class="menu" class:start={align === 'start'} role="menu" aria-label={label} tabindex="-1" bind:this={menu} {onkeydown}>
       {#each items as item (item.label)}
         <button
           type="button"
@@ -117,6 +145,10 @@
     border-radius: var(--r-2);
     box-shadow: var(--shadow-pop);
     animation: pop var(--dur-base) var(--ease);
+  }
+  .menu.start {
+    inset-inline-end: auto;
+    inset-inline-start: 0;
   }
   button[role='menuitem'] {
     padding: var(--s-3) var(--s-4);
