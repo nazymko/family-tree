@@ -2,6 +2,8 @@
 
 # Family Tree
 
+by Nazymko Andrii
+
 **A fast, private genealogy app for your desktop.**
 Your family history stays on your computer, in open formats, and is yours to keep.
 

@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Family Tree",
+        "title": "Family Tree by Nazymko Andrii",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -27,6 +27,8 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Nazymko Andrii",
+    "copyright": "© Nazymko Andrii",
     "targets": ["msi", "nsis", "dmg", "appimage", "deb", "rpm"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.icns", "icons/icon.ico"]
   }

@@ -48,6 +48,7 @@
 <section class="about" aria-labelledby="about-h">
   <h2 id="about-h">{t('about.title')}</h2>
   <p class="name">Family Tree</p>
+  <p class="byline">{t('about.byline')}</p>
   {#if info}
     <p class="version tnum" data-testid="version-line">{versionLine(info)}</p>
     {#if !info.release && info.version !== info.base}<p class="hint">{t('about.ahead', { base: info.base })}</p>{/if}
@@ -98,6 +99,7 @@
   .name {
     font-weight: 500;
   }
+  .byline,
   .hint {
     color: var(--ink-2);
   }

@@ -90,6 +90,7 @@
     <header class="hero">
       <Ribbon title="Family Tree" size="2rem" />
       <h1>Family Tree</h1>
+      <p class="byline">{t('about.byline')}</p>
       <p class="lede">{t('welcome.lede')}</p>
     </header>
 
@@ -220,6 +221,11 @@
   h1 {
     font-size: var(--t-2xl);
     line-height: var(--t-2xl-lh);
+  }
+  .byline {
+    margin-top: calc(-1 * var(--s-2));
+    color: var(--ink-2);
+    font-size: var(--t-sm);
   }
   .lede {
     font-family: var(--font-serif);
