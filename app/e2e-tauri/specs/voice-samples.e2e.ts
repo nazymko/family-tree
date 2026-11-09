@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect } from '@wdio/globals';
-import { $, browser, click, importSynthetic, meta, openTreeFromReport, pushDialog, ready, search, shot, slash, work } from './helpers';
+import { $, browser, click, importSynthetic, isLinux, meta, openTreeFromReport, pushDialog, ready, search, shot, slash, work } from './helpers';
 
 /** A one-second 440 Hz mono 16-bit 8 kHz PCM wav, built here so no real recording is ever involved. */
 function makeWav(file: string): string {
@@ -46,6 +46,13 @@ async function openHome() {
   await $('[role="listbox"] [role="option"]').waitForDisplayed();
   await browser.keys('Enter');
   await $(`//h1[contains(.,"${meta().home.given}")]`).waitForDisplayed();
+}
+
+/** The audio element is shown; WebKitGTK may draw no controls for it, so there it only has to exist (proveAudioPlays then checks it really plays). */
+async function waitForAudio() {
+  const a = await $('audio');
+  if (isLinux) await a.waitForExist({ timeout: 20000, timeoutMsg: 'no audio element on the page' });
+  else await a.waitForDisplayed({ timeout: 20000 });
 }
 
 /** Waits for the first audio element to report a finite length, then plays it and checks the clock moves. */
@@ -108,7 +115,7 @@ describe('Voice samples on a note', () => {
     await click('Save note');
     await $('textarea').waitForDisplayed({ reverse: true, timeout: 20000 });
 
-    await $('audio').waitForDisplayed({ timeout: 20000 });
+    await waitForAudio();
     await proveAudioPlays();
     await expect($('ul[aria-label="Voice samples"]')).toBeDisplayed();
     await $('audio').scrollIntoView({ block: 'center' });
@@ -124,7 +131,7 @@ describe('Voice samples on a note', () => {
     await $('//nav//a[normalize-space(.)="Родина"]').click();
     await openHome();
     await click('Змінити особу');
-    await $('audio').waitForDisplayed({ timeout: 20000 });
+    await waitForAudio();
     await proveAudioPlays();
     await expect($('ul[aria-label="Голосові записи"]')).toBeDisplayed();
     await $('audio').scrollIntoView({ block: 'center' });

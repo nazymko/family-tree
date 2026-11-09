@@ -37,14 +37,36 @@ export async function drop(paths: string[]) {
   await browser.execute((p) => (window as unknown as { __gtE2e: Bridge }).__gtE2e.drop(p), paths);
 }
 
+/**
+ * WebKitGTK's WebDriver (Linux) decides visibility and clickability with its own rules: text inside an `overflow: hidden`
+ * box (card names, the screen-reader live region) reads as "", `waitForDisplayed` fails on an `<audio>` that draws no
+ * controls, and the Actions API cannot scroll ("move target out of bounds"). The app is fine there, so on Linux the
+ * specs read the DOM directly. Windows and macOS keep the plain WebDriver calls.
+ */
+export const isLinux = process.platform === 'linux';
+
 export async function button(name: string) {
   const b = await $(`//button[normalize-space(.)="${name}"]`);
+  if (isLinux) {
+    // Present and enabled is what can be checked; click() below scrolls it into view itself.
+    await b.waitForExist({ timeout: 20000, timeoutMsg: `button "${name}" does not exist` });
+    await b.waitForEnabled({ timeout: 20000 });
+    return b;
+  }
   await b.waitForClickable({ timeout: 20000 });
   return b;
 }
 
 export async function click(name: string) {
-  await (await button(name)).click();
+  const b = await button(name);
+  if (isLinux) {
+    await browser.execute((el: HTMLElement) => {
+      el.scrollIntoView({ block: 'center' });
+      el.click();
+    }, b as unknown as HTMLElement);
+    return;
+  }
+  await b.click();
 }
 
 /** Ctrl+<key>; the app also answers Cmd on macOS, where this suite does not run. */
@@ -54,6 +76,8 @@ export async function chord(key: string, shift = false) {
 }
 
 export async function text(): Promise<string> {
+  // The text a user sees, clipped (ellipsis) text included; WebKitGTK's getText drops it.
+  if (isLinux) return browser.execute(() => document.body.innerText.replace(/\s+/g, ' ').trim());
   return (await $('body').getText()) ?? '';
 }
 
