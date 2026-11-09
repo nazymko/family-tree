@@ -54,7 +54,7 @@
       {/each}
     </ul>
   {/if}
-  <div><Button onclick={() => (editing = { focusPage: false })}>{t('citation.add')}</Button></div>
+  <div><Button data-add-citation onclick={() => (editing = { focusPage: false })}>{t('citation.add')}</Button></div>
 </div>
 
 {#if editing}

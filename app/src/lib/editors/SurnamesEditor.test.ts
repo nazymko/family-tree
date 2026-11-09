@@ -18,10 +18,16 @@ beforeEach(async () => {
   await settings.load(api);
 });
 
+/** The surnames dialog opens from the card's «More…» menu. */
+async function clickSurnames(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', { name: 'More…' }));
+  await user.click(await screen.findByRole('menuitem', { name: 'Surnames…' }));
+}
+
 async function openSurnames() {
   const user = userEvent.setup();
   renderWithApi(api, PersonEditor, { id });
-  await user.click(await screen.findByRole('button', { name: 'Surnames…' }));
+  await clickSurnames(user);
   await screen.findByRole('dialog', { name: 'Surname at birth and after marriage' });
   return user;
 }
@@ -76,7 +82,7 @@ describe('Surnames dialog', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
     user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Surnames…' }));
+    await clickSurnames(user);
     const box = await screen.findByRole('checkbox', { name: BOX });
     expect(box).toBeChecked();
     await user.click(box);
@@ -92,7 +98,7 @@ describe('Surnames dialog', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
     user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Surnames…' }));
+    await clickSurnames(user);
     const atBirth = await screen.findByRole('textbox', { name: 'Surname at birth' });
     await user.clear(atBirth);
     await user.type(atBirth, 'Kovalenko');
@@ -107,7 +113,7 @@ describe('Surnames dialog', () => {
     const user = userEvent.setup();
     renderWithApi(api, PersonEditor, { id });
     const group = await screen.findByRole('group', { name: 'Edit this person' });
-    for (const name of ['Edit name', 'Surnames…']) expect(group).toContainElement(screen.getByRole('button', { name }));
+    for (const name of ['Edit name', 'More…']) expect(group).toContainElement(screen.getByRole('button', { name }));
     await user.click(screen.getByRole('button', { name: 'Edit name' }));
     expect(await screen.findByRole('textbox', { name: 'Given name' })).toHaveValue('Olena');
   });
