@@ -113,6 +113,14 @@ function freshState() {
   // The app starts in Ukrainian; the specs read English unless one switches the language itself.
   fs.writeFileSync(path.join(config, 'settings.json'), JSON.stringify({ language: 'en' }));
   fs.rmSync(process.env.WEBVIEW2_USER_DATA_FOLDER!, { recursive: true, force: true });
+  // WebKitGTK keeps localStorage and caches under XDG_DATA_HOME/XDG_CACHE_HOME: without these every spec run shares one
+  // profile, and a spec that picks the Outline view (flows, around-many) leaves it for the chart specs running beside it.
+  for (const v of ['XDG_DATA_HOME', 'XDG_CACHE_HOME']) {
+    if (process.env[v] && process.platform === 'linux') {
+      fs.rmSync(process.env[v]!, { recursive: true, force: true });
+      fs.mkdirSync(process.env[v]!, { recursive: true });
+    }
+  }
 }
 
 /** Kills the driver and the native driver it started (a process tree, by the PID this run started). */
@@ -199,6 +207,10 @@ export const config: WebdriverIO.Config = {
     process.env.GT_E2E_GED = ged;
     process.env.GT_E2E_CONFIG_DIR = path.join(work, 'config');
     process.env.WEBVIEW2_USER_DATA_FOLDER = path.join(work, 'webview');
+    if (process.platform === 'linux') {
+      process.env.XDG_DATA_HOME = path.join(work, 'xdg-data');
+      process.env.XDG_CACHE_HOME = path.join(work, 'xdg-cache');
+    }
     freshState();
     if (!process.env.GT_E2E_SHOTS) process.env.GT_E2E_SHOTS = path.join(work, 'shots');
 
