@@ -517,7 +517,7 @@
           <Button variant="secondary" onclick={() => jump('h-media')}>{withCount(t('nav.media'), detail.media.length)}</Button>
           <Button variant="secondary" onclick={() => jump('h-sources')}>{withCount(t('sources.title'), detail.citations.length)}</Button>
           <Button variant="secondary" onclick={() => jump('h-history')}>{t('person.history')}</Button>
-          <Menu label={t('person.addMenu')} text={t('person.addMenu')} items={addItems} align="start" />
+          <Menu label={t('person.addMenu')} text={t('person.addMenu')} items={addItems} align="start" variant="secondary" />
         </div>
       </div>
     </nav>

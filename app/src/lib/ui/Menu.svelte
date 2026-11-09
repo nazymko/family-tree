@@ -23,6 +23,7 @@
     icon = 'more',
     text,
     align = 'end',
+    variant = 'quiet',
   }: {
     label: string;
     items: MenuItem[];
@@ -31,6 +32,8 @@
     text?: string;
     /** Which edge of the button the popup lines up with. */
     align?: 'start' | 'end';
+    /** Look of the text button. */
+    variant?: 'secondary' | 'quiet';
   } = $props();
 
   const uid = $props.id();
@@ -89,6 +92,7 @@
 <div class="menu-wrap" bind:this={wrap}>
   {#if text}
     <Button
+      {variant}
       aria-haspopup="menu"
       aria-expanded={open}
       aria-controls={open ? `${uid}-menu` : undefined}
