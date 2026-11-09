@@ -50,6 +50,8 @@ Every fix gets a test that fails without it. [docs/testing.md](docs/testing.md) 
   `UPDATE_BINDINGS=1 cargo test -p gt-session --test export_bindings`; never edit them by hand.
 - Interface text lives in `app/src/lib/i18n/en.ts` and `uk.ts`; add every new string to both. In Ukrainian a family
   tree is «родовід».
+  Only English and Ukrainian are kept complete by feature work; the 19 other languages are partial catalogues filled by a
+  separate translation job (missing keys fall back to English). See [docs/i18n.md](docs/i18n.md).
 - Write plain, short sentences in code comments and messages, as the existing code does.
 
 ### Commit messages

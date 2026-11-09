@@ -19,7 +19,7 @@
   import { project } from '../state/project.svelte';
   import { toasts } from '../state/toast.svelte';
   import Button from '../ui/Button.svelte';
-  import { currentLocale, plural, t } from '../i18n';
+  import { currentTag, plural, t } from '../i18n';
   import { agentLabel, editLabel, factText, recordKindLabel } from '../i18n/backend';
   import LogChanges, { type ChangeAction } from './LogChanges.svelte';
   import UndoDialog, { type Pending } from './UndoDialog.svelte';
@@ -141,7 +141,7 @@
   );
 
   const who = (r: LogRowDto) => (r.actor.kind === 'agent' ? agentLabel(r.actor.id, r.actor.name) : '');
-  const when = (r: LogRowDto) => new Date(r.ts).toLocaleString(currentLocale());
+  const when = (r: LogRowDto) => new Date(r.ts).toLocaleString(currentTag());
   const rowName = (r: LogRowDto) => [when(r), who(r), editLabel(r.label)].filter(Boolean).join(', ');
 
   interface ActionTarget {
@@ -229,7 +229,7 @@
   $effect(() => {
     const list = rows;
     const d = detail;
-    void currentLocale();
+    void currentTag();
     untrack(() => void resolve(list, d));
   });
 

@@ -3,7 +3,7 @@
   import { daysInMonth, isoFromParts, partsFromIso } from './dateParts';
   import Select from '../ui/Select.svelte';
   import TextField from '../ui/TextField.svelte';
-  import { currentLocale, t } from '../i18n';
+  import { currentTag, t } from '../i18n';
 
   let { legend, parts, onChange }: { legend: string; parts: DateParts; onChange: (p: DateParts) => void } = $props();
 
@@ -23,7 +23,7 @@
 
   const NOT_SET = { value: '', label: '—' };
   const months = $derived.by(() => {
-    const names = new Intl.DateTimeFormat(currentLocale(), { month: 'long', timeZone: 'UTC' });
+    const names = new Intl.DateTimeFormat(currentTag(), { month: 'long', timeZone: 'UTC' });
     return [NOT_SET, ...Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: names.format(Date.UTC(2001, i, 1)) }))];
   });
   const lastDay = $derived(month ? daysInMonth(Number(year), Number(month)) : 31);

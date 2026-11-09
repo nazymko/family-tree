@@ -17,7 +17,35 @@ macro_rules! wire_enum {
 wire_enum!(DayOrder, "lowercase", { Dmy, Mdy });
 wire_enum!(SexKind, "lowercase", { Male, Female, Intersex, Unknown, Other });
 wire_enum!(Theme, "lowercase", { Light, Dark, System });
-wire_enum!(Language, "lowercase", { En, Uk, System });
+/// Interface language: English and Ukrainian are complete, the others are partial catalogues that fall back to
+/// English key by key (see docs/i18n.md). `system` follows the OS language. The codes are the app's language codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    En,
+    Uk,
+    #[serde(rename = "zh-Hans")]
+    ZhHans,
+    Hi,
+    Es,
+    Ar,
+    Fr,
+    Bn,
+    Pt,
+    Id,
+    Ur,
+    De,
+    Ja,
+    Mr,
+    Vi,
+    Te,
+    Ha,
+    Tr,
+    Sw,
+    Tl,
+    Ta,
+    System,
+}
 // The one-switch setting of the first versions: `reversed` put the ancestors at the bottom (pedigree: on the left).
 // Only read from an old settings file; see `ChartDirections::from_legacy`.
 wire_enum!(TreeDirection, "lowercase", { Normal, Reversed });

@@ -1161,7 +1161,7 @@
   .hint {
     position: absolute;
     top: var(--s-2);
-    left: var(--s-2);
+    inset-inline-start: var(--s-2);
     margin: 0;
     padding: var(--s-1) var(--s-3);
     background: var(--paper-1, var(--paper-0));

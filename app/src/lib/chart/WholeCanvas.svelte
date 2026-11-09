@@ -1097,7 +1097,7 @@
   .hint {
     position: absolute;
     top: var(--s-2);
-    left: var(--s-2);
+    inset-inline-start: var(--s-2);
     margin: 0;
     padding: var(--s-1) var(--s-3);
     background: var(--paper-1);
@@ -1113,7 +1113,7 @@
   }
   .mini {
     position: absolute;
-    right: var(--s-3);
+    inset-inline-end: var(--s-3);
     bottom: var(--s-3);
   }
   .stage {

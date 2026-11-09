@@ -1,29 +1,42 @@
-import type { LeafPaths, Plural } from './types';
+import type { LeafPaths, Plural, PluralForms } from './types';
 import type { Messages, Params } from './locale.svelte';
 import { en } from './en';
-import { LANGUAGES, localeStore, formatNumber } from './locale.svelte';
+import { localeStore, formatNumber } from './locale.svelte';
 
-export { LANGUAGES, localeStore, formatNumber, setLanguage, currentLocale, resolveSystemLanguage } from './locale.svelte';
-export type { LanguageCode, LanguagePref, LanguageInfo, Messages, Params } from './locale.svelte';
-export type { Plural } from './types';
+export {
+  LANGUAGES,
+  LANGUAGE_CODES,
+  AUTO_PICK_MIN_PERCENT,
+  localeStore,
+  formatNumber,
+  setLanguage,
+  loadLocale,
+  currentLocale,
+  currentTag,
+  languageOfTag,
+  resolveSystemLanguage,
+} from './locale.svelte';
+export type { LanguageCode, LanguagePref, LanguageInfo, Messages, PartialMessages, Params } from './locale.svelte';
+export type { Plural, PluralForms, PluralCategory, WidenPartial } from './types';
 
 /** Keys of plain messages, and of count messages, as dotted paths into the English catalogue. */
 export type MessageKey = LeafPaths<typeof en, string>;
 export type PluralKey = LeafPaths<typeof en, Plural>;
 
-function dig(messages: Messages, key: string): string | Plural | undefined {
+function dig(messages: unknown, key: string): string | PluralForms | undefined {
   let node: unknown = messages;
   for (const part of key.split('.')) {
     if (node === null || typeof node !== 'object') return undefined;
     node = (node as Record<string, unknown>)[part];
   }
-  return node as string | Plural | undefined;
+  return node as string | PluralForms | undefined;
 }
 
-function find(key: string): string | Plural | undefined {
-  // Reading localeStore.locale makes every caller re-run when the language changes.
-  const active = LANGUAGES.find((l) => l.code === localeStore.locale)?.messages;
-  return (active && dig(active, key)) || dig(en, key);
+/** The entry for `key` in the active language, else in English (key by key; a partial catalogue may lack any key). */
+function find(key: string): string | PluralForms | undefined {
+  // Reading localeStore.messages makes every caller re-run when the language, or its catalogue, changes.
+  const active = localeStore.messages;
+  return (active && dig(active, key)) || dig(en as unknown as Messages, key);
 }
 
 function fill(text: string, params?: Params): string {
@@ -31,20 +44,25 @@ function fill(text: string, params?: Params): string {
   return text.replace(/\{(\w+)\}/g, (whole, name: string) => (name in params ? String(params[name]) : whole));
 }
 
-/** The message for `key` in the active language, with `{name}` placeholders filled from `params`. */
+/** The message for `key` in the active language (English where it has none), with `{name}` placeholders filled from `params`. */
 export function t(key: MessageKey, params?: Params): string {
   const hit = find(key);
   return typeof hit === 'string' ? fill(hit, params) : key;
 }
 
 /**
- * The count message for `key` in the form that fits `n` (Ukrainian: one, few, many, other).
- * `{n}` in the text is the count, formatted for the language; other placeholders come from `params`.
+ * The count message for `key` in the form that fits `n` under the active language's CLDR plural rules.
+ * A language lacking that category uses its own `other`; a language lacking the key altogether uses English
+ * with English rules. `{n}` in the text is the count, formatted for the language; other placeholders come from `params`.
  */
 export function plural(key: PluralKey, n: number, params?: Params): string {
-  const hit = find(key);
-  if (hit === undefined || typeof hit === 'string') return key;
-  const category = new Intl.PluralRules(localeStore.locale).select(n);
-  const text = (hit as unknown as Record<string, string | undefined>)[category] ?? hit.other;
-  return fill(text, { ...params, n: formatNumber(n) });
+  const own = localeStore.messages ? dig(localeStore.messages, key) : undefined;
+  if (own !== undefined && typeof own !== 'string' && own.other !== undefined) {
+    const category = new Intl.PluralRules(localeStore.info.tag).select(n);
+    return fill(own[category] ?? own.other, { ...params, n: formatNumber(n) });
+  }
+  const base = dig(en as unknown as Messages, key);
+  if (base === undefined || typeof base === 'string') return key;
+  const category = new Intl.PluralRules('en').select(n);
+  return fill(base[category] ?? base.other ?? key, { ...params, n: formatNumber(n) });
 }
