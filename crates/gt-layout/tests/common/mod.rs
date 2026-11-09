@@ -81,6 +81,7 @@ pub fn assert_connectors_readable(l: &Layout) -> Layout {
         assert_eq!(q.lines_through_boxes, 0, "{q:?}");
         assert_eq!(q.line_overlaps, 0, "{q:?}");
     }
+    assert_eq!(q.buses_outside_rows, 0, "{q:?}");
     assert_eq!(q.bus_clashes, 0, "{q:?}");
     assert_eq!(q.aligned_verticals, 0, "{q:?}");
     l.clone()

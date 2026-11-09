@@ -1297,6 +1297,22 @@ impl Session {
 
     /// Nodes and edges intersecting `rect`. Below zoom 0.25 nodes carry no person and no label.
     /// `Stale` once the tree has been rebuilt since the chart was opened.
+    /// Overlap counts of an open chart (see `gt_layout::quality`), plus its edges by kind: for measuring a chart
+    /// without names. `(quality, [parent, partner, dup, sibling] edge counts)`.
+    pub fn chart_quality(&self, chart: u32) -> Result<(gt_layout::Quality, [usize; 4]), ApiError> {
+        let l = &self.charts.live(chart)?.layout;
+        let mut kinds = [0usize; 4];
+        for e in &l.edges {
+            kinds[match e.kind {
+                EdgeKind::Parent => 0,
+                EdgeKind::Partner => 1,
+                EdgeKind::Dup => 2,
+                EdgeKind::Sibling => 3,
+            }] += 1;
+        }
+        Ok((gt_layout::quality(l), kinds))
+    }
+
     pub fn chart_window(
         &self,
         chart: u32,
