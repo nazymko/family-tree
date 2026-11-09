@@ -1,6 +1,6 @@
 import type { Api, Platform } from '../api/api';
 import type { ChartKind } from '../api/types';
-import { currentLocale, t, type MessageKey } from '../i18n';
+import { currentTag, t, type MessageKey } from '../i18n';
 import { notices } from '../ui/notices.svelte';
 import { CAPTION_H, MARGIN, formatOf, pictureFileName, scalePlan, type PictureFormat, type PicturePlan, type PictureScope } from './picture';
 import { SvgContext, escapeXml, parseFont } from './svgContext';
@@ -39,7 +39,7 @@ export function suggestedName(scope: PictureScope, kind: ChartKind, rootName: st
 
 /** "Pedigree - Ivan Koval · 4 November 2026", in the interface language. */
 export function captionText(kind: ChartKind, rootName: string, now = new Date()): string {
-  const date = now.toLocaleDateString(currentLocale(), { year: 'numeric', month: 'long', day: 'numeric' });
+  const date = now.toLocaleDateString(currentTag(), { year: 'numeric', month: 'long', day: 'numeric' });
   return `${chartTitle(kind, rootName)} · ${date}`;
 }
 

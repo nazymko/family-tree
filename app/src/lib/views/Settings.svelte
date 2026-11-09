@@ -138,7 +138,7 @@
       hint={t('settings.languageHint')}
       options={[
         { value: 'system', label: t('settings.languageSystem') },
-        ...LANGUAGES.map((l) => ({ value: l.code, label: l.name })),
+        ...LANGUAGES.map((l) => ({ value: l.code, label: l.percent < 100 ? `${l.name} — ${l.percent} %` : l.name })),
       ]}
       value={settings.value.language}
       onchange={(v) => change({ language: v as Settings['language'] })}

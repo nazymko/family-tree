@@ -8,7 +8,7 @@
   import type { RecentProject } from '../api/types';
   import { enterProject } from '../state/openTree';
   import { openReceivedCopy } from '../state/openReceived';
-  import { t, currentLocale } from '../i18n';
+  import { t, currentTag } from '../i18n';
   import { versionLine } from './about';
 
   const api = getApi();
@@ -81,7 +81,7 @@
   const recent = (ms: number) => Date.now() - ms <= WEEK_MS;
 
   function when(ms: number): string {
-    return new Date(ms).toLocaleDateString(currentLocale(), { dateStyle: 'medium' });
+    return new Date(ms).toLocaleDateString(currentTag(), { dateStyle: 'medium' });
   }
 </script>
 

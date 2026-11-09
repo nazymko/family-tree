@@ -25,8 +25,14 @@
   --scrim: rgb(27 34 48 / 0.4);
   color-scheme: light;
 
-  --font-serif: 'Source Serif 4 Variable', Georgia, 'Noto Serif', serif;
-  --font-sans: 'Atkinson Hyperlegible Next', system-ui, 'Segoe UI', 'Noto Sans', sans-serif;
+  /* The bundled fonts are Latin and Cyrillic. Other scripts fall through, character by character, to the system fonts
+     named here (none is bundled): Nirmala UI covers Devanagari, Bengali, Telugu and Tamil on Windows; Segoe UI and
+     Noto Sans Arabic cover Arabic and Urdu; the CJK names cover Simplified Chinese (see :lang(ja) below for Japanese). */
+  --font-script-fallback: 'Segoe UI', 'Noto Sans', 'Nirmala UI', 'Noto Sans Devanagari', 'Noto Sans Bengali', 'Noto Sans Telugu',
+    'Noto Sans Tamil', 'Noto Sans Arabic', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', 'Noto Sans SC', 'Yu Gothic',
+    'Noto Sans JP';
+  --font-serif: 'Source Serif 4 Variable', Georgia, 'Noto Serif', var(--font-script-fallback), serif;
+  --font-sans: 'Atkinson Hyperlegible Next', system-ui, var(--font-script-fallback), sans-serif;
 
   --t-xs: 0.75rem;
   --t-xs-lh: 1rem;
@@ -126,4 +132,9 @@
     --dur-base: 0ms;
     --dur-slow: 0ms;
   }
+}
+
+/* Japanese shares Han characters with Chinese; list the Japanese faces first so the right glyph forms are chosen. */
+:root:lang(ja) {
+  --font-script-fallback: 'Yu Gothic UI', 'Yu Gothic', 'Meiryo', 'Noto Sans JP', 'Noto Sans CJK JP', 'Hiragino Sans', 'Segoe UI', 'Noto Sans';
 }

@@ -44,7 +44,7 @@
   import FamilyEditor from '../editors/FamilyEditor.svelte';
   import CitationEditor from '../editors/CitationEditor.svelte';
   import { errMessage } from '../editors/errors';
-  import { t, plural, currentLocale, type MessageKey } from '../i18n';
+  import { t, plural, currentTag, type MessageKey } from '../i18n';
   import { agentLabel, editLabel, eventKindLabel } from '../i18n/backend';
   import { withSexIcon } from '../ui/sex';
   import { birthSurnameText } from '../ui/birthSurname';
@@ -446,7 +446,7 @@
   }
   const whoWrote = (r: LogRowDto) => (r.actor.kind === 'user' ? t('changeLog.you') : r.actor.kind === 'agent' ? agentLabel(r.actor.id, r.actor.name) : t('changeLog.beforeTracking'));
   function when(ts: number): string {
-    return new Date(ts).toLocaleString(currentLocale());
+    return new Date(ts).toLocaleString(currentTag());
   }
 </script>
 

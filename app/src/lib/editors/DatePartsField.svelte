@@ -5,7 +5,7 @@
   import TextField from '../ui/TextField.svelte';
   import DateField from './DateField.svelte';
   import { composeDate, daysInMonth, parseDateParts } from './dateParts';
-  import { currentLocale, t } from '../i18n';
+  import { currentTag, t } from '../i18n';
 
   let {
     label,
@@ -32,7 +32,7 @@
 
   const NOT_SET = { value: '', label: '—' };
   const months = $derived.by(() => {
-    const names = new Intl.DateTimeFormat(currentLocale(), { month: 'long', timeZone: 'UTC' });
+    const names = new Intl.DateTimeFormat(currentTag(), { month: 'long', timeZone: 'UTC' });
     return [NOT_SET, ...Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: names.format(Date.UTC(2001, i, 1)) }))];
   });
   const lastDay = $derived(month ? daysInMonth(Number(year), Number(month)) : 31);
@@ -140,7 +140,7 @@
     font: inherit;
     font-size: var(--t-sm);
     line-height: var(--t-sm-lh);
-    text-align: left;
+    text-align: start;
     text-decoration: underline;
     cursor: pointer;
   }

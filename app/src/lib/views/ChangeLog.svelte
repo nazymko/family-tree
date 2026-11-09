@@ -12,7 +12,7 @@
   import Button from '../ui/Button.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
   import Select from '../ui/Select.svelte';
-  import { currentLocale, plural, t } from '../i18n';
+  import { currentTag, plural, t } from '../i18n';
   import { agentLabel, editLabel, factText } from '../i18n/backend';
   import LogChanges from './LogChanges.svelte';
   import UndoDialog, { type Pending } from './UndoDialog.svelte';
@@ -171,7 +171,7 @@
     {#each items as r (r.group)}
       <li class="row" class:reverted={r.reverted}>
         <p class="meta">
-          <span class="when tnum">{new Date(r.ts).toLocaleString(currentLocale())}</span>
+          <span class="when tnum">{new Date(r.ts).toLocaleString(currentTag())}</span>
           <span class="who">{who(r)}</span>
           <span>{editLabel(r.label)}</span>
           {#if r.reverted}<Badge>{t('changeLog.undone')}</Badge>{/if}
