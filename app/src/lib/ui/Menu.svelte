@@ -13,10 +13,22 @@
 
 <script lang="ts">
   import IconButton from './IconButton.svelte';
+  import Button from './Button.svelte';
   import type { IconName } from './icons';
   import { tick } from 'svelte';
 
-  let { label, items, icon = 'more' }: { label: string; items: MenuItem[]; icon?: IconName } = $props();
+  let {
+    label,
+    items,
+    icon = 'more',
+    text,
+  }: {
+    label: string;
+    items: MenuItem[];
+    icon?: IconName;
+    /** Show this text on a regular button instead of the icon. */
+    text?: string;
+  } = $props();
 
   const uid = $props.id();
   let open = $state(false);
@@ -72,14 +84,23 @@
 <svelte:window onmousedown={(e) => open && !wrap?.contains(e.target as Node) && close(false)} />
 
 <div class="menu-wrap" bind:this={wrap}>
-  <IconButton
-    {label}
-    {icon}
-    aria-haspopup="menu"
-    aria-expanded={open}
-    aria-controls={open ? `${uid}-menu` : undefined}
-    onclick={() => (open ? close() : show())}
-  />
+  {#if text}
+    <Button
+      aria-haspopup="menu"
+      aria-expanded={open}
+      aria-controls={open ? `${uid}-menu` : undefined}
+      onclick={() => (open ? close() : show())}>{text}</Button
+    >
+  {:else}
+    <IconButton
+      {label}
+      {icon}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      aria-controls={open ? `${uid}-menu` : undefined}
+      onclick={() => (open ? close() : show())}
+    />
+  {/if}
   {#if open}
     <div id="{uid}-menu" class="menu" role="menu" aria-label={label} tabindex="-1" bind:this={menu} {onkeydown}>
       {#each items as item (item.label)}
@@ -107,7 +128,7 @@
   .menu {
     position: absolute;
     z-index: 50;
-    inset-inline-end: 0;
+    inset-inline-start: 0;
     top: calc(100% + 4px);
     min-width: 11rem;
     padding: var(--s-2);

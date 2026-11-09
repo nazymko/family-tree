@@ -217,7 +217,8 @@ describe('PersonEditor', () => {
     const user = userEvent.setup();
     const spy = vi.spyOn(api, 'setSettings');
     await open();
-    await user.click(screen.getByRole('button', { name: /Make home person/ }));
+    await user.click(screen.getByRole('button', { name: 'More…' }));
+    await user.click(screen.getByRole('menuitem', { name: /Make home person/ }));
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ homePerson: id }));
   });
 
