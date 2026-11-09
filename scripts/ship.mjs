@@ -161,6 +161,9 @@ if (message === null) {
 // ------------------------------------------------------------------------------------------------ merge, build, install
 const common = path.dirname(git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir').out);
 const oldMain = git(root, 'rev-parse', 'refs/heads/main').out;
+// Release tags are made on GitHub (prepare-release.yml). Without them the installed app's About shows the previous version
+// (build.rs reads `git describe`). Tags only: no branch moves. Offline is fine; the build then uses the tags it has.
+if (!git(root, 'fetch', '--quiet', '--tags', 'origin').ok) console.log('Could not fetch release tags (offline?); the version label may be behind.');
 const scratch = path.join(os.tmpdir(), `gt-ship-main-${process.pid}`);
 const add = git(root, 'worktree', 'add', '--detach', scratch, oldMain);
 if (!add.ok) die(`Could not make the scratch checkout of main: ${add.err}`);
