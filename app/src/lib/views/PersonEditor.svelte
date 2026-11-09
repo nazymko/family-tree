@@ -27,7 +27,6 @@
   import Badge from '../ui/Badge.svelte';
   import AgentBadge from '../ui/AgentBadge.svelte';
   import IndexCard from '../ui/IndexCard.svelte';
-  import Ribbon from '../ui/Ribbon.svelte';
   import Button from '../ui/Button.svelte';
   import Menu, { type MenuItem } from '../ui/Menu.svelte';
   import EventSummary from '../editors/EventSummary.svelte';
@@ -246,6 +245,7 @@
   }
 
 
+  const isHome = $derived(settings.value.homePerson === id);
   let historyBox = $state<HTMLDetailsElement>();
   const parentNames = (s: { parents: ({ name: string } | null)[] }) => s.parents.flatMap((x) => (x ? [x.name] : [])).join(', ');
 
@@ -293,7 +293,6 @@
     },
   ]);
 
-  const isHome = $derived(settings.value.homePerson === id);
   const familyCount = $derived(detail ? detail.partnerships.length + detail.parentSets.length : 0);
   const soleEvents = $derived(
     detail ? detail.events.filter((e) => e.participants.every((p) => p.person.id === id)).length : 0,
