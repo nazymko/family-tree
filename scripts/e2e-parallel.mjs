@@ -52,8 +52,8 @@ if (!application || !fs.existsSync(application)) die('The test exe is missing. B
 if (!fs.existsSync(wdioJs)) die('app/node_modules is missing. Run: npm --prefix app ci');
 
 const run = fs.mkdtempSync(path.join(os.tmpdir(), 'gt-e2e-run-'));
-const logs = path.join(run, 'logs');
-fs.mkdirSync(logs);
+const logs = process.env.GT_E2E_LOGS || path.join(run, 'logs'); // CI sets GT_E2E_LOGS so it can upload them
+fs.mkdirSync(logs, { recursive: true });
 const shots = process.env.GT_E2E_SHOTS || path.join(run, 'shots');
 
 // ---------------------------------------------------------------- stopping
