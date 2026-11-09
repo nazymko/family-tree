@@ -31,7 +31,7 @@ impl Gen {
         if depth == 0 {
             return;
         }
-        let (_, ks) = self.family(p, seed % 3 == 0, 1 + (seed as usize % 2));
+        let (_, ks) = self.family(p, seed.is_multiple_of(3), 1 + (seed as usize % 2));
         for (i, k) in ks.into_iter().enumerate() {
             self.down(k, depth - 1, seed + 1 + i as u32);
         }
@@ -158,5 +158,5 @@ fn dump() {
             edges.join(",")
         ),
     )
-    .unwrap();
+    .expect("write the dump");
 }
