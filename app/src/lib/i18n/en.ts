@@ -149,6 +149,7 @@ export const en = {
     setPrimaryMedia: 'Set primary media',
     editMedia: 'Edit media',
     editTranscription: 'Edit transcription',
+    turnPicture: 'Turn picture',
     correctDate: 'Correct date',
     recordNumber: 'Record number',
     linkMediaFiles: 'Link media files',
@@ -184,6 +185,7 @@ export const en = {
     donePrimaryMediaSet: 'Primary media set',
     doneMediaSaved: 'Media saved',
     doneTranscriptionSaved: 'Transcription saved',
+    donePictureTurned: 'Picture turned',
     doneDateCorrected: 'Date corrected',
     doneNumberRecorded: 'Number recorded',
     doneMediaFilesLinked: 'Media files linked',
@@ -721,6 +723,7 @@ export const en = {
     mediaPrimary: 'Main picture',
     mediaRegion: 'Part of the picture',
     transcription: 'Transcription',
+    mediaRotation: 'Turned',
     and: 'and',
     removed: '(record removed)',
     items: { one: '{n} item', other: '{n} items' },
@@ -1317,6 +1320,8 @@ export const en = {
     moveUp: 'Move up',
     moveDown: 'Move down',
     addTextOnly: 'Add text without a place',
+    turnLeft: 'Turn left',
+    turnRight: 'Turn right',
   },
   chartAdd: {
     addRelative: 'Add relative',
@@ -2137,6 +2142,7 @@ export const en = {
     textRotation: 'rotation must be 0, 90, 180 or 270.',
     textOnDocument: 'A document has no picture to mark: give its text without an area.',
     textSameId: 'Two pieces of the transcription have the same id.',
+    turnNotPicture: 'Only a picture can be turned.',
     // The import report and the export screen (details that are not errors)
     repairKind: {
       dangling_pointer: 'dangling pointer',

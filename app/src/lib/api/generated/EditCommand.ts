@@ -31,4 +31,4 @@ parentRel?: ParentRelId, } | { "type": "saveFamily", id?: string, partner1: stri
  * meanwhile (by an agent, say) and stays, after the piece it followed. Absent: `regions`
  * is the whole transcription.
  */
-known?: Array<string>, } | { "type": "importDraft", persons: Array<DraftPerson>, families: Array<DraftFamily>, attachPicture: boolean, } | { "type": "addNumber", person: string, sourceFile: string, number: string, };
+known?: Array<string>, } | { "type": "setMediaRotation", id: string, rotation: 0 | 90 | 180 | 270, } | { "type": "importDraft", persons: Array<DraftPerson>, families: Array<DraftFamily>, attachPicture: boolean, } | { "type": "addNumber", person: string, sourceFile: string, number: string, };

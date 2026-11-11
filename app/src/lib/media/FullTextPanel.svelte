@@ -4,11 +4,12 @@
   import '../ui/controls.css';
   import type { Id, TextRegionDto } from '../api/api';
   import { t } from '../i18n';
-  import { moved, newPieceId, nextRotation } from './transcription';
+  import { moved, newPieceId, nextRotation, shownTurn, type Rotation } from './transcription';
 
   let {
     regions,
     editing = false,
+    turn = 0,
     selected = null,
     onselect,
     onchange,
@@ -16,6 +17,8 @@
   }: {
     regions: TextRegionDto[];
     editing?: boolean;
+    /** How the picture is shown turned: a piece says how its writing looks on screen, as its badge does. */
+    turn?: Rotation;
     selected?: Id | null;
     onselect: (id: Id | null) => void;
     onchange: (regions: TextRegionDto[]) => void;
@@ -103,7 +106,7 @@
           <label class="lbl" for="para-{r.id}">
             {t('media.pieceText', { i: i + 1 })}
             {#if !r.area}<span class="hint">— {t('media.noPlace')}</span>{/if}
-            {#if r.rotation}<span class="hint">— {t('media.turned', { deg: r.rotation })}</span>{/if}
+            {#if shownTurn(r.rotation, turn)}<span class="hint">— {t('media.turned', { deg: shownTurn(r.rotation, turn) })}</span>{/if}
           </label>
           <textarea
             id="para-{r.id}"

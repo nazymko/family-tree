@@ -244,7 +244,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "get_media",
-            description: "A media file's details and the file itself: a picture as an image, shrunk to max_size pixels on its longest side, so a smaller max_size means a smaller answer; a sound recording (a note's voice sample) as its details only, never its bytes; anything else, or a picture that cannot be decoded, as a blob of up to 8 MiB.",
+            description: "A media file's details and the file itself: a picture as an image, shrunk to max_size pixels on its longest side, so a smaller max_size means a smaller answer. The image is upright by its EXIF orientation and not turned by the saved rotation (0, 90, 180 or 270 clockwise, in the details) the app shows it with: the transcription's x, y, w and h are fractions of this very image; a sound recording (a note's voice sample) as its details only, never its bytes; anything else, or a picture that cannot be decoded, as a blob of up to 8 MiB.",
             schema: json!({
                 "type": "object",
                 "properties": {

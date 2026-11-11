@@ -8,7 +8,7 @@ mod event;
 mod family;
 mod media;
 pub(crate) use event::plan_date_correction;
-pub(crate) use media::plan_attach;
+pub(crate) use media::{can_turn, plan_attach};
 mod person;
 pub(crate) use person::agent_number;
 pub mod places;
@@ -471,6 +471,7 @@ pub fn plan_with(
             source_file,
             number,
         } => person::add_number(&mut p, *person, source_file, number)?,
+        C::SetMediaRotation { id, rotation } => media::set_rotation(&mut p, *id, *rotation)?,
         C::SetMediaTranscription { id, regions, known } => {
             media::set_transcription(&mut p, *id, regions, known.as_deref())?
         }

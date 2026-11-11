@@ -88,7 +88,10 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         | C::AddSiblingMarker { .. }
         // Pieces of text are items of a list: the comparison of step 5 lets the agent add its
         // own and change or remove only those, never the owner's.
-        | C::SetMediaTranscription { .. } => Ok(()),
+        | C::SetMediaTranscription { .. }
+        // How a picture is shown: a turn nobody set is empty, so step 5 lets the agent set it;
+        // afterwards only on a picture that is the agent's own.
+        | C::SetMediaRotation { .. } => Ok(()),
         C::AddCitation { citation, .. } => match citation {
             CitationArg::Reuse(_) => Err(refused(
                 "Reusing the last citation shares the owner's working state. Give the source and \
@@ -246,7 +249,8 @@ fn edited_record(cmd: &EditCommand) -> Option<Uuid> {
         C::SaveName { name, .. } => name.id,
         C::UpdateCitation { id, .. }
         | C::UpdatePerson { id, .. }
-        | C::SetMediaTranscription { id, .. } => Some(*id),
+        | C::SetMediaTranscription { id, .. }
+        | C::SetMediaRotation { id, .. } => Some(*id),
         _ => None,
     }
 }
@@ -1003,6 +1007,7 @@ impl Session {
             description: clean(&about.description),
             sha256: Some(sha.clone()),
             transcription: Vec::new(),
+            rotation: None,
         };
         let (cs, outcomes) =
             crate::ops::plan_attach(&self.tree, target, vec![media], now, order, false)?;
@@ -1093,6 +1098,60 @@ impl Session {
         };
         let (write, reached) = self.gated(cmd, None, ctx, batch)?;
         Ok((write, reached, kept))
+    }
+
+    /// Turns how a picture is shown: on a picture this connection added (and nobody has changed
+    /// since), or on one nobody has turned yet. Its transcription stays where it is. The same
+    /// turn again answers [`AgentWrite::AlreadyThere`].
+    pub fn set_media_rotation_as_agent(
+        &mut self,
+        media: Uuid,
+        rotation: u16,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        if !gt_core::model::TEXT_ROTATIONS.contains(&rotation) {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "rotation must be 0, 90, 180 or 270.",
+            ));
+        }
+        let m = self
+            .tree
+            .media
+            .get(&media)
+            .ok_or_else(|| ApiError::not_found("media", media))?;
+        if !crate::ops::can_turn(m) {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "Only a picture can be turned.",
+            ));
+        }
+        if m.shown_rotation() == rotation {
+            return Ok((AgentWrite::AlreadyThere { record: media }, Vec::new()));
+        }
+        if m.rotation.is_some() {
+            let writers = self.project.last_writers(media)?;
+            let rows: Vec<Written> = writers
+                .into_iter()
+                .map(|(by, _)| by)
+                .zip(self.project.rows_of(media)?)
+                .collect();
+            if !record_is_own(&rows, ctx.id) {
+                return Err(ApiError::new(
+                    ErrorCode::Conflict,
+                    "Someone has already turned this picture, so it stays as it is. The \
+                     transcription's places do not depend on it. Say so in your report if it \
+                     reads wrong.",
+                ));
+            }
+        }
+        let cmd = EditCommand::SetMediaRotation {
+            id: media,
+            rotation,
+        };
+        self.gated(cmd, None, ctx, batch)
     }
 
     /// The one change an agent may make to what is already there: a birth or death date someone

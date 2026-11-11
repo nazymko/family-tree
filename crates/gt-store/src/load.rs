@@ -384,7 +384,7 @@ impl Project {
 
         let mut st = conn.prepare(
             "SELECT id, private, changed, unknown_json, path, original_name, mime, title, \
-             date_json, description, sha256, transcription_json FROM media ORDER BY seq",
+             date_json, description, sha256, transcription_json, rotation FROM media ORDER BY seq",
         )?;
         let mut rows = st.query([])?;
         while let Some(r) = rows.next()? {
@@ -394,8 +394,10 @@ impl Project {
                 Some(j) => mended_transcription(id, &j),
                 None => Vec::new(),
             };
+            let rotation = mended_rotation(id, r.get_ref(12)?);
             let m = Media {
                 transcription,
+                rotation,
                 path: r.get(4)?,
                 original_name: r.get(5)?,
                 mime: r.get(6)?,
@@ -426,6 +428,20 @@ impl Project {
             tree.notes.insert(id, n);
         }
         Ok(tree)
+    }
+}
+
+/// How a picture is turned. A value that is no quarter turn reads as upright, and is reported on
+/// stderr; it never stops the tree from opening.
+fn mended_rotation(media: Uuid, v: rusqlite::types::ValueRef<'_>) -> Option<u16> {
+    use rusqlite::types::ValueRef;
+    match v {
+        ValueRef::Null => None,
+        ValueRef::Integer(n) if [0, 90, 180, 270].contains(&n) => Some(n as u16),
+        _ => {
+            eprintln!("gt-store: media {media}: an unknown rotation reads as upright");
+            Some(0)
+        }
     }
 }
 

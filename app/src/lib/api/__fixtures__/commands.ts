@@ -50,6 +50,7 @@ export const commandFixtureMap = {
     id: `${ID}9`,
     regions: [{ id: `${ID}a`, area: { x: 0.1, y: 0.2, w: 0.5, h: 0.1 }, rotation: 90, text: 'Dear Olha,' }, { text: 'Signed below' }],
   },
+  setMediaRotation: { type: 'setMediaRotation', id: `${ID}9`, rotation: 270 },
   linkExisting: { type: 'linkExisting', anchor: `${ID}1`, relation: 'mother', person: `${ID}3`, family: `${ID}4`, newParentSet: false },
   importDraft: {
     type: 'importDraft',

@@ -34,6 +34,7 @@ const EDIT_KEYS: Record<string, [label: MessageKey, done: MessageKey]> = {
   'Set primary media': ['edit.setPrimaryMedia', 'edit.donePrimaryMediaSet'],
   'Edit media': ['edit.editMedia', 'edit.doneMediaSaved'],
   'Edit transcription': ['edit.editTranscription', 'edit.doneTranscriptionSaved'],
+  'Turn picture': ['edit.turnPicture', 'edit.donePictureTurned'],
   'Correct date': ['edit.correctDate', 'edit.doneDateCorrected'],
   'Record number': ['edit.recordNumber', 'edit.doneNumberRecorded'],
   'Link media files': ['edit.linkMediaFiles', 'edit.doneMediaFilesLinked'],

@@ -221,6 +221,7 @@ impl Session {
                 description: None,
                 sha256: Some(sha),
                 transcription: Vec::new(),
+                rotation: None,
             },
         })
     }

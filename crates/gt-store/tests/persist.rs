@@ -78,6 +78,31 @@ fn a_damaged_transcription_never_stops_the_tree_from_opening() {
 }
 
 #[test]
+fn a_bad_picture_rotation_reads_as_upright() {
+    let (_tmp, mut p) = new_project();
+    let tree = rich_tree();
+    p.save_tree(&tree, TODAY).unwrap();
+    let first = *tree.media.keys().next().unwrap();
+    for bad in [45, -90, 360, 9999] {
+        p.conn()
+            .execute(
+                "UPDATE media SET rotation = ?1 WHERE id = ?2",
+                rusqlite::params![bad, first.to_string()],
+            )
+            .unwrap();
+        let back = p.load_tree().unwrap();
+        assert_eq!(back.media[&first].rotation, Some(0), "{bad}");
+    }
+    p.conn()
+        .execute(
+            "UPDATE media SET rotation = 'sideways' WHERE id = ?1",
+            [first.to_string()],
+        )
+        .unwrap();
+    assert_eq!(p.load_tree().unwrap().media[&first].rotation, Some(0));
+}
+
+#[test]
 fn save_load_roundtrip() {
     let (_tmp, mut p) = new_project();
     let tree = rich_tree();

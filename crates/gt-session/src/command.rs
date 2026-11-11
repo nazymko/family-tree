@@ -575,6 +575,13 @@ pub enum EditCommand {
         #[ts(optional)]
         known: Option<Vec<Uuid>>,
     },
+    /// How the picture is shown: degrees clockwise (0, 90, 180 or 270) on top of its EXIF
+    /// orientation. The transcription's areas stay as they are, on the picture upright by EXIF.
+    SetMediaRotation {
+        id: Uuid,
+        #[ts(type = "0 | 90 | 180 | 270")]
+        rotation: u16,
+    },
     /// Everything traced from a picture, in ONE undoable step. With `attach_picture` the staged
     /// trace picture is stored as a media item attached to every new person and to a new source.
     ImportDraft {
@@ -634,6 +641,7 @@ impl EditCommand {
             EditCommand::SetPrimaryMedia { .. } => "Set primary media".into(),
             EditCommand::UpdateMedia { .. } => "Edit media".into(),
             EditCommand::SetMediaTranscription { .. } => "Edit transcription".into(),
+            EditCommand::SetMediaRotation { .. } => "Turn picture".into(),
             EditCommand::ImportDraft { .. } => "Add traced people".into(),
             EditCommand::AddNumber { .. } => "Record number".into(),
         }

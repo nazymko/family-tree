@@ -273,6 +273,7 @@ fn media_record(name: &str) -> gt_core::model::Media {
         description: None,
         sha256: None,
         transcription: Vec::new(),
+        rotation: None,
     }
 }
 

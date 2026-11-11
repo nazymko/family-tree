@@ -2,11 +2,27 @@
   import { tick } from 'svelte';
   import type { Id, TextAreaInput, TextRegionDto } from '../api/api';
   import { t } from '../i18n';
-  import { KEY_STEP, areaBetween, moveArea, newPieceId, nextRotation, resizeArea, type Corner } from './transcription';
+  import {
+    KEY_STEP,
+    areaBetween,
+    cornerShownAt,
+    moveArea,
+    moveOnPicture,
+    newPieceId,
+    nextRotation,
+    pointOnPicture,
+    resizeArea,
+    shownTurn,
+    unturn,
+    type Corner,
+    type Rotation,
+  } from './transcription';
 
   let {
     regions,
     transform,
+    place = 'left: 0%; top: 0%; width: 100%; height: 100%;',
+    turn = 0,
     editing = false,
     drawing = false,
     selected = null,
@@ -16,8 +32,12 @@
     onleave,
   }: {
     regions: TextRegionDto[];
-    /** The CSS transform of the picture (zoom and pan), so the boxes stay on the writing. */
+    /** The CSS transform of the picture (zoom, pan and turn), so the boxes stay on the writing. */
     transform: string;
+    /** Where the picture upright by EXIF sits in its frame, before the transform: the same as the picture's. */
+    place?: string;
+    /** Degrees clockwise the picture is shown turned. The pieces stay stored on the picture upright by EXIF. */
+    turn?: Rotation;
     editing?: boolean;
     /** A drag across the picture marks a new piece. */
     drawing?: boolean;
@@ -58,11 +78,14 @@
     return live?.id === r.id ? live.area : r.area;
   }
 
-  /** The picture's size on screen (with the zoom), to turn a pointer move into fractions of it. */
+  /** The turned picture's box on screen (with the zoom), to turn a pointer move into fractions of the picture. */
   function size() {
     const b = layer?.getBoundingClientRect();
     return { left: b?.left ?? 0, top: b?.top ?? 0, w: b?.width || 1, h: b?.height || 1 };
   }
+
+  /** The corner of a box that shows at the top right of the screen, where its turn badge goes. */
+  const badgeAt = $derived(cornerShownAt(turn, 'ne'));
 
   function showTip(id: Id, el: HTMLElement) {
     tipFor = id;
@@ -94,20 +117,18 @@
     if (!editing || !drawing || e.button > 0) return;
     e.stopPropagation();
     e.preventDefault();
-    const s = size();
-    const x = (e.clientX - s.left) / s.w;
-    const y = (e.clientY - s.top) / s.h;
+    const { x, y } = pointOnPicture(turn, size(), e.clientX, e.clientY);
     drag = { kind: 'draw', id: newPieceId(), x: e.clientX, y: e.clientY, from: { x, y, w: 0, h: 0 }, moved: false };
     layer?.setPointerCapture?.(e.pointerId);
   }
 
   function onlayermove(e: PointerEvent) {
     if (!drag) return;
-    const s = size();
-    const dx = (e.clientX - drag.x) / s.w;
-    const dy = (e.clientY - drag.y) / s.h;
-    if (dx === 0 && dy === 0) return;
+    if (e.clientX === drag.x && e.clientY === drag.y) return;
     drag.moved = true;
+    const s = size();
+    // The move on screen, turned back onto the picture as it is stored.
+    const { dx, dy } = moveOnPicture(turn, s, e.clientX - drag.x, e.clientY - drag.y);
     const f = drag.from;
     const area =
       drag.kind === 'move'
@@ -154,7 +175,9 @@
     };
     const d = arrows[e.key];
     if (d) {
-      replaceArea(r.id, e.shiftKey ? resizeArea(r.area, 'se', d[0], d[1]) : moveArea(r.area, d[0], d[1]));
+      // Arrows go the way they point on screen, whatever the picture's turn; Shift moves the corner shown bottom right.
+      const [dx, dy] = unturn(turn, d[0], d[1]);
+      replaceArea(r.id, e.shiftKey ? resizeArea(r.area, cornerShownAt(turn, 'se'), dx, dy) : moveArea(r.area, dx, dy));
     } else if (e.key === 'r' || e.key === 'R') {
       onchange(regions.map((x) => (x.id === r.id ? { ...x, rotation: nextRotation(x.rotation) } : x)));
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -182,8 +205,9 @@
   bind:this={layer}
   class="layer"
   class:drawing={editing && drawing}
+  class:across={turn % 180 !== 0}
   dir="ltr"
-  style="transform: {transform}"
+  style="{place} transform: {transform}"
   onpointerdown={onlayerdown}
   onpointermove={onlayermove}
   onpointerup={onlayerup}
@@ -191,6 +215,7 @@
 >
   {#each placed as { r, i } (r.id)}
     {@const a = areaOf(r)}
+    {@const shown = shownTurn(r.rotation, turn)}
     <button
       type="button"
       class="box"
@@ -211,7 +236,7 @@
       onpointerdown={(e) => start(e, 'move', r)}
       onkeydown={(e) => onboxkey(e, r)}
     >
-      {#if r.rotation}<span class="turn" aria-hidden="true">↻{r.rotation}°</span>{/if}
+      {#if shown}<span class="turn {badgeAt}" style="transform: rotate({-turn}deg) translateX(-100%)" aria-hidden="true">↻{shown}°</span>{/if}
       {#if editing && selected === r.id}
         {#each CORNERS as c (c)}
           <span class="handle {c}" aria-hidden="true" onpointerdown={(e) => start(e, 'resize', r, c)}></span>
@@ -227,14 +252,13 @@
 {#if tip && !live}
   <div id="tip-{tip.id}" class="tip" role="tooltip" dir="auto" style="left: {tipAt.left}px; top: {tipAt.top}px">
     {tip.text.trim() || t('media.pieceEmpty')}
-    {#if tip.rotation}<small>{t('media.turned', { deg: tip.rotation })}</small>{/if}
+    {#if shownTurn(tip.rotation, turn)}<small>{t('media.turned', { deg: shownTurn(tip.rotation, turn) })}</small>{/if}
   </div>
 {/if}
 
 <style>
   .layer {
     position: absolute;
-    inset: 0;
     transform-origin: center;
   }
   .layer.drawing {
@@ -268,13 +292,35 @@
   }
   .turn {
     position: absolute;
-    top: 0;
-    right: 0;
     padding: 0 2px;
     font-size: 10px;
     line-height: 1.2;
     color: var(--paper-0);
     background: var(--focus);
+  }
+  /* The badge hangs from the box corner that shows top right, inside the box, and reads upright: its own top left is
+     pinned to that corner, turned back by the picture's turn, then shifted its width to the left. */
+  .turn {
+    transform-origin: 0 0;
+    white-space: nowrap;
+    /* Pinned at the far edge, it would otherwise shrink to the room left there: none. */
+    width: max-content;
+  }
+  .turn.ne {
+    left: 100%;
+    top: 0;
+  }
+  .turn.nw {
+    left: 0;
+    top: 0;
+  }
+  .turn.se {
+    left: 100%;
+    top: 100%;
+  }
+  .turn.sw {
+    left: 0;
+    top: 100%;
   }
   .handle {
     position: absolute;
@@ -302,6 +348,15 @@
   .se {
     right: -6px;
     bottom: -6px;
+    cursor: nwse-resize;
+  }
+  /* A quarter turn swaps the diagonals the corners drag along. */
+  .across .nw,
+  .across .se {
+    cursor: nesw-resize;
+  }
+  .across .ne,
+  .across .sw {
     cursor: nwse-resize;
   }
   .tip {

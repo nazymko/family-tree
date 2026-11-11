@@ -213,6 +213,7 @@ export function fixtureTree(n: number, seed = 1): Fixture {
         height: 900,
         sha256: null,
         transcription: [],
+        rotation: 0,
       });
       rec.media.push({ media: media[media.length - 1], primary: true });
     }

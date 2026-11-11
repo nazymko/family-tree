@@ -112,6 +112,7 @@ fn write_needs_batch() {
             "update_own_media_region",
             json!({"media": id, "region": id, "text": "x"}),
         ),
+        ("set_media_rotation", json!({"media": id, "rotation": 90})),
     ];
     for (tool, args) in writes {
         let message = call_err(&host, tool, args);
@@ -1395,6 +1396,8 @@ fn only_the_tools_named_here_can_write() {
             // Pieces of text on a picture: the gate lets an agent change only its own.
             "set_media_transcription",
             "update_own_media_region",
+            // How a picture is shown: on the agent's own, or one nobody has turned.
+            "set_media_rotation",
         ]
     );
 }

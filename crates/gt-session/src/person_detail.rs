@@ -230,6 +230,7 @@ impl Session {
                         height: self.media_dims(l.media, &md.path).1,
                         sha256: md.sha256.clone(),
                         transcription: md.transcription.iter().map(text_region_dto).collect(),
+                        rotation: md.shown_rotation(),
                     },
                     primary: l.primary,
                 })

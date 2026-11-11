@@ -196,7 +196,7 @@ fn v1_project_upgrades_to_2() {
     }
     let p = Project::open(&dir).unwrap();
     assert_eq!(p.schema_version(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 6);
+    assert_eq!(SCHEMA_VERSION, 7);
     let cols: Vec<String> = p
         .conn()
         .prepare("SELECT name FROM pragma_table_info('change_log')")
@@ -223,7 +223,7 @@ fn v1_project_with_data_keeps_search_consistent_after_upgrade() {
         // Turn it back into a v1 database whose full-text rows have foreign row ids.
         let c = Connection::open(dir.join("tree.db")).unwrap();
         c.execute_batch(
-            "ALTER TABLE media DROP COLUMN transcription_json; DROP TABLE merged_group; DROP TABLE merge_alias; DROP INDEX change_log_reverts; DROP INDEX change_log_batch; DROP INDEX change_person_person; DROP TABLE change_person; DROP TABLE agent_batch; \
+            "ALTER TABLE media DROP COLUMN rotation; ALTER TABLE media DROP COLUMN transcription_json; DROP TABLE merged_group; DROP TABLE merge_alias; DROP INDEX change_log_reverts; DROP INDEX change_log_batch; DROP INDEX change_person_person; DROP TABLE change_person; DROP TABLE agent_batch; \
              ALTER TABLE change_log DROP COLUMN actor_kind; ALTER TABLE change_log DROP COLUMN actor_id; ALTER TABLE change_log DROP COLUMN actor_name; ALTER TABLE change_log DROP COLUMN batch_id; ALTER TABLE person DROP COLUMN sibling_marker; \
              DROP INDEX change_log_target; DROP INDEX change_log_group; DROP INDEX idx_person_seq; DROP INDEX idx_family_seq; DROP INDEX idx_event_seq; DROP INDEX idx_place_seq; DROP INDEX idx_source_seq; DROP INDEX idx_repository_seq; DROP INDEX idx_citation_seq; DROP INDEX idx_media_seq; DROP INDEX idx_note_seq; \
              ALTER TABLE change_log DROP COLUMN group_id; \
@@ -995,6 +995,7 @@ fn gen_cs(r: &mut Rng, t: &Tree) -> Option<ChangeSet> {
                 description: None,
                 sha256: Some(mid.to_string()),
                 transcription: Vec::new(),
+                rotation: None,
             };
             let mut a = b.clone();
             a.common.media.push(MediaLink {

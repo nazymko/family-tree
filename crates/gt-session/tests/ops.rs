@@ -943,6 +943,7 @@ fn notes_sources_and_media() {
             description: None,
             sha256: None,
             transcription: Vec::new(),
+            rotation: None,
         };
         let id = media.common.id;
         t.media.insert(id, media);
@@ -1005,6 +1006,7 @@ fn delete_media_leaves_no_link_anywhere_and_undo_restores_it() {
         description: None,
         sha256: None,
         transcription: Vec::new(),
+        rotation: None,
     };
     let (gone, kept) = (make("gone.jpg"), make("kept.jpg"));
     let (gone_id, kept_id) = (gone.common.id, kept.common.id);
@@ -1080,7 +1082,7 @@ fn plan_does_not_mutate() {
 fn edit_command_json_matches_ts_fixtures() {
     let json = include_str!("../../../app/src/lib/api/__fixtures__/commands.json");
     let cmds: Vec<EditCommand> = serde_json::from_str(json).unwrap();
-    assert_eq!(cmds.len(), 30);
+    assert_eq!(cmds.len(), 31);
     // Absent and null differ for livingOverride.
     let EditCommand::UpdatePerson {
         living_override, ..

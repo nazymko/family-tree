@@ -40,7 +40,7 @@
     'source', 'page', 'quality', 'original', 'primaryInfo', 'direct', 'title', 'author', 'publication', 'abbreviation',
     'repository', 'placeNames', 'parent', 'placeKind', 'lat', 'lon', 'placeRaw', 'repoName', 'address', 'urls', 'path',
     'originalName', 'mime', 'sha256', 'media', 'extIds', 'mediaPrimary', 'mediaRegion',
-    'transcription',
+    'transcription', 'mediaRotation',
   ]);
 
   /** Joins the names of one row's `of` (the partners of a family); the page puts its own "and" between them. */

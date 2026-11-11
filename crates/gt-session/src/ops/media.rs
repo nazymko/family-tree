@@ -265,6 +265,32 @@ pub(super) fn set_transcription(
     Ok(None)
 }
 
+/// Turns how a picture is shown. Its transcription stays exactly where it is: the areas are on
+/// the picture upright by EXIF, before this turn.
+pub(super) fn set_rotation(
+    p: &mut Planner,
+    id: Uuid,
+    rotation: u16,
+) -> Result<Option<Uuid>, ApiError> {
+    if !TEXT_ROTATIONS.contains(&rotation) {
+        return Err(invalid("rotation must be 0, 90, 180 or 270."));
+    }
+    let mut m: Media = p.get(id)?;
+    if !can_turn(&m) {
+        return Err(invalid("Only a picture can be turned."));
+    }
+    m.rotation = Some(rotation);
+    m.common.changed = Some(p.now);
+    p.put(m);
+    Ok(None)
+}
+
+/// Whether a media record is a picture that can be shown turned: not a recording or a document.
+pub(crate) fn can_turn(m: &Media) -> bool {
+    let mime = m.mime.as_deref().unwrap_or_default();
+    !(mime.starts_with("audio/") || mime == "application/pdf")
+}
+
 /// Links new media records to `target` in one change set. Content already stored as a media
 /// record (same sha256) is reused rather than duplicated. Per input, the linked media id, or
 /// `None` when that content is already attached to the target.

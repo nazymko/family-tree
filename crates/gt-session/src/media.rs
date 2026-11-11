@@ -455,6 +455,7 @@ impl Session {
                     description: None,
                     sha256: Some(f.sha),
                     transcription: Vec::new(),
+                    rotation: None,
                 },
                 too_large: f.too_large,
                 src: f.src,
