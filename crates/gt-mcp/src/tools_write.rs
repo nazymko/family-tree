@@ -1405,7 +1405,9 @@ fn rewrite_note<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "note")?;
     let reason = long(args, "reason")?
         .filter(|r| !r.trim().is_empty())
-        .ok_or_else(|| invalid("reason must say who asked for the rewrite, and for what.".into()))?;
+        .ok_or_else(|| {
+            invalid("reason must say who asked for the rewrite, and for what.".into())
+        })?;
     let text = long(args, "text")?
         .filter(|t| !t.trim().is_empty())
         .ok_or_else(|| invalid("text must be the new text of the note.".into()))?;

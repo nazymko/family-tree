@@ -76,7 +76,12 @@ fn rewrites_an_owners_note_and_keeps_the_kind() {
     let (_, note) = owner_note(&host, "Born in the village, 1990.");
     let batch = begin(&host);
     let kind = kind_of(&host, note);
-    let done = rewrite(&host, &batch, note, "Ivan came into the world in the village, 1990.");
+    let done = rewrite(
+        &host,
+        &batch,
+        note,
+        "Ivan came into the world in the village, 1990.",
+    );
     assert_eq!(done["id"], json!(note));
     assert_eq!(
         text_of(&host, note),
@@ -181,9 +186,12 @@ fn refusals() {
     assert!(m.contains("reason"), "{m}");
     let m = ask(json!({"batch": batch, "note": note, "text": "  \n", "reason": REASON}));
     assert!(m.contains("text"), "{m}");
-    let m = ask(json!({"batch": batch, "note": note, "text": "x".repeat(64 * 1024 + 1), "reason": REASON}));
+    let m = ask(
+        json!({"batch": batch, "note": note, "text": "x".repeat(64 * 1024 + 1), "reason": REASON}),
+    );
     assert!(m.contains("64 KiB"), "{m}");
-    let m = ask(json!({"batch": batch, "note": Uuid::from_u128(77), "text": "New.", "reason": REASON}));
+    let m =
+        ask(json!({"batch": batch, "note": Uuid::from_u128(77), "text": "New.", "reason": REASON}));
     assert!(m.contains("note"), "{m}");
     // Exactly the limit is fine.
     let big = "y".repeat(64 * 1024);
@@ -300,7 +308,12 @@ fn nobody_changes_from_alive_to_dead() {
     };
     let before = status(&host);
     let batch = begin(&host);
-    rewrite(&host, &batch, note, "Ivan lives in the village, as he always did.");
+    rewrite(
+        &host,
+        &batch,
+        note,
+        "Ivan lives in the village, as he always did.",
+    );
     assert_eq!(status(&host), before);
     assert!(before.0, "born in 1990 counts as living");
 }
