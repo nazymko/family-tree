@@ -853,7 +853,6 @@ export const en = {
     siblingMarker: '<Some more Sisters/Brothers>',
     loading: 'Loading person',
     noDates: 'No dates recorded',
-    more: 'More…',
     groupCharts: 'Charts',
     groupFamilies: 'Families',
     groupSections: 'Sections',

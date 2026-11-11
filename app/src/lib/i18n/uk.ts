@@ -852,7 +852,6 @@ export const uk: Messages = {
     siblingMarker: '<Ще сестри/брати>',
     loading: 'Завантаження особи',
     noDates: 'Дат не вказано',
-    more: 'Ще…',
     groupCharts: 'Схеми',
     groupFamilies: 'Родини',
     groupSections: 'Розділи',

@@ -265,11 +265,6 @@
     h?.focus({ preventScroll: true });
   }
 
-  const moreItems = $derived<MenuItem[]>([
-    { label: t('surnames.button'), onselect: () => (dialog = { kind: 'surnames' }) },
-    { label: isHome ? t('common.homePerson') : t('person.makeHome'), onselect: () => void toggleHome() },
-  ]);
-
   const addItems = $derived<MenuItem[]>([
     { label: t('person.menu_father'), onselect: () => (dialog = { kind: 'quick', relation: 'father' }) },
     { label: t('person.menu_mother'), onselect: () => (dialog = { kind: 'quick', relation: 'mother' }) },
@@ -473,7 +468,8 @@
           <Button onclick={() => (dialog = { kind: 'event', event: deathEvent, newKind: 'death' })}>
             {deathEvent ? t('person.editDeath') : t('person.addDeath')}
           </Button>
-          <Menu label={t('person.more')} text={t('person.more')} items={moreItems} align="start" />
+          <Button onclick={() => (dialog = { kind: 'surnames' })}>{t('surnames.button')}</Button>
+          <Button onclick={() => void toggleHome()}>{isHome ? t('common.homePerson') : t('person.makeHome')}</Button>
         </div>
       </div>
       {#snippet body()}
