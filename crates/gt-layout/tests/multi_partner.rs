@@ -331,12 +331,12 @@ fn whole_tree_draws_the_person_between_two_partners() {
     };
     let w = whole(&input, &Metrics::default());
     let x = |k: Key| {
-        let n = &w.layout.nodes[w.extras.node_of(k).unwrap() as usize];
+        let n = &w.layout.nodes[w.extras.node_of(k).expect("person placed") as usize];
         n.rect.x + n.rect.w / 2.0
     };
     let order_ok = (x(2) < x(1) && x(1) < x(3)) || (x(3) < x(1) && x(1) < x(2));
     assert!(order_ok, "A between P1 and P2: {} {} {}", x(2), x(1), x(3));
-    let id = |k: Key| w.extras.node_of(k).unwrap();
+    let id = |k: Key| w.extras.node_of(k).expect("person placed");
     for e in w
         .layout
         .edges
