@@ -47,7 +47,12 @@ pub const INSTRUCTIONS: &str = concat!(
      Correcting a date: correct_event_date sets a confirmed birth or death date on any person's \
      birth or death event, with the reason (who confirmed it or which source says so). Add a \
      citation for the new date too. Disagreeing sources with nobody confirming are a note, not a \
-     correction. It never changes whether someone counts as alive or dead.\n"
+     correction. It never changes whether someone counts as alive or dead.\n\n\
+     Taking back a link: remove_own_child_link removes a parent-child link you made yourself \
+     (person, family, reason), in this batch or an earlier one, when it turns out the child \
+     belongs to other parents; then link the child to the right family with link_people. It \
+     removes only that link, and a note on the person records the family and the reason. A link \
+     anyone else made is refused: leave a note and list it in your report.\n"
 );
 
 /// What the server needs from the app. Used as a generic bound only.

@@ -1284,6 +1284,118 @@ impl Session {
         Ok(())
     }
 
+    /// The one way an agent takes a link back: `child` leaves `family`, and nothing else goes (not
+    /// the person, the family, its partners or its other children). Allowed only for a child link
+    /// this connection added itself and nobody has changed since, in this batch or in an earlier
+    /// one of the same connection: the log of the family says who added the link and whether
+    /// anyone touched it later (`item_is_own`, the test every `update_own_*` edit uses). A note on
+    /// the child records the family and `reason`, in the same change, so one undo takes back both.
+    /// Step 6 still holds, so it can never change whether anyone counts as alive or dead. A repeat
+    /// (the link was there once and is gone) is `AlreadyThere`; a person who was never a child in
+    /// that family is refused.
+    pub fn remove_own_child_link(
+        &mut self,
+        child: Uuid,
+        family: Uuid,
+        reason: &str,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(refused(
+                "Give the reason: why this child does not belong in this family.",
+            ));
+        }
+        if reason.chars().count() > CORRECTION_REASON_MAX {
+            return Err(refused(
+                "The reason holds up to 1000 characters: say who or what showed the link was \
+                 wrong, and put the rest in a note.",
+            ));
+        }
+        if !self.tree.persons.contains_key(&child) {
+            return Err(ApiError::not_found("person", child));
+        }
+        let Some(fam) = self.tree.families.get(&family) else {
+            return Err(ApiError::not_found("family", family));
+        };
+        let rows: Vec<Written> = self
+            .project
+            .last_writers(family)?
+            .into_iter()
+            .map(|(by, _)| by)
+            .zip(self.project.rows_of(family)?)
+            .collect();
+        let path = ["Family".to_string(), "children".to_string()];
+        let id = serde_json::json!(child);
+        if !fam.children.iter().any(|l| l.person == child) {
+            // Gone now, but there once: the link was taken out already, so there is nothing to do.
+            let was_there = rows.iter().any(|(_, c)| {
+                let has = |r: &Option<Record>| -> bool {
+                    r.as_ref()
+                        .and_then(stripped)
+                        .and_then(|(json, _)| {
+                            let list = at_path(&json, &path)?.as_array()?.clone();
+                            find_item(&list, &id).map(|_| ())
+                        })
+                        .is_some()
+                };
+                has(&c.before)
+            });
+            if was_there {
+                return Ok((AgentWrite::AlreadyThere { record: child }, Vec::new()));
+            }
+            return Err(refused(format!(
+                "{} is not a child in this family, so there is no link to remove. Leave it and \
+                 list it in your report.",
+                self.person_name(child)
+            )));
+        }
+        if self.tree.persons[&child].sibling_marker {
+            return Err(refused(
+                "The entry for brothers and sisters nobody named is not a person's link. Leave \
+                 it and list it in your report.",
+            ));
+        }
+        // "Own": this connection (any batch) added this child link, and no other author changed
+        // the link after that. Links made by the owner, an import or another connection, and
+        // links the owner edited since, are refused.
+        if !item_is_own(&rows, &path, &id, ctx.id) {
+            return Err(refused(
+                "Only a link you made yourself, which nobody has changed since, can be taken \
+                 back. Leave a note and list it in your report.",
+            ));
+        }
+        let names: Vec<String> = [fam.partner1, fam.partner2]
+            .into_iter()
+            .flatten()
+            .map(|p| self.person_name(p))
+            .collect();
+        let whose = if names.is_empty() {
+            "a family with no partners".to_string()
+        } else {
+            format!("the family of {}", names.join(" and "))
+        };
+        let note = format!("Removed from {whose} (family {family}) as a child. Reason: {reason}");
+        let (_, now) = (self.clock.0)();
+        let (cs, focus) = crate::ops::plan_child_link_removal(
+            &self.tree,
+            family,
+            child,
+            &note,
+            now,
+            self.day_order(),
+        )?;
+        self.pass_and_store(
+            &EditCommand::UnlinkChild { family, child },
+            cs,
+            focus,
+            ctx,
+            batch,
+        )
+    }
+
     fn marker_of(&self, family: Uuid) -> Option<Uuid> {
         let family = self.tree.families.get(&family)?;
         family

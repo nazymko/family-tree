@@ -91,6 +91,10 @@ fn write_needs_batch() {
         ("add_sibling_marker", json!({"family": id})),
         ("remove_own_empty_family", json!({"family": id})),
         (
+            "remove_own_child_link",
+            json!({"person": id, "family": id, "reason": "x"}),
+        ),
+        (
             "set_number",
             json!({"person": id, "source_file": "a", "number": "1"}),
         ),

@@ -252,6 +252,7 @@ fn tools_list_deterministic() {
         "add_citation",
         "add_sibling_marker",
         "remove_own_empty_family",
+        "remove_own_child_link",
         "set_number",
         "set_sex",
         "update_own_note",
