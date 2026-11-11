@@ -8,6 +8,7 @@ pub mod model;
 pub mod phonetic;
 pub mod privacy;
 pub mod raw;
+pub mod time;
 pub mod tree;
 
 pub use date::{DayOrder, GedcomVersion};

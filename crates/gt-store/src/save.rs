@@ -57,6 +57,11 @@ fn new_row_id() -> String {
     Uuid::now_v7().to_string()
 }
 
+/// Milliseconds as a database integer.
+fn ms_col(ms: u64) -> i64 {
+    i64::try_from(ms).unwrap_or(i64::MAX)
+}
+
 /// A position as a database integer.
 fn idx(i: usize) -> i64 {
     i64::try_from(i).unwrap_or(i64::MAX)
@@ -70,7 +75,8 @@ fn save_common(tx: &Transaction, ty: &str, c: &Common) -> Result<(), StoreError>
         let r = m.region.as_ref();
         tx.prepare_cached(
             "INSERT INTO media_link(id, target_type, target_id, pos, media_id, \"primary\", \
-             region_x, region_y, region_w, region_h) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+             region_x, region_y, region_w, region_h, clip_id, clip_start_ms, clip_end_ms, \
+             clip_label) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
         )?
         .execute(params![
             new_row_id(),
@@ -83,6 +89,10 @@ fn save_common(tx: &Transaction, ty: &str, c: &Common) -> Result<(), StoreError>
             r.map(|r| f64::from(r.y)),
             r.map(|r| f64::from(r.w)),
             r.map(|r| f64::from(r.h)),
+            m.clip.as_ref().map(|c| s(&c.id)),
+            m.clip.as_ref().map(|c| ms_col(c.start_ms)),
+            m.clip.as_ref().map(|c| ms_col(c.end_ms)),
+            m.clip.as_ref().and_then(|c| c.label.clone()),
         ])?;
     }
     for (pos, e) in c.ext_ids.iter().enumerate() {

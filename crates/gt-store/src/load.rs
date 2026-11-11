@@ -19,6 +19,43 @@ struct Links {
     ext: HashMap<Key, Vec<ExternalId>>,
 }
 
+/// The clip columns of a `media_link` row (8 to 11): none when all are empty, else a whole clip.
+/// Any column of the wrong type or a stretch that is not `start < end` is an error.
+fn read_clip(r: &Row) -> Result<Option<Clip>, String> {
+    use rusqlite::types::Value as V;
+    let col = |i: usize| r.get::<_, V>(i).map_err(|e| e.to_string());
+    let (id, start, end, label) = (col(8)?, col(9)?, col(10)?, col(11)?);
+    if [&id, &start, &end, &label]
+        .iter()
+        .all(|v| matches!(v, V::Null))
+    {
+        return Ok(None);
+    }
+    let id = match id {
+        V::Text(t) => Uuid::parse_str(&t).map_err(|_| "has a bad id".to_string())?,
+        _ => return Err("has no id".into()),
+    };
+    let ms = |v: V| match v {
+        V::Integer(n) => u64::try_from(n).map_err(|_| "has a negative time".to_string()),
+        _ => Err("has a time that is not a number".to_string()),
+    };
+    let (start_ms, end_ms) = (ms(start)?, ms(end)?);
+    if start_ms >= end_ms {
+        return Err("ends before it starts".into());
+    }
+    let label = match label {
+        V::Text(t) if !t.trim().is_empty() => Some(t),
+        V::Null | V::Text(_) => None,
+        _ => return Err("has a label that is not text".into()),
+    };
+    Ok(Some(Clip {
+        id,
+        start_ms,
+        end_ms,
+        label,
+    }))
+}
+
 impl Links {
     fn load(conn: &Connection) -> Result<Links, StoreError> {
         let mut l = Links {
@@ -44,7 +81,8 @@ impl Links {
         }
         let mut st = conn.prepare(
             "SELECT target_type, target_id, media_id, \"primary\", region_x, region_y, region_w, \
-             region_h FROM media_link ORDER BY pos, rowid",
+             region_h, clip_id, clip_start_ms, clip_end_ms, clip_label FROM media_link \
+             ORDER BY pos, rowid",
         )?;
         let mut rows = st.query([])?;
         while let Some(r) = rows.next()? {
@@ -61,10 +99,21 @@ impl Links {
                 }),
                 _ => None,
             };
+            let media = parse_uuid(&r.get::<_, String>(2)?)?;
+            let clip = match read_clip(r) {
+                Ok(clip) => clip,
+                Err(why) => {
+                    // A clip that cannot be read is left out with its link: shown without its
+                    // times, the link would claim the whole recording.
+                    eprintln!("gt-store: a clip of media {media} {why}; left out");
+                    continue;
+                }
+            };
             let link = MediaLink {
-                media: parse_uuid(&r.get::<_, String>(2)?)?,
+                media,
                 region,
                 primary: r.get(3)?,
+                clip,
             };
             l.media
                 .entry((r.get(0)?, r.get(1)?))

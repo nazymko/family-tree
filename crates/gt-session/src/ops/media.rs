@@ -30,6 +30,7 @@ pub(super) fn attach_media(
                     media: *m,
                     region: None,
                     primary: links.is_empty(),
+                    clip: None,
                 });
             }
         }
@@ -232,6 +233,8 @@ pub(crate) fn checked_transcription(
             area,
             rotation,
             text: r.text.clone(),
+            speaker: None,
+            time: None,
         });
     }
     Ok(out)
@@ -335,6 +338,7 @@ pub(crate) fn plan_attach(
                     media: id,
                     region: None,
                     primary: may_be_primary && links.is_empty(),
+                    clip: None,
                 });
                 out.push(Some(id));
             }

@@ -178,6 +178,7 @@ pub(super) fn import_draft(
         media: pic.media.common.id,
         region: None,
         primary: false,
+        clip: None,
     });
     if let (Some(pic), Some(l)) = (picture, &link) {
         let mut m = pic.media.clone();

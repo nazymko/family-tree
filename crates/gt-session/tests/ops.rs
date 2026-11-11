@@ -1016,6 +1016,7 @@ fn delete_media_leaves_no_link_anywhere_and_undo_restores_it() {
         media,
         region: None,
         primary,
+        clip: None,
     };
     t.persons.get_mut(&anna).unwrap().common.media =
         vec![link(gone_id, true), link(kept_id, false)];

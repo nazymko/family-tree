@@ -348,6 +348,7 @@ fn media_links_external_ids_and_unknown_data_are_all_shown() {
             h: 0.4,
         }),
         primary: true,
+        clip: None,
     }];
     with.common.ext_ids = vec![ExternalId {
         kind: ExtIdKind::Exid {

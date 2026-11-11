@@ -468,6 +468,7 @@ fn a_replaced_media_link_changed_since_stays_untouched() {
             h: 1.0,
         }),
         primary,
+        clip: None,
     };
     let with = |links: Vec<MediaLink>| {
         let mut p = person(1, "Ivan");

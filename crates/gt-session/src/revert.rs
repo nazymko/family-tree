@@ -252,9 +252,15 @@ fn same_keys(a: &Map<String, Value>, b: &Map<String, Value>) -> bool {
 }
 
 /// What makes two array items the same item.
+fn clip_id(o: &Map<String, Value>) -> Option<&Value> {
+    o.get("clip")?.as_object()?.get("id")
+}
+
 pub(crate) fn identity(item: &Value) -> Value {
     match item.as_object() {
         Some(o) if o.contains_key("id") => o.get("id").cloned().unwrap_or(Value::Null),
+        // A link to a clip of a recording is that clip, whatever its times or label.
+        Some(o) if clip_id(o).is_some() => clip_id(o).cloned().unwrap_or(Value::Null),
         // `ChildLink` has no id.
         Some(o) if o.contains_key("person") => o.get("person").cloned().unwrap_or(Value::Null),
         _ => item.clone(),

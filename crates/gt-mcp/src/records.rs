@@ -62,8 +62,25 @@ fn media_link_fields(link: &MediaLink) -> Fields {
         media,
         region,
         primary,
+        clip,
     } = link;
-    fields_of(json!({"media": media, "region": region, "primary": primary}))
+    let mut out = fields_of(json!({"media": media, "region": region, "primary": primary}));
+    if let Some(c) = clip {
+        out.insert("clip".into(), clip_json(c));
+    }
+    out
+}
+
+/// A clip of a recording: its id, times in milliseconds and as "m:ss", and its label.
+pub(crate) fn clip_json(c: &gt_core::model::Clip) -> Value {
+    json!({
+        "id": c.id,
+        "startMs": c.start_ms,
+        "endMs": c.end_ms,
+        "start": gt_core::time::format_ms(c.start_ms),
+        "end": gt_core::time::format_ms(c.end_ms),
+        "label": c.label,
+    })
 }
 
 /// What a linked row says about its record: links by id, and nothing empty.
@@ -162,7 +179,7 @@ fn voice_samples(s: &Session, common: &Common) -> Vec<Value> {
                 "originalName": m.original_name,
                 "mime": m.mime,
                 "sizeBytes": file.and_then(|f| std::fs::metadata(f).ok()).map(|f| f.len()),
-                "resolved": s.media_dtos(&[MediaLink { media: m.common.id, region: None, primary: false }])
+                "resolved": s.media_dtos(&[MediaLink { media: m.common.id, region: None, primary: false, clip: None,  }])
                     .first()
                     .is_some_and(|d| d.media.resolved),
             })
@@ -366,6 +383,7 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         media: common.id,
         region: None,
         primary: false,
+        clip: None,
     };
     let file = s.media_dtos(&[link]).pop().map(|dto| dto.media);
     fields_of(json!({

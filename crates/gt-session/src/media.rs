@@ -401,6 +401,7 @@ impl Session {
                     media: *id,
                     region: None,
                     primary: false,
+                    clip: None,
                 }])
             })
             .collect();
@@ -488,6 +489,7 @@ impl Session {
                 media: id,
                 region: None,
                 primary: false,
+                clip: None,
             };
             if let Some(dto) = self.media_dtos(&[link]).into_iter().next() {
                 attached.push(dto.media);

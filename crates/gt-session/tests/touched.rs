@@ -290,6 +290,7 @@ fn with_media() -> (Tree, Uuid, Uuid) {
         media,
         primary: false,
         region: None,
+        clip: None,
     };
     tree.families
         .get_mut(&family)
