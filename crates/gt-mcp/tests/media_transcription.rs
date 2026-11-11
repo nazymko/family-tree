@@ -8,7 +8,7 @@ use gt_session::{EditCommand, OwnerKind, OwnerRef, SourceInput, TextAreaInput, T
 use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use serde_json::{Value, json};
 use std::io::Cursor;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 fn begin(host: &TestHost) -> Value {
@@ -50,7 +50,7 @@ fn owners_source(host: &TestHost) -> Uuid {
     })
 }
 
-fn attach(host: &TestHost, batch: &Value, source: Uuid, path: &PathBuf) -> Value {
+fn attach(host: &TestHost, batch: &Value, source: Uuid, path: &Path) -> Value {
     call(
         host,
         "add_media",
@@ -233,7 +233,7 @@ fn an_owners_region_stays_and_only_own_regions_change() {
             kind: OwnerKind::Source,
             id: source,
         };
-        let r = s.attach_files(target, &[path.clone()]).unwrap();
+        let r = s.attach_files(target, std::slice::from_ref(&path)).unwrap();
         let media = r.attached[0].id;
         s.apply(EditCommand::SetMediaTranscription {
             id: media,
