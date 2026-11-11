@@ -4,6 +4,7 @@
 //! calls in `spawn_blocking`.
 
 pub mod agent;
+mod audio_len;
 pub mod chart;
 pub mod command;
 pub mod dates;
@@ -21,6 +22,7 @@ pub mod names;
 pub mod ops;
 pub mod person_detail;
 pub mod query;
+pub mod recording;
 pub mod relation;
 pub mod revert;
 pub mod session;
@@ -29,8 +31,8 @@ mod touched;
 pub mod undo;
 
 pub use agent::{
-    AGENT_FILE_MAX, AGENT_PDF_MAX, AgentCtx, AgentFile, AgentWrite, check_agent_file,
-    prepare_agent_file,
+    AGENT_AUDIO_MAX, AGENT_FILE_MAX, AGENT_PDF_MAX, AgentCtx, AgentFile, AgentWrite,
+    check_agent_file, prepare_agent_file,
 };
 pub use command::{
     CitationArg, CitationInput, CitationPatch, CloneOf, DeleteImpact, DraftFamily, DraftPerson,

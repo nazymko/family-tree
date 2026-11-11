@@ -16,4 +16,12 @@ area?: TextAreaInput,
 /**
  * Degrees clockwise the writing is turned: 0, 90, 180 or 270 (absent: 0).
  */
-rotation?: 0 | 90 | 180 | 270, text: string, };
+rotation?: 0 | 90 | 180 | 270, text: string, 
+/**
+ * On a recording: when the piece is said, in milliseconds; give both or neither.
+ */
+startMs?: number, endMs?: number, 
+/**
+ * On a recording: who says it.
+ */
+speaker?: string, };

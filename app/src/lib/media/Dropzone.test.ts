@@ -146,11 +146,11 @@ describe('failureLine', () => {
   it('words_the_known_refusals_in_the_language_in_use', async () => {
     const { failureLine } = await import('./Dropzone.svelte');
     const { setLanguage } = await import('../i18n');
-    const onPerson = { path: 'C:/p/greeting.mp3', reason: 'sound recordings can only be attached to a note' };
-    expect(failureLine(onPerson)).toBe('greeting.mp3: Sound recordings can only be attached to a note. Add this one from the note editor.');
+    const onPerson = { path: 'C:/p/greeting.mp3', reason: 'sound recordings can only be attached to a note or a source' };
+    expect(failureLine(onPerson)).toBe('greeting.mp3: Sound recordings can only be attached to a note or a source. Add this one from the note editor, or to its source.');
     setLanguage('uk');
     try {
-      expect(failureLine(onPerson)).toContain('Звукові записи можна прикріпити лише до нотатки');
+      expect(failureLine(onPerson)).toContain('Звукові записи можна прикріпити лише до нотатки або джерела');
       expect(failureLine({ path: 'C:/p/a.jpg', reason: 'only sound recordings can be attached to a note' }, 'note')).toContain('лише звукові записи');
     } finally {
       setLanguage('en');

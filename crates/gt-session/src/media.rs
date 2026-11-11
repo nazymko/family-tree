@@ -207,6 +207,8 @@ pub(crate) fn read_head(path: &Path) -> std::io::Result<Vec<u8>> {
 
 /// Image sizes already read, per media id (only for files that were found).
 pub(crate) type DimsCache = RefCell<HashMap<Uuid, Option<(u32, u32)>>>;
+/// Recording lengths already read, per media id (only for files that were found).
+pub(crate) type LengthCache = RefCell<HashMap<Uuid, Option<crate::audio_len::Length>>>;
 
 struct Staged {
     media: Media,
@@ -221,8 +223,10 @@ fn fail(failed: &mut Vec<AttachFailure>, path: &Path, reason: &str) {
     });
 }
 
-/// Why a recording is refused on anything but a note.
-pub(crate) const SOUND_ON_NOTE_ONLY: &str = "sound recordings can only be attached to a note";
+/// Why a recording is refused on anything but a note (a voice sample) or a source (a whole
+/// recording, to cut clips from).
+pub(crate) const SOUND_ON_NOTE_ONLY: &str =
+    "sound recordings can only be attached to a note or a source";
 
 pub(crate) struct PreparedFile {
     pub(crate) rel: String,
@@ -290,14 +294,14 @@ pub fn prepare_attach(dir: &Path, target: OwnerKind, paths: &[PathBuf]) -> Prepa
             fail(&mut failed, path, "unsupported type");
             continue;
         };
-        // A note holds recordings only, and only a note holds them: a picture on a note, or a
-        // recording on a person, would be attached and then shown nowhere sensible. Refused
-        // here, before anything is copied.
+        // A note holds recordings only, and only a note or a source holds them: a picture on a
+        // note, or a whole recording on a person, would be attached and then shown nowhere
+        // sensible (a person gets clips of it instead). Refused here, before anything is copied.
         if target == OwnerKind::Note && !kind.is_audio() {
             fail(&mut failed, path, NOTE_SOUND_ONLY);
             continue;
         }
-        if target != OwnerKind::Note && kind.is_audio() {
+        if !matches!(target, OwnerKind::Note | OwnerKind::Source) && kind.is_audio() {
             fail(&mut failed, path, SOUND_ON_NOTE_ONLY);
             continue;
         }
@@ -361,6 +365,85 @@ impl Session {
         let dims = thumbs::image_dims(&file);
         self.media_dims.borrow_mut().insert(id, dims);
         dims.map_or((None, None), |(w, h)| (Some(w), Some(h)))
+    }
+
+    /// How long a recording lasts and whether that was read exactly (not estimated from a bit
+    /// rate), from its headers alone. `None` for anything that is not sound, a file that is
+    /// missing, or a recording whose length cannot be told.
+    pub(crate) fn media_length(&self, id: Uuid) -> Option<crate::audio_len::Length> {
+        if let Some(hit) = self.media_lengths.borrow().get(&id) {
+            return *hit;
+        }
+        let m = self.tree.media.get(&id)?;
+        let file = self.resolve_media_file(&m.path)?;
+        let len = crate::audio_len::length(&file);
+        self.media_lengths.borrow_mut().insert(id, len);
+        len
+    }
+
+    /// What the planner cannot check of a clip, because it needs the file: that the media is a
+    /// sound recording, and that the clip ends within it when its length is read exactly. A
+    /// recording whose length cannot be told (a missing file, raw AAC) takes any times.
+    pub(crate) fn check_clip(&self, cmd: &crate::command::EditCommand) -> Result<(), ApiError> {
+        use crate::command::EditCommand as C;
+        let (media, end) = match cmd {
+            C::AddAudioClip { media, end_ms, .. } => (*media, *end_ms),
+            C::UpdateAudioClip {
+                target,
+                clip,
+                end_ms,
+                ..
+            } => {
+                let found = self.owner_links(*target).and_then(|links| {
+                    links
+                        .iter()
+                        .find(|l| l.clip.as_ref().is_some_and(|c| c.id == *clip))
+                        .map(|l| l.media)
+                });
+                match found {
+                    Some(m) => (m, *end_ms),
+                    None => return Ok(()),
+                }
+            }
+            _ => return Ok(()),
+        };
+        if !self.tree.media.contains_key(&media) {
+            return Ok(());
+        }
+        if !self.media_is_sound(media) {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "Only a sound recording has clips.",
+            ));
+        }
+        if let Some(len) = self.media_length(media).filter(|l| l.exact)
+            && end > len.ms
+        {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                format!(
+                    "The recording lasts {}; a clip must end by then.",
+                    gt_core::time::format_ms(len.ms)
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    /// The media links of a record that can hold clips.
+    pub(crate) fn owner_links(&self, target: crate::command::OwnerRef) -> Option<&[MediaLink]> {
+        use crate::command::OwnerKind as K;
+        let t = &self.tree;
+        let links = match target.kind {
+            K::Person => &t.persons.get(&target.id)?.common.media,
+            K::Family => &t.families.get(&target.id)?.common.media,
+            K::Event => &t.events.get(&target.id)?.common.media,
+            K::Citation => &t.citations.get(&target.id)?.common.media,
+            K::Note => &t.notes.get(&target.id)?.common.media,
+            K::Source => &t.sources.get(&target.id)?.common.media,
+            _ => return None,
+        };
+        Some(links)
     }
 
     /// The project folder, for work that must run without the session (see [`prepare_attach`]).

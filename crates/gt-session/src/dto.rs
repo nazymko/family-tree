@@ -258,6 +258,10 @@ pub struct CitationDto {
     pub quality: Option<u8>,
     #[ts(inline)]
     pub evidence: EvidenceDto,
+    /// Clips of recordings (and any other media) linked to the citation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<MediaLinkDto>>", optional)]
+    pub media: Vec<MediaLinkDto>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -292,6 +296,10 @@ pub struct MediaDto {
     /// transcription's areas are on the picture before this turn.
     #[ts(type = "0 | 90 | 180 | 270")]
     pub rotation: u16,
+    /// A sound recording's length in milliseconds, when its headers tell it (absent otherwise).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub duration_ms: Option<u64>,
 }
 
 /// One piece of a picture's transcription.
@@ -305,6 +313,17 @@ pub struct TextRegionDto {
     #[ts(type = "0 | 90 | 180 | 270")]
     pub rotation: u16,
     pub text: String,
+    /// On a recording: when in it this piece is said, in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub start_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub end_ms: Option<u64>,
+    /// On a recording: who says it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub speaker: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -312,6 +331,22 @@ pub struct TextRegionDto {
 pub struct MediaLinkDto {
     pub media: MediaDto,
     pub primary: bool,
+    /// A stretch of the recording: the link is to that stretch only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub clip: Option<ClipDto>,
+}
+
+/// A stretch of a sound recording, in milliseconds from its start.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipDto {
+    pub id: Uuid,
+    #[ts(type = "number")]
+    pub start_ms: u64,
+    #[ts(type = "number")]
+    pub end_ms: u64,
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

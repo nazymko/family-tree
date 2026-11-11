@@ -25,11 +25,12 @@ pub(super) fn attach_media(
             .as_mut()
             .ok_or_else(|| invalid("Media cannot be attached to this record."))?;
         for m in media {
-            if !links.iter().any(|l| l.media == *m) {
+            if !links.iter().any(|l| l.media == *m && l.clip.is_none()) {
+                let primary = !links.iter().any(|l| l.clip.is_none());
                 links.push(MediaLink {
                     media: *m,
                     region: None,
-                    primary: links.is_empty(),
+                    primary,
                     clip: None,
                 });
             }
@@ -51,7 +52,7 @@ pub(super) fn detach_media(
             .ok_or_else(|| invalid("Media cannot be attached to this record."))?;
         let i = links
             .iter()
-            .position(|l| l.media == media)
+            .position(|l| l.media == media && l.clip.is_none())
             .ok_or_else(|| ApiError::not_found("media link", media))?;
         let gone = links.remove(i);
         if gone.primary
@@ -65,15 +66,14 @@ pub(super) fn detach_media(
     Ok(focus)
 }
 
-/// Takes the link out of one record; the next link becomes primary if that one was.
+/// Takes every link to `media` out of one record, clips of it too; the next whole link becomes
+/// primary if one that went was.
 fn drop_link(common: &mut Common, media: Uuid, now: i64) {
-    let Some(i) = common.media.iter().position(|l| l.media == media) else {
-        return;
-    };
-    let gone = common.media.remove(i);
-    if gone.primary
+    let was_primary = common.media.iter().any(|l| l.media == media && l.primary);
+    common.media.retain(|l| l.media != media);
+    if was_primary
         && !common.media.iter().any(|l| l.primary)
-        && let Some(first) = common.media.first_mut()
+        && let Some(first) = common.media.iter_mut().find(|l| l.clip.is_none())
     {
         first.primary = true;
     }
@@ -120,11 +120,16 @@ pub(super) fn set_primary(
     media: Uuid,
 ) -> Result<Option<Uuid>, ApiError> {
     let mut x: Person = p.real_person(person)?;
-    if !x.common.media.iter().any(|l| l.media == media) {
+    if !x
+        .common
+        .media
+        .iter()
+        .any(|l| l.media == media && l.clip.is_none())
+    {
         return Err(ApiError::not_found("media link", media));
     }
     for l in &mut x.common.media {
-        l.primary = l.media == media;
+        l.primary = l.media == media && l.clip.is_none();
     }
     x.common.changed = Some(p.now);
     p.put(x);
@@ -189,9 +194,7 @@ pub(crate) fn checked_transcription(
     regions: &[crate::command::TextRegionInput],
 ) -> Result<Vec<TextRegion>, ApiError> {
     let mime = media.mime.as_deref().unwrap_or_default();
-    if mime.starts_with("audio/") {
-        return Err(invalid("A sound recording has no picture to transcribe."));
-    }
+    let sound = mime.starts_with("audio/");
     if regions.len() > TRANSCRIPTION_PARTS_MAX {
         return Err(invalid(format!(
             "A transcription holds at most {TRANSCRIPTION_PARTS_MAX} pieces."
@@ -215,6 +218,13 @@ pub(crate) fn checked_transcription(
         if !TEXT_ROTATIONS.contains(&rotation) {
             return Err(invalid("rotation must be 0, 90, 180 or 270."));
         }
+        let (time, speaker) = checked_said(r, sound)?;
+        if sound && (r.area.is_some() || rotation != 0) {
+            return Err(invalid(
+                "A sound recording has no picture: give each piece its text, and its start and \
+                 end times, without an area or a rotation.",
+            ));
+        }
         let area = match &r.area {
             Some(_) if mime == "application/pdf" => {
                 return Err(invalid(
@@ -233,11 +243,48 @@ pub(crate) fn checked_transcription(
             area,
             rotation,
             text: r.text.clone(),
-            speaker: None,
-            time: None,
+            speaker,
+            time,
         });
     }
     Ok(out)
+}
+
+/// When a piece of a recording's transcript is said, and by whom. A picture's pieces have neither.
+fn checked_said(
+    r: &crate::command::TextRegionInput,
+    sound: bool,
+) -> Result<(Option<TimeSpan>, Option<String>), ApiError> {
+    let speaker = text(r.speaker.as_deref());
+    if !sound {
+        if r.start_ms.is_some() || r.end_ms.is_some() || speaker.is_some() {
+            return Err(invalid(
+                "Times and speakers belong to the transcript of a sound recording.",
+            ));
+        }
+        return Ok((None, None));
+    }
+    if speaker
+        .as_ref()
+        .is_some_and(|s| s.chars().count() > SPEAKER_MAX)
+    {
+        return Err(invalid(format!(
+            "A speaker's name holds at most {SPEAKER_MAX} characters."
+        )));
+    }
+    let time = match (r.start_ms, r.end_ms) {
+        (None, None) => None,
+        (Some(start_ms), Some(end_ms)) if start_ms < end_ms => Some(TimeSpan { start_ms, end_ms }),
+        (Some(_), Some(_)) => {
+            return Err(invalid("A piece of a transcript must end after it starts."));
+        }
+        _ => {
+            return Err(invalid(
+                "Give a piece of a transcript both its start and its end, or neither.",
+            ));
+        }
+    };
+    Ok((time, speaker))
 }
 
 pub(super) fn set_transcription(
@@ -288,6 +335,155 @@ pub(super) fn set_rotation(
     Ok(None)
 }
 
+/// The records a clip can be linked to: where a story is told.
+fn clip_target(target: OwnerRef) -> Result<(), ApiError> {
+    use crate::command::OwnerKind as K;
+    match target.kind {
+        K::Note | K::Citation | K::Event | K::Person | K::Family => Ok(()),
+        _ => Err(invalid(
+            "A clip goes on a note, citation, event, person or family.",
+        )),
+    }
+}
+
+/// A clip's times and label, checked; the label trimmed (empty is none). The length of the
+/// recording is checked by the session, which can read the file.
+fn checked_clip(mut c: Clip) -> Result<Clip, ApiError> {
+    if c.start_ms >= c.end_ms {
+        return Err(invalid("A clip must end after it starts."));
+    }
+    c.label = text(c.label.as_deref());
+    if c.label
+        .as_ref()
+        .is_some_and(|l| l.chars().count() > CLIP_LABEL_MAX)
+    {
+        return Err(invalid(format!(
+            "A clip's label holds at most {CLIP_LABEL_MAX} characters."
+        )));
+    }
+    Ok(c)
+}
+
+/// Whether the record is a sound recording, by its stored type. The session checks the file.
+fn is_recording(m: &Media) -> bool {
+    m.mime.as_deref().is_some_and(|t| t.starts_with("audio/"))
+}
+
+pub(super) fn add_clip(
+    p: &mut Planner,
+    target: OwnerRef,
+    media: Uuid,
+    clip: Clip,
+) -> Result<Option<Uuid>, ApiError> {
+    clip_target(target)?;
+    let m: Media = p.get(media)?;
+    if !is_recording(&m) {
+        return Err(invalid("Only a sound recording has clips."));
+    }
+    let clip = checked_clip(clip)?;
+    let (_, focus) = with_owner(p, target, |f| {
+        let links = f
+            .media
+            .as_mut()
+            .ok_or_else(|| invalid("A clip cannot be attached to this record."))?;
+        let same = |l: &MediaLink| {
+            l.media == media
+                && l.clip.as_ref().is_some_and(|c| {
+                    (c.start_ms, c.end_ms, &c.label) == (clip.start_ms, clip.end_ms, &clip.label)
+                })
+        };
+        if links.iter().any(same) {
+            return Err(invalid("That clip is already on this record."));
+        }
+        links.push(MediaLink {
+            media,
+            region: None,
+            primary: false,
+            clip: Some(clip),
+        });
+        Ok(())
+    })?;
+    Ok(focus)
+}
+
+/// The link of clip `id` on `target`.
+fn clip_link(p: &Planner, target: OwnerRef, id: Uuid) -> Result<MediaLink, ApiError> {
+    use crate::command::OwnerKind as K;
+    let links = match target.kind {
+        K::Person => p.get::<Person>(target.id)?.common.media,
+        K::Family => p.get::<Family>(target.id)?.common.media,
+        K::Event => p.get::<Event>(target.id)?.common.media,
+        K::Citation => p.get::<Citation>(target.id)?.common.media,
+        K::Note => p.get::<Note>(target.id)?.common.media,
+        _ => return Err(ApiError::not_found("clip", id)),
+    };
+    links
+        .iter()
+        .find(|l| l.clip.as_ref().is_some_and(|c| c.id == id))
+        .cloned()
+        .ok_or_else(|| ApiError::not_found("clip", id))
+}
+
+pub(super) fn update_clip(
+    p: &mut Planner,
+    target: OwnerRef,
+    clip: Clip,
+    move_to: Option<OwnerRef>,
+) -> Result<Option<Uuid>, ApiError> {
+    let old = clip_link(p, target, clip.id)?;
+    let clip = checked_clip(clip)?;
+    let id = clip.id;
+    let to = move_to.filter(|t| *t != target);
+    match to {
+        None => {
+            let (_, focus) = with_owner(p, target, |f| {
+                if let Some(l) = f.media.as_mut().and_then(|links| {
+                    links
+                        .iter_mut()
+                        .find(|l| l.clip.as_ref().is_some_and(|c| c.id == id))
+                }) {
+                    l.clip = Some(clip);
+                }
+                Ok(())
+            })?;
+            Ok(focus)
+        }
+        Some(to) => {
+            clip_target(to)?;
+            delete_clip(p, target, id)?;
+            let (_, focus) = with_owner(p, to, |f| {
+                let links = f
+                    .media
+                    .as_mut()
+                    .ok_or_else(|| invalid("A clip cannot be attached to this record."))?;
+                links.push(MediaLink {
+                    media: old.media,
+                    region: None,
+                    primary: false,
+                    clip: Some(clip),
+                });
+                Ok(())
+            })?;
+            Ok(focus)
+        }
+    }
+}
+
+pub(super) fn delete_clip(
+    p: &mut Planner,
+    target: OwnerRef,
+    id: Uuid,
+) -> Result<Option<Uuid>, ApiError> {
+    clip_link(p, target, id)?;
+    let (_, focus) = with_owner(p, target, |f| {
+        if let Some(links) = f.media.as_mut() {
+            links.retain(|l| l.clip.as_ref().is_none_or(|c| c.id != id));
+        }
+        Ok(())
+    })?;
+    Ok(focus)
+}
+
 /// Whether a media record is a picture that can be shown turned: not a recording or a document.
 pub(crate) fn can_turn(m: &Media) -> bool {
     let mime = m.mime.as_deref().unwrap_or_default();
@@ -331,7 +527,7 @@ pub(crate) fn plan_attach(
                 fresh.push(m.clone());
                 m.common.id
             });
-            if links.iter().any(|l| l.media == id) {
+            if links.iter().any(|l| l.media == id && l.clip.is_none()) {
                 out.push(None);
             } else {
                 links.push(MediaLink {

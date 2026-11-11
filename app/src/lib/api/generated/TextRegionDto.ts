@@ -12,4 +12,12 @@ area: TextAreaInput | null,
 /**
  * Degrees clockwise the writing is turned.
  */
-rotation: 0 | 90 | 180 | 270, text: string, };
+rotation: 0 | 90 | 180 | 270, text: string, 
+/**
+ * On a recording: when in it this piece is said, in milliseconds.
+ */
+startMs?: number, endMs?: number, 
+/**
+ * On a recording: who says it.
+ */
+speaker?: string, };

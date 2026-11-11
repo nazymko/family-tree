@@ -942,7 +942,7 @@ export class MockApi implements Api {
       else if (/[\\/]$/.test(path) || !/\.[A-Za-z0-9]{1,8}$/.test(name)) failed.push({ path, reason: 'Folders cannot be attached. Choose files.' });
       else if (/\.(exe|bat|cmd|msi|dll|com|scr)$/i.test(name)) failed.push({ path, reason: 'This file type cannot be attached.' });
       else if (target.kind === 'note' && !audioName.test(name)) failed.push({ path, reason: 'only sound recordings can be attached to a note' });
-      else if (target.kind !== 'note' && audioName.test(name)) failed.push({ path, reason: 'sound recordings can only be attached to a note' });
+      else if (target.kind !== 'note' && target.kind !== 'source' && audioName.test(name)) failed.push({ path, reason: 'sound recordings can only be attached to a note or a source' });
       else if (known.has(name.toLowerCase()) || accepted.some((a) => a.name.toLowerCase() === name.toLowerCase()))
         failed.push({ path, reason: 'Already attached' });
       else accepted.push({ path, name });

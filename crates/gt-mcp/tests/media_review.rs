@@ -302,6 +302,9 @@ fn an_owners_piece_with_text_takes_no_place_from_an_agent() {
             area: None,
             rotation: None,
             text: text.into(),
+            end_ms: None,
+            speaker: None,
+            start_ms: None,
         };
         s.apply(EditCommand::SetMediaTranscription {
             id: media,

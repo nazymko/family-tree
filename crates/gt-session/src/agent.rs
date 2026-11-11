@@ -91,7 +91,11 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         | C::SetMediaTranscription { .. }
         // How a picture is shown: a turn nobody set is empty, so step 5 lets the agent set it;
         // afterwards only on a picture that is the agent's own.
-        | C::SetMediaRotation { .. } => Ok(()),
+        | C::SetMediaRotation { .. }
+        // A clip is a link of its own: step 5 lets the agent add one and change or move only
+        // the clips it made itself.
+        | C::AddAudioClip { .. }
+        | C::UpdateAudioClip { .. } => Ok(()),
         C::AddCitation { citation, .. } => match citation {
             CitationArg::Reuse(_) => Err(refused(
                 "Reusing the last citation shares the owner's working state. Give the source and \
@@ -138,6 +142,7 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         | C::DeleteMedia { .. }
         | C::SetPrimaryMedia { .. }
         | C::UpdateMedia { .. }
+        | C::DeleteAudioClip { .. }
         | C::ImportDraft { .. } => Err(refused(format!(
             "\"{}\" is not open to agents. {ONLY_ADD}",
             cmd.label()
@@ -251,6 +256,7 @@ fn edited_record(cmd: &EditCommand) -> Option<Uuid> {
         | C::UpdatePerson { id, .. }
         | C::SetMediaTranscription { id, .. }
         | C::SetMediaRotation { id, .. } => Some(*id),
+        C::UpdateAudioClip { target, .. } => Some(target.id),
         _ => None,
     }
 }
@@ -464,6 +470,9 @@ pub fn region_input(r: &TextRegion) -> crate::command::TextRegionInput {
         }),
         rotation: Some(r.rotation),
         text: r.text.clone(),
+        start_ms: r.time.map(|t| t.start_ms),
+        end_ms: r.time.map(|t| t.end_ms),
+        speaker: r.speaker.clone(),
     }
 }
 
@@ -811,6 +820,27 @@ impl Session {
         }
     }
 
+    /// The clip already on the target that this command would add again: same recording, times
+    /// and label. Answered as `alreadyThere`, naming the clip.
+    fn clip_repeat(&self, cmd: &EditCommand) -> Option<Uuid> {
+        let EditCommand::AddAudioClip {
+            target,
+            media,
+            start_ms,
+            end_ms,
+            label,
+        } = cmd
+        else {
+            return None;
+        };
+        let label = crate::ops::text(label.as_deref());
+        self.owner_links(*target)?.iter().find_map(|l| {
+            let c = l.clip.as_ref()?;
+            (l.media == *media && (c.start_ms, c.end_ms, &c.label) == (*start_ms, *end_ms, &label))
+                .then_some(c.id)
+        })
+    }
+
     /// Everything after the batch. `number` goes on the person the write creates.
     fn gated(
         &mut self,
@@ -821,6 +851,10 @@ impl Session {
     ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
         check_allowed(&cmd)?;
         check_named(&cmd)?;
+        self.check_clip(&cmd)?;
+        if let Some(record) = self.clip_repeat(&cmd) {
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
+        }
         let cmd = self.keep_preferred(cmd);
         self.check_no_marker(&people_named(&cmd))?;
         // Before the checks below: they would answer a repeat with a conflict that is not there.
@@ -988,6 +1022,9 @@ impl Session {
                 "Attach one file at a time.",
             ));
         };
+        if prepared.mime.starts_with("audio/") && target.kind != OwnerKind::Source {
+            return Err(refused(SOUND));
+        }
         let (rel, sha) = (prepared.rel.clone(), prepared.sha.clone());
         let (_, now) = (self.clock.0)();
         let order = self.day_order();
@@ -1952,6 +1989,10 @@ const CORRECTION_REASON_MAX: usize = 1000;
 /// The largest file an agent may attach.
 pub const AGENT_FILE_MAX: u64 = 50 * 1024 * 1024;
 
+/// The largest sound recording an agent may attach (to a source). Enforced while copying, so a
+/// file that grows meanwhile is cut off rather than copied whole.
+pub const AGENT_AUDIO_MAX: u64 = 2 * 1024 * 1024 * 1024;
+
 /// The largest PDF an agent may attach: what get_media can send back whole.
 pub const AGENT_PDF_MAX: u64 = 8 * 1024 * 1024;
 
@@ -1993,8 +2034,8 @@ fn check_path_form(path: &std::path::Path) -> Result<(), ApiError> {
 }
 
 /// What an agent may read: the path's form, no link (symbolic link or junction) anywhere on the
-/// way, an ordinary file of 1 byte to [`AGENT_FILE_MAX`]. Only the folders' and the file's own
-/// entries are read, and links are never followed.
+/// way, an ordinary file of 1 byte to [`AGENT_AUDIO_MAX`] (what it holds then decides how large it
+/// may be). Only the folders' and the file's own entries are read, and links are never followed.
 fn check_agent_path(path: &std::path::Path) -> Result<(), ApiError> {
     check_path_form(path)?;
     let missing = "There is no file at file_path, or it cannot be read.";
@@ -2025,30 +2066,42 @@ fn check_agent_path(path: &std::path::Path) -> Result<(), ApiError> {
     if meta.len() == 0 {
         return Err(refuse_file("The file is empty."));
     }
-    if meta.len() > AGENT_FILE_MAX {
-        return Err(refuse_file(TOO_BIG));
+    if meta.len() > AGENT_AUDIO_MAX {
+        return Err(refuse_file(TOO_BIG_SOUND));
     }
     Ok(())
 }
 
 const TOO_BIG: &str =
     "The file is larger than 50 MiB. Make a smaller copy of the picture and attach that.";
-const NOT_ALLOWED: &str =
-    "Only pictures (JPEG, PNG, WebP, GIF, TIFF) and PDF documents can be attached.";
-const SOUND: &str =
-    "Sound recordings are attached by the owner only. Name the recording in your report.";
+const NOT_ALLOWED: &str = "Only pictures (JPEG, PNG, WebP, GIF, TIFF), PDF documents and, on a \
+    source, sound recordings (MP3, WAV, Ogg, M4A, AAC, FLAC) can be attached.";
+const TOO_BIG_SOUND: &str = "The file is larger than 2 GiB. Name the recording in your report.";
+const SOUND: &str = "A sound recording goes on its source: give target kind source (make the \
+    source with add_source first). Then link the stretches where the story is told with \
+    add_audio_clip.";
 
-/// What the bytes at `path` are, when an agent may attach them: a picture that decodes whole
-/// (one decode at a time, see [`crate::thumbs::one_decode_at_a_time`]) or a whole PDF of at most
-/// [`AGENT_PDF_MAX`]. The PDF's end is read with a seek, never the whole file.
+/// What the bytes at `path` are, when an agent may attach them: a picture of at most
+/// [`AGENT_FILE_MAX`] that decodes whole (one decode at a time, see
+/// [`crate::thumbs::one_decode_at_a_time`]), a whole PDF of at most [`AGENT_PDF_MAX`], or a sound
+/// recording (MP3, WAV, Ogg, M4A, AAC, FLAC by its first bytes) of at most [`AGENT_AUDIO_MAX`].
+/// The PDF's end is read with a seek, never the whole file; a recording is never read whole.
 fn check_agent_content(path: &std::path::Path) -> Result<crate::media::Kind, ApiError> {
     use crate::media::{Kind, read_head, sniff};
     use crate::thumbs;
     use std::io::{Read, Seek, SeekFrom};
     let unreadable = || refuse_file("The file cannot be read.");
     let head = read_head(path).map_err(|_| unreadable())?;
+    let len = std::fs::metadata(path).map_err(|_| unreadable())?.len();
     match sniff(&head) {
-        Some(kind) if kind.is_audio() => Err(refuse_file(SOUND)),
+        Some(kind) if kind.is_audio() => {
+            if len > AGENT_AUDIO_MAX {
+                Err(refuse_file(TOO_BIG_SOUND))
+            } else {
+                Ok(kind)
+            }
+        }
+        Some(_) if len > AGENT_FILE_MAX => Err(refuse_file(TOO_BIG)),
         Some(Kind::Pdf) => {
             let mut f = std::fs::File::open(path).map_err(|_| unreadable())?;
             let len = f.metadata().map_err(|_| unreadable())?.len();
@@ -2110,25 +2163,33 @@ impl Drop for AgentFile {
     }
 }
 
-/// Copies the file at `path` into `<dir>/media` for an agent, without the session: the path's
-/// form first, then at most [`AGENT_FILE_MAX`] bytes copied, then the copy itself checked, so
-/// what is recorded is what was checked even if the original changes meanwhile. The copy is
-/// named by its type, never by the file's name.
+/// Copies the file at `path` into `<dir>/media` for an agent, to go on a record of kind
+/// `target`, without the session: the path's form first, then at most [`AGENT_FILE_MAX`] bytes
+/// copied ([`AGENT_AUDIO_MAX`] for a recording, which goes only on a source), then the copy
+/// itself checked, so what is recorded is what was checked even if the original changes
+/// meanwhile. The copy is named by its type, never by the file's name.
 pub fn prepare_agent_file(
     dir: &std::path::Path,
     path: &std::path::Path,
+    target: OwnerKind,
 ) -> Result<AgentFile, ApiError> {
     use crate::media::{PreparedAttach, PreparedFile, read_head, sniff};
     check_agent_path(path)?;
     let head = read_head(path).map_err(|_| refuse_file("The file cannot be read."))?;
     // Only the extension of the copy comes from here; the copy is checked again below.
     let kind = sniff(&head).ok_or_else(|| refuse_file(NOT_ALLOWED))?;
-    if kind.is_audio() {
+    // Refused before a byte is copied: a recording is large, and has one place.
+    if kind.is_audio() && target != OwnerKind::Source {
         return Err(refuse_file(SOUND));
     }
-    let stored = gt_store::add_media_file_as(dir, path, kind.ext(), Some(AGENT_FILE_MAX))
+    let (max, too_big) = if kind.is_audio() {
+        (AGENT_AUDIO_MAX, TOO_BIG_SOUND)
+    } else {
+        (AGENT_FILE_MAX, TOO_BIG)
+    };
+    let stored = gt_store::add_media_file_as(dir, path, kind.ext(), Some(max))
         .map_err(|_| refuse_file("The file cannot be read."))?
-        .ok_or_else(|| refuse_file(TOO_BIG))?;
+        .ok_or_else(|| refuse_file(too_big))?;
     let copy = dir.join(&stored.rel);
     let mut file = AgentFile {
         prepared: PreparedAttach {
@@ -2143,8 +2204,9 @@ pub fn prepare_agent_file(
             "The file changed while it was being copied. Try again.",
         ));
     }
-    let too_large = crate::thumbs::raw_dims(&copy)
-        .is_some_and(|(w, h)| u64::from(w) * u64::from(h) > crate::thumbs::MAX_PIXELS);
+    let too_large = kind.is_image()
+        && crate::thumbs::raw_dims(&copy)
+            .is_some_and(|(w, h)| u64::from(w) * u64::from(h) > crate::thumbs::MAX_PIXELS);
     file.prepared.files.push(PreparedFile {
         rel: stored.rel,
         sha: stored.sha,

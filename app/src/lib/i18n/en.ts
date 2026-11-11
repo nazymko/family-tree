@@ -1264,7 +1264,7 @@ export const en = {
     dropHere: 'Drop sound files to add them to this note',
     audioName: 'Sound recordings',
     onlySoundOnNote: 'Only sound recordings can be attached to a note.',
-    soundOnlyOnNote: 'Sound recordings can only be attached to a note. Add this one from the note editor.',
+    soundOnlyOnNote: 'Sound recordings can only be attached to a note or a source. Add this one from the note editor, or to its source.',
     unsupported: 'unsupported type; we attach MP3, WAV, OGG, M4A, AAC and FLAC recordings',
     sampleCount: { one: '{n} voice sample', other: '{n} voice samples' },
   },

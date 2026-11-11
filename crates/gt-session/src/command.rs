@@ -330,6 +330,17 @@ pub struct TextRegionInput {
     #[ts(optional, type = "0 | 90 | 180 | 270")]
     pub rotation: Option<u16>,
     pub text: String,
+    /// On a recording: when the piece is said, in milliseconds; give both or neither.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub start_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub end_ms: Option<u64>,
+    /// On a recording: who says it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub speaker: Option<String>,
 }
 
 /// One person on the trace screen. `existing` set: the card stands for a person already in the
@@ -582,6 +593,38 @@ pub enum EditCommand {
         #[ts(type = "0 | 90 | 180 | 270")]
         rotation: u16,
     },
+    /// A stretch of a sound recording, linked to the record where its story is told: a note,
+    /// citation, event, person or family. Times in milliseconds from the start of the recording.
+    AddAudioClip {
+        target: OwnerRef,
+        media: Uuid,
+        #[ts(type = "number")]
+        start_ms: u64,
+        #[ts(type = "number")]
+        end_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        label: Option<String>,
+    },
+    /// New times and label for a clip, and with `move_to` the record it is linked to instead.
+    UpdateAudioClip {
+        target: OwnerRef,
+        clip: Uuid,
+        #[ts(type = "number")]
+        start_ms: u64,
+        #[ts(type = "number")]
+        end_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        move_to: Option<OwnerRef>,
+    },
+    DeleteAudioClip {
+        target: OwnerRef,
+        clip: Uuid,
+    },
     /// Everything traced from a picture, in ONE undoable step. With `attach_picture` the staged
     /// trace picture is stored as a media item attached to every new person and to a new source.
     ImportDraft {
@@ -642,6 +685,9 @@ impl EditCommand {
             EditCommand::UpdateMedia { .. } => "Edit media".into(),
             EditCommand::SetMediaTranscription { .. } => "Edit transcription".into(),
             EditCommand::SetMediaRotation { .. } => "Turn picture".into(),
+            EditCommand::AddAudioClip { .. } => "Add clip".into(),
+            EditCommand::UpdateAudioClip { .. } => "Edit clip".into(),
+            EditCommand::DeleteAudioClip { .. } => "Delete clip".into(),
             EditCommand::ImportDraft { .. } => "Add traced people".into(),
             EditCommand::AddNumber { .. } => "Record number".into(),
         }

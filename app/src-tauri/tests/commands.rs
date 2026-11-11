@@ -646,6 +646,18 @@ fn a_big_recording_is_answered_a_window_at_a_time_never_whole_for_an_odd_header(
     assert_eq!(odd.status(), 416);
     assert_eq!(odd.headers()["content-range"], format!("bytes */{total}"));
     assert!(odd.body().len() < 100);
+    // No range at all: still one window, never the whole file.
+    let bare = protocol::respond(&state, &path);
+    assert_eq!(bare.status(), 206);
+    assert_eq!(bare.body().len(), 4 << 20);
+    assert_eq!(
+        bare.headers()["content-range"],
+        format!("bytes 0-{}/{total}", (4 << 20) - 1)
+    );
+    // Seeking far into it reads only that window.
+    let late = protocol::respond_range(&state, &path, Some("bytes=5000000-5000099"));
+    assert_eq!(late.status(), 206);
+    assert_eq!(late.body().len(), 100);
 }
 
 #[test]

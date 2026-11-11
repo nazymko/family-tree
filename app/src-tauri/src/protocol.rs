@@ -153,6 +153,17 @@ pub fn respond_range(state: &AppState, path: &str, range: Option<&str>) -> Respo
             None => not_satisfiable(state, id),
         };
     }
+    // A recording asked for without a range is never read whole into memory: past one window,
+    // the first window is the answer, and the player asks on from there.
+    if size == MediaSize::Original
+        && state
+            .with_session(|s| {
+                Ok(s.media_is_sound(id) && s.media_size(id)? > gt_session::media::MAX_RANGE_BYTES)
+            })
+            .unwrap_or(false)
+    {
+        return partial(state, id, ByteRange::From(0, None));
+    }
     match state.with_session(|s| s.media_bytes(id, size)) {
         Ok((bytes, mime)) => Response::builder()
             .status(StatusCode::OK)

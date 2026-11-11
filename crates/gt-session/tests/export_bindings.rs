@@ -49,6 +49,7 @@ fn export_all(dir: &Path) {
         ChartDirections,
         Language,
         PersonRef,
+        gt_session::recording::RecordingDto,
         PersonRow,
         PersonQuery,
         SortKey,

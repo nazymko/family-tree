@@ -182,6 +182,7 @@ impl Session {
                 primary_info: c.evidence.primary_info,
                 direct: c.evidence.direct,
             },
+            media: self.media_dtos(&c.common.media),
         })
     }
 
@@ -231,8 +232,16 @@ impl Session {
                         sha256: md.sha256.clone(),
                         transcription: md.transcription.iter().map(text_region_dto).collect(),
                         rotation: md.shown_rotation(),
+                        duration_ms: md
+                            .mime
+                            .as_deref()
+                            .is_some_and(|t| t.starts_with("audio/"))
+                            .then(|| self.media_length(l.media))
+                            .flatten()
+                            .map(|len| len.ms),
                     },
                     primary: l.primary,
+                    clip: l.clip.as_ref().map(clip_dto),
                 })
             })
             .collect()
@@ -369,6 +378,16 @@ pub fn person_detail(s: &Session, id: Uuid) -> Result<PersonDetail, ApiError> {
     })
 }
 
+/// A clip as the app shows it.
+pub fn clip_dto(c: &gt_core::model::Clip) -> crate::dto::ClipDto {
+    crate::dto::ClipDto {
+        id: c.id,
+        start_ms: c.start_ms,
+        end_ms: c.end_ms,
+        label: c.label.clone(),
+    }
+}
+
 /// A stored piece of transcription as the app shows it.
 pub fn text_region_dto(r: &gt_core::model::TextRegion) -> crate::dto::TextRegionDto {
     crate::dto::TextRegionDto {
@@ -381,5 +400,8 @@ pub fn text_region_dto(r: &gt_core::model::TextRegion) -> crate::dto::TextRegion
         }),
         rotation: r.rotation,
         text: r.text.clone(),
+        start_ms: r.time.map(|t| t.start_ms),
+        end_ms: r.time.map(|t| t.end_ms),
+        speaker: r.speaker.clone(),
     }
 }

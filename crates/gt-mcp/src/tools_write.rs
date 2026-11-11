@@ -417,10 +417,37 @@ fn region_schema(required: &[&str]) -> Value {
             "w": part("Width, as a fraction of the picture's width."),
             "h": part("Height, as a fraction of the picture's height."),
             "rotation": {"type": "integer", "enum": [0, 90, 180, 270], "description": "How far the writing is turned, clockwise."},
+            "start": time_schema("On a sound recording: when this piece starts being said."),
+            "end": time_schema("On a sound recording: when it ends."),
+            "speaker": {"type": "string", "maxLength": 200, "description": "On a sound recording: who says it."},
         },
         "required": required,
         "additionalProperties": false,
     })
+}
+
+/// How the tools say where in a recording: see [`time_arg`].
+pub(crate) const TIME_FORMS: &str = "milliseconds from the start of the recording as a whole \
+    number (65000), or a string \"m:ss\", \"mm:ss\" or \"h:mm:ss\", seconds optionally with up to \
+    three decimals (\"1:05\", \"01:05.250\", \"1:02:05\")";
+
+pub(crate) fn time_schema(what: &str) -> Value {
+    json!({
+        "type": ["integer", "string"],
+        "description": format!("{what} Either {TIME_FORMS}."),
+    })
+}
+
+/// A time in a recording: a whole number of milliseconds, or "m:ss" / "mm:ss" / "h:mm:ss" with
+/// optional ".fff" (a string of digits alone is milliseconds too).
+pub(crate) fn time_arg(given: &Value, name: &str) -> Result<Option<u64>, ApiError> {
+    let bad = || invalid(format!("{name} must be {TIME_FORMS}."));
+    match given.get(name) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(n)) => n.as_u64().map(Some).ok_or_else(bad),
+        Some(Value::String(s)) => gt_core::time::parse_time(s).map(Some).ok_or_else(bad),
+        Some(_) => Err(bad()),
+    }
 }
 
 fn schema(required: &[&str], properties: Value) -> Value {
@@ -1333,6 +1360,9 @@ fn regions_arg(args: &Value) -> Result<Vec<TextRegionInput>, ApiError> {
                     rotation: rotation_arg(given)?,
                     text: region_text(given, "text")?
                         .ok_or_else(|| invalid("each region needs its text".into()))?,
+                    start_ms: time_arg(given, "start")?,
+                    end_ms: time_arg(given, "end")?,
+                    speaker: short(given, "speaker")?,
                 })
             })
             .collect(),
@@ -1349,6 +1379,9 @@ fn regions_arg(args: &Value) -> Result<Vec<TextRegionInput>, ApiError> {
                 area: None,
                 rotation: None,
                 text,
+                start_ms: None,
+                end_ms: None,
+                speaker: None,
             }])
         }
         _ => Err(invalid(
@@ -1417,7 +1450,7 @@ fn add_media<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     about.date_raw = date_raw;
     // The file is checked, copied and hashed without the tree's lock, as the app's own attach is.
     // A copy that is not recorded below is removed again when `file` is dropped.
-    let file = std::cell::RefCell::new(Some(prepare_agent_file(&dir, &path)?));
+    let file = std::cell::RefCell::new(Some(prepare_agent_file(&dir, &path, target.kind)?));
     let media = std::cell::Cell::new(None);
     apply(
         host,
@@ -1482,6 +1515,8 @@ fn update_own_media_region<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> T
     let area = area_arg(args)?;
     let rotation = rotation_arg(args)?;
     let text = region_text(args, "text")?;
+    let (start, end) = (time_arg(args, "start")?, time_arg(args, "end")?);
+    let speaker = short(args, "speaker")?;
     write(
         host,
         ctx,
@@ -1519,6 +1554,15 @@ fn update_own_media_region<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> T
                         }
                         if rotation.is_some() {
                             input.rotation = rotation;
+                        }
+                        if start.is_some() {
+                            input.start_ms = start;
+                        }
+                        if end.is_some() {
+                            input.end_ms = end;
+                        }
+                        if speaker.is_some() {
+                            input.speaker = speaker.clone();
                         }
                     }
                     input
