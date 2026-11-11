@@ -124,6 +124,102 @@ fn only_a_quarter_turn_of_a_picture_is_taken() {
     assert_eq!(rotation(&s, media), None);
 }
 
+#[test]
+fn a_picture_on_a_source_and_a_dozen_people_is_one_picture_and_unlinks_from_one_only() {
+    let (dir, mut s, anna, _) = with_picture();
+    let src = s
+        .apply(EditCommand::SaveSource {
+            source: SourceInput {
+                id: None,
+                title: Some("Register of 1901".into()),
+                author: None,
+                publication: None,
+                abbreviation: None,
+                text: None,
+            },
+        })
+        .unwrap()
+        .touched[0];
+    let file = write(dir.path(), "register.jpg", &jpeg(30, 40, 60));
+    let page = s
+        .attach_files(
+            OwnerRef {
+                kind: OwnerKind::Source,
+                id: src,
+            },
+            &[file],
+        )
+        .unwrap()
+        .attached[0]
+        .id;
+    s.apply(EditCommand::SetMediaTranscription {
+        id: page,
+        regions: vec![TextRegionInput {
+            id: None,
+            area: None,
+            rotation: None,
+            text: "Twelve names".into(),
+        }],
+        known: None,
+    })
+    .unwrap();
+    s.apply(turn(page, 270)).unwrap();
+    let mut people = vec![anna];
+    for i in 0..11 {
+        let r = s
+            .apply(EditCommand::CreatePerson {
+                draft: draft(&format!("Person{i}"), SexKind::Unknown),
+            })
+            .unwrap();
+        people.push(r.focus.unwrap());
+    }
+    for p in &people {
+        s.apply(EditCommand::AttachMedia {
+            target: person(*p),
+            media: vec![page],
+        })
+        .unwrap();
+    }
+    // Each person shows the one picture, with its transcription and its turn.
+    for p in &people {
+        let d = s.get_person(*p).unwrap();
+        let link = d.media.iter().find(|l| l.media.id == page).unwrap();
+        assert_eq!(link.media.transcription[0].text, "Twelve names");
+        assert_eq!(link.media.rotation, 270);
+    }
+    // Taking it off one person leaves it on everyone else and on the source.
+    s.apply(EditCommand::DetachMedia {
+        target: person(people[3]),
+        media: page,
+    })
+    .unwrap();
+    assert!(
+        s.get_person(people[3])
+            .unwrap()
+            .media
+            .iter()
+            .all(|l| l.media.id != page)
+    );
+    for (i, p) in people.iter().enumerate().filter(|(i, _)| *i != 3) {
+        assert!(
+            s.get_person(*p)
+                .unwrap()
+                .media
+                .iter()
+                .any(|l| l.media.id == page),
+            "person {i}"
+        );
+    }
+    assert!(
+        s.tree().sources[&src]
+            .common
+            .media
+            .iter()
+            .any(|l| l.media == page)
+    );
+    assert_eq!(s.tree().media[&page].transcription.len(), 1);
+}
+
 // ---- agents ----
 
 fn agents_picture(dir: &Path, s: &mut Session, anna: Uuid, b: Uuid) -> Uuid {
