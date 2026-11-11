@@ -28,7 +28,7 @@ pub mod settings;
 mod touched;
 pub mod undo;
 
-pub use agent::{AgentCtx, AgentWrite};
+pub use agent::{AGENT_FILE_MAX, AgentCtx, AgentWrite, check_agent_file};
 pub use command::{
     CitationArg, CitationInput, CitationPatch, CloneOf, DeleteImpact, DraftFamily, DraftPerson,
     EditCommand, EditResult, EventInput, EventOwner, EventOwnerKind, EvidenceInput, HistoryEntry,
@@ -57,8 +57,8 @@ pub mod thumbs;
 pub mod trace;
 pub use ai_read::{AiPerson, AiReadResult, AiRelation, parse_ai_reply};
 pub use media::{
-    AGENT_FILE_MAX, AttachFailure, AttachResult, ExifSuggestion, MAX_RANGE_BYTES, MediaAbout,
-    MediaSize, MediaSlice, PreparedAttach, check_agent_file, prepare_attach,
+    AttachFailure, AttachResult, ExifSuggestion, MAX_RANGE_BYTES, MediaAbout, MediaSize,
+    MediaSlice, PreparedAttach, prepare_attach,
 };
 pub use thumbs::render_px;
 pub use trace::{TraceDraftState, TraceImageInfo};

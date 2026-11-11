@@ -181,7 +181,7 @@ fn sniff_audio(head: &[u8]) -> Option<Kind> {
     }
 }
 
-fn read_head(path: &Path) -> std::io::Result<Vec<u8>> {
+pub(crate) fn read_head(path: &Path) -> std::io::Result<Vec<u8>> {
     let mut head = Vec::with_capacity(16);
     std::fs::File::open(path)?.take(16).read_to_end(&mut head)?;
     Ok(head)
@@ -237,63 +237,6 @@ pub struct MediaAbout {
     pub title: Option<String>,
     pub description: Option<String>,
     pub date_raw: Option<String>,
-}
-
-/// The largest file an agent may attach.
-pub const AGENT_FILE_MAX: u64 = 50 * 1024 * 1024;
-
-/// What an agent may attach: an absolute path to an ordinary file of at most
-/// [`AGENT_FILE_MAX`] bytes that decodes whole as a picture, or a PDF document. Checked before
-/// anything is copied, so the tool cannot pull any other file into the tree. Sound recordings
-/// are the owner's to attach.
-pub fn check_agent_file(path: &Path) -> Result<(), ApiError> {
-    let refuse = |msg: &str| ApiError::new(ErrorCode::Invalid, msg);
-    if !path.is_absolute() {
-        return Err(refuse(
-            "file_path must be the full path of a file on this computer.",
-        ));
-    }
-    let meta = std::fs::metadata(path)
-        .map_err(|_| refuse("There is no file at file_path, or it cannot be read."))?;
-    if !meta.is_file() {
-        return Err(refuse("file_path must name a file, not a folder."));
-    }
-    if meta.len() == 0 {
-        return Err(refuse("The file is empty."));
-    }
-    if meta.len() > AGENT_FILE_MAX {
-        return Err(refuse(
-            "The file is larger than 50 MiB. Make a smaller copy of the picture and attach that.",
-        ));
-    }
-    let head = read_head(path).map_err(|_| refuse("The file cannot be read."))?;
-    match sniff(&head) {
-        Some(kind) if kind.is_audio() => Err(refuse(
-            "Sound recordings are attached by the owner only. Name the recording in your report.",
-        )),
-        Some(Kind::Pdf) => {
-            // A real PDF ends with its end-of-file marker; a renamed file of something else does not.
-            let bytes = std::fs::read(path).map_err(|_| refuse("The file cannot be read."))?;
-            let tail = &bytes[bytes.len().saturating_sub(2048)..];
-            if tail.windows(5).any(|w| w == b"%%EOF") {
-                Ok(())
-            } else {
-                Err(refuse(
-                    "The file starts like a PDF but is not a whole PDF document.",
-                ))
-            }
-        }
-        Some(_) => thumbs::decodes(path).map_err(|e| {
-            if e.message == thumbs::TOO_LARGE {
-                e
-            } else {
-                refuse("The file is not a picture that can be read (JPEG, PNG, WebP, GIF or TIFF).")
-            }
-        }),
-        None => Err(refuse(
-            "Only pictures (JPEG, PNG, WebP, GIF, TIFF) and PDF documents can be attached.",
-        )),
-    }
 }
 
 /// Step one of attaching: look at each file's content, refuse what the owner cannot hold, copy
