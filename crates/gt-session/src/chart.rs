@@ -480,7 +480,7 @@ type PartnerMaps = (HashMap<u32, Vec<u32>>, HashMap<u32, u32>);
 fn partner_maps(layout: &Layout) -> PartnerMaps {
     let mut owner: HashMap<u32, u32> = HashMap::new();
     let mut out: HashMap<u32, Vec<u32>> = HashMap::new();
-    // Partner edges chain person -> partner 1 -> partner 2 in node order.
+    // Every partner edge runs from the person to one of their partners (never partner to partner).
     for e in layout.edges.iter().filter(|e| e.kind == EdgeKind::Partner) {
         let o = owner.get(&e.from).copied().unwrap_or(e.from);
         owner.insert(e.to, o);

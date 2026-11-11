@@ -7,8 +7,8 @@
 use std::collections::{HashMap, VecDeque};
 
 use crate::types::{
-    ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Node, Rect, dup_edge, link_children,
-    new_node,
+    ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Node, Rect, couple_link, dup_edge,
+    link_children, member_col, new_node,
 };
 
 struct Unit {
@@ -171,32 +171,31 @@ pub fn descendants(
         let y = u.depth as f32 * step_y;
         for k in 0..=u.partners {
             let n = &mut nodes[(u.person + k) as usize];
-            n.rect.x = left + k as f32 * step_p;
+            n.rect.x = left + member_col(u.partners, k) as f32 * step_p;
             n.rect.y = y;
         }
     }
 
+    // Every couple connector joins the person (the unit's first node) to one partner, never partner to partner.
     let mut edges = Vec::new();
     for u in &units {
+        let person = nodes[u.person as usize].rect;
+        let mut hang: HashMap<u32, (f32, f32)> = HashMap::new();
         for k in 1..=u.partners {
             let to = u.person + k;
-            let a = nodes[(to - 1) as usize].rect;
-            let b = nodes[to as usize].rect;
+            let (pts, src) = couple_link(person, nodes[to as usize].rect, m.gap_y);
+            hang.insert(to, src);
             edges.push(Edge {
-                from: to - 1,
+                from: u.person,
                 to,
                 kind: EdgeKind::Partner,
-                pts: vec![a.right(), a.cy(), b.x, b.cy()],
+                pts,
             });
         }
         for &c in &u.children {
             let cu = &units[c];
             let (sx, sy) = match cu.attach {
-                Some(pn) => {
-                    let a = nodes[(pn - 1) as usize].rect;
-                    let b = nodes[pn as usize].rect;
-                    ((a.right() + b.x) / 2.0, b.cy())
-                }
+                Some(pn) => hang[&pn],
                 None => {
                     let a = nodes[u.person as usize].rect;
                     (a.cx(), a.bottom())

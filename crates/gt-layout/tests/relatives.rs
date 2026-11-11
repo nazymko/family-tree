@@ -375,9 +375,16 @@ fn no_parent_line_passes_over_a_box_it_does_not_connect() {
 /// How far the nearest sibling box is from the focus unit (the focus and its partner), edge to edge.
 fn nearest_sibling_gap(l: &Layout) -> f32 {
     let focus = &l.nodes[0];
-    let partner = &l.nodes[1];
-    assert_eq!(partner.rel, Some(Rel::Partner(PartnerOf::Focus)));
-    let (left, right) = (focus.rect.x, partner.rect.x + partner.rect.w);
+    assert_eq!(l.nodes[1].rel, Some(Rel::Partner(PartnerOf::Focus)));
+    // The focus unit: the focus and all their partners (with two or more the first stands on the left).
+    let unit = l
+        .nodes
+        .iter()
+        .filter(|n| n.rel == Some(Rel::Partner(PartnerOf::Focus)));
+    let left = unit.clone().map(|n| n.rect.x).fold(focus.rect.x, f32::min);
+    let right = unit
+        .map(|n| n.rect.x + n.rect.w)
+        .fold(focus.rect.x + focus.rect.w, f32::max);
     l.nodes
         .iter()
         .filter(|n| matches!(n.rel, Some(Rel::Sibling { .. })))

@@ -13,8 +13,8 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::route::{Family, route};
 use crate::types::{
-    ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Node, PartnerOf, Rect, Rel, dup_edge,
-    link_children, new_node,
+    ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Node, PartnerOf, Rect, Rel, couple_link,
+    dup_edge, link_children, member_col, new_node, person_shift,
 };
 
 /// What to show around the centred person.
@@ -238,6 +238,9 @@ impl Sibling {
 /// The least gap between two partners' cards on these charts: wide enough for the partner connector, with the
 /// children's line hanging from its middle, to be seen.
 const PARTNER_GAP: f32 = 24.0;
+
+/// How far under the cards the connector of a far partner (the third and later of one person) dips.
+const FAR_PARTNER_DIP: f32 = 14.0;
 
 fn partner_room(m: &Metrics) -> Metrics {
     Metrics {
@@ -608,7 +611,6 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
     let gap = m.gap_x;
     let nw = m.node_w;
     let pstep = nw + m.couple_gap;
-    let uw = |u: &Unit| nw * (1.0 + u.partners as f32) + m.couple_gap * u.partners as f32;
     let lo_row = units.iter().map(|u| u.row).min().unwrap_or(0);
     let hi_row = units
         .iter()
@@ -632,7 +634,7 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
             .iter()
             .position(|&u| u == blocks[0].anchor)
             .unwrap_or(0);
-        let pv = -(uw(&units[group[k]]) - nw) / 2.0;
+        let pv = person_shift(units[group[k]].partners, m);
         let refx = places[k] + pv;
         for (j, &u) in group.iter().enumerate() {
             units[u].cx = places[j] - refx;
@@ -706,7 +708,7 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
                     if j == ak {
                         continue;
                     }
-                    let acx = xs[pi] + (uw(&units[blocks[ub].anchor]) - nw) / 2.0;
+                    let acx = xs[pi] - person_shift(units[blocks[ub].anchor].partners, m);
                     let row0 = units[u].row;
                     for (d, &(l, h)) in units[u].ctr.iter().enumerate() {
                         let r = idx(row0 + d as i32);
@@ -725,7 +727,7 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
             for (&ub, &x) in parents.iter().zip(&xs) {
                 blocks[ub].ax = x;
                 let a = blocks[ub].anchor;
-                units[a].cx = x + (uw(&units[a]) - nw) / 2.0;
+                units[a].cx = x - person_shift(units[a].partners, m);
                 lf[i] = lf[i].min(x - nw / 2.0);
                 rf[i] = rf[i].max(x + nw / 2.0);
             }
@@ -851,22 +853,25 @@ fn unit_edges(nodes: &[Node], units: &[Unit]) -> (Vec<Edge>, Vec<Family>) {
     let mut edges = Vec::new();
     let mut fams: Vec<Family> = Vec::new();
     for u in units {
+        // Every couple connector joins the person to one partner, never a partner to the next partner.
         for k in 1..=u.partners {
             let to = u.person + k;
-            let a = nodes[(to - 1) as usize].rect;
+            let a = nodes[u.person as usize].rect;
             let b = nodes[to as usize].rect;
+            // A far partner (third and later) is joined by a connector dipping under the cards in between.
+            let (pts, _) = couple_link(a, b, FAR_PARTNER_DIP);
             edges.push(Edge {
-                from: to - 1,
+                from: u.person,
                 to,
                 kind: EdgeKind::Partner,
-                pts: vec![a.right(), a.cy(), b.x, b.cy()],
+                pts,
             });
         }
         let mut by_parents: HashMap<Vec<u32>, usize> = HashMap::new();
         for &c in &u.children {
             let cu = &units[c];
             let parents = match cu.attach {
-                Some(pn) => vec![pn - 1, pn],
+                Some(pn) => vec![u.person, pn],
                 None => vec![u.person],
             };
             let at = *by_parents.entry(parents.clone()).or_insert_with(|| {
@@ -1251,7 +1256,10 @@ fn around_many_kin_with(
     let mut chain: HashMap<u32, Vec<i32>> = HashMap::new();
     for (i, &r) in roots.iter().enumerate() {
         for j in 0..=b.units[r].partners {
-            chain.insert(b.units[r].person + j, vec![i as i32, 2 * j as i32]);
+            chain.insert(
+                b.units[r].person + j,
+                vec![i as i32, 2 * member_col(b.units[r].partners, j) as i32],
+            );
         }
     }
     let mut spine_groups: Vec<SpineGroup> = Vec::new();
@@ -1570,7 +1578,7 @@ fn place_units(units: &mut [Unit], nodes: &mut [Node], from: usize, m: &Metrics)
         let p = units[i].person;
         for k in 0..=units[i].partners {
             let n = &mut nodes[(p + k) as usize];
-            n.rect.x = x0 + k as f32 * pstep;
+            n.rect.x = x0 + member_col(units[i].partners, k) as f32 * pstep;
             n.rect.y = y;
         }
         let ch = units[i].children.clone();
@@ -1758,7 +1766,10 @@ fn arrange_ancestors(
         for k in 0..=b.units[r].partners {
             at.insert(
                 b.units[r].person + k,
-                (bodies.len(), -w / 2.0 + nw / 2.0 + k as f32 * pstep),
+                (
+                    bodies.len(),
+                    -w / 2.0 + nw / 2.0 + member_col(b.units[r].partners, k) as f32 * pstep,
+                ),
             );
         }
         let x = b.units[r].cx;
@@ -1800,7 +1811,7 @@ fn arrange_ancestors(
         let Some(&(ub, off)) = at.get(&g.kids[0]) else {
             continue;
         };
-        if (off + (uw(&b.units[roots[ub]]) - nw) / 2.0).abs() < 0.01 {
+        if (off - person_shift(b.units[roots[ub]].partners, m)).abs() < 0.01 {
             bodies[ub].goal = Goal::Under(roots.len() + gi, off);
         }
     }
@@ -2297,7 +2308,7 @@ fn lay_out(
         let ghi = acc.iter().map(|c| c.1).fold(f32::NEG_INFINITY, f32::max);
         // One person alone in the group (the chart of one line): the person's box, not the whole family
         // below, is what the parents stand over, so the group is made symmetric about the box.
-        let pv = -(uw(&units[group[0]]) - m.node_w) / 2.0;
+        let pv = person_shift(units[group[0]].partners, m);
         let (glo, ghi, pivot) = if !siblings && group.len() == 1 {
             let half = (pv - glo).max(ghi - pv);
             (pv - half, pv + half, pv)
@@ -2311,7 +2322,7 @@ fn lay_out(
         if centred && siblings {
             // The anchor's box, not the middle of the whole group, stands under the parents: brothers
             // and sisters (and their families) spread to either side and the block widens to hold them.
-            let pv = -(uw(&units[blocks[i].anchor]) - m.node_w) / 2.0;
+            let pv = person_shift(units[blocks[i].anchor].partners, m);
             let ag = anchor_k.map_or(gw / 2.0, |k| gplace[k] + pv);
             let mut x = 0.0;
             let mut centres = Vec::new();
@@ -2396,7 +2407,7 @@ fn lay_out(
         let p = units[i].person;
         for k in 0..=units[i].partners {
             let n = &mut nodes[(p + k) as usize];
-            n.rect.x = x0 + k as f32 * step_p;
+            n.rect.x = x0 + member_col(units[i].partners, k) as f32 * step_p;
             n.rect.y = y;
         }
         for (k, &c) in ch.iter().enumerate() {
