@@ -255,6 +255,7 @@ const LABELS: Record<EditCommand['type'], string> = {
   deleteMedia: 'Delete media',
   setPrimaryMedia: 'Set primary media',
   updateMedia: 'Edit media',
+  setMediaTranscription: 'Edit transcription',
   importDraft: 'Add traced people',
   addNumber: 'Record number',
 };
@@ -573,7 +574,8 @@ export class MockApi implements Api {
       parentSets: this.parentSets(id),
       partnerships: this.partnerships(id),
       notes: p.notes,
-      media: p.media,
+      // The person holds copies; edits (title, transcription) land on the media store.
+      media: p.media.map((l) => ({ ...l, media: this.db.media.get(l.media.id) ?? l.media })),
       citations: p.citations,
       changed: p.changed,
     });
@@ -964,6 +966,7 @@ export class MockApi implements Api {
           width: audioName.test(a.name) ? null : 1024,
           height: audioName.test(a.name) ? null : 768,
           sha256: null,
+          transcription: [],
         };
         this.db.media.set(m.id, m);
         bag.media.push({ media: m, primary: bag.media.length === 0 });
@@ -2114,7 +2117,11 @@ export class MockApi implements Api {
         }
         throw missing('name', t.id);
       }
-      case 'note': {
+      case 'source': {
+        const s = this.db.sources.get(t.id);
+        if (!s) throw missing('source', t.id);
+        return { media: s.media };
+      }      case 'note': {
         const n = this.findNote(t.id);
         if (!n) throw missing('note', t.id);
         return { media: n.media };
@@ -2150,7 +2157,7 @@ export class MockApi implements Api {
       source =
         existing ??
         (() => {
-          const s: SourceDto = { id: this.ids.next(), title, author: null, publication: null, abbreviation: null, text: null, citationCount: 0 };
+          const s: SourceDto = { id: this.ids.next(), title, author: null, publication: null, abbreviation: null, text: null, citationCount: 0, media: [] };
           this.db.sources.set(s.id, s);
           return s;
         })();
@@ -2387,6 +2394,7 @@ export class MockApi implements Api {
           abbreviation: input.abbreviation ?? null,
           text: input.text ?? null,
           citationCount: 0,
+          media: [],
         };
         this.db.sources.set(s.id, s);
         return { focus: null, touched: [s.id] };
@@ -2493,6 +2501,36 @@ export class MockApi implements Api {
         return { focus: null, touched: [m.id] };
       }
 
+      case 'setMediaTranscription': {
+        const m = this.db.media.get(cmd.id);
+        if (!m) throw missing('media item', cmd.id);
+        const seen = new Set<Id>();
+        const next = cmd.regions.map((r) => {
+          const rotation = r.rotation ?? 0;
+          if (![0, 90, 180, 270].includes(rotation)) throw invalid('rotation must be 0, 90, 180 or 270.');
+          const a = r.area;
+          if (a && (![a.x, a.y, a.w, a.h].every(Number.isFinite) || a.w <= 0 || a.h <= 0 || a.x < 0 || a.y < 0 || a.x > 1 || a.y > 1))
+            throw invalid('An area must lie on the picture.');
+          const id = r.id ?? this.ids.next();
+          if (seen.has(id)) throw invalid('Two pieces of the transcription have the same id.');
+          seen.add(id);
+          return { id, area: a ? { x: a.x, y: a.y, w: Math.min(a.w, 1 - a.x), h: Math.min(a.h, 1 - a.y) } : null, rotation, text: r.text };
+        });
+        // As the backend: pieces stored since the sender read the list stay, after the piece they followed.
+        if (cmd.known) {
+          let after: Id | null = null;
+          for (const r of m.transcription) {
+            if (!cmd.known.includes(r.id) && !next.some((n) => n.id === r.id)) {
+              const i = after === null ? -1 : next.findIndex((n) => n.id === after);
+              next.splice(i + 1, 0, structuredClone(r));
+            }
+            after = r.id;
+          }
+        }
+        m.transcription = next;
+        return { focus: null, touched: [m.id] };
+      }
+
       case 'addNumber': {
         if (!cmd.sourceFile.trim() || !cmd.number.trim()) throw invalid('Give both the source file and the number.');
         const p = this.person(cmd.person);
@@ -2585,6 +2623,7 @@ export class MockApi implements Api {
         width: this.trace.image.width ?? null,
         height: this.trace.image.height ?? null,
         sha256: null,
+        transcription: [],
       };
       this.db.media.set(picture.id, picture);
       const sid = this.ids.next();
@@ -2596,6 +2635,7 @@ export class MockApi implements Api {
         abbreviation: null,
         text: `File: ${picture.originalName}`,
         citationCount: 0,
+        media: [],
       });
       touched.push(sid);
     }

@@ -8,6 +8,37 @@ import { fixtureTree } from '../api/mock/fixtures';
 import { project } from '../state/project.svelte';
 
 describe('Sources', () => {
+  it('shows_the_pictures_of_a_source_and_their_text', async () => {
+    const user = userEvent.setup();
+    const api = new MockApi(fixtureTree(80));
+    const real = api.suggestSources.bind(api);
+    // An invented scanned letter on the first source.
+    vi.spyOn(api, 'suggestSources').mockImplementation(async (q, n) => {
+      const list = await real(q, n);
+      list[0] = {
+        ...list[0],
+        media: [
+          {
+            primary: false,
+            media: {
+              id: 'scan1', title: 'Letter, page 1', mime: 'image/png', originalName: 'page1.png', date: null, description: null,
+              resolved: true, width: 600, height: 800, sha256: null,
+              transcription: [{ id: 't1', area: { x: 0.1, y: 0.1, w: 0.8, h: 0.1 }, rotation: 0, text: 'Dear cousin,' }],
+            },
+          },
+        ],
+      };
+      return list;
+    });
+    renderWith(Sources, {}, { api });
+    const grid = await screen.findByRole('list', { name: 'Photos and documents' });
+    await user.click(within(grid).getByRole('button', { name: /Letter, page 1/ }));
+    const dlg = await screen.findByRole('dialog');
+    expect(within(dlg).getByRole('button', { name: 'Text piece 1' })).toBeInTheDocument();
+    expect(within(dlg).getByRole('region', { name: 'Full text' })).toHaveTextContent('Dear cousin,');
+    expect(within(dlg).getByRole('button', { name: 'Remove from this source' })).toBeInTheDocument();
+  });
+
   it('lists_with_counts', async () => {
     const api = new MockApi(fixtureTree(80));
     const all = await api.suggestSources('', 200);

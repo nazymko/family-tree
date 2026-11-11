@@ -28,12 +28,16 @@ pub mod settings;
 mod touched;
 pub mod undo;
 
-pub use agent::{AgentCtx, AgentWrite};
+pub use agent::{
+    AGENT_FILE_MAX, AGENT_PDF_MAX, AgentCtx, AgentFile, AgentWrite, check_agent_file,
+    prepare_agent_file,
+};
 pub use command::{
     CitationArg, CitationInput, CitationPatch, CloneOf, DeleteImpact, DraftFamily, DraftPerson,
     EditCommand, EditResult, EventInput, EventOwner, EventOwnerKind, EvidenceInput, HistoryEntry,
     HistoryOp, LivingPatch, NameInput, NewSource, NoteInput, OwnerKind, OwnerRef, ParticipantInput,
-    PersonDraft, Relation, ReuseLast, SkippedFact, SourceInput, SourceRef, UndoReport, UndoState,
+    PersonDraft, Relation, ReuseLast, SkippedFact, SourceInput, SourceRef, TextAreaInput,
+    TextRegionInput, UndoReport, UndoState,
 };
 pub use dto::*;
 pub use error::{ApiError, ErrorCode};
@@ -56,10 +60,10 @@ pub mod thumbs;
 pub mod trace;
 pub use ai_read::{AiPerson, AiReadResult, AiRelation, parse_ai_reply};
 pub use media::{
-    AttachFailure, AttachResult, ExifSuggestion, MAX_RANGE_BYTES, MediaSize, MediaSlice,
-    PreparedAttach, prepare_attach,
+    AttachFailure, AttachResult, ExifSuggestion, MAX_RANGE_BYTES, MediaAbout, MediaSize,
+    MediaSlice, PreparedAttach, prepare_attach,
 };
-pub use thumbs::render_px;
+pub use thumbs::{one_decode_at_a_time, render_px};
 pub use trace::{TraceDraftState, TraceImageInfo};
 pub mod transfer;
 pub use transfer::{

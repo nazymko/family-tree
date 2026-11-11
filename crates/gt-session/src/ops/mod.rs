@@ -7,6 +7,7 @@ pub(crate) mod draft;
 mod event;
 mod family;
 mod media;
+pub(crate) use event::plan_date_correction;
 pub(crate) use media::plan_attach;
 mod person;
 pub(crate) use person::agent_number;
@@ -470,6 +471,9 @@ pub fn plan_with(
             source_file,
             number,
         } => person::add_number(&mut p, *person, source_file, number)?,
+        C::SetMediaTranscription { id, regions, known } => {
+            media::set_transcription(&mut p, *id, regions, known.as_deref())?
+        }
     };
     Ok((p.finish(cmd.label()), focus))
 }

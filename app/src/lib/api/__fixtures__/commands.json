@@ -225,6 +225,14 @@
     "dateRaw": "abt 1878"
   },
   {
+    "type": "setMediaTranscription",
+    "id": "018f3a6e-0000-7000-8000-000000000009",
+    "regions": [
+      { "id": "018f3a6e-0000-7000-8000-00000000000a", "area": { "x": 0.1, "y": 0.2, "w": 0.5, "h": 0.1 }, "rotation": 90, "text": "Dear Olha," },
+      { "text": "Signed below" }
+    ]
+  },
+  {
     "type": "linkExisting",
     "anchor": "018f3a6e-0000-7000-8000-000000000001",
     "relation": "mother",

@@ -6,6 +6,10 @@
   import EmptyState from '../ui/EmptyState.svelte';
   import Banner from '../ui/Banner.svelte';
   import SourceForm, { type SourceValues } from './SourceForm.svelte';
+  import Dropzone from '../media/Dropzone.svelte';
+  import MediaGrid from '../media/MediaGrid.svelte';
+  import MediaViewer from '../media/MediaViewer.svelte';
+  import { isSound } from '../media/sound';
   import { getApi } from '../api/context';
   import { notices } from '../ui/notices.svelte';
   import { agentChanges } from '../state/agentChanges.svelte';
@@ -28,6 +32,9 @@
   let formEpoch = $state(0);
 
   const current = $derived(list.find((s) => s.id === selected) ?? null);
+  /** Photographed pages of the source: a letter, a register entry. */
+  const pictures = $derived((current?.media ?? []).filter((l) => !isSound(l.media)));
+  let viewing = $state<number | null>(null);
   const count = (n: number) => plural('sources.citations', n);
 
   /** True when what it read is what the page now holds. */
@@ -147,6 +154,25 @@
           {#key formEpoch}
             <SourceForm source={current} submitLabel={t('sources.saveSource')} onSubmit={save} loadedAt={listAt} onreload={reloadForm} />
           {/key}
+          <div class="pics">
+            <h3>{t('media.photosAndDocs')}</h3>
+            <Dropzone
+              target={{ kind: 'source', id: current.id }}
+              targetName={current.title ?? t('sources.untitled')}
+              onAttached={() => reload(filter)}
+              onUndone={() => reload(filter)}
+            />
+            {#if pictures.length > 0}<MediaGrid items={pictures} onOpen={(i) => (viewing = i)} />{/if}
+          </div>
+          {#if viewing !== null}
+            <MediaViewer
+              items={pictures}
+              index={viewing}
+              target={{ kind: 'source', id: current.id }}
+              onClose={() => (viewing = null)}
+              onChanged={() => reload(filter)}
+            />
+          {/if}
         {/key}
       {:else}
         <p class="n">{t('sources.chooseOne')}</p>
@@ -219,5 +245,13 @@
   .right {
     display: grid;
     gap: var(--s-4);
+  }
+  .pics {
+    display: grid;
+    gap: var(--s-3);
+  }
+  .pics h3 {
+    margin: 0;
+    font-size: var(--t-md);
   }
 </style>

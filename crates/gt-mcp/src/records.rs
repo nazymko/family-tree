@@ -8,6 +8,7 @@ use gt_core::model::{
     AGENT_NUMBER_SCHEME, Assertion, ChildLink, Citation, Common, Event, EventKind, Evidence,
     ExtIdKind, ExternalId, Family, Media, MediaLink, Name, Note, NoteKind, Participant,
     ParticipantRef, Person, Place, PlaceName, Proof, RepoRef, Repository, Role, Source, UnionKind,
+    transcription_text,
 };
 use gt_session::dates::date_dto;
 use gt_session::person_detail::{event_kind_id, event_label, is_fact, rel_id, union_id};
@@ -357,6 +358,7 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         date,
         description,
         sha256,
+        transcription,
     } = media;
     let link = MediaLink {
         media: common.id,
@@ -375,17 +377,61 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         "resolved": file.as_ref().is_some_and(|f| f.resolved),
         "width": file.as_ref().and_then(|f| f.width),
         "height": file.as_ref().and_then(|f| f.height),
+        "transcriptionParts": transcription.len(),
     }))
 }
 
-/// A media record as a row in a list.
+/// How much of a transcription a row in a list shows; get_media gives all of it.
+const TRANSCRIPT_PREVIEW_CHARS: usize = 300;
+
+/// A media record as a row in a list: how many pieces of transcription it has and the start of
+/// its full text.
 pub(crate) fn media_row(s: &Session, media: &Media) -> Value {
-    extend(common_by_id(&media.common), media_fields(s, media))
+    let mut fields = media_fields(s, media);
+    let text = transcription_text(&media.transcription);
+    if !text.is_empty() {
+        let start: String = text.chars().take(TRANSCRIPT_PREVIEW_CHARS).collect();
+        if start.len() < text.len() {
+            fields.insert("fullTextTruncated".into(), json!(true));
+            fields.insert(
+                "fullTextHint".into(),
+                json!(format!(
+                    "Only the start. get_media, id {}, gives all of it.",
+                    media.common.id
+                )),
+            );
+        }
+        fields.insert("fullText".into(), json!(start));
+    }
+    extend(common_by_id(&media.common), fields)
 }
 
-/// A media record read by id.
+/// The transcription of a picture: each piece with its area (fractions 0..1 of the picture as
+/// displayed, from the top left corner; null when it has none) and rotation, in reading order.
+pub(crate) fn transcription_rows(media: &Media) -> Vec<Value> {
+    media
+        .transcription
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.id,
+                "area": r.area.as_ref().map(|a| json!({"x": a.x, "y": a.y, "w": a.w, "h": a.h})),
+                "rotation": r.rotation,
+                "text": r.text,
+            })
+        })
+        .collect()
+}
+
+/// A media record read by id, with its whole transcription and the full text joined from it.
 pub(crate) fn media_full(s: &Session, media: &Media) -> Value {
-    extend(common_resolved(s, &media.common), media_fields(s, media))
+    let mut fields = media_fields(s, media);
+    fields.insert("transcription".into(), json!(transcription_rows(media)));
+    fields.insert(
+        "fullText".into(),
+        json!(transcription_text(&media.transcription)),
+    );
+    extend(common_resolved(s, &media.common), fields)
 }
 
 /// The media a record links to, with what the link itself says.

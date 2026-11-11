@@ -152,6 +152,119 @@ pub(super) fn update_media(
     Ok(None)
 }
 
+/// The most pieces one transcription holds.
+pub const TRANSCRIPTION_PARTS_MAX: usize = 2000;
+/// Bytes of the text of one piece.
+pub const TRANSCRIPTION_PART_MAX: usize = gt_core::model::TEXT_PIECE_MAX;
+/// Bytes of the text of a whole transcription.
+pub const TRANSCRIPTION_TEXT_MAX: usize = 1024 * 1024;
+/// The smallest width or height of an area, as a fraction of the picture.
+const AREA_MIN: f32 = gt_core::model::TEXT_AREA_MIN;
+
+/// An area of the picture, checked and pulled inside it.
+fn checked_area(a: &crate::command::TextAreaInput) -> Result<Region, ApiError> {
+    let all = [a.x, a.y, a.w, a.h];
+    if all.iter().any(|v| !v.is_finite()) {
+        return Err(invalid(
+            "An area of the picture needs x, y, w and h as numbers.",
+        ));
+    }
+    let x = a.x.clamp(0.0, 1.0);
+    let y = a.y.clamp(0.0, 1.0);
+    let w = a.w.min(1.0 - x);
+    let h = a.h.min(1.0 - y);
+    if a.x < -0.01 || a.y < -0.01 || a.x > 1.0 || a.y > 1.0 || w < AREA_MIN || h < AREA_MIN {
+        return Err(invalid(
+            "An area must lie on the picture: x, y, w and h are fractions from 0 to 1 of its width \
+             and height, from the top left corner, and w and h are at least 0.01.",
+        ));
+    }
+    Ok(Region { x, y, w, h })
+}
+
+/// Checks a whole transcription and gives every new piece its id.
+pub(crate) fn checked_transcription(
+    media: &Media,
+    regions: &[crate::command::TextRegionInput],
+) -> Result<Vec<TextRegion>, ApiError> {
+    let mime = media.mime.as_deref().unwrap_or_default();
+    if mime.starts_with("audio/") {
+        return Err(invalid("A sound recording has no picture to transcribe."));
+    }
+    if regions.len() > TRANSCRIPTION_PARTS_MAX {
+        return Err(invalid(format!(
+            "A transcription holds at most {TRANSCRIPTION_PARTS_MAX} pieces."
+        )));
+    }
+    let total: usize = regions.iter().map(|r| r.text.len()).sum();
+    if total > TRANSCRIPTION_TEXT_MAX {
+        return Err(invalid(
+            "A transcription holds up to 1 MiB of text. Put the rest on a source.",
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(regions.len());
+    for r in regions {
+        if r.text.len() > TRANSCRIPTION_PART_MAX {
+            return Err(invalid(
+                "One piece of a transcription holds up to 64 KiB. Split it into several.",
+            ));
+        }
+        let rotation = r.rotation.unwrap_or(0);
+        if !TEXT_ROTATIONS.contains(&rotation) {
+            return Err(invalid("rotation must be 0, 90, 180 or 270."));
+        }
+        let area = match &r.area {
+            Some(_) if mime == "application/pdf" => {
+                return Err(invalid(
+                    "A document has no picture to mark: give its text without an area.",
+                ));
+            }
+            Some(a) => Some(checked_area(a)?),
+            None => None,
+        };
+        let id = r.id.unwrap_or_else(gt_core::ids::new_id);
+        if !seen.insert(id) {
+            return Err(invalid("Two pieces of the transcription have the same id."));
+        }
+        out.push(TextRegion {
+            id,
+            area,
+            rotation,
+            text: r.text.clone(),
+        });
+    }
+    Ok(out)
+}
+
+pub(super) fn set_transcription(
+    p: &mut Planner,
+    id: Uuid,
+    regions: &[crate::command::TextRegionInput],
+    known: Option<&[Uuid]>,
+) -> Result<Option<Uuid>, ApiError> {
+    let mut m: Media = p.get(id)?;
+    let mut next = checked_transcription(&m, regions)?;
+    if let Some(known) = known {
+        // Pieces stored since the sender read the list stay: each after the piece it followed
+        // (or first), so a save from an older view never drops them.
+        let mut after: Option<Uuid> = None;
+        for r in &m.transcription {
+            if !known.contains(&r.id) && !next.iter().any(|n| n.id == r.id) {
+                let at = after
+                    .and_then(|a| next.iter().position(|n| n.id == a))
+                    .map_or(0, |i| i + 1);
+                next.insert(at.min(next.len()), r.clone());
+            }
+            after = Some(r.id);
+        }
+    }
+    m.transcription = next;
+    m.common.changed = Some(p.now);
+    p.put(m);
+    Ok(None)
+}
+
 /// Links new media records to `target` in one change set. Content already stored as a media
 /// record (same sha256) is reused rather than duplicated. Per input, the linked media id, or
 /// `None` when that content is already attached to the target.
@@ -161,6 +274,7 @@ pub(crate) fn plan_attach(
     staged: Vec<Media>,
     now: i64,
     order: DayOrder,
+    may_be_primary: bool,
 ) -> Result<(ChangeSet, Vec<Option<Uuid>>), ApiError> {
     let mut p = Planner::new(tree, now, order);
     let mut by_sha: HashMap<String, Uuid> = tree
@@ -194,7 +308,7 @@ pub(crate) fn plan_attach(
                 links.push(MediaLink {
                     media: id,
                     region: None,
-                    primary: links.is_empty(),
+                    primary: may_be_primary && links.is_empty(),
                 });
                 out.push(Some(id));
             }

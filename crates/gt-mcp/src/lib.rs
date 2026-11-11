@@ -34,7 +34,18 @@ pub const INSTRUCTIONS: &str = concat!(
      This server refuses a person with no name at all (no given name, surname or patronymic). \
      A birth year goes on the birth event, not in a name or a note. Do not assume a parent that an \
      earlier write created for a child: read the parents the answer lists. The report you close \
-     a batch with states only what the server accepted: check get_log first.\n"
+     a batch with states only what the server accepted: check get_log first.\n\n\
+     Pictures of documents: add_media copies a picture or PDF from a full file path on this \
+     computer onto a source (or a person, family, event or citation). set_media_transcription \
+     writes what is on it as pieces in reading order, each with x, y, w and h as fractions 0 to 1 \
+     of the picture get_media shows (already upright), and rotation 0, 90, 180 or 270 for \
+     sideways writing; give text alone when you have no places. It replaces only your own pieces; \
+     the owner's stay. get_media returns the pieces, the joined fullText, and yours: true on \
+     those update_own_media_region may change.\n\n\
+     Correcting a date: correct_event_date sets a confirmed birth or death date on any person's \
+     birth or death event, with the reason (who confirmed it or which source says so). Add a \
+     citation for the new date too. Disagreeing sources with nobody confirming are a note, not a \
+     correction. It never changes whether someone counts as alive or dead.\n"
 );
 
 /// What the server needs from the app. Used as a generic bound only.

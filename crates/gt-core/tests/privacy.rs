@@ -320,6 +320,7 @@ fn shared_media_is_reported_and_exclusive_media_dropped() {
         date: None,
         description: None,
         sha256: None,
+        transcription: Vec::new(),
     };
     let solo = Media {
         common: common(),
@@ -359,6 +360,7 @@ fn bare_media(path: &str) -> Media {
         date: None,
         description: None,
         sha256: None,
+        transcription: Vec::new(),
     }
 }
 

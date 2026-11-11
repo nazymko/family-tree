@@ -85,7 +85,10 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         | C::SaveSource { .. }
         | C::UpdateCitation { .. }
         | C::AddNumber { .. }
-        | C::AddSiblingMarker { .. } => Ok(()),
+        | C::AddSiblingMarker { .. }
+        // Pieces of text are items of a list: the comparison of step 5 lets the agent add its
+        // own and change or remove only those, never the owner's.
+        | C::SetMediaTranscription { .. } => Ok(()),
         C::AddCitation { citation, .. } => match citation {
             CitationArg::Reuse(_) => Err(refused(
                 "Reusing the last citation shares the owner's working state. Give the source and \
@@ -241,7 +244,9 @@ fn edited_record(cmd: &EditCommand) -> Option<Uuid> {
         C::SaveNote { note, .. } => note.id,
         C::SaveEvent { event, .. } => event.id,
         C::SaveName { name, .. } => name.id,
-        C::UpdateCitation { id, .. } | C::UpdatePerson { id, .. } => Some(*id),
+        C::UpdateCitation { id, .. }
+        | C::UpdatePerson { id, .. }
+        | C::SetMediaTranscription { id, .. } => Some(*id),
         _ => None,
     }
 }
@@ -441,6 +446,21 @@ fn same_role(a: &Sex, b: &Sex) -> bool {
 /// The item of a list with this identity (see `revert::identity`).
 fn find_item<'a>(list: &'a [Value], id: &Value) -> Option<&'a Value> {
     list.iter().find(|x| identity(x) == *id)
+}
+
+/// A stored piece of transcription as the command that keeps it.
+pub fn region_input(r: &TextRegion) -> crate::command::TextRegionInput {
+    crate::command::TextRegionInput {
+        id: Some(r.id),
+        area: r.area.as_ref().map(|a| crate::command::TextAreaInput {
+            x: a.x,
+            y: a.y,
+            w: a.w,
+            h: a.h,
+        }),
+        rotation: Some(r.rotation),
+        text: r.text.clone(),
+    }
 }
 
 /// One logged write to a record and who made it (`None`: the owner, or before authors were kept).
@@ -846,6 +866,12 @@ impl Session {
             let record = edited_record(&cmd).unwrap_or(first.id);
             return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
         }
+        // The planner leaves out a record that ends exactly as it was, stamp and all.
+        if cs.changes.is_empty()
+            && let Some(record) = edited_record(&cmd)
+        {
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
+        }
         self.pass_and_store(&cmd, cs, focus, ctx, batch)
     }
 
@@ -867,6 +893,17 @@ impl Session {
             self.check_change(ch, ctx.id)?;
         }
         self.check_living(&cs)?;
+        self.store(cs, focus, ctx, batch)
+    }
+
+    /// Step 7: the write, under the agent and its batch.
+    fn store(
+        &mut self,
+        cs: ChangeSet,
+        focus: Option<Uuid>,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
         let mut reached = Vec::new();
         if !cs.changes.is_empty() {
             let actor = Actor::Agent {
@@ -884,6 +921,308 @@ impl Session {
         }
         let result = self.result(&cs, cs.label.clone(), focus);
         Ok((AgentWrite::Done(result), reached))
+    }
+
+    /// What an agent's attach needs from the tree, checked before its file is touched at all: its
+    /// own open batch, and a record of an allowed kind that is there. So a closed or foreign batch
+    /// cannot be used to learn whether a path exists, and nothing is copied for a refused call.
+    pub fn check_attach_as_agent(
+        &self,
+        target: OwnerRef,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let there = match target.kind {
+            OwnerKind::Person => self.tree.persons.contains_key(&target.id),
+            OwnerKind::Family => self.tree.families.contains_key(&target.id),
+            OwnerKind::Event => self.tree.events.contains_key(&target.id),
+            OwnerKind::Source => self.tree.sources.contains_key(&target.id),
+            OwnerKind::Citation => self.tree.citations.contains_key(&target.id),
+            _ => {
+                return Err(refused(
+                    "A picture or document goes on a person, family, event, source or citation.",
+                ));
+            }
+        };
+        let kind = match target.kind {
+            OwnerKind::Person => "person",
+            OwnerKind::Family => "family",
+            OwnerKind::Event => "event",
+            OwnerKind::Source => "source",
+            _ => "citation",
+        };
+        if there {
+            Ok(())
+        } else {
+            Err(ApiError::not_found(kind, target.id))
+        }
+    }
+
+    /// Records a file an agent's tool copied in with [`prepare_agent_file`] and links it to
+    /// `target`, through the same checks and log as any write. It never becomes a person's main
+    /// picture: the owner chooses that. The same file already on `target` is a repeat. Returns,
+    /// besides the write, the media record's id, also when the file was in the tree before.
+    pub fn attach_as_agent(
+        &mut self,
+        target: OwnerRef,
+        mut file: AgentFile,
+        about: &crate::media::MediaAbout,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>, Uuid), ApiError> {
+        self.check_attach_as_agent(target, ctx, batch)?;
+        if file.prepared.dir != self.project.dir {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                "The tree changed while the file was being copied; nothing was attached.",
+            ));
+        }
+        let [prepared] = file.prepared.files.as_slice() else {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "Attach one file at a time.",
+            ));
+        };
+        let (rel, sha) = (prepared.rel.clone(), prepared.sha.clone());
+        let (_, now) = (self.clock.0)();
+        let order = self.day_order();
+        let clean = |t: &Option<String>| {
+            t.as_deref()
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_string)
+        };
+        let media = Media {
+            common: crate::ops::new_common(now),
+            path: rel.clone(),
+            original_name: prepared.original_name.clone(),
+            mime: Some(prepared.mime.into()),
+            title: clean(&about.title),
+            date: crate::ops::parse_date(clean(&about.date_raw).as_deref(), order),
+            description: clean(&about.description),
+            sha256: Some(sha.clone()),
+            transcription: Vec::new(),
+        };
+        let (cs, outcomes) =
+            crate::ops::plan_attach(&self.tree, target, vec![media], now, order, false)?;
+        let Some(Some(id)) = outcomes.first().copied() else {
+            let record = self
+                .tree
+                .media
+                .values()
+                .find(|m| m.sha256.as_deref() == Some(sha.as_str()))
+                .map_or(target.id, |m| m.common.id);
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new(), record));
+        };
+        let cmd = EditCommand::AttachMedia {
+            target,
+            media: vec![id],
+        };
+        let focus = (target.kind == OwnerKind::Person).then_some(target.id);
+        let (write, reached) = self.pass_and_store(&cmd, cs, focus, ctx, batch)?;
+        // Recorded: the copy stays. A file already in the tree under another name is left to
+        // the record that has it, and this copy goes.
+        if self.tree.media.values().any(|m| m.path == rel) {
+            file.made = None;
+        }
+        Ok((write, reached, id))
+    }
+
+    /// Which pieces of a picture's transcription this connection wrote and nobody has changed
+    /// since, in order.
+    pub fn own_text_regions(&self, media: Uuid, me: Uuid) -> Result<Vec<bool>, ApiError> {
+        let m = self
+            .tree
+            .media
+            .get(&media)
+            .ok_or_else(|| ApiError::not_found("media", media))?;
+        let writers = self.project.last_writers(media)?;
+        let rows: Vec<Written> = writers
+            .into_iter()
+            .map(|(by, _)| by)
+            .zip(self.project.rows_of(media)?)
+            .collect();
+        if record_is_own(&rows, me) {
+            return Ok(vec![true; m.transcription.len()]);
+        }
+        let path = ["Media".to_string(), "transcription".to_string()];
+        Ok(m.transcription
+            .iter()
+            .map(|r| item_is_own(&rows, &path, &Value::String(r.id.to_string()), me))
+            .collect())
+    }
+
+    /// Replaces this connection's own pieces of a picture's transcription with `regions`, in one
+    /// write. Pieces anyone else wrote or changed stay as they are and where they are. Ids of the
+    /// pieces replaced are used again, so saying the same again is a repeat. Returns, besides the write, how many pieces were kept.
+    pub fn set_transcription_as_agent(
+        &mut self,
+        media: Uuid,
+        regions: Vec<crate::command::TextRegionInput>,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>, usize), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let own = self.own_text_regions(media, ctx.id)?;
+        let Some(m) = self.tree.media.get(&media) else {
+            return Err(ApiError::not_found("media", media));
+        };
+        // The agent's pieces are replaced where they stand, one for one, so nobody else's piece
+        // moves; what is left over goes, and what is new comes at the end.
+        let mut list = Vec::new();
+        let mut kept = 0;
+        let mut new = regions.into_iter();
+        for (r, mine) in m.transcription.iter().zip(own) {
+            if !mine {
+                list.push(region_input(r));
+                kept += 1;
+            } else if let Some(mut next) = new.next() {
+                next.id = Some(r.id);
+                list.push(next);
+            }
+        }
+        for mut r in new {
+            r.id = None;
+            list.push(r);
+        }
+        let cmd = EditCommand::SetMediaTranscription {
+            id: media,
+            regions: list,
+            known: None,
+        };
+        let (write, reached) = self.gated(cmd, None, ctx, batch)?;
+        Ok((write, reached, kept))
+    }
+
+    /// The one change an agent may make to what is already there: a birth or death date someone
+    /// confirmed, on any person's birth or death event. The date is set and a research note on the
+    /// event says what it was, what it is now and `reason`, in one write the owner can undo. Step 5
+    /// of the gate is what this replaces; step 6 still holds, so it can never change whether
+    /// anyone counts as alive or dead.
+    pub fn correct_date_as_agent(
+        &mut self,
+        event: Uuid,
+        date_raw: &str,
+        reason: &str,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(refused(
+                "Give the reason: who confirmed the date, or which source says so.",
+            ));
+        }
+        if reason.chars().count() > CORRECTION_REASON_MAX {
+            return Err(refused(
+                "The reason holds up to 1000 characters: say who confirmed the date or which                  source says so, and put the rest in a note.",
+            ));
+        }
+        if date_raw.trim().chars().count() > CORRECTION_DATE_MAX {
+            return Err(refused(
+                "The date holds up to 100 characters. Give the date alone, and put what the \
+                 source says around it in a note.",
+            ));
+        }
+        let e = self
+            .tree
+            .events
+            .get(&event)
+            .ok_or_else(|| ApiError::not_found("event", event))?;
+        let word = match e.kind {
+            EventKind::Birth => "Birth",
+            EventKind::Death => "Death",
+            _ => {
+                return Err(refused(
+                    "Only the date of a birth or a death can be corrected. For anything else add \
+                     a note giving both versions, and list it in your report.",
+                ));
+            }
+        };
+        let order = self.day_order();
+        let date_raw = date_raw.trim();
+        let Some(date) = crate::ops::parse_date(Some(date_raw), order) else {
+            return Err(ApiError::new(ErrorCode::Invalid, "date must be a date."));
+        };
+        let old = e.date.clone();
+        // The same date, however it was typed, is a repeat.
+        let same = old.as_ref().is_some_and(|o| {
+            let mut as_typed = o.clone();
+            as_typed.raw = date.raw.clone();
+            as_typed == date || o.raw.trim().eq_ignore_ascii_case(date_raw)
+        });
+        if same {
+            return Ok((AgentWrite::AlreadyThere { record: event }, Vec::new()));
+        }
+        self.check_life_order(event, e.kind == EventKind::Birth, &date)?;
+        let was = old
+            .as_ref()
+            .map_or("no date".to_string(), |d| d.raw.clone());
+        let note = format!(
+            "{word} date corrected from {was} to {}. Reason: {reason}",
+            date.raw
+        );
+        let (_, now) = (self.clock.0)();
+        let (cs, focus) =
+            crate::ops::plan_date_correction(&self.tree, event, date, &note, now, order)?;
+        self.check_living(&cs)?;
+        self.store(cs, focus, ctx, batch)
+    }
+
+    /// A corrected birth date may not come surely after the same person's death, nor a death
+    /// date surely before their birth. Dates that can still overlap ("about", "before") pass.
+    fn check_life_order(
+        &self,
+        event: Uuid,
+        is_birth: bool,
+        date: &gt_core::date::GenDate,
+    ) -> Result<(), ApiError> {
+        let Some(e) = self.tree.events.get(&event) else {
+            return Ok(());
+        };
+        let people: Vec<Uuid> = e
+            .participants
+            .iter()
+            .filter(|p| p.role == Role::Principal)
+            .filter_map(|p| match p.target {
+                ParticipantRef::Person(id) => Some(id),
+                ParticipantRef::Family(_) => None,
+            })
+            .collect();
+        let other = if is_birth {
+            EventKind::Death
+        } else {
+            EventKind::Birth
+        };
+        for o in self.tree.events.values() {
+            if o.common.id == event || o.kind != other {
+                continue;
+            }
+            let theirs = o.participants.iter().any(|p| {
+                p.role == Role::Principal
+                    && matches!(p.target, ParticipantRef::Person(id) if people.contains(&id))
+            });
+            let Some(d) = o.date.as_ref().filter(|_| theirs) else {
+                continue;
+            };
+            let (birth, death) = if is_birth { (date, d) } else { (d, date) };
+            if let (Some(b), Some(dd)) = (birth.sort_min, death.sort_max)
+                && b > dd
+            {
+                return Err(refused(if is_birth {
+                    "That birth date is after the same person's death date, so one of them is \
+                     wrong. Leave a note giving both dates and the source, and list it in your \
+                     report."
+                } else {
+                    "That death date is before the same person's birth date, so one of them is \
+                     wrong. Leave a note giving both dates and the source, and list it in your \
+                     report."
+                }));
+            }
+        }
+        Ok(())
     }
 
     fn marker_of(&self, family: Uuid) -> Option<Uuid> {
@@ -1105,7 +1444,7 @@ impl Session {
                 .flat_map(|p| &p.names)
                 .find(|n| n.id == target.id)
                 .map(|n| (&n.notes[..], &n.citations[..])),
-            OwnerKind::Note => None,
+            OwnerKind::Note | OwnerKind::Source => None,
             OwnerKind::ChildLink => None,
         }
     }
@@ -1544,4 +1883,216 @@ impl Session {
             None => Ok(()),
         }
     }
+}
+
+/// Characters in the date of a correction.
+const CORRECTION_DATE_MAX: usize = 100;
+/// Characters in the reason for a correction.
+const CORRECTION_REASON_MAX: usize = 1000;
+
+/// The largest file an agent may attach.
+pub const AGENT_FILE_MAX: u64 = 50 * 1024 * 1024;
+
+/// The largest PDF an agent may attach: what get_media can send back whole.
+pub const AGENT_PDF_MAX: u64 = 8 * 1024 * 1024;
+
+fn refuse_file(msg: &str) -> ApiError {
+    ApiError::new(ErrorCode::Invalid, msg)
+}
+
+/// The form of a path an agent gives, before anything is opened: a plain path on a local drive.
+/// A network share (`\\server\share`) would make Windows connect to that server and offer the
+/// user's credentials; device and verbatim paths (`\\.\`, `\\?\`) skip the usual checks.
+fn check_path_form(path: &std::path::Path) -> Result<(), ApiError> {
+    if !path.is_absolute() {
+        return Err(refuse_file(
+            "file_path must be the full path of a file on this computer.",
+        ));
+    }
+    let local = "file_path must be a file on a local drive of this computer, such as \
+                 C:\\Scans\\letter.jpg: not a network share or a device.";
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        match path.components().next() {
+            Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::Disk(_)) => {}
+            _ => return Err(refuse_file(local)),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let text = path.to_string_lossy();
+        if ["/dev/", "/proc/", "/sys/", "/net/"]
+            .iter()
+            .any(|p| text.starts_with(p))
+            || text.starts_with("//")
+        {
+            return Err(refuse_file(local));
+        }
+    }
+    Ok(())
+}
+
+/// What an agent may read: the path's form, no link (symbolic link or junction) anywhere on the
+/// way, an ordinary file of 1 byte to [`AGENT_FILE_MAX`]. Only the folders' and the file's own
+/// entries are read, and links are never followed.
+fn check_agent_path(path: &std::path::Path) -> Result<(), ApiError> {
+    check_path_form(path)?;
+    let missing = "There is no file at file_path, or it cannot be read.";
+    let linked = "file_path goes through a link (a symbolic link or junction). Give the real \
+                  path of the file.";
+    for step in path.ancestors().skip(1) {
+        if step.parent().is_none() {
+            break; // the drive itself
+        }
+        match std::fs::symlink_metadata(step) {
+            Ok(m) if m.file_type().is_symlink() => return Err(refuse_file(linked)),
+            Ok(_) => {}
+            Err(_) => return Err(refuse_file(missing)),
+        }
+    }
+    let meta = std::fs::symlink_metadata(path).map_err(|_| refuse_file(missing))?;
+    if meta.file_type().is_symlink() {
+        return Err(refuse_file(linked));
+    }
+    if meta.is_dir() {
+        return Err(refuse_file("file_path must name a file, not a folder."));
+    }
+    if !meta.is_file() {
+        return Err(refuse_file(
+            "file_path must name an ordinary file, not a device or a pipe.",
+        ));
+    }
+    if meta.len() == 0 {
+        return Err(refuse_file("The file is empty."));
+    }
+    if meta.len() > AGENT_FILE_MAX {
+        return Err(refuse_file(TOO_BIG));
+    }
+    Ok(())
+}
+
+const TOO_BIG: &str =
+    "The file is larger than 50 MiB. Make a smaller copy of the picture and attach that.";
+const NOT_ALLOWED: &str =
+    "Only pictures (JPEG, PNG, WebP, GIF, TIFF) and PDF documents can be attached.";
+const SOUND: &str =
+    "Sound recordings are attached by the owner only. Name the recording in your report.";
+
+/// What the bytes at `path` are, when an agent may attach them: a picture that decodes whole
+/// (one decode at a time, see [`crate::thumbs::one_decode_at_a_time`]) or a whole PDF of at most
+/// [`AGENT_PDF_MAX`]. The PDF's end is read with a seek, never the whole file.
+fn check_agent_content(path: &std::path::Path) -> Result<crate::media::Kind, ApiError> {
+    use crate::media::{Kind, read_head, sniff};
+    use crate::thumbs;
+    use std::io::{Read, Seek, SeekFrom};
+    let unreadable = || refuse_file("The file cannot be read.");
+    let head = read_head(path).map_err(|_| unreadable())?;
+    match sniff(&head) {
+        Some(kind) if kind.is_audio() => Err(refuse_file(SOUND)),
+        Some(Kind::Pdf) => {
+            let mut f = std::fs::File::open(path).map_err(|_| unreadable())?;
+            let len = f.metadata().map_err(|_| unreadable())?.len();
+            if len > AGENT_PDF_MAX {
+                return Err(refuse_file(
+                    "A PDF can be at most 8 MiB, the most get_media can send back. Attach its \
+                     pages as pictures instead, or name the document in your report.",
+                ));
+            }
+            // A real PDF ends with its end-of-file marker; a renamed file of something else does not.
+            let mut tail = Vec::with_capacity(2048);
+            f.seek(SeekFrom::Start(len.saturating_sub(2048)))
+                .and_then(|_| f.take(2048).read_to_end(&mut tail))
+                .map_err(|_| unreadable())?;
+            if tail.windows(5).any(|w| w == b"%%EOF") {
+                Ok(Kind::Pdf)
+            } else {
+                Err(refuse_file(
+                    "The file starts like a PDF but is not a whole PDF document.",
+                ))
+            }
+        }
+        Some(kind) => thumbs::one_decode_at_a_time(|| thumbs::decodes(path))
+            .map(|()| kind)
+            .map_err(|e| {
+                if e.message == thumbs::TOO_LARGE {
+                    e
+                } else {
+                    refuse_file(
+                        "The file is not a picture that can be read (JPEG, PNG, WebP, GIF or TIFF).",
+                    )
+                }
+            }),
+        None => Err(refuse_file(NOT_ALLOWED)),
+    }
+}
+
+/// Whether an agent may attach the file at `path`, without copying it. The tool itself uses
+/// [`prepare_agent_file`], which checks the copy it makes.
+pub fn check_agent_file(path: &std::path::Path) -> Result<(), ApiError> {
+    check_agent_path(path)?;
+    check_agent_content(path).map(|_| ())
+}
+
+/// A file an agent's tool copied into the media folder, not yet recorded. Dropped before
+/// [`Session::attach_as_agent`] recorded it, a copy this call made is removed again, so a
+/// refused call leaves nothing behind.
+pub struct AgentFile {
+    prepared: crate::media::PreparedAttach,
+    /// The copy this call made; `None` once recorded, or when the same file was there before.
+    made: Option<std::path::PathBuf>,
+}
+
+impl Drop for AgentFile {
+    fn drop(&mut self) {
+        if let Some(p) = self.made.take() {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
+
+/// Copies the file at `path` into `<dir>/media` for an agent, without the session: the path's
+/// form first, then at most [`AGENT_FILE_MAX`] bytes copied, then the copy itself checked, so
+/// what is recorded is what was checked even if the original changes meanwhile. The copy is
+/// named by its type, never by the file's name.
+pub fn prepare_agent_file(
+    dir: &std::path::Path,
+    path: &std::path::Path,
+) -> Result<AgentFile, ApiError> {
+    use crate::media::{PreparedAttach, PreparedFile, read_head, sniff};
+    check_agent_path(path)?;
+    let head = read_head(path).map_err(|_| refuse_file("The file cannot be read."))?;
+    // Only the extension of the copy comes from here; the copy is checked again below.
+    let kind = sniff(&head).ok_or_else(|| refuse_file(NOT_ALLOWED))?;
+    if kind.is_audio() {
+        return Err(refuse_file(SOUND));
+    }
+    let stored = gt_store::add_media_file_as(dir, path, kind.ext(), Some(AGENT_FILE_MAX))
+        .map_err(|_| refuse_file("The file cannot be read."))?
+        .ok_or_else(|| refuse_file(TOO_BIG))?;
+    let copy = dir.join(&stored.rel);
+    let mut file = AgentFile {
+        prepared: PreparedAttach {
+            dir: dir.to_path_buf(),
+            files: Vec::new(),
+            failed: Vec::new(),
+        },
+        made: stored.created.then(|| copy.clone()),
+    };
+    if check_agent_content(&copy)? != kind {
+        return Err(refuse_file(
+            "The file changed while it was being copied. Try again.",
+        ));
+    }
+    let too_large = crate::thumbs::raw_dims(&copy)
+        .is_some_and(|(w, h)| u64::from(w) * u64::from(h) > crate::thumbs::MAX_PIXELS);
+    file.prepared.files.push(PreparedFile {
+        rel: stored.rel,
+        sha: stored.sha,
+        mime: kind.mime(),
+        original_name: path.file_name().map(|n| n.to_string_lossy().into_owned()),
+        too_large,
+        src: path.to_string_lossy().into_owned(),
+    });
+    Ok(file)
 }

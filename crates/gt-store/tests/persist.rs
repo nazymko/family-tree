@@ -26,6 +26,58 @@ fn living_cached(p: &Project, id: gt_core::Uuid) -> Option<i64> {
 }
 
 #[test]
+fn a_damaged_transcription_never_stops_the_tree_from_opening() {
+    let (_tmp, mut p) = new_project();
+    let mut tree = rich_tree();
+    // A second picture, whose column is not JSON at all.
+    let mut other = tree.media.values().next().unwrap().clone();
+    other.common = common(id());
+    other.sha256 = Some("ab".repeat(32));
+    let other_id = other.common.id;
+    tree.media.insert(other_id, other);
+    p.save_tree(&tree, TODAY).unwrap();
+    let (first, kept) = {
+        let m = tree.media.values().next().unwrap();
+        (m.common.id, m.transcription[0].id)
+    };
+    let bad = format!(
+        r#"[{{"id":"{kept}","area":{{"x":-0.5,"y":0.2,"w":2.0,"h":0.1}},"rotation":45,"text":"Dear Marta,"}},
+            {{"no":"id"}}, "nonsense",
+            {{"id":"{kept}","rotation":0,"text":"the same id again"}},
+            {{"id":"{}","area":{{"x":0.99,"y":0.99,"w":0.0,"h":0.5}},"rotation":90,"text":"Lviv"}}]"#,
+        id()
+    );
+    p.conn()
+        .execute(
+            "UPDATE media SET transcription_json = ?1 WHERE id = ?2",
+            [bad, first.to_string()],
+        )
+        .unwrap();
+    p.conn()
+        .execute(
+            "UPDATE media SET transcription_json = 'not json' WHERE id = ?1",
+            [other_id.to_string()],
+        )
+        .unwrap();
+    let back = p.load_tree().unwrap();
+    let pieces = &back.media[&first].transcription;
+    assert_eq!(pieces.len(), 2, "{pieces:?}");
+    assert_eq!(pieces[0].rotation, 0);
+    assert_eq!(
+        pieces[0].area,
+        Some(Region {
+            x: 0.0,
+            y: 0.2,
+            w: 1.0,
+            h: 0.1
+        })
+    );
+    assert_eq!(pieces[1].text, "Lviv");
+    assert_eq!(pieces[1].area, None, "nothing of it was on the picture");
+    assert!(back.media[&other_id].transcription.is_empty());
+}
+
+#[test]
 fn save_load_roundtrip() {
     let (_tmp, mut p) = new_project();
     let tree = rich_tree();

@@ -10,7 +10,10 @@
   import { getApi } from '../api/context';
   import { notices } from '../ui/notices.svelte';
   import { isPdf, mediaLabel, openOriginal } from './MediaGrid.svelte';
-  import type { EditCommand, Id, MediaLinkDto, OwnerRef } from '../api/api';
+  import TextOverlay from './TextOverlay.svelte';
+  import FullTextPanel from './FullTextPanel.svelte';
+  import { toInput } from './transcription';
+  import type { EditCommand, Id, MediaLinkDto, OwnerRef, TextRegionDto } from '../api/api';
   import { t } from '../i18n';
 
   let {
@@ -55,11 +58,78 @@
   const description = $derived(m ? (edits[m.id]?.description ?? m.description ?? '') : '');
   const primary = $derived(!!link?.primary || (m ? primaryIds.has(m.id) : false));
 
+  // The transcription: boxes on the picture and the full text beside it.
+  let showText = $state(true);
+  let editing = $state(false);
+  let drawing = $state(false);
+  let selected = $state<Id | null>(null);
+  /** Pieces as shown: what was edited here, saved or on its way, until the parent hands over fresh items. */
+  let saved = $state<Record<Id, TextRegionDto[]>>({});
+  /** Pieces as the tree last stored them, as far as this viewer knows: what a failed save goes back to. */
+  let stored: Record<Id, TextRegionDto[]> = {};
+  /** Saves go one after another; a failure starts a new generation and drops the saves built on it. */
+  let queue: Promise<void> = Promise.resolve();
+  let generation = 0;
+  let panel = $state<ReturnType<typeof FullTextPanel>>();
+  $effect(() => {
+    void items;
+    saved = {};
+    stored = {};
+  });
+  const regions = $derived(m ? (saved[m.id] ?? m.transcription ?? []) : []);
+  const picture = $derived(!!m && m.resolved && !isPdf(m));
+  const placedAny = $derived(regions.some((r) => r.area));
+  const transform = $derived(`translate(${panX}px, ${panY}px) scale(${zoom})`);
+  /** The box the picture fills, so the boxes on it line up whatever the stage's shape. */
+  let naturalRatio = $state(4 / 3);
+  const ratio = $derived(m?.width && m?.height ? m.width / m.height : naturalRatio);
+
+  /**
+   * Shows `next` at once and saves it after any save still on its way. It says which pieces it knew of, so a piece
+   * an agent added meanwhile stays. When a save fails, the pieces go back to what was last stored, and edits made
+   * on top of the failed one are not sent.
+   */
+  function saveRegions(next: TextRegionDto[]): Promise<void> {
+    if (!m) return queue;
+    const id = m.id;
+    if (!(id in stored)) stored[id] = m.transcription ?? [];
+    saved[id] = next;
+    error = '';
+    const gen = generation;
+    queue = queue.then(async () => {
+      if (gen !== generation) return;
+      try {
+        await api.apply({ type: 'setMediaTranscription', id, regions: toInput(next), known: stored[id].map((r) => r.id) });
+        stored[id] = next;
+        onChanged?.();
+      } catch (e) {
+        generation++;
+        saved[id] = stored[id];
+        error = errMessage(e, t('edit.wentWrong'));
+      }
+    });
+    return queue;
+  }
+
+  /** Text typed and not yet saved is saved before the picture changes or the viewer closes. */
+  function close() {
+    panel?.flush();
+    onClose();
+  }
+
+  function toggleEditing() {
+    editing = !editing;
+    if (!editing) drawing = false;
+  }
+
   function go(to: number) {
     const next = Math.min(Math.max(to, 0), items.length - 1);
     if (next === at) return;
+    panel?.flush();
     at = next;
     confirming = false;
+    selected = null;
+    drawing = false;
     fit();
   }
   function fit() {
@@ -111,7 +181,7 @@
       await api.apply(command);
       fit();
       onChanged?.();
-      if (wasOnly) onClose();
+      if (wasOnly) close();
       else closeConfirm();
     } catch (e) {
       error = errMessage(e, t('edit.wentWrong'));
@@ -184,7 +254,7 @@
 
 <svelte:window {onkeydown} />
 
-<Dialog open title={m ? mediaLabel({ ...m, title: title || m.title }) : t('media.photo')} onclose={onClose}>
+<Dialog open title={m ? mediaLabel({ ...m, title: title || m.title }) : t('media.photo')} onclose={close}>
   {#if m}
     <div class="viewer">
       {#if error}<Banner kind="error">{error}</Banner>{/if}
@@ -206,14 +276,54 @@
         {:else if isPdf(m)}
           <p class="note"><Icon name="file" size="2rem" /> {t('media.isDocument')}</p>
         {:else}
-          <img
-            alt={mediaLabel(m)}
-            src={api.mediaUrl(m.id, 'preview')}
-            draggable="false"
-            style="transform: translate({panX}px, {panY}px) scale({zoom})"
-          />
+          <div class="frame" style="--ratio: {ratio}">
+            <img
+              alt={mediaLabel(m)}
+              src={api.mediaUrl(m.id, 'preview')}
+              draggable="false"
+              style="transform: {transform}"
+              onload={(e) => {
+                const i = e.currentTarget as HTMLImageElement;
+                if (i.naturalWidth && i.naturalHeight) naturalRatio = i.naturalWidth / i.naturalHeight;
+              }}
+            />
+            {#if showText && (placedAny || (editing && drawing))}
+              <TextOverlay
+                {regions}
+                {transform}
+                {editing}
+                {drawing}
+                {selected}
+                onselect={(id) => (selected = id)}
+                onchange={saveRegions}
+                ondrawn={(id) => {
+                  drawing = false;
+                  void panel?.focusText(id);
+                }}
+                onleave={() => stage?.focus()}
+              />
+            {/if}
+          </div>
         {/if}
       </div>
+      {#if m.resolved && !(m.mime ?? '').startsWith('audio/')}
+        <div class="bar" role="group" aria-label={t('media.fullText')}>
+          {#if picture && placedAny}
+            <Button aria-pressed={showText} onclick={() => (showText = !showText)}>{t('media.showText')}</Button>
+          {/if}
+          <Button aria-pressed={editing} onclick={toggleEditing}>{t('media.editText')}</Button>
+          {#if editing && picture}
+            <Button
+              aria-pressed={drawing}
+              onclick={() => {
+                drawing = !drawing;
+                if (drawing) showText = true;
+              }}>{t('media.drawPiece')}</Button
+            >
+            {#if drawing}<span>{t('media.drawHelp')}</span>{/if}
+          {/if}
+        </div>
+      {/if}
       <div class="bar">
         <span aria-live="polite">{t('media.zoom', { pct: Math.round(zoom * 100) })}</span>
         <span>{t('media.position', { i: at + 1, n: items.length })}</span>
@@ -225,7 +335,7 @@
         {/if}
         <Button onclick={() => openOriginal(api, m.id)}>{t('media.openOriginal')}</Button>
         {#if target}
-          <Button disabled={busy} onclick={() => target && remove({ type: 'detachMedia', target, media: m.id })}>{t('media.unlink')}</Button>
+          <Button disabled={busy} onclick={() => target && remove({ type: 'detachMedia', target, media: m.id })}>{t(target.kind === 'source' ? 'media.unlinkSource' : 'media.unlink')}</Button>
         {/if}
         <Button variant="danger" disabled={busy} onclick={() => (confirming = true)}>{t('media.deleteFromTree')}</Button>
       </div>
@@ -237,6 +347,17 @@
             <Button variant="danger" disabled={busy} onclick={() => remove({ type: 'deleteMedia', id: m.id })}>{t('media.deleteFromTree')}</Button>
           </div>
         </div>
+      {/if}
+      {#if m.resolved && (editing || regions.some((r) => r.text.trim()))}
+        <FullTextPanel
+          bind:this={panel}
+          {regions}
+          {editing}
+          {selected}
+          onselect={(id) => (selected = id)}
+          onchange={saveRegions}
+          onleave={() => stage?.focus()}
+        />
       {/if}
       {#key m.id}
         <TextField label={t('media.title')} value={title} onchange={(e) => saveField('title', e.currentTarget.value)} />
@@ -263,9 +384,19 @@
     touch-action: none;
     cursor: grab;
   }
+  .stage {
+    container-type: size;
+  }
+  /* Exactly the picture's box, as large as the stage allows: boxes are placed in % of it. */
+  .frame {
+    position: relative;
+    width: min(100cqw, calc(100cqh * var(--ratio)));
+    aspect-ratio: var(--ratio);
+  }
   img {
-    max-width: 100%;
-    max-height: 100%;
+    display: block;
+    width: 100%;
+    height: 100%;
     transform-origin: center;
     user-select: none;
   }

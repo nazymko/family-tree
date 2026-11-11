@@ -36,6 +36,11 @@
           project.open(info);
         }
         nav.focus(info.homePerson);
+        if (wanted === 'transcription') {
+          const { showTranscription } = await import('./lib/dev/transcriptionSample');
+          await showTranscription(api);
+          return;
+        }
         if (wanted === 'person' && info.homePerson) nav.go({ name: 'person', id: info.homePerson });
         else if (wanted === 'export') {
           nav.go({ name: 'family' });

@@ -384,13 +384,18 @@ impl Project {
 
         let mut st = conn.prepare(
             "SELECT id, private, changed, unknown_json, path, original_name, mime, title, \
-             date_json, description, sha256 FROM media ORDER BY seq",
+             date_json, description, sha256, transcription_json FROM media ORDER BY seq",
         )?;
         let mut rows = st.query([])?;
         while let Some(r) = rows.next()? {
             let common = links.common("media", r)?;
             let id = common.id;
+            let transcription = match r.get::<_, Option<String>>(11)? {
+                Some(j) => mended_transcription(id, &j),
+                None => Vec::new(),
+            };
             let m = Media {
+                transcription,
                 path: r.get(4)?,
                 original_name: r.get(5)?,
                 mime: r.get(6)?,
@@ -422,4 +427,38 @@ impl Project {
         }
         Ok(tree)
     }
+}
+
+/// A picture's stored transcription, read as far as it can be: a damaged piece is mended or
+/// left out, never a reason the tree cannot open. What was changed is reported on stderr, as the
+/// store reports other damage it works around.
+fn mended_transcription(media: Uuid, json: &str) -> Vec<TextRegion> {
+    let raw: Vec<serde_json::Value> = match serde_json::from_str(json) {
+        Ok(list) => list,
+        Err(e) => {
+            eprintln!("gt-store: media {media}: the transcription cannot be read ({e}); left out");
+            return Vec::new();
+        }
+    };
+    let total = raw.len();
+    let mut seen = std::collections::HashSet::new();
+    let mut mended = 0;
+    let out: Vec<TextRegion> = raw
+        .into_iter()
+        .filter_map(|v| serde_json::from_value::<TextRegion>(v).ok())
+        .filter(|r| seen.insert(r.id))
+        .map(|mut r| {
+            if mend_text_region(&mut r) {
+                mended += 1;
+            }
+            r
+        })
+        .collect();
+    let dropped = total - out.len();
+    if dropped + mended > 0 {
+        eprintln!(
+            "gt-store: media {media}: {dropped} damaged transcription piece(s) left out, {mended} mended"
+        );
+    }
+    out
 }

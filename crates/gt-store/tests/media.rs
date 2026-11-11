@@ -85,3 +85,25 @@ fn media_name_matches_stored_content_and_no_tmp_left() {
     assert_eq!(again, sha);
     assert_eq!(count_files(&p.dir.join("media")), 1);
 }
+
+#[test]
+fn a_capped_copy_stops_at_the_limit_and_leaves_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = Project::create(&tmp.path().join("t.genetree")).unwrap();
+    let a = tmp.path().join("grows.hta");
+    std::fs::write(&a, vec![7u8; 200_000]).unwrap();
+    // The size a check saw earlier does not matter: the bytes copied are counted.
+    let refused = gt_store::add_media_file_as(&p.dir, &a, "png", Some(199_999)).unwrap();
+    assert_eq!(refused, None);
+    assert_eq!(count_files(&p.dir.join("media")), 0);
+    let stored = gt_store::add_media_file_as(&p.dir, &a, "png", Some(200_000))
+        .unwrap()
+        .unwrap();
+    assert!(stored.rel.ends_with(".png"), "{}", stored.rel);
+    assert!(stored.created);
+    let again = gt_store::add_media_file_as(&p.dir, &a, "png", Some(200_000))
+        .unwrap()
+        .unwrap();
+    assert!(!again.created, "the same content is already there");
+    assert_eq!(count_files(&p.dir.join("media")), 1);
+}

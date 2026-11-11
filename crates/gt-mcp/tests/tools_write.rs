@@ -99,6 +99,19 @@ fn write_needs_batch() {
         ("update_own_event", json!({"event": id})),
         ("update_own_name", json!({"person": id, "name": id})),
         ("update_own_citation", json!({"citation": id})),
+        (
+            "add_media",
+            json!({"file_path": "C:/x.jpg", "target": {"kind": "person", "id": id}}),
+        ),
+        ("set_media_transcription", json!({"media": id, "text": "x"})),
+        (
+            "correct_event_date",
+            json!({"event": id, "date": "1901", "reason": "x"}),
+        ),
+        (
+            "update_own_media_region",
+            json!({"media": id, "region": id, "text": "x"}),
+        ),
     ];
     for (tool, args) in writes {
         let message = call_err(&host, tool, args);
@@ -1374,6 +1387,14 @@ fn only_the_tools_named_here_can_write() {
             "update_own_event",
             "update_own_name",
             "update_own_citation",
+            // The one change to what is there: a confirmed birth or death date, with a reason
+            // kept in a note, and never one that changes who counts as alive or dead.
+            "correct_event_date",
+            // Copies a checked picture or PDF in, through the same gate as a link.
+            "add_media",
+            // Pieces of text on a picture: the gate lets an agent change only its own.
+            "set_media_transcription",
+            "update_own_media_region",
         ]
     );
 }

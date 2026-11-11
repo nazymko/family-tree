@@ -234,6 +234,8 @@ pub struct SourceDto {
     pub abbreviation: Option<String>,
     pub text: Option<String>,
     pub citation_count: u32,
+    /// Pictures of the source itself, such as a photographed document.
+    pub media: Vec<MediaLinkDto>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -284,6 +286,21 @@ pub struct MediaDto {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub sha256: Option<String>,
+    /// What is written on the picture, in reading order.
+    pub transcription: Vec<TextRegionDto>,
+}
+
+/// One piece of a picture's transcription.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TextRegionDto {
+    pub id: Uuid,
+    /// Where it is written: fractions 0..1 of the picture as displayed; null for text with no place.
+    pub area: Option<crate::command::TextAreaInput>,
+    /// Degrees clockwise the writing is turned.
+    #[ts(type = "0 | 90 | 180 | 270")]
+    pub rotation: u16,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

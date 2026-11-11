@@ -22,6 +22,18 @@ const MAX_ALLOC: u64 = 1024 * 1024 * 1024;
 const JPEG_QUALITY: u8 = 82;
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Held while a whole picture is decoded for an agent, so parallel calls cannot each take the
+/// memory of a full decode at once.
+static DECODING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Runs `f` while no other agent call is decoding a picture.
+pub fn one_decode_at_a_time<T>(f: impl FnOnce() -> T) -> T {
+    let _one = DECODING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    f()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThumbSize {
     /// 256 px longest side.
@@ -101,6 +113,23 @@ pub(crate) fn image_dims(path: &Path) -> Option<(u32, u32)> {
     let file = std::fs::File::open(path).ok()?;
     let turned = exif_orientation(file).is_some_and(|o| o >= 5);
     Some(if turned { (h, w) } else { (w, h) })
+}
+
+/// Decodes the whole picture, within the same limits as a preview, to prove it is one.
+pub(crate) fn decodes(path: &Path) -> Result<(), ApiError> {
+    let mut reader = ImageReader::open(path)
+        .and_then(ImageReader::with_guessed_format)
+        .map_err(|_| ApiError::new(ErrorCode::Invalid, "cannot read image"))?;
+    reader.limits(limits());
+    let (w, h) = reader.into_dimensions().map_err(map_image_err)?;
+    if u64::from(w) * u64::from(h) > MAX_PIXELS {
+        return Err(too_large());
+    }
+    let mut reader = ImageReader::open(path)
+        .and_then(ImageReader::with_guessed_format)
+        .map_err(|_| ApiError::new(ErrorCode::Invalid, "cannot read image"))?;
+    reader.limits(limits());
+    reader.decode().map(|_| ()).map_err(map_image_err)
 }
 
 fn flatten_to_rgb(img: &DynamicImage) -> (u32, u32, Vec<u8>) {

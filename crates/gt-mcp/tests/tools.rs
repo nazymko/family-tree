@@ -457,6 +457,7 @@ fn host_with_imported_media(mime: Option<&str>, bytes: &[u8]) -> (TestHost, Uuid
             date: None,
             description: None,
             sha256: None,
+            transcription: Vec::new(),
         },
     );
     let mut p = Project::create(&proj).unwrap();
@@ -1870,6 +1871,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
             date: Some(date("media-date")),
             description: Some(mark("media-description")),
             sha256: Some(mark("media-sha")),
+            transcription: Vec::new(),
         },
     );
     let plain_media = |id: Uuid, title: &str| Media {
@@ -1881,6 +1883,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
         date: None,
         description: None,
         sha256: None,
+        transcription: Vec::new(),
     };
     tree.media
         .insert(second.media, plain_media(second.media, "second-media"));

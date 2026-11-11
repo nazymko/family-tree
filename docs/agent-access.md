@@ -52,7 +52,10 @@ It can add:
 - events, notes, sources and citations;
 - one **marker** for brothers and sisters a source mentions without names (the app draws it as a label reading "Some more
   Sisters/Brothers" in the current language, and it has no name or date);
-- the file number of a person, so that a second run finds them again.
+- the file number of a person, so that a second run finds them again;
+- **pictures and PDF documents** from a file on this computer, on a person, family, event, source or citation (see
+  [Photographed documents](#photographed-documents));
+- the **transcription** of a picture: what is written on it, piece by piece, with where each piece is.
 
 It works in **batches**. A batch has a title, such as the name of the file the agent is working from, and ends with the
 agent's own report: what it added, what it left unsettled, and questions for the family.
@@ -60,9 +63,10 @@ agent's own report: what it added, what it left unsettled, and questions for the
 ### What it cannot do
 
 - **Change what is already there.** An agent adds. It does not rewrite a name, a date or a note that you or anyone else wrote,
-  and it deletes nothing of yours. If a source disagrees with the tree, the agent adds a note that gives both versions. The one
-  exception is its own work: it may correct a note, event, name or citation that it wrote itself and that nobody has changed
-  since, and it may remove an empty family it made itself in the batch still open, which a refused link can leave behind.
+  and it deletes nothing of yours. If a source disagrees with the tree, the agent adds a note that gives both versions. The
+  exceptions are its own work: it may correct a note, event, name, citation or piece of a transcription that it wrote itself
+  and that nobody has changed since, and it may remove an empty family it made itself in the batch still open, which a refused
+  link can leave behind. And one more, below: a confirmed birth or death date.
 - **Add a person with no name.** Someone a source knows only by a role, such as somebody's father, goes in a note on the people
   around them.
 - **Change whether a living person counts as alive or dead.** The app decides this from dates and relationships, and the
@@ -78,6 +82,53 @@ agent's own report: what it added, what it left unsettled, and questions for the
   makes no link and writes a note on the people involved.
 - **Connect people a source says are not related.** They stay apart, and the agent lists them in its report.
 - **Open the tree file, or change settings, other connections or the rules.**
+
+### Correcting a birth or death date
+
+When you, or a source, have confirmed the exact date of a birth or a death, an agent may set it with the tool
+`correct_event_date`, on any person's birth or death event, whoever entered it: it fills an empty date, or replaces one such as
+a year alone with the full date. It must give the reason (who confirmed it, or which source says so). Only the date changes;
+the place, description and everything else on the event stay as they are.
+
+- The reason is kept as a research note on the event, added in the same change: *"Birth date corrected from 1901 to
+  12 MAR 1901. Reason: ..."*. The note is written in English, as the agent's own text is.
+- The change is in the **Change log** under the agent's name, with the date before and after, and in the event's history.
+  **Undo** takes back the date and the note together.
+- It never changes whether someone counts as alive or dead: a date that would is refused, as every other write is.
+- A death date before the same person's birth date, or a birth date after their death date, is refused (when the two
+  dates surely do not overlap): the agent leaves a note with both dates instead. The date holds up to 100 characters,
+  the reason up to 1000.
+- When sources disagree and nobody has confirmed which is right, the agent does not correct anything: it adds a note with
+  both versions.
+
+### Photographed documents
+
+An agent can attach a picture of a document and write down what is on it.
+
+- `add_media` copies a picture (JPEG, PNG, WebP, GIF or TIFF) or a PDF from a file on this computer into the tree, on a
+  person, family, event, source or citation. **With agent access on, an agent can attach any picture or PDF that your
+  Windows user can read from a local drive.** The copy then lives in the tree: it travels with your backups and with every
+  copy of the tree you share, so treat it like a picture you attached yourself.
+- What it may attach: a picture that can actually be read, of at most 50 MiB, or a whole PDF of at most 8 MiB (the most
+  `get_media` sends back; a larger document is refused, attach its pages as pictures). The path must be a plain path on a
+  local drive: network shares (`\\server\share`), device paths and paths through a link (symbolic link or junction) are
+  refused before anything is opened, so the tool never makes Windows connect to another computer. The batch, the record
+  and the date are checked before the file is touched, and a refused call leaves nothing in the tree's media folder. The
+  copy is named by what the file is (a PNG is stored as `.png` whatever its name says), and only the bytes actually copied
+  count towards the limit. Sound recordings stay yours to attach. The same file on the same record twice is recognised and
+  not added again; a file already in the tree is linked, and the answer carries its id.
+- An agent's picture never becomes a person's main picture: you choose that.
+- `set_media_transcription` stores the text of the picture as pieces in reading order. Each piece can have a box on the
+  picture (fractions of its width and height, measured on the picture as shown, already turned upright) and a rotation for
+  writing that runs sideways. It can also be one text with no boxes. The agent replaces only the pieces it wrote itself;
+  pieces you wrote or corrected stay as they are. `update_own_media_region` changes one of its own pieces; a piece you
+  wrote with text in it it cannot change at all, not even give it a place.
+- In the app, open the picture: **Show text** lays the pieces over it, **Full text** shows them as one text, and you can
+  correct, move, resize, turn, add, reorder or delete pieces. Your edits are ordinary edits: Ctrl+Z undoes them and they
+  are in the history. Once you change a piece, it is yours and the agent leaves it alone.
+- Transcriptions are not exported to GEDCOM (it has no place for them) and are not searched yet.
+- A damaged transcription in the tree file never stops the tree from opening: unreadable pieces are left out, a box off
+  the picture is pulled onto it, an unknown rotation becomes upright, and the app reports it on its error output.
 
 ## Review and undo
 
@@ -130,7 +181,8 @@ agent opens a new batch. The old batch is still there, unfinished, when you open
 
 - You cannot ask an agent to add a death date to someone the app counts as living, or to fill the sex of someone you entered.
   Do those yourself in the person editor, then ask the agent to carry on.
-- Text is limited: a note, event description or citation text up to 64 KiB, a source's text up to 1 MiB, a batch report up to
+- Text is limited: a note, event description, citation text or one piece of a transcription up to 64 KiB, a whole
+  transcription up to 1 MiB and 2,000 pieces, a source's text up to 1 MiB, a batch report up to
   64 KiB. For something longer the agent puts it on a source. A whole request (everything the agent sends in one call) may be
   at most 8 MiB.
 - A rerun over the same file adds nothing, provided the agent gave each person its number from that file. Notes, events and

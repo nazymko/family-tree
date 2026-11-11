@@ -108,6 +108,24 @@ impl Kind {
         }
     }
 
+    /// The extension a stored copy gets: from what the bytes are, never from the file's name.
+    pub(crate) fn ext(self) -> &'static str {
+        match self {
+            Kind::Jpeg => "jpg",
+            Kind::Png => "png",
+            Kind::WebP => "webp",
+            Kind::Gif => "gif",
+            Kind::Tiff => "tif",
+            Kind::Pdf => "pdf",
+            Kind::Mp3 => "mp3",
+            Kind::Wav => "wav",
+            Kind::Ogg => "ogg",
+            Kind::M4a => "m4a",
+            Kind::Aac => "aac",
+            Kind::Flac => "flac",
+        }
+    }
+
     pub(crate) fn is_audio(self) -> bool {
         matches!(
             self,
@@ -181,7 +199,7 @@ fn sniff_audio(head: &[u8]) -> Option<Kind> {
     }
 }
 
-fn read_head(path: &Path) -> std::io::Result<Vec<u8>> {
+pub(crate) fn read_head(path: &Path) -> std::io::Result<Vec<u8>> {
     let mut head = Vec::with_capacity(16);
     std::fs::File::open(path)?.take(16).read_to_end(&mut head)?;
     Ok(head)
@@ -206,21 +224,21 @@ fn fail(failed: &mut Vec<AttachFailure>, path: &Path, reason: &str) {
 /// Why a recording is refused on anything but a note.
 pub(crate) const SOUND_ON_NOTE_ONLY: &str = "sound recordings can only be attached to a note";
 
-struct PreparedFile {
-    rel: String,
-    sha: String,
-    mime: &'static str,
-    original_name: Option<String>,
-    too_large: bool,
-    src: String,
+pub(crate) struct PreparedFile {
+    pub(crate) rel: String,
+    pub(crate) sha: String,
+    pub(crate) mime: &'static str,
+    pub(crate) original_name: Option<String>,
+    pub(crate) too_large: bool,
+    pub(crate) src: String,
 }
 
 /// Files already copied into a project's media folder and described, waiting to be recorded by
 /// [`Session::commit_attach`]. Made without the session, so a long copy and hash never holds it.
 pub struct PreparedAttach {
-    dir: PathBuf,
-    files: Vec<PreparedFile>,
-    failed: Vec<AttachFailure>,
+    pub(crate) dir: PathBuf,
+    pub(crate) files: Vec<PreparedFile>,
+    pub(crate) failed: Vec<AttachFailure>,
 }
 
 impl PreparedAttach {
@@ -228,6 +246,15 @@ impl PreparedAttach {
     pub fn failed(&self) -> &[AttachFailure] {
         &self.failed
     }
+}
+
+/// What an agent says of a file it attaches. Used only when the file is new to the tree: a file
+/// already in it keeps what it says.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MediaAbout {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub date_raw: Option<String>,
 }
 
 /// Step one of attaching: look at each file's content, refuse what the owner cannot hold, copy
@@ -274,7 +301,9 @@ pub fn prepare_attach(dir: &Path, target: OwnerKind, paths: &[PathBuf]) -> Prepa
             fail(&mut failed, path, SOUND_ON_NOTE_ONLY);
             continue;
         }
-        let Ok((rel, sha)) = gt_store::add_media_file_in(dir, path) else {
+        let Ok(Some(gt_store::StoredMedia { rel, sha, .. })) =
+            gt_store::add_media_file_as(dir, path, kind.ext(), None)
+        else {
             fail(&mut failed, path, "cannot read file");
             continue;
         };
@@ -425,6 +454,7 @@ impl Session {
                     date: None,
                     description: None,
                     sha256: Some(f.sha),
+                    transcription: Vec::new(),
                 },
                 too_large: f.too_large,
                 src: f.src,
@@ -433,7 +463,8 @@ impl Session {
 
         let order = self.day_order();
         let records: Vec<Media> = staged.iter().map(|s| s.media.clone()).collect();
-        let (cs, outcomes) = crate::ops::plan_attach(&self.tree, target, records, now, order)?;
+        let (cs, outcomes) =
+            crate::ops::plan_attach(&self.tree, target, records, now, order, true)?;
         if !cs.changes.is_empty() {
             self.commit_group(cs)?;
         }
