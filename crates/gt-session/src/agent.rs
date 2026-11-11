@@ -866,6 +866,12 @@ impl Session {
             let record = edited_record(&cmd).unwrap_or(first.id);
             return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
         }
+        // The planner leaves out a record that ends exactly as it was, stamp and all.
+        if cs.changes.is_empty()
+            && let Some(record) = edited_record(&cmd)
+        {
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
+        }
         self.pass_and_store(&cmd, cs, focus, ctx, batch)
     }
 
@@ -887,6 +893,17 @@ impl Session {
             self.check_change(ch, ctx.id)?;
         }
         self.check_living(&cs)?;
+        self.store(cs, focus, ctx, batch)
+    }
+
+    /// Step 7: the write, under the agent and its batch.
+    fn store(
+        &mut self,
+        cs: ChangeSet,
+        focus: Option<Uuid>,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
         let mut reached = Vec::new();
         if !cs.changes.is_empty() {
             let actor = Actor::Agent {
@@ -1045,13 +1062,6 @@ impl Session {
             regions: list,
         };
         let (write, reached) = self.gated(cmd, None, ctx, batch)?;
-        // The planner leaves out a record that ends as it was: nothing was written.
-        let write = match write {
-            AgentWrite::Done(r) if r.touched.is_empty() => {
-                AgentWrite::AlreadyThere { record: media }
-            }
-            other => other,
-        };
         Ok((write, reached, kept))
     }
 

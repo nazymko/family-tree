@@ -52,7 +52,10 @@ It can add:
 - events, notes, sources and citations;
 - one **marker** for brothers and sisters a source mentions without names (the app draws it as a label reading "Some more
   Sisters/Brothers" in the current language, and it has no name or date);
-- the file number of a person, so that a second run finds them again.
+- the file number of a person, so that a second run finds them again;
+- **pictures and PDF documents** from a file on this computer, on a person, family, event, source or citation (see
+  [Photographed documents](#photographed-documents));
+- the **transcription** of a picture: what is written on it, piece by piece, with where each piece is.
 
 It works in **batches**. A batch has a title, such as the name of the file the agent is working from, and ends with the
 agent's own report: what it added, what it left unsettled, and questions for the family.
@@ -60,9 +63,10 @@ agent's own report: what it added, what it left unsettled, and questions for the
 ### What it cannot do
 
 - **Change what is already there.** An agent adds. It does not rewrite a name, a date or a note that you or anyone else wrote,
-  and it deletes nothing of yours. If a source disagrees with the tree, the agent adds a note that gives both versions. The one
-  exception is its own work: it may correct a note, event, name or citation that it wrote itself and that nobody has changed
-  since, and it may remove an empty family it made itself in the batch still open, which a refused link can leave behind.
+  and it deletes nothing of yours. If a source disagrees with the tree, the agent adds a note that gives both versions. The
+  exceptions are its own work: it may correct a note, event, name, citation or piece of a transcription that it wrote itself
+  and that nobody has changed since, and it may remove an empty family it made itself in the batch still open, which a refused
+  link can leave behind.
 - **Add a person with no name.** Someone a source knows only by a role, such as somebody's father, goes in a note on the people
   around them.
 - **Change whether a living person counts as alive or dead.** The app decides this from dates and relationships, and the
@@ -78,6 +82,23 @@ agent's own report: what it added, what it left unsettled, and questions for the
   makes no link and writes a note on the people involved.
 - **Connect people a source says are not related.** They stay apart, and the agent lists them in its report.
 - **Open the tree file, or change settings, other connections or the rules.**
+
+### Photographed documents
+
+An agent can attach a picture of a document and write down what is on it.
+
+- `add_media` copies a picture (JPEG, PNG, WebP, GIF or TIFF) or a PDF from a file on this computer into the tree, on a
+  person, family, event, source or citation. The file must be a picture that can actually be read, or a whole PDF, of at most
+  50 MiB; anything else is refused before it is copied, so the tool cannot pull other files into the tree. Sound recordings
+  stay yours to attach. The same file on the same record twice is recognised and not added again.
+- `set_media_transcription` stores the text of the picture as pieces in reading order. Each piece can have a box on the
+  picture (fractions of its width and height, measured on the picture as shown, already turned upright) and a rotation for
+  writing that runs sideways. It can also be one text with no boxes. The agent replaces only the pieces it wrote itself;
+  pieces you wrote or corrected stay as they are. `update_own_media_region` changes one of its own pieces.
+- In the app, open the picture: **Show text** lays the pieces over it, **Full text** shows them as one text, and you can
+  correct, move, resize, turn, add, reorder or delete pieces. Your edits are ordinary edits: Ctrl+Z undoes them and they
+  are in the history. Once you change a piece, it is yours and the agent leaves it alone.
+- Transcriptions are not exported to GEDCOM (it has no place for them) and are not searched yet.
 
 ## Review and undo
 
@@ -130,7 +151,8 @@ agent opens a new batch. The old batch is still there, unfinished, when you open
 
 - You cannot ask an agent to add a death date to someone the app counts as living, or to fill the sex of someone you entered.
   Do those yourself in the person editor, then ask the agent to carry on.
-- Text is limited: a note, event description or citation text up to 64 KiB, a source's text up to 1 MiB, a batch report up to
+- Text is limited: a note, event description, citation text or one piece of a transcription up to 64 KiB, a whole
+  transcription up to 1 MiB and 2,000 pieces, a source's text up to 1 MiB, a batch report up to
   64 KiB. For something longer the agent puts it on a source. A whole request (everything the agent sends in one call) may be
   at most 8 MiB.
 - A rerun over the same file adds nothing, provided the agent gave each person its number from that file. Notes, events and
