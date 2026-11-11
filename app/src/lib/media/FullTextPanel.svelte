@@ -95,7 +95,7 @@
             id="para-{r.id}"
             class="control"
             dir="auto"
-            rows="3"
+            rows="2"
             value={r.text}
             onfocus={() => onselect(r.id)}
             onchange={(e) => setText(r.id, e.currentTarget.value)}
@@ -125,8 +125,6 @@
   .full {
     display: grid;
     gap: var(--s-3);
-    max-height: 18rem;
-    overflow: auto;
   }
   h3 {
     margin: 0;
@@ -142,6 +140,8 @@
     padding: 0;
     display: grid;
     gap: var(--s-3);
+    max-height: 18rem;
+    overflow: auto;
   }
   li {
     display: grid;

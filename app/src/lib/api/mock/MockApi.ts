@@ -574,7 +574,8 @@ export class MockApi implements Api {
       parentSets: this.parentSets(id),
       partnerships: this.partnerships(id),
       notes: p.notes,
-      media: p.media,
+      // The person holds copies; edits (title, transcription) land on the media store.
+      media: p.media.map((l) => ({ ...l, media: this.db.media.get(l.media.id) ?? l.media })),
       citations: p.citations,
       changed: p.changed,
     });
