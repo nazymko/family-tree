@@ -361,6 +361,7 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         transcription,
         rotation: _,
     } = media;
+    let rotation = media.shown_rotation();
     let link = MediaLink {
         media: common.id,
         region: None,
@@ -379,6 +380,8 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         "width": file.as_ref().and_then(|f| f.width),
         "height": file.as_ref().and_then(|f| f.height),
         "transcriptionParts": transcription.len(),
+        // How the app shows the picture, clockwise on top of EXIF; the areas are before it.
+        "rotation": rotation,
     }))
 }
 

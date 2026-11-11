@@ -55,7 +55,9 @@ It can add:
 - the file number of a person, so that a second run finds them again;
 - **pictures and PDF documents** from a file on this computer, on a person, family, event, source or citation (see
   [Photographed documents](#photographed-documents));
-- the **transcription** of a picture: what is written on it, piece by piece, with where each piece is.
+- the **transcription** of a picture: what is written on it, piece by piece, with where each piece is;
+- how a picture is **turned** in the app, so that sideways writing reads upright (on its own pictures, or on one nobody has
+  turned yet).
 
 It works in **batches**. A batch has a title, such as the name of the file the agent is working from, and ends with the
 agent's own report: what it added, what it left unsettled, and questions for the family.
@@ -123,6 +125,12 @@ An agent can attach a picture of a document and write down what is on it.
   writing that runs sideways. It can also be one text with no boxes. The agent replaces only the pieces it wrote itself;
   pieces you wrote or corrected stay as they are. `update_own_media_region` changes one of its own pieces; a piece you
   wrote with text in it it cannot change at all, not even give it a place.
+- `set_media_rotation` turns how the app shows a picture: 0, 90, 180 or 270 degrees clockwise, on top of the turn the
+  camera stored in the file (its EXIF orientation). An agent may turn a picture it added itself, or one nobody has turned
+  yet; once you or anyone else has turned it, it stays as you left it. It is in the log and **Undo** takes it back. Only
+  how the picture is shown changes: the places of the transcription stay measured on the picture upright by its EXIF
+  orientation, before this turn, and `get_media` sends the agent that same unturned picture, with the turn as a number
+  beside it, so the places and the picture always match.
 - In the app, open the picture: **Show text** lays the pieces over it, **Full text** shows them as one text, and you can
   correct, move, resize, turn, add, reorder or delete pieces. Your edits are ordinary edits: Ctrl+Z undoes them and they
   are in the history. Once you change a piece, it is yours and the agent leaves it alone.
