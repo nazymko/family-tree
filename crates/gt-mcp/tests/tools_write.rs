@@ -1396,6 +1396,9 @@ fn only_the_tools_named_here_can_write() {
             // Pieces of text on a picture: the gate lets an agent change only its own.
             "set_media_transcription",
             "update_own_media_region",
+            // Clips of a recording: links of their own; an agent changes only its own, deletes none.
+            "add_audio_clip",
+            "update_own_audio_clip",
             // How a picture is shown: on the agent's own, or one nobody has turned.
             "set_media_rotation",
         ]

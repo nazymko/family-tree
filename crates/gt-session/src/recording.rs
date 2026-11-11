@@ -99,6 +99,13 @@ impl Session {
         })
     }
 
+    /// The clip `clip` on `target`, as it stands.
+    pub fn get_recording_clip(&self, target: OwnerRef, clip: Uuid) -> Option<Clip> {
+        self.owner_links(target)?
+            .iter()
+            .find_map(|l| l.clip.as_ref().filter(|c| c.id == clip).cloned())
+    }
+
     /// Every record that can hold a clip, with its media links.
     pub(crate) fn clip_holders(&self) -> Vec<(OwnerRef, &[MediaLink])> {
         let t = &self.tree;

@@ -1095,6 +1095,35 @@ impl Session {
             .collect())
     }
 
+    /// The clips on `target` this connection made and nobody has changed since: the ones
+    /// `UpdateAudioClip` may change for it.
+    pub fn own_clips(&self, target: OwnerRef, me: Uuid) -> Result<Vec<Uuid>, ApiError> {
+        let Some(links) = self.owner_links(target) else {
+            return Ok(Vec::new());
+        };
+        let kind = match target.kind {
+            OwnerKind::Person => "Person",
+            OwnerKind::Family => "Family",
+            OwnerKind::Event => "Event",
+            OwnerKind::Citation => "Citation",
+            OwnerKind::Note => "Note",
+            _ => return Ok(Vec::new()),
+        };
+        let writers = self.project.last_writers(target.id)?;
+        let rows: Vec<Written> = writers
+            .into_iter()
+            .map(|(by, _)| by)
+            .zip(self.project.rows_of(target.id)?)
+            .collect();
+        let whole = record_is_own(&rows, me);
+        let path = [kind.to_string(), "common".to_string(), "media".to_string()];
+        Ok(links
+            .iter()
+            .filter_map(|l| l.clip.as_ref().map(|c| c.id))
+            .filter(|id| whole || item_is_own(&rows, &path, &Value::String(id.to_string()), me))
+            .collect())
+    }
+
     /// Replaces this connection's own pieces of a picture's transcription with `regions`, in one
     /// write. Pieces anyone else wrote or changed stay as they are and where they are. Ids of the
     /// pieces replaced are used again, so saying the same again is a repeat. Returns, besides the write, how many pieces were kept.

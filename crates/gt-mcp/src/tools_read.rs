@@ -244,7 +244,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "get_media",
-            description: "A media file's details and the file itself: a picture as an image, shrunk to max_size pixels on its longest side, so a smaller max_size means a smaller answer. The image is upright by its EXIF orientation and not turned by the saved rotation (0, 90, 180 or 270 clockwise, in the details) the app shows it with: the transcription's x, y, w and h are fractions of this very image; a sound recording (a note's voice sample) as its details only, never its bytes; anything else, or a picture that cannot be decoded, as a blob of up to 8 MiB.",
+            description: "A media file's details and the file itself: a picture as an image, shrunk to max_size pixels on its longest side, so a smaller max_size means a smaller answer. The image is upright by its EXIF orientation and not turned by the saved rotation (0, 90, 180 or 270 clockwise, in the details) the app shows it with: the transcription's x, y, w and h are fractions of this very image; a sound recording as its details only, never its bytes: durationMs and duration (m:ss) when its length can be read, its transcript pieces with startMs, endMs and speaker, the sources it is on, and clips: every stretch of it linked to a note, citation, event, person or family, with the record, its times and label, and yours: true on the clips you made and may change with update_own_audio_clip; anything else, or a picture that cannot be decoded, as a blob of up to 8 MiB.",
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -1116,7 +1116,12 @@ fn list_repositories<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResul
                 .map(|(id, r)| (*id, texts([Some(&r.name), r.address.as_ref()])))
                 .collect()
         },
-        |s, id| s.tree().repositories.get(&id).map(records::repository_row),
+        |s, id| {
+            s.tree()
+                .repositories
+                .get(&id)
+                .map(|r| records::repository_row(s, r))
+        },
     )
 }
 
@@ -1194,6 +1199,28 @@ fn get_media<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
             for (row, yours) in rows.iter_mut().zip(own) {
                 row["yours"] = json!(yours);
             }
+        }
+        if sound {
+            let rec = s.get_recording(id)?;
+            details["sources"] = json!(rec.sources);
+            let mut clips = Vec::with_capacity(rec.clips.len());
+            for c in &rec.clips {
+                let yours = s.own_clips(c.target, ctx.id)?.contains(&c.clip.id);
+                clips.push(json!({
+                    "id": c.clip.id,
+                    "startMs": c.clip.start_ms,
+                    "endMs": c.clip.end_ms,
+                    "start": gt_core::time::format_ms(c.clip.start_ms),
+                    "end": gt_core::time::format_ms(c.clip.end_ms),
+                    "label": c.clip.label,
+                    "target": {"kind": c.target.kind, "id": c.target.id},
+                    "title": c.title,
+                    "eventKind": c.event_kind,
+                    "person": c.person.as_ref().map(|p| json!({"id": p.id, "name": p.name})),
+                    "yours": yours,
+                }));
+            }
+            details["clips"] = json!(clips);
         }
         Ok((details, (mime, sound), s.media_original_path(id).ok()))
     })?;
