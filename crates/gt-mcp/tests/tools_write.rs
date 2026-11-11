@@ -1381,6 +1381,8 @@ fn only_the_tools_named_here_can_write() {
             "add_family",
             "add_name",
             "remove_own_empty_family",
+            // Takes back only the agent's own child link, with a reason kept in a note.
+            "remove_own_child_link",
             "add_event",
             "add_note",
             "add_source",
