@@ -68,7 +68,8 @@ agent's own report: what it added, what it left unsettled, and questions for the
   and it deletes nothing of yours. If a source disagrees with the tree, the agent adds a note that gives both versions. The
   exceptions are its own work: it may correct a note, event, name, citation or piece of a transcription that it wrote itself
   and that nobody has changed since, and it may remove an empty family it made itself in the batch still open, which a refused
-  link can leave behind. And one more, below: a confirmed birth or death date.
+  link can leave behind. It may also take back a parent-child link it made itself (below), and, one more, correct a confirmed
+  birth or death date.
 - **Add a person with no name.** Someone a source knows only by a role, such as somebody's father, goes in a note on the people
   around them.
 - **Change whether a living person counts as alive or dead.** The app decides this from dates and relationships, and the
@@ -102,6 +103,24 @@ the place, description and everything else on the event stay as they are.
   the reason up to 1000.
 - When sources disagree and nobody has confirmed which is right, the agent does not correct anything: it adds a note with
   both versions.
+
+### Taking back a wrong link
+
+When a family or a source shows that a child the agent linked belongs to other parents, the agent can take its own link back
+with the tool `remove_own_child_link` (inputs: the batch, the child, the family the child is to leave, and the reason). Only
+that child link goes: the person, the family, its partners and its other children stay, and a family left with no children
+stays too (the agent can remove it with `remove_own_empty_family` if it made it in the open batch). The agent then links the
+child to the right family with `link_people`.
+
+- "Its own" means the link was added by this same connection (the same key, or all programs without a key together) and nobody
+  has changed it since. That may be in this batch or in an earlier, closed one of the same connection. A link you made, one
+  from an import, another connection's, or one you edited afterwards, is refused: the agent leaves a note and reports it.
+- The reason is required. It is kept as a research note on the person, added in the same change: *"Removed from the family of
+  A and B (family ...) as a child. Reason: ..."*, in English like the agent's other text.
+- It is in the **Change log** under the agent's name ("Remove child from family"), with the family before and after, and in the
+  family's history. **Undo** puts the link back and takes the note away.
+- It never changes whether someone counts as alive or dead: a removal that would is refused.
+- Asking again after the link is gone answers that it is already so; a person who was never a child of that family is refused.
 
 ### Photographed documents
 
