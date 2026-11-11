@@ -161,6 +161,10 @@ describe('turning the picture', () => {
     await waitFor(() => expect(box(3).querySelector('.turn')?.textContent).toBe('↻180°'));
     // The badge itself reads upright: turned back by the picture's turn.
     expect(box(3).querySelector('.turn')?.getAttribute('style')).toContain('rotate(-90deg)');
+    // The full text says the same as the badges.
+    await user.click(screen.getByRole('button', { name: 'Edit text' }));
+    expect(screen.getByText(/Text of piece 3/).textContent).toContain('Turned 180°');
+    expect(screen.getByText(/Text of piece 1/).textContent).toContain('Turned 90°');
   });
 });
 

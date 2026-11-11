@@ -408,6 +408,7 @@
           bind:this={panel}
           {regions}
           {editing}
+          {turn}
           {selected}
           onselect={(id) => (selected = id)}
           onchange={saveRegions}

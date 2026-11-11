@@ -303,6 +303,8 @@
   .turn {
     transform-origin: 0 0;
     white-space: nowrap;
+    /* Pinned at the far edge, it would otherwise shrink to the room left there: none. */
+    width: max-content;
   }
   .turn.ne {
     left: 100%;
