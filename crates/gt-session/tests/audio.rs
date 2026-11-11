@@ -84,6 +84,15 @@ fn mp4_audio_generic() -> Vec<u8> {
     out
 }
 
+/// A phone's voice recorder: brand `3gp4` in a file named .m4a.
+fn m4a_3gp4() -> Vec<u8> {
+    let mut out = 24u32.to_be_bytes().to_vec();
+    out.extend(b"ftyp3gp4");
+    out.extend(0u32.to_be_bytes());
+    out.extend(b"isom3gp4");
+    out
+}
+
 fn aac_adts() -> Vec<u8> {
     // sync 0xFFF, MPEG-4, layer 0, no CRC; AAC-LC, 44.1 kHz, mono; frame length 8.
     let mut out = vec![0xFF, 0xF1, 0x50, 0x40, 0x01, 0x00, 0xFC];
@@ -107,6 +116,7 @@ fn formats() -> Vec<(&'static str, Vec<u8>, &'static str)> {
         ("ogg opus", ogg_opus(), "audio/ogg"),
         ("m4a", m4a(), "audio/mp4"),
         ("mp4 audio, generic brand", mp4_audio_generic(), "audio/mp4"),
+        ("m4a from a phone recorder", m4a_3gp4(), "audio/mp4"),
         ("aac adts", aac_adts(), "audio/aac"),
         ("flac", flac(), "audio/flac"),
     ]

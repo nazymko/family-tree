@@ -173,7 +173,9 @@ fn sniff_audio(head: &[u8]) -> Option<Kind> {
     } else if head.len() >= 12 && head.get(4..8) == Some(b"ftyp") {
         // Only the brands audio recorders write; a video or a HEIC picture is also `ftyp`.
         match head.get(8..12)? {
-            b"M4A " | b"M4B " | b"M4P " | b"mp42" | b"isom" => Some(Kind::M4a),
+            // Phone voice recorders write `3gp4` and its later numbers into an .m4a file.
+            b"M4A " | b"M4B " | b"M4P " | b"mp42" | b"mp41" | b"isom" | b"3gp4" | b"3gp5"
+            | b"3gp6" => Some(Kind::M4a),
             _ => None,
         }
     } else if let [0xFF, b1, b2, ..] = *head {
