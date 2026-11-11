@@ -191,3 +191,48 @@ fn refusals() {
     assert!(m.contains("closed"), "{m}");
     assert_eq!(date_of(&host, birth).as_deref(), Some("1901"));
 }
+
+#[test]
+fn a_death_before_the_birth_or_a_birth_after_the_death_is_refused() {
+    let host = empty_host();
+    let ivan = with(&host, |s| {
+        add_person(s, draft("Ivan", "Koval", None, Some("1901")))
+    });
+    let birth = event_of(&host, ivan, EventKind::Birth);
+    let death = owners_event(&host, ivan, "death");
+    let batch = begin(&host);
+    correct(&host, &batch, death, "1950");
+    let ask = |args: Value| call_err(&host, "correct_event_date", args);
+    let m = ask(json!({"batch": batch, "event": death, "date": "1890", "reason": "Letter"}));
+    assert!(m.contains("before") && m.contains("note"), "{m}");
+    let m = ask(json!({"batch": batch, "event": birth, "date": "12 MAR 1960", "reason": "Letter"}));
+    assert!(m.contains("after") && m.contains("note"), "{m}");
+    assert_eq!(date_of(&host, death).as_deref(), Some("1950"));
+    assert_eq!(date_of(&host, birth).as_deref(), Some("1901"));
+    // A date that may still fit is not refused.
+    correct(&host, &batch, birth, "ABT 1903");
+}
+
+#[test]
+fn a_date_or_reason_too_long_is_refused() {
+    let host = empty_host();
+    let ivan = with(&host, |s| {
+        add_person(s, draft("Ivan", "Koval", None, Some("1901")))
+    });
+    let birth = event_of(&host, ivan, EventKind::Birth);
+    let batch = begin(&host);
+    let long_date = format!("12 MAR 1901 {}", "(as the family says) ".repeat(20));
+    let m = call_err(
+        &host,
+        "correct_event_date",
+        json!({"batch": batch, "event": birth, "date": long_date, "reason": "Letter"}),
+    );
+    assert!(m.contains("date"), "{m}");
+    let m = call_err(
+        &host,
+        "correct_event_date",
+        json!({"batch": batch, "event": birth, "date": "12 MAR 1901", "reason": "Confirmed. ".repeat(200)}),
+    );
+    assert!(m.contains("reason"), "{m}");
+    assert_eq!(date_of(&host, birth).as_deref(), Some("1901"));
+}

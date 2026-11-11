@@ -1114,6 +1114,17 @@ impl Session {
                 "Give the reason: who confirmed the date, or which source says so.",
             ));
         }
+        if reason.chars().count() > CORRECTION_REASON_MAX {
+            return Err(refused(
+                "The reason holds up to 1000 characters: say who confirmed the date or which                  source says so, and put the rest in a note.",
+            ));
+        }
+        if date_raw.trim().chars().count() > CORRECTION_DATE_MAX {
+            return Err(refused(
+                "The date holds up to 100 characters. Give the date alone, and put what the \
+                 source says around it in a note.",
+            ));
+        }
         let e = self
             .tree
             .events
@@ -1144,6 +1155,7 @@ impl Session {
         if same {
             return Ok((AgentWrite::AlreadyThere { record: event }, Vec::new()));
         }
+        self.check_life_order(event, e.kind == EventKind::Birth, &date)?;
         let was = old
             .as_ref()
             .map_or("no date".to_string(), |d| d.raw.clone());
@@ -1156,6 +1168,60 @@ impl Session {
             crate::ops::plan_date_correction(&self.tree, event, date, &note, now, order)?;
         self.check_living(&cs)?;
         self.store(cs, focus, ctx, batch)
+    }
+
+    /// A corrected birth date may not come surely after the same person's death, nor a death
+    /// date surely before their birth. Dates that can still overlap ("about", "before") pass.
+    fn check_life_order(
+        &self,
+        event: Uuid,
+        is_birth: bool,
+        date: &gt_core::date::GenDate,
+    ) -> Result<(), ApiError> {
+        let Some(e) = self.tree.events.get(&event) else {
+            return Ok(());
+        };
+        let people: Vec<Uuid> = e
+            .participants
+            .iter()
+            .filter(|p| p.role == Role::Principal)
+            .filter_map(|p| match p.target {
+                ParticipantRef::Person(id) => Some(id),
+                ParticipantRef::Family(_) => None,
+            })
+            .collect();
+        let other = if is_birth {
+            EventKind::Death
+        } else {
+            EventKind::Birth
+        };
+        for o in self.tree.events.values() {
+            if o.common.id == event || o.kind != other {
+                continue;
+            }
+            let theirs = o.participants.iter().any(|p| {
+                p.role == Role::Principal
+                    && matches!(p.target, ParticipantRef::Person(id) if people.contains(&id))
+            });
+            let Some(d) = o.date.as_ref().filter(|_| theirs) else {
+                continue;
+            };
+            let (birth, death) = if is_birth { (date, d) } else { (d, date) };
+            if let (Some(b), Some(dd)) = (birth.sort_min, death.sort_max)
+                && b > dd
+            {
+                return Err(refused(if is_birth {
+                    "That birth date is after the same person's death date, so one of them is \
+                     wrong. Leave a note giving both dates and the source, and list it in your \
+                     report."
+                } else {
+                    "That death date is before the same person's birth date, so one of them is \
+                     wrong. Leave a note giving both dates and the source, and list it in your \
+                     report."
+                }));
+            }
+        }
+        Ok(())
     }
 
     fn marker_of(&self, family: Uuid) -> Option<Uuid> {
@@ -1817,6 +1883,11 @@ impl Session {
         }
     }
 }
+
+/// Characters in the date of a correction.
+const CORRECTION_DATE_MAX: usize = 100;
+/// Characters in the reason for a correction.
+const CORRECTION_REASON_MAX: usize = 1000;
 
 /// The largest file an agent may attach.
 pub const AGENT_FILE_MAX: u64 = 50 * 1024 * 1024;
