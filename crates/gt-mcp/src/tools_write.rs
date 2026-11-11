@@ -191,6 +191,19 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             call: remove_own_empty_family::<H>,
         },
         Tool {
+            name: "remove_own_child_link",
+            description: "Takes back a parent-child link you made yourself: person leaves family as a child, when a source or the family showed the link was wrong (the child belongs to different parents). Give the reason. Only that link goes: the person, the family, its partners and its other children stay, and a family left empty stays too (remove_own_empty_family takes away one you made in the open batch). Allowed only for a link you added yourself, in this batch or an earlier one, that nobody has changed since; a link the owner, an import or another connection made is refused: leave a note and list it in your report. A research note on the person records which family they were removed from and why, the change is in the log under your name, and the owner can undo it. After it you can link the person to the right family with link_people. A person who is no longer a child there answers alreadyThere. It cannot change whether anyone counts as alive or dead: a removal that would is refused.",
+            schema: with_batch(
+                &["person", "family", "reason"],
+                json!({
+                    "person": id("The child whose link to take back."),
+                    "family": id("The family the child is to leave."),
+                    "reason": writing("Why the link was wrong, and who or which source showed it."),
+                }),
+            ),
+            call: remove_own_child_link::<H>,
+        },
+        Tool {
             name: "add_event",
             description: "Adds an event to a person or a family. Give one of them. A birth year goes on the birth event (kind birth), with its date. Never invent a date: with no date in the source, leave it out and put what the source says in a note. Inferences go in a note too. A person has one birth, death, burial and cremation; a different version of one goes in a note. An event that would change whether someone counts as alive or dead is refused: only the owner can do that, so leave a note and put it in your report.",
             schema: event_fields(
@@ -909,6 +922,26 @@ fn remove_own_empty_family<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> T
             Ok((write, reached, None))
         },
         |_, _| Some(family),
+    )
+}
+
+fn remove_own_child_link<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let person = uuid_arg(args, "person")?;
+    let family = uuid_arg(args, "family")?;
+    let reason = long(args, "reason")?
+        .filter(|r| !r.trim().is_empty())
+        .ok_or_else(|| {
+            invalid("reason must say why this child does not belong in this family.".into())
+        })?;
+    apply(
+        host,
+        ctx,
+        |s, _| {
+            let (write, reached) = s.remove_own_child_link(person, family, &reason, ctx, batch)?;
+            Ok((write, reached, None))
+        },
+        |_, _| Some(person),
     )
 }
 

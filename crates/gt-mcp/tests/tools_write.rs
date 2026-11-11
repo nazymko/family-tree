@@ -91,6 +91,10 @@ fn write_needs_batch() {
         ("add_sibling_marker", json!({"family": id})),
         ("remove_own_empty_family", json!({"family": id})),
         (
+            "remove_own_child_link",
+            json!({"person": id, "family": id, "reason": "x"}),
+        ),
+        (
             "set_number",
             json!({"person": id, "source_file": "a", "number": "1"}),
         ),
@@ -1377,6 +1381,8 @@ fn only_the_tools_named_here_can_write() {
             "add_family",
             "add_name",
             "remove_own_empty_family",
+            // Takes back only the agent's own child link, with a reason kept in a note.
+            "remove_own_child_link",
             "add_event",
             "add_note",
             "add_source",

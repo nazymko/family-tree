@@ -8,6 +8,7 @@ mod event;
 mod family;
 mod media;
 pub(crate) use event::plan_date_correction;
+pub(crate) use family::plan_child_link_removal;
 pub(crate) use media::{can_turn, plan_attach};
 mod person;
 pub(crate) use person::agent_number;
