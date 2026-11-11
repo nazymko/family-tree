@@ -10,6 +10,7 @@
     children,
     footer,
     dismissOnScrim = true,
+    width = '40rem',
   }: {
     open: boolean;
     title: string;
@@ -18,6 +19,8 @@
     footer?: Snippet;
     /** False when a stray click outside must not close the dialog (Esc and the close button still do). */
     dismissOnScrim?: boolean;
+    /** The widest the dialog grows on a wide window. */
+    width?: string;
   } = $props();
 
   const uid = $props.id();
@@ -73,6 +76,7 @@
       aria-modal="true"
       aria-labelledby="{uid}-title"
       tabindex="-1"
+      style:--dialog-w={width}
       {onkeydown}
     >
       <header>
@@ -99,7 +103,7 @@
   .dialog {
     display: flex;
     flex-direction: column;
-    width: min(40rem, 100%);
+    width: min(var(--dialog-w, 40rem), 100%);
     max-height: calc(100dvh - 2 * var(--s-6));
     background: var(--paper-1);
     color: var(--ink-0);

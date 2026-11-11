@@ -1,19 +1,21 @@
 <script lang="ts">
   import { t } from '../i18n';
   import type { EventDto } from '../api/generated/EventDto';
+  import VoiceSamples from '../media/VoiceSamples.svelte';
 
-  /** One event in a list: its date and place, then what its description says. */
+  /** One event in a list: its date and place, then what its description says, then the clips told of it. */
   let { event }: { event: EventDto } = $props();
 
   const line = $derived([event.date?.display, event.place?.full].filter(Boolean).join(', '));
   const description = $derived(event.description?.trim() ?? '');
 </script>
 
-<span class="summary">
+<div class="summary">
   {#if line}<span class="line"><bdi dir="auto">{line}</bdi></span>{/if}
   {#if description}<span class="description"><bdi dir="auto">{description}</bdi></span>{/if}
   {#if !line && !description}<span class="line">{t('person.noDateOrPlace')}</span>{/if}
-</span>
+  {#if event.media?.some((l) => l.clip)}<VoiceSamples items={event.media} />{/if}
+</div>
 
 <style>
   .summary {

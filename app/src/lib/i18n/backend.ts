@@ -35,6 +35,9 @@ const EDIT_KEYS: Record<string, [label: MessageKey, done: MessageKey]> = {
   'Edit media': ['edit.editMedia', 'edit.doneMediaSaved'],
   'Edit transcription': ['edit.editTranscription', 'edit.doneTranscriptionSaved'],
   'Turn picture': ['edit.turnPicture', 'edit.donePictureTurned'],
+  'Add clip': ['edit.addClip', 'edit.doneClipAdded'],
+  'Edit clip': ['edit.editClip', 'edit.doneClipSaved'],
+  'Delete clip': ['edit.deleteClip', 'edit.doneClipDeleted'],
   'Correct date': ['edit.correctDate', 'edit.doneDateCorrected'],
   'Record number': ['edit.recordNumber', 'edit.doneNumberRecorded'],
   'Link media files': ['edit.linkMediaFiles', 'edit.doneMediaFilesLinked'],
@@ -192,6 +195,7 @@ export const KIND_KEYS: Record<string, keyof typeof en.be.kind> = {
   'media file': 'mediaFile',
   'media link': 'mediaLink',
   'piece of transcription': 'textPiece',
+  clip: 'clip',
 };
 
 /** The heading of a group of repairs in the import report ("dangling_pointer" as words); an unknown kind reads as its name. */

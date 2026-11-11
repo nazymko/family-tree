@@ -10,6 +10,9 @@
   import MediaGrid from '../media/MediaGrid.svelte';
   import MediaViewer from '../media/MediaViewer.svelte';
   import { isSound } from '../media/sound';
+  import VoiceSamples from '../media/VoiceSamples.svelte';
+  import { wholeSounds } from '../media/clips';
+  import type { MediaDto } from '../api/api';
   import { getApi } from '../api/context';
   import { notices } from '../ui/notices.svelte';
   import { agentChanges } from '../state/agentChanges.svelte';
@@ -34,6 +37,19 @@
   const current = $derived(list.find((s) => s.id === selected) ?? null);
   /** Photographed pages of the source: a letter, a register entry. */
   const pictures = $derived((current?.media ?? []).filter((l) => !isSound(l.media)));
+  /** The recordings the source is: an interview on tape, a voice message. */
+  const sounds = $derived(wholeSounds(current?.media));
+
+  async function unlinkSound(m: MediaDto) {
+    if (!selected) return;
+    error = '';
+    try {
+      await api.apply({ type: 'detachMedia', target: { kind: 'source', id: selected }, media: m.id });
+      await reload(filter);
+    } catch (e) {
+      error = errMessage(e, t('edit.wentWrong'));
+    }
+  }
   let viewing = $state<number | null>(null);
   const count = (n: number) => plural('sources.citations', n);
 
@@ -163,6 +179,14 @@
               onUndone={() => reload(filter)}
             />
             {#if pictures.length > 0}<MediaGrid items={pictures} onOpen={(i) => (viewing = i)} />{/if}
+          </div>
+          <div class="pics">
+            <h3>{t('rec.sourceRecordings')}</h3>
+            {#if sounds.length > 0}
+              <VoiceSamples items={sounds} onRemove={(m) => void unlinkSound(m)} />
+            {:else}
+              <p class="n">{t('rec.sourceRecordingsHint')}</p>
+            {/if}
           </div>
           {#if viewing !== null}
             <MediaViewer

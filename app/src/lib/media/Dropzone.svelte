@@ -107,7 +107,9 @@
   }
 
   async function pick() {
-    const paths = await platform.pickFiles({ title: t('media.pickTitle'), extensions: MEDIA_EXTENSIONS });
+    // A source also takes the recording it is (an interview), so its picker offers sound files too.
+    const extensions = target.kind === 'source' ? [...MEDIA_EXTENSIONS, ...AUDIO_EXTENSIONS] : MEDIA_EXTENSIONS;
+    const paths = await platform.pickFiles({ title: t('media.pickTitle'), extensions });
     await attach(paths);
   }
 </script>

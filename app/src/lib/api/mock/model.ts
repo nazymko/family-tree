@@ -45,6 +45,8 @@ export interface FamilyRec {
   children: ChildLinkRec[];
   notes: NoteDto[];
   citations: CitationDto[];
+  /** Clips of recordings linked to the family (made on first use). */
+  media?: MediaLinkDto[];
 }
 
 export interface Fixture {
