@@ -306,6 +306,7 @@ fn an_owners_piece_with_text_takes_no_place_from_an_agent() {
         s.apply(EditCommand::SetMediaTranscription {
             id: media,
             regions: vec![piece("Owner's whole transcript"), piece("")],
+            known: None,
         })
         .unwrap();
         let ids: Vec<Uuid> = s.tree().media[&media]

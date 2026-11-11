@@ -73,7 +73,11 @@ fn with_picture() -> (tempfile::TempDir, Session, Uuid, Uuid) {
 }
 
 fn set(id: Uuid, regions: Vec<TextRegionInput>) -> EditCommand {
-    EditCommand::SetMediaTranscription { id, regions }
+    EditCommand::SetMediaTranscription {
+        id,
+        regions,
+        known: None,
+    }
 }
 
 fn texts(s: &Session, media: Uuid) -> Vec<String> {
@@ -117,6 +121,52 @@ fn owner_writes_regions_and_they_survive_reopening() {
         ["Dear Olha,", "Kyiv, 1901", "Signed below"]
     );
     assert_eq!(s.tree().media[&media].transcription[1].rotation, 90);
+}
+
+#[test]
+fn a_save_from_an_older_view_keeps_pieces_added_since() {
+    let (_dir, mut s, _anna, media) = with_picture();
+    s.apply(set(
+        media,
+        vec![region("first", 0.1), region("second", 0.3)],
+    ))
+    .unwrap();
+    let seen: Vec<Uuid> = s.tree().media[&media]
+        .transcription
+        .iter()
+        .map(|r| r.id)
+        .collect();
+    // Meanwhile a piece is added after the first.
+    let mut list: Vec<TextRegionInput> = s.tree().media[&media]
+        .transcription
+        .iter()
+        .map(gt_session::agent::region_input)
+        .collect();
+    list.insert(1, plain("added meanwhile"));
+    s.apply(set(media, list)).unwrap();
+    // The owner's viewer, still on the old list, corrects the second piece.
+    let mut old: Vec<TextRegionInput> =
+        vec![region("first", 0.1), region("second, corrected", 0.3)];
+    old[0].id = Some(seen[0]);
+    old[1].id = Some(seen[1]);
+    s.apply(EditCommand::SetMediaTranscription {
+        id: media,
+        regions: old.clone(),
+        known: Some(seen.clone()),
+    })
+    .unwrap();
+    assert_eq!(
+        texts(&s, media),
+        ["first", "added meanwhile", "second, corrected"]
+    );
+    // A piece the viewer knew and left out is deleted.
+    s.apply(EditCommand::SetMediaTranscription {
+        id: media,
+        regions: vec![old[1].clone()],
+        known: Some(seen),
+    })
+    .unwrap();
+    assert_eq!(texts(&s, media), ["added meanwhile", "second, corrected"]);
 }
 
 #[test]

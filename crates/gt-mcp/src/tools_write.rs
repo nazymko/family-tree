@@ -1495,7 +1495,11 @@ fn update_own_media_region<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> T
                     input
                 })
                 .collect();
-            Ok(EditCommand::SetMediaTranscription { id: media, regions })
+            Ok(EditCommand::SetMediaTranscription {
+                id: media,
+                regions,
+                known: None,
+            })
         },
         |_, _| Some(region),
     )

@@ -568,6 +568,12 @@ pub enum EditCommand {
     SetMediaTranscription {
         id: Uuid,
         regions: Vec<TextRegionInput>,
+        /// The ids of the pieces the sender knew of. A stored piece not among them was added
+        /// meanwhile (by an agent, say) and stays, after the piece it followed. Absent: `regions`
+        /// is the whole transcription.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        known: Option<Vec<Uuid>>,
     },
     /// Everything traced from a picture, in ONE undoable step. With `attach_picture` the staged
     /// trace picture is stored as a media item attached to every new person and to a new source.

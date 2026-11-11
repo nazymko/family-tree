@@ -241,9 +241,25 @@ pub(super) fn set_transcription(
     p: &mut Planner,
     id: Uuid,
     regions: &[crate::command::TextRegionInput],
+    known: Option<&[Uuid]>,
 ) -> Result<Option<Uuid>, ApiError> {
     let mut m: Media = p.get(id)?;
-    m.transcription = checked_transcription(&m, regions)?;
+    let mut next = checked_transcription(&m, regions)?;
+    if let Some(known) = known {
+        // Pieces stored since the sender read the list stay: each after the piece it followed
+        // (or first), so a save from an older view never drops them.
+        let mut after: Option<Uuid> = None;
+        for r in &m.transcription {
+            if !known.contains(&r.id) && !next.iter().any(|n| n.id == r.id) {
+                let at = after
+                    .and_then(|a| next.iter().position(|n| n.id == a))
+                    .map_or(0, |i| i + 1);
+                next.insert(at.min(next.len()), r.clone());
+            }
+            after = Some(r.id);
+        }
+    }
+    m.transcription = next;
     m.common.changed = Some(p.now);
     p.put(m);
     Ok(None)

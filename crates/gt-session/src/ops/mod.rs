@@ -471,7 +471,9 @@ pub fn plan_with(
             source_file,
             number,
         } => person::add_number(&mut p, *person, source_file, number)?,
-        C::SetMediaTranscription { id, regions } => media::set_transcription(&mut p, *id, regions)?,
+        C::SetMediaTranscription { id, regions, known } => {
+            media::set_transcription(&mut p, *id, regions, known.as_deref())?
+        }
     };
     Ok((p.finish(cmd.label()), focus))
 }

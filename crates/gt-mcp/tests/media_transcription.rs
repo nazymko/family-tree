@@ -248,6 +248,7 @@ fn an_owners_region_stays_and_only_own_regions_change() {
                 rotation: None,
                 text: "Owner's line".into(),
             }],
+            known: None,
         })
         .unwrap();
         media

@@ -1089,6 +1089,7 @@ impl Session {
         let cmd = EditCommand::SetMediaTranscription {
             id: media,
             regions: list,
+            known: None,
         };
         let (write, reached) = self.gated(cmd, None, ctx, batch)?;
         Ok((write, reached, kept))
