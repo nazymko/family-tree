@@ -1296,6 +1296,75 @@ impl Session {
         self.store(cs, focus, ctx, batch)
     }
 
+    /// The owner's request to rewrite a note, whoever wrote it: the text (and the kind, when
+    /// given) is replaced in one change set the owner can undo with the batch. Step 5 of the gate
+    /// ("own") is what this lifts; step 6 still holds, so it can never change whether anyone counts
+    /// as alive or dead. The old text stays in the log (the row's `before`). The change set's label
+    /// carries the reason ("Rewrite note: <reason>"), as the change log has no other place for it.
+    /// Audio clips, citations and media link to the note by its id and are not touched.
+    /// Saying what the note already says is `AlreadyThere`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn rewrite_note_as_agent(
+        &mut self,
+        note: Uuid,
+        target: OwnerRef,
+        text: &str,
+        kind: Option<crate::dto::NoteKindDto>,
+        reason: &str,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        use crate::dto::NoteKindDto as K;
+        self.check_batch(ctx, batch)?;
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(refused(
+                "Give the reason: that the owner asked for this rewrite, and for what.",
+            ));
+        }
+        if reason.chars().count() > CORRECTION_REASON_MAX {
+            return Err(refused(
+                "The reason holds up to 1000 characters: say who asked for the rewrite and why.",
+            ));
+        }
+        let Some(current) = self.tree.notes.get(&note) else {
+            return Err(ApiError::not_found("note", note));
+        };
+        if text.trim().is_empty() {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "text must be the new text of the note.",
+            ));
+        }
+        let kind = kind.unwrap_or(match &current.kind {
+            NoteKind::General => K::General,
+            NoteKind::Story => K::Story,
+            NoteKind::Research => K::Research,
+            NoteKind::Transcription => K::Transcription,
+            NoteKind::Conclusion => K::Conclusion,
+            NoteKind::Other(_) => K::Other,
+        });
+        let cmd = EditCommand::SaveNote {
+            target,
+            note: crate::command::NoteInput {
+                id: Some(note),
+                kind,
+                text: text.to_string(),
+            },
+        };
+        let (_, now) = (self.clock.0)();
+        let (mut cs, focus) = plan_with(&self.tree, &cmd, now, self.day_order(), None)?;
+        let same = |c: &Change| same_ignoring_stamp(c.before.as_ref(), c.after.as_ref());
+        if cs.changes.iter().all(same) {
+            return Ok((AgentWrite::AlreadyThere { record: note }, Vec::new()));
+        }
+        let one_line: String = reason.split_whitespace().collect::<Vec<_>>().join(" ");
+        let shown: String = one_line.chars().take(200).collect();
+        cs.label = format!("Rewrite note: {shown}");
+        self.check_living(&cs)?;
+        self.store(cs, focus, ctx, batch)
+    }
+
     /// A corrected birth date may not come surely after the same person's death, nor a death
     /// date surely before their birth. Dates that can still overlap ("about", "before") pass.
     fn check_life_order(

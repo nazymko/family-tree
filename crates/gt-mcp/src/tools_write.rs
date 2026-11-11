@@ -311,6 +311,20 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             call: update_own_note::<H>,
         },
         Tool {
+            name: "rewrite_note",
+            description: "Replaces the text of any note, including one the owner wrote or that someone changed since, but only for a rewrite the owner asked for: say so in the reason (who asked, and for what, such as a story-style rewrite). Keep every fact, name, date and doubt the note has; change the wording, not what it says. For your own notes use update_own_note. kind is optional and stays as it is when left out. Audio clips, citations and media on the note stay. The old text stays in the history and the log keeps it with the reason; the change is under your name and the owner can undo it with the batch. Saying again what the note says answers alreadyThere. A rewrite that would change whether someone counts as alive or dead is refused: leave a note and list it in your report.",
+            schema: with_batch(
+                &["note", "text", "reason"],
+                json!({
+                    "note": id("The note's id."),
+                    "text": writing("The new text of the note."),
+                    "kind": one_of(NOTE_KINDS),
+                    "reason": writing("Who asked for the rewrite, and for what."),
+                }),
+            ),
+            call: rewrite_note::<H>,
+        },
+        Tool {
             name: "update_own_event",
             description: "Changes your own event. What you leave out stays as it is. On an event someone else wrote or changed you can only fill a field that is empty; the rest stays as it is: add a note instead. Saying again what it says answers alreadyThere.",
             schema: event_fields(&["event"], json!({"event": id("The event's id.")})),
@@ -1381,6 +1395,34 @@ fn update_own_note<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResul
                 text: text.clone(),
             };
             Ok(EditCommand::SaveNote { target, note })
+        },
+        |_, _| Some(id),
+    )
+}
+
+fn rewrite_note<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let id = uuid_arg(args, "note")?;
+    let reason = long(args, "reason")?
+        .filter(|r| !r.trim().is_empty())
+        .ok_or_else(|| invalid("reason must say who asked for the rewrite, and for what.".into()))?;
+    let text = long(args, "text")?
+        .filter(|t| !t.trim().is_empty())
+        .ok_or_else(|| invalid("text must be the new text of the note.".into()))?;
+    let kind: Option<NoteKindDto> = word_arg(args, "kind", "kind", NOTE_KINDS)?;
+    apply(
+        host,
+        ctx,
+        |s, _| {
+            if !s.tree().notes.contains_key(&id) {
+                return Err(ApiError::not_found("note", id));
+            }
+            let target = note_holder(s, id).ok_or_else(|| {
+                invalid("This note is on nothing an agent can change. Add your own instead.".into())
+            })?;
+            let (write, reached) =
+                s.rewrite_note_as_agent(id, target, &text, kind, &reason, ctx, batch)?;
+            Ok((write, reached, None))
         },
         |_, _| Some(id),
     )

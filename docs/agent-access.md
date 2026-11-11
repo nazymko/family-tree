@@ -122,6 +122,20 @@ child to the right family with `link_people`.
 - It never changes whether someone counts as alive or dead: a removal that would is refused.
 - Asking again after the link is gone answers that it is already so; a person who was never a child of that family is refused.
 
+### Rewriting a note at your request
+
+When you ask for it (for example, to retell notes as stories), an agent can replace the text of any note, yours included,
+with the tool `rewrite_note` (inputs: the batch, the note, the new text, optionally the kind, and the reason). Its own notes
+it still changes with `update_own_note`.
+
+- The reason is required (up to 1000 characters); say who asked and for what. The agent is told to keep every fact, name,
+  date and doubt of the note and change the wording only.
+- The old text stays: the **Change log** and the note's history keep the note as it was, under the agent's name. The log
+  entry reads "Rewrite note: ..." with the reason (the log has no other place for it, so there is no extra note). **Undo**
+  of the batch puts the old text and kind back.
+- Audio clips, citations and media on the note are not touched. The kind stays as it is unless the agent gives one.
+- It never changes whether someone counts as alive or dead. Saying again what the note says answers that it is already so.
+
 ### Photographed documents
 
 An agent can attach a picture of a document and write down what is on it.

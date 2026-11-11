@@ -153,6 +153,7 @@ export const uk: Messages = {
     editClip: 'Змінити уривок',
     deleteClip: 'Видалити уривок',
     correctDate: 'Виправити дату',
+    rewriteNote: 'Переписати нотатку: {reason}',
     recordNumber: 'Записати номер',
     linkMediaFiles: 'Зв’язати медіафайли',
     addFather: 'Додати батька',

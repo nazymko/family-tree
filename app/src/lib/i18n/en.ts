@@ -154,6 +154,7 @@ export const en = {
     editClip: 'Edit clip',
     deleteClip: 'Delete clip',
     correctDate: 'Correct date',
+    rewriteNote: 'Rewrite note: {reason}',
     recordNumber: 'Record number',
     linkMediaFiles: 'Link media files',
     addFather: 'Add father',

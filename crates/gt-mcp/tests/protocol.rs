@@ -256,6 +256,7 @@ fn tools_list_deterministic() {
         "set_number",
         "set_sex",
         "update_own_note",
+        "rewrite_note",
         "update_own_event",
         "update_own_name",
         "update_own_citation",
