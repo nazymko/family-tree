@@ -548,7 +548,7 @@ fn only_a_note_takes_sound_a_person_and_other_owners_refuse_it() {
     assert_eq!(r.failed.len(), 1);
     assert_eq!(
         r.failed[0].reason,
-        "sound recordings can only be attached to a note"
+        "sound recordings can only be attached to a note or a source"
     );
     let p = s.get_person(ivan).unwrap();
     assert_eq!(p.media.len(), before);

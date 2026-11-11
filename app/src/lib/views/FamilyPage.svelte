@@ -138,6 +138,13 @@
         {/each}
       {/if}
     </section>
+
+    {#if family.media?.some((l) => l.clip)}
+      <section aria-labelledby="family-page-clips">
+        <h2 id="family-page-clips">{t('rec.clips')}</h2>
+        <VoiceSamples items={family.media} />
+      </section>
+    {/if}
   {/if}
 </article>
 

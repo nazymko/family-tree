@@ -12,6 +12,7 @@ import type {
   LogFilterDto,
   LogRowDto,
   MediaDto,
+  RecordingDto,
   RecordHomeDto,
   ReviewScopeDto,
   UndoReport,
@@ -208,6 +209,9 @@ export class TauriApi implements Api {
   }
   unlinkedMedia(): Promise<MediaDto[]> {
     return call('unlinked_media');
+  }
+  getRecording(media: Id): Promise<RecordingDto> {
+    return call('get_recording', { media });
   }
   attachFiles(target: OwnerRef, paths: string[]): Promise<AttachResult> {
     return call('attach_files', { target, paths });

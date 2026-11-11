@@ -78,6 +78,64 @@ fn a_damaged_transcription_never_stops_the_tree_from_opening() {
 }
 
 #[test]
+fn a_damaged_clip_never_stops_the_tree_from_opening_and_its_link_is_left_out() {
+    let (_tmp, mut p) = new_project();
+    let tree = rich_tree();
+    p.save_tree(&tree, TODAY).unwrap();
+    let clips = |t: &Tree| -> Vec<Option<Clip>> {
+        let mut all = Vec::new();
+        for person in t.persons.values() {
+            all.extend(person.common.media.iter().map(|m| m.clip.clone()));
+        }
+        all
+    };
+    let saved = clips(&tree);
+    assert_eq!(
+        clips(&p.load_tree().unwrap()),
+        saved,
+        "clips come back as saved"
+    );
+    let good = saved.iter().flatten().count();
+    for bad in [
+        "clip_start_ms = clip_end_ms",
+        "clip_start_ms = clip_end_ms + 5",
+        "clip_start_ms = -1",
+        "clip_end_ms = 'late'",
+        "clip_end_ms = NULL",
+        "clip_id = 'not an id'",
+        "clip_id = NULL",
+        "clip_label = X'07'",
+    ] {
+        let (_tmp2, mut q) = new_project();
+        q.save_tree(&tree, TODAY).unwrap();
+        q.conn()
+            .execute_batch(&format!(
+                "UPDATE media_link SET {bad} WHERE clip_id = '{}'",
+                gt_core::Uuid::from_u128(0xC1)
+            ))
+            .unwrap();
+        let back = q.load_tree().unwrap();
+        let left = clips(&back);
+        assert_eq!(
+            left.len(),
+            saved.len() - 1,
+            "{bad}: only that link is left out"
+        );
+        assert_eq!(left.iter().flatten().count(), good - 1, "{bad}");
+    }
+    // A label of blanks reads as none; the clip stays.
+    p.conn()
+        .execute(
+            "UPDATE media_link SET clip_label = '  ' WHERE clip_label IS NOT NULL",
+            [],
+        )
+        .unwrap();
+    let back = p.load_tree().unwrap();
+    assert_eq!(clips(&back).iter().flatten().count(), good);
+    assert!(clips(&back).iter().flatten().all(|c| c.label.is_none()));
+}
+
+#[test]
 fn a_bad_picture_rotation_reads_as_upright() {
     let (_tmp, mut p) = new_project();
     let tree = rich_tree();

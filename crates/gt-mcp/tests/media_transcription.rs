@@ -151,7 +151,7 @@ fn add_media_refuses_what_is_not_a_picture() {
         json!({"batch": batch, "file_path": fake.to_string_lossy(), "target": {"kind": "source", "id": source}}),
     );
     assert!(message.contains("not a picture"), "{message}");
-    let big = file(&host, "huge.jpg", b"");
+    let big = file(&host, "huge.jpg", &[0xFF, 0xD8, 0xFF, 0xE0]);
     std::fs::OpenOptions::new()
         .write(true)
         .open(&big)
@@ -247,6 +247,9 @@ fn an_owners_region_stays_and_only_own_regions_change() {
                 }),
                 rotation: None,
                 text: "Owner's line".into(),
+                end_ms: None,
+                speaker: None,
+                start_ms: None,
             }],
             known: None,
         })

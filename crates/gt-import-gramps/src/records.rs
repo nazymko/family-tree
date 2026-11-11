@@ -515,6 +515,7 @@ impl<'a> Ctx<'a> {
                 media: id,
                 region,
                 primary,
+                clip: None,
             });
         }
     }

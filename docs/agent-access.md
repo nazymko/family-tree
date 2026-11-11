@@ -43,7 +43,7 @@ They are read only.
 It can read everything in the open tree: people, families, events, places, sources, notes, citations, pictures, the change log
 and each record's history. It can also search, and look people up by the number they had in a file.
 
-Voice samples on a note (recordings you attached) show up in what an agent reads as a list with each one's title, type and size. The agent never receives the sound itself: asking for a recording returns only those details, so no audio leaves your computer through the agent. An agent cannot attach, replace or remove a recording; only you can, in the note editor.
+Voice samples on a note (recordings you attached) show up in what an agent reads as a list with each one's title, type and size. The agent never receives the sound itself: asking for a recording returns only its details (length, sources, clips and transcript), so no audio leaves your computer through the agent. An agent cannot replace or remove a recording, or put one on a note; it can attach a recording file to its source (see *Recordings and clips* below).
 
 It can add:
 
@@ -136,7 +136,7 @@ An agent can attach a picture of a document and write down what is on it.
   refused before anything is opened, so the tool never makes Windows connect to another computer. The batch, the record
   and the date are checked before the file is touched, and a refused call leaves nothing in the tree's media folder. The
   copy is named by what the file is (a PNG is stored as `.png` whatever its name says), and only the bytes actually copied
-  count towards the limit. Sound recordings stay yours to attach. The same file on the same record twice is recognised and
+  count towards the limit. A sound recording goes only on a source (see below). The same file on the same record twice is recognised and
   not added again; a file already in the tree is linked, and the answer carries its id.
 - An agent's picture never becomes a person's main picture: you choose that.
 - `set_media_transcription` stores the text of the picture as pieces in reading order. Each piece can have a box on the
@@ -156,6 +156,34 @@ An agent can attach a picture of a document and write down what is on it.
 - Transcriptions are not exported to GEDCOM (it has no place for them) and are not searched yet.
 - A damaged transcription in the tree file never stops the tree from opening: unreadable pieces are left out, a box off
   the picture is pulled onto it, an unknown rotation becomes upright, and the app reports it on its error output.
+
+### Recordings and clips
+
+An agent that works from a recorded interview can attach the recording and point to the stretches where each part of the
+story is told.
+
+- `add_media` takes a sound recording too (MP3, WAV, Ogg, M4A, AAC or FLAC, recognised by its content, never by its name),
+  of at most 2 GiB, **on a source only**. The limit holds while the file is copied, so a file that grows meanwhile is cut
+  off and refused rather than copied whole. The same path checks as for pictures apply, and a recording aimed at anything
+  but a source is refused before a byte is copied. This is `add_media` rather than a new tool because it is the same act:
+  a file from this computer, checked and copied, linked to one record.
+- `add_audio_clip` links a stretch of a recording to a note, citation, event, person or family: `{batch, media, start,
+  end, label?, target: {kind, id}}`. `start` and `end` are either milliseconds from the start of the recording as a whole
+  number (`65000`), or a string `"m:ss"`, `"mm:ss"` or `"h:mm:ss"`, with optional decimals of a second (`"1:05"`,
+  `"01:05.250"`, `"1:02:05"`); a string of digits alone is milliseconds too. The end must be after the start, and both
+  within the recording when its length can be read from the file (an unknown length takes any times). The same clip on the
+  same record again is answered `alreadyThere` with the clip's id. Example:
+  `{"batch": "…", "media": "…", "start": "1:05", "end": 102500, "label": "How the house was built", "target": {"kind": "note", "id": "…"}}`.
+- `update_own_audio_clip` changes the times or label of a clip the agent made, or moves it to another record with
+  `move_to`. A clip you made or changed stays as it is. Agents cannot delete clips.
+- `get_media` on a recording returns its details, its length (`durationMs`, `duration`), the sources it is on, its
+  transcript and every clip with the record it is on, `yours: true` on the agent's own; never its bytes. Every note,
+  citation, event, person and family the agent reads lists its clips as `audioClips`.
+- `set_media_transcription` on a recording takes pieces with `start`, `end` and `speaker` instead of places on a picture:
+  a time-coded transcript. Nothing makes one by itself, and a recording has none unless one is written.
+- Clips are ordinary links in the tree: **Undo** of the agent's batch takes them away, and with them the recording's link
+  to its source if the batch made it; the copy of a file nothing in the tree (or on your Ctrl+Z steps) names any more is
+  then deleted from the tree's media folder. Clips are not exported to GEDCOM; the recording is, on its source.
 
 ## Review and undo
 

@@ -91,12 +91,12 @@ fn schema_5_project_gains_the_transcription_column() {
         // What a schema 5 app left behind: no transcription column.
         let c = Connection::open(dir.join("tree.db")).unwrap();
         c.execute_batch(
-            "ALTER TABLE media DROP COLUMN rotation; ALTER TABLE media DROP COLUMN transcription_json; PRAGMA user_version = 5;",
+            &format!("{DROP_CLIPS} ALTER TABLE media DROP COLUMN rotation; ALTER TABLE media DROP COLUMN transcription_json; PRAGMA user_version = 5;"),
         )
         .unwrap();
     }
     let p = Project::open(&dir).unwrap();
-    assert_eq!(p.schema_version(), 7);
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
     let has: i64 = p
         .conn()
         .query_row(
@@ -117,14 +117,14 @@ fn schema_6_project_gains_the_rotation_column_and_its_pictures_stay_unturned() {
         // What a schema 6 app left behind: a picture, no rotation column.
         let c = Connection::open(dir.join("tree.db")).unwrap();
         c.execute_batch(
-            "ALTER TABLE media DROP COLUMN rotation; PRAGMA user_version = 6; \
+            &format!("{DROP_CLIPS} ALTER TABLE media DROP COLUMN rotation; PRAGMA user_version = 6; \
              INSERT INTO media(id, seq, private, path, mime) \
-             VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.jpg', 'image/jpeg');",
+             VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.jpg', 'image/jpeg');"),
         )
         .unwrap();
     }
     let p = Project::open(&dir).unwrap();
-    assert_eq!(p.schema_version(), 7);
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
     let has: i64 = p
         .conn()
         .query_row(
@@ -137,6 +137,51 @@ fn schema_6_project_gains_the_rotation_column_and_its_pictures_stay_unturned() {
     let tree = p.load_tree().unwrap();
     let m = tree.media.values().next().unwrap();
     assert_eq!((m.rotation, m.shown_rotation()), (None, 0));
+}
+
+/// Takes a project back from schema 8: no clip columns on media links.
+const DROP_CLIPS: &str = "ALTER TABLE media_link DROP COLUMN clip_id; \
+    ALTER TABLE media_link DROP COLUMN clip_start_ms; ALTER TABLE media_link DROP COLUMN clip_end_ms; \
+    ALTER TABLE media_link DROP COLUMN clip_label;";
+
+#[test]
+fn schema_7_project_gains_the_clip_columns_and_its_links_stay_whole() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // What a schema 7 app left behind: a person linked to a recording, no clip columns.
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(&format!(
+            "{DROP_CLIPS} PRAGMA user_version = 7; \
+             INSERT INTO media(id, seq, private, path, mime) \
+             VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.ogg', 'audio/ogg'); \
+             INSERT INTO person(id, seq, private, sex) \
+             VALUES ('00000000-0000-0000-0000-0000000000b1', 0, 0, 'unknown'); \
+             INSERT INTO media_link(id, target_type, target_id, pos, media_id, \"primary\") \
+             VALUES ('00000000-0000-0000-0000-0000000000c1', 'person', \
+             '00000000-0000-0000-0000-0000000000b1', 0, '00000000-0000-0000-0000-0000000000a1', 0);"
+        ))
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), 8);
+    let has: i64 = p
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('media_link') WHERE name LIKE 'clip_%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(has, 4);
+    let tree = p.load_tree().unwrap();
+    let person = tree.persons.values().next().unwrap();
+    assert_eq!(person.common.media.len(), 1);
+    assert_eq!(
+        person.common.media[0].clip, None,
+        "an old link is to the whole recording"
+    );
 }
 
 #[test]

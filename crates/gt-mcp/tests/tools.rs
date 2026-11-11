@@ -1557,6 +1557,7 @@ fn common(id: Uuid, field: &str, links: &Links) -> Common {
                 h: 0.75,
             }),
             primary: true,
+            clip: None,
         }],
         ext_ids: vec![
             ExternalId {

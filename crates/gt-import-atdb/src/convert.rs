@@ -1028,6 +1028,7 @@ fn sources_and_media(
             media,
             region: None,
             primary: ismain == Some(1),
+            clip: None,
         };
         match b.common_of(t, rec) {
             Some(c) => c.media.push(link),

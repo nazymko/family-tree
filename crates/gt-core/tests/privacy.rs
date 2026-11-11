@@ -335,6 +335,7 @@ fn shared_media_is_reported_and_exclusive_media_dropped() {
         media: m,
         region: None,
         primary: false,
+        clip: None,
     };
     t.persons
         .get_mut(&dead)
@@ -444,6 +445,7 @@ fn family_with_hidden_partner_loses_family_level_data() {
         media: mid,
         region: None,
         primary: false,
+        clip: None,
     });
     t.families.insert(
         fid,

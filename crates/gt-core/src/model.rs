@@ -336,7 +336,38 @@ pub struct TextRegion {
     #[serde(default)]
     pub rotation: u16,
     pub text: String,
+    /// On a sound recording: when in it this piece is said. A time-coded transcript is the
+    /// recording's counterpart of a picture's pieces; it is optional and absent by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time: Option<TimeSpan>,
+    /// On a sound recording: who says it, as the owner or agent wrote it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<String>,
 }
+
+/// A stretch of a sound recording, in milliseconds from its start; `start_ms < end_ms`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TimeSpan {
+    pub start_ms: u64,
+    pub end_ms: u64,
+}
+
+/// A stretch of a sound recording linked to the record where its story is told: the time
+/// counterpart of a picture region on a media link.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Clip {
+    /// Stable across edits of its times or label, so a change is one item changing.
+    pub id: Uuid,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// Characters of a clip's label.
+pub const CLIP_LABEL_MAX: usize = 200;
+/// Characters of a transcript piece's speaker.
+pub const SPEAKER_MAX: usize = 200;
 
 /// The rotations a text region may have.
 pub const TEXT_ROTATIONS: [u16; 4] = [0, 90, 180, 270];
@@ -354,6 +385,10 @@ pub fn mend_text_region(r: &mut TextRegion) -> bool {
     let mut changed = false;
     if !TEXT_ROTATIONS.contains(&r.rotation) {
         r.rotation = 0;
+        changed = true;
+    }
+    if r.time.is_some_and(|t| t.start_ms >= t.end_ms) {
+        r.time = None;
         changed = true;
     }
     if let Some(a) = r.area.clone() {
@@ -387,6 +422,9 @@ pub struct MediaLink {
     pub media: Uuid,
     pub region: Option<Region>,
     pub primary: bool,
+    /// A stretch of a sound recording: the link is to that stretch only. Old rows have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<Clip>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -1016,6 +1016,7 @@ fn delete_media_leaves_no_link_anywhere_and_undo_restores_it() {
         media,
         region: None,
         primary,
+        clip: None,
     };
     t.persons.get_mut(&anna).unwrap().common.media =
         vec![link(gone_id, true), link(kept_id, false)];
@@ -1082,7 +1083,7 @@ fn plan_does_not_mutate() {
 fn edit_command_json_matches_ts_fixtures() {
     let json = include_str!("../../../app/src/lib/api/__fixtures__/commands.json");
     let cmds: Vec<EditCommand> = serde_json::from_str(json).unwrap();
-    assert_eq!(cmds.len(), 31);
+    assert_eq!(cmds.len(), 34);
     // Absent and null differ for livingOverride.
     let EditCommand::UpdatePerson {
         living_override, ..

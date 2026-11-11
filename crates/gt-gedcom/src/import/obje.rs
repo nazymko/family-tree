@@ -166,6 +166,7 @@ pub(crate) fn link_media(
                 media: id,
                 region,
                 primary,
+                clip: None,
             });
         }
         return true;
@@ -181,6 +182,7 @@ pub(crate) fn link_media(
                 media: id,
                 region,
                 primary,
+                clip: None,
             });
             true
         }

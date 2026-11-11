@@ -15,4 +15,8 @@ transcription: Array<TextRegionDto>,
  * Degrees clockwise the picture is shown turned, on top of its EXIF orientation. The
  * transcription's areas are on the picture before this turn.
  */
-rotation: 0 | 90 | 180 | 270, };
+rotation: 0 | 90 | 180 | 270, 
+/**
+ * A sound recording's length in milliseconds, when its headers tell it (absent otherwise).
+ */
+durationMs?: number, };

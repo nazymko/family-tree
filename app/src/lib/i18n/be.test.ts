@@ -60,7 +60,7 @@ const EXCLUDED_TEXT: Record<string, string> = {
   'project schema {found} is newer than supported {supported}': 'replaced by `be.newerSchema` before it leaves the session',
   'No secure random numbers are available.': 'agent access only; `agent.errNoRandom`',
   'only sound recordings can be attached to a note': 'worded by `failureLine` in Dropzone.svelte as `voice.onlySoundOnNote` (it adds the file name)',
-  'sound recordings can only be attached to a note': 'worded by `failureLine` in Dropzone.svelte as `voice.soundOnlyOnNote`',
+  'sound recordings can only be attached to a note or a source': 'worded by `failureLine` in Dropzone.svelte as `voice.soundOnlyOnNote`',
 };
 
 /** Messages passed to a helper as a variable, so no text can be read from the call. Reviewed one by one. */

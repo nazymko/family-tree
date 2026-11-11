@@ -352,7 +352,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "add_media",
-            description: "Attaches a picture or PDF document from a file on this computer to a person, family, event, source or citation, such as a photographed letter or register page. The file is copied into the tree; the original stays where it is. It must be a picture (JPEG, PNG, WebP, GIF, TIFF) of at most 50 MiB that can be read, or a whole PDF of at most 8 MiB, on a local drive: network shares, device paths and paths through a link are refused, and anything else is refused before it is recorded. The batch, target and date are checked first. Sound recordings are the owner's to attach. A photographed document usually goes on its source: make the source with add_source first. The same file on the same record again answers alreadyThere with the media's id; a file already in the tree keeps its title. Then write what is on it with set_media_transcription.",
+            description: "Attaches a picture, PDF document or sound recording from a file on this computer, such as a photographed letter or register page, or a recorded interview. The file is copied into the tree; the original stays where it is. A picture (JPEG, PNG, WebP, GIF, TIFF) of at most 50 MiB that can be read, or a whole PDF of at most 8 MiB, goes on a person, family, event, source or citation. A sound recording (MP3, WAV, Ogg, M4A, AAC or FLAC, by its content, of at most 2 GiB) goes on its source only: make the source with add_source first, then link the stretches where a story is told to the note, citation, event, person or family with add_audio_clip. The file must be on a local drive: network shares, device paths and paths through a link are refused, and anything else is refused before it is recorded; the size limit holds while the file is copied. The batch, target and date are checked first. A photographed document usually goes on its source too: make the source with add_source first. The same file on the same record again answers alreadyThere with the media's id; a file already in the tree keeps its title. Then write what is on it with set_media_transcription.",
             schema: with_batch(
                 &["file_path", "target"],
                 json!({
@@ -401,6 +401,54 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             call: update_own_media_region::<H>,
         },
         Tool {
+            name: "add_audio_clip",
+            description: "Links a stretch of a sound recording to the record where that part of the story is told: a note, citation, event, person or family. The recording stays on its source (add_media puts it there); a clip is only its start and end, and an optional label. Times are either milliseconds from the start of the recording as a whole number (65000), or a string \"m:ss\", \"mm:ss\" or \"h:mm:ss\", seconds optionally with up to three decimals (\"1:05\", \"01:05.250\", \"1:02:05\"); end must be after start, and both within the recording when its length can be read (get_media gives durationMs). The same clip (recording, start, end and label) on the same record again answers alreadyThere with its id. The answer's id is the clip's. Listen-worthy is not enough: link a stretch only where it tells something about that record, and say what in the label.",
+            schema: with_batch(
+                &["media", "start", "end", "target"],
+                json!({
+                    "media": id("The recording's id."),
+                    "start": time_schema("Where the clip starts."),
+                    "end": time_schema("Where it ends."),
+                    "label": short("A few words on what is said, such as How the house was built."),
+                    "target": {
+                        "type": "object",
+                        "properties": {"kind": one_of(CLIP_TARGETS), "id": {"type": "string"}},
+                        "required": ["kind", "id"],
+                        "additionalProperties": false,
+                    },
+                }),
+            ),
+            call: add_audio_clip::<H>,
+        },
+        Tool {
+            name: "update_own_audio_clip",
+            description: "Changes a clip you made: its start, end or label, or moves it to another note, citation, event, person or family with move_to. What you leave out stays as it is; an empty label takes it away. Times as add_audio_clip takes them. A clip the owner or another agent made or changed stays as it is: get_media on the recording marks yours with yours: true. Clips are never deleted by agents; say in your report which one is wrong. Saying again what it says answers alreadyThere.",
+            schema: with_batch(
+                &["clip", "target"],
+                json!({
+                    "clip": id("The clip's id, from get_media or add_audio_clip."),
+                    "target": {
+                        "type": "object",
+                        "description": "The record the clip is on now.",
+                        "properties": {"kind": one_of(CLIP_TARGETS), "id": {"type": "string"}},
+                        "required": ["kind", "id"],
+                        "additionalProperties": false,
+                    },
+                    "start": time_schema("A new start."),
+                    "end": time_schema("A new end."),
+                    "label": short("A new label; empty takes it away."),
+                    "move_to": {
+                        "type": "object",
+                        "description": "Another record to link the clip to instead.",
+                        "properties": {"kind": one_of(CLIP_TARGETS), "id": {"type": "string"}},
+                        "required": ["kind", "id"],
+                        "additionalProperties": false,
+                    },
+                }),
+            ),
+            call: update_own_audio_clip::<H>,
+        },
+        Tool {
             name: "set_media_rotation",
             description: "Sets how a picture is shown in the app: turned 0, 90, 180 or 270 degrees clockwise, on top of its EXIF orientation, so sideways writing reads upright. Only how it is shown changes: the transcription's x, y, w and h stay fractions of the picture upright by its EXIF orientation, before this turn, which is also the picture get_media returns. You may turn a picture you added yourself, or one nobody has turned yet; once the owner or anyone else has turned it, it stays as it is. The same turn again answers alreadyThere. The owner can undo it like any other change.",
             schema: with_batch(
@@ -416,6 +464,107 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
 }
 
 const MEDIA_TARGETS: &str = "person, family, event, source, citation";
+const CLIP_TARGETS: &str = "note, citation, event, person, family";
+
+/// `{kind, id}` naming a record a clip can go on.
+fn clip_target_arg(args: &Value, name: &str) -> Result<Option<OwnerRef>, ApiError> {
+    let Some(given) = args.get(name).filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    if !given.is_object() {
+        return Err(invalid(format!("{name} must have a kind and an id")));
+    }
+    let kind = word_arg(given, "kind", &format!("{name}.kind"), CLIP_TARGETS)?
+        .filter(|k: &OwnerKind| {
+            matches!(
+                k,
+                OwnerKind::Note
+                    | OwnerKind::Citation
+                    | OwnerKind::Event
+                    | OwnerKind::Person
+                    | OwnerKind::Family
+            )
+        })
+        .ok_or_else(|| invalid(format!("{name}.kind must be one of: {CLIP_TARGETS}")))?;
+    let id =
+        uuid_arg(given, "id").map_err(|_| invalid(format!("{name}.id must be a record's id")))?;
+    Ok(Some(OwnerRef { kind, id }))
+}
+
+fn add_audio_clip<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let media = uuid_arg(args, "media")?;
+    let target = clip_target_arg(args, "target")?
+        .ok_or_else(|| invalid("target must have a kind and an id".into()))?;
+    let start_ms =
+        time_arg(args, "start")?.ok_or_else(|| invalid(format!("start must be {TIME_FORMS}.")))?;
+    let end_ms =
+        time_arg(args, "end")?.ok_or_else(|| invalid(format!("end must be {TIME_FORMS}.")))?;
+    let label = short(args, "label")?;
+    let wanted = label
+        .as_deref()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string);
+    let cmd = EditCommand::AddAudioClip {
+        target,
+        media,
+        start_ms,
+        end_ms,
+        label,
+    };
+    write(
+        host,
+        ctx,
+        batch,
+        |_, _| Ok(cmd.clone()),
+        // The new clip's id: the one on the target with these times and label.
+        |s, _| {
+            s.get_recording(media)
+                .ok()?
+                .clips
+                .into_iter()
+                .find_map(|c| {
+                    (c.target == target
+                        && (c.clip.start_ms, c.clip.end_ms, &c.clip.label)
+                            == (start_ms, end_ms, &wanted))
+                        .then_some(c.clip.id)
+                })
+        },
+    )
+}
+
+fn update_own_audio_clip<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let clip = uuid_arg(args, "clip")?;
+    let target = clip_target_arg(args, "target")?
+        .ok_or_else(|| invalid("target must have a kind and an id".into()))?;
+    let move_to = clip_target_arg(args, "move_to")?;
+    let (start, end) = (time_arg(args, "start")?, time_arg(args, "end")?);
+    let label = short(args, "label")?;
+    write(
+        host,
+        ctx,
+        batch,
+        |s, _| {
+            let now = s
+                .get_recording_clip(target, clip)
+                .ok_or_else(|| ApiError::not_found("clip", clip))?;
+            Ok(EditCommand::UpdateAudioClip {
+                target,
+                clip,
+                start_ms: start.unwrap_or(now.start_ms),
+                end_ms: end.unwrap_or(now.end_ms),
+                label: match &label {
+                    Some(l) => Some(l.clone()),
+                    None => now.label.clone(),
+                },
+                move_to,
+            })
+        },
+        |_, _| Some(clip),
+    )
+}
 
 /// One piece of a transcription, as the tools take it.
 fn region_schema(required: &[&str]) -> Value {
@@ -430,10 +579,37 @@ fn region_schema(required: &[&str]) -> Value {
             "w": part("Width, as a fraction of the picture's width."),
             "h": part("Height, as a fraction of the picture's height."),
             "rotation": {"type": "integer", "enum": [0, 90, 180, 270], "description": "How far the writing is turned, clockwise."},
+            "start": time_schema("On a sound recording: when this piece starts being said."),
+            "end": time_schema("On a sound recording: when it ends."),
+            "speaker": {"type": "string", "maxLength": 200, "description": "On a sound recording: who says it."},
         },
         "required": required,
         "additionalProperties": false,
     })
+}
+
+/// How the tools say where in a recording: see [`time_arg`].
+pub(crate) const TIME_FORMS: &str = "milliseconds from the start of the recording as a whole \
+    number (65000), or a string \"m:ss\", \"mm:ss\" or \"h:mm:ss\", seconds optionally with up to \
+    three decimals (\"1:05\", \"01:05.250\", \"1:02:05\")";
+
+pub(crate) fn time_schema(what: &str) -> Value {
+    json!({
+        "type": ["integer", "string"],
+        "description": format!("{what} Either {TIME_FORMS}."),
+    })
+}
+
+/// A time in a recording: a whole number of milliseconds, or "m:ss" / "mm:ss" / "h:mm:ss" with
+/// optional ".fff" (a string of digits alone is milliseconds too).
+pub(crate) fn time_arg(given: &Value, name: &str) -> Result<Option<u64>, ApiError> {
+    let bad = || invalid(format!("{name} must be {TIME_FORMS}."));
+    match given.get(name) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(n)) => n.as_u64().map(Some).ok_or_else(bad),
+        Some(Value::String(s)) => gt_core::time::parse_time(s).map(Some).ok_or_else(bad),
+        Some(_) => Err(bad()),
+    }
 }
 
 fn schema(required: &[&str], properties: Value) -> Value {
@@ -1366,6 +1542,9 @@ fn regions_arg(args: &Value) -> Result<Vec<TextRegionInput>, ApiError> {
                     rotation: rotation_arg(given)?,
                     text: region_text(given, "text")?
                         .ok_or_else(|| invalid("each region needs its text".into()))?,
+                    start_ms: time_arg(given, "start")?,
+                    end_ms: time_arg(given, "end")?,
+                    speaker: short(given, "speaker")?,
                 })
             })
             .collect(),
@@ -1382,6 +1561,9 @@ fn regions_arg(args: &Value) -> Result<Vec<TextRegionInput>, ApiError> {
                 area: None,
                 rotation: None,
                 text,
+                start_ms: None,
+                end_ms: None,
+                speaker: None,
             }])
         }
         _ => Err(invalid(
@@ -1450,7 +1632,7 @@ fn add_media<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     about.date_raw = date_raw;
     // The file is checked, copied and hashed without the tree's lock, as the app's own attach is.
     // A copy that is not recorded below is removed again when `file` is dropped.
-    let file = std::cell::RefCell::new(Some(prepare_agent_file(&dir, &path)?));
+    let file = std::cell::RefCell::new(Some(prepare_agent_file(&dir, &path, target.kind)?));
     let media = std::cell::Cell::new(None);
     apply(
         host,
@@ -1515,6 +1697,8 @@ fn update_own_media_region<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> T
     let area = area_arg(args)?;
     let rotation = rotation_arg(args)?;
     let text = region_text(args, "text")?;
+    let (start, end) = (time_arg(args, "start")?, time_arg(args, "end")?);
+    let speaker = short(args, "speaker")?;
     write(
         host,
         ctx,
@@ -1552,6 +1736,15 @@ fn update_own_media_region<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> T
                         }
                         if rotation.is_some() {
                             input.rotation = rotation;
+                        }
+                        if start.is_some() {
+                            input.start_ms = start;
+                        }
+                        if end.is_some() {
+                            input.end_ms = end;
+                        }
+                        if speaker.is_some() {
+                            input.speaker = speaker.clone();
                         }
                     }
                     input

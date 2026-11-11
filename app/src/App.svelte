@@ -41,6 +41,11 @@
           await showTranscription(api);
           return;
         }
+        if (wanted === 'recording' && info.homePerson) {
+          const { showRecording } = await import('./lib/dev/recordingSample');
+          await showRecording(api, info.homePerson);
+          return;
+        }
         if (wanted === 'person' && info.homePerson) nav.go({ name: 'person', id: info.homePerson });
         else if (wanted === 'export') {
           nav.go({ name: 'family' });

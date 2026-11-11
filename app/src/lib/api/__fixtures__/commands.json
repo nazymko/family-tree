@@ -234,6 +234,28 @@
   },
   { "type": "setMediaRotation", "id": "018f3a6e-0000-7000-8000-000000000009", "rotation": 270 },
   {
+    "type": "addAudioClip",
+    "target": { "kind": "note", "id": "018f3a6e-0000-7000-8000-000000000005" },
+    "media": "018f3a6e-0000-7000-8000-000000000009",
+    "startMs": 65000,
+    "endMs": 102500,
+    "label": "How the house was built"
+  },
+  {
+    "type": "updateAudioClip",
+    "target": { "kind": "note", "id": "018f3a6e-0000-7000-8000-000000000005" },
+    "clip": "018f3a6e-0000-7000-8000-000000000008",
+    "startMs": 64000,
+    "endMs": 103000,
+    "label": "The house",
+    "moveTo": { "kind": "event", "id": "018f3a6e-0000-7000-8000-000000000006" }
+  },
+  {
+    "type": "deleteAudioClip",
+    "target": { "kind": "person", "id": "018f3a6e-0000-7000-8000-000000000001" },
+    "clip": "018f3a6e-0000-7000-8000-000000000008"
+  },
+  {
     "type": "linkExisting",
     "anchor": "018f3a6e-0000-7000-8000-000000000001",
     "relation": "mother",

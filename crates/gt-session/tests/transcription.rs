@@ -49,6 +49,9 @@ fn region(text: &str, x: f32) -> TextRegionInput {
         }),
         rotation: None,
         text: text.into(),
+        end_ms: None,
+        speaker: None,
+        start_ms: None,
     }
 }
 
@@ -58,6 +61,9 @@ fn plain(text: &str) -> TextRegionInput {
         area: None,
         rotation: None,
         text: text.into(),
+        end_ms: None,
+        speaker: None,
+        start_ms: None,
     }
 }
 
@@ -341,7 +347,7 @@ fn agent_attaches_a_picture_once_to_a_source() {
         description: None,
         date_raw: Some("1901".into()),
     };
-    let prepared = prepare_agent_file(&s.project_dir(), &file).unwrap();
+    let prepared = prepare_agent_file(&s.project_dir(), &file, OwnerKind::Source).unwrap();
     let (w, _, _) = s
         .attach_as_agent(target, prepared, &about, &me(), b)
         .unwrap();
@@ -353,7 +359,7 @@ fn agent_attaches_a_picture_once_to_a_source() {
     assert_eq!(src.media[0].media.title.as_deref(), Some("Page 1"));
     let media = src.media[0].media.id;
     // The same file again is a repeat.
-    let prepared = prepare_agent_file(&s.project_dir(), &file).unwrap();
+    let prepared = prepare_agent_file(&s.project_dir(), &file, OwnerKind::Source).unwrap();
     let (w, _, _) = s
         .attach_as_agent(target, prepared, &about, &me(), b)
         .unwrap();
@@ -378,7 +384,14 @@ fn agent_files_are_checked_before_anything_is_copied() {
     let broken = write(dir.path(), "broken.jpg", &broken);
     assert!(refused(&broken).contains("not a picture"));
     let sound = write(dir.path(), "voice.wav", b"RIFF\x24\0\0\0WAVEfmt \x10\0\0\0");
-    assert!(refused(&sound).contains("owner"));
+    // A recording is content an agent may attach, but only to a source, refused before copying.
+    check_agent_file(&sound).unwrap();
+    let elsewhere = prepare_agent_file(dir.path(), &sound, OwnerKind::Person)
+        .err()
+        .unwrap()
+        .message;
+    assert!(elsewhere.contains("source"), "{elsewhere}");
+    assert!(!dir.path().join("media").exists(), "nothing was copied");
     let half_pdf = write(dir.path(), "half.pdf", b"%PDF-1.4\n1 0 obj\n");
     assert!(refused(&half_pdf).contains("not a whole PDF"));
     let pdf = write(
@@ -388,7 +401,9 @@ fn agent_files_are_checked_before_anything_is_copied() {
     );
     check_agent_file(&pdf).unwrap();
     let big = dir.path().join("huge.jpg");
-    let f = std::fs::File::create(&big).unwrap();
+    // A picture by its first bytes, past the size a picture may have.
+    std::fs::write(&big, [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+    let f = std::fs::OpenOptions::new().write(true).open(&big).unwrap();
     f.set_len(AGENT_FILE_MAX + 1).unwrap();
     drop(f);
     assert!(refused(&big).contains("50 MiB"));
@@ -405,13 +420,13 @@ fn agent_attach_refuses_a_closed_batch_and_a_note() {
         kind: OwnerKind::Note,
         id: anna,
     };
-    let prepared = prepare_agent_file(&s.project_dir(), &file).unwrap();
+    let prepared = prepare_agent_file(&s.project_dir(), &file, OwnerKind::Source).unwrap();
     let e = s
         .attach_as_agent(note, prepared, &MediaAbout::default(), &me(), b)
         .unwrap_err();
     assert_eq!(e.code, ErrorCode::AgentRefused);
     s.end_batch(&me(), b, "done").unwrap();
-    let prepared = prepare_agent_file(&s.project_dir(), &file).unwrap();
+    let prepared = prepare_agent_file(&s.project_dir(), &file, OwnerKind::Source).unwrap();
     let e = s
         .attach_as_agent(person(anna), prepared, &MediaAbout::default(), &me(), b)
         .unwrap_err();

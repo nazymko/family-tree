@@ -49,6 +49,7 @@ fn resolved_for(paths: &[String], make_files: impl Fn(&std::path::Path)) -> Vec<
                 media: id,
                 region: None,
                 primary: false,
+                clip: None,
             });
     }
     let dir = tempfile::tempdir().unwrap();

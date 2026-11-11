@@ -473,6 +473,40 @@ pub fn plan_with(
             number,
         } => person::add_number(&mut p, *person, source_file, number)?,
         C::SetMediaRotation { id, rotation } => media::set_rotation(&mut p, *id, *rotation)?,
+        C::AddAudioClip {
+            target,
+            media,
+            start_ms,
+            end_ms,
+            label,
+        } => {
+            let clip = Clip {
+                id: gt_core::ids::new_id(),
+                start_ms: *start_ms,
+                end_ms: *end_ms,
+                label: label.clone(),
+            };
+            media::add_clip(&mut p, *target, *media, clip)?
+        }
+        C::UpdateAudioClip {
+            target,
+            clip,
+            start_ms,
+            end_ms,
+            label,
+            move_to,
+        } => media::update_clip(
+            &mut p,
+            *target,
+            Clip {
+                id: *clip,
+                start_ms: *start_ms,
+                end_ms: *end_ms,
+                label: label.clone(),
+            },
+            *move_to,
+        )?,
+        C::DeleteAudioClip { target, clip } => media::delete_clip(&mut p, *target, *clip)?,
         C::SetMediaTranscription { id, regions, known } => {
             media::set_transcription(&mut p, *id, regions, known.as_deref())?
         }

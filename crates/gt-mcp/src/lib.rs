@@ -44,6 +44,15 @@ pub const INSTRUCTIONS: &str = concat!(
      those update_own_media_region may change. set_media_rotation turns how the app shows a \
      picture (your own, or one nobody has turned) so sideways writing reads upright; the image \
      get_media returns and every x, y, w and h stay upright by EXIF, not turned.\n\n\
+     Recordings: add_media also copies a sound recording (MP3, WAV, Ogg, M4A, AAC, FLAC, up to 2 \
+     GiB) onto its source, and only there. add_audio_clip then links a stretch of it (start, end, \
+     an optional label) to the note, citation, event, person or family that part of the story is \
+     about; times are milliseconds or \"m:ss\" / \"h:mm:ss\" strings. update_own_audio_clip \
+     changes or moves a clip you made; clips are never deleted by agents. get_media on a \
+     recording gives its details, length, sources, transcript and clips (yours: true on your \
+     own), never its sound. set_media_transcription on a recording takes pieces with start, end \
+     and speaker instead of places on a picture: a time-coded transcript, only of what is said, \
+     and only when you actually have one.\n\n\
      Correcting a date: correct_event_date sets a confirmed birth or death date on any person's \
      birth or death event, with the reason (who confirmed it or which source says so). Add a \
      citation for the new date too. Disagreeing sources with nobody confirming are a note, not a \

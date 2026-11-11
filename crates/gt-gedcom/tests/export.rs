@@ -54,6 +54,34 @@ fn line_limit_551() {
 }
 
 #[test]
+fn a_clip_of_a_recording_is_not_exported_but_the_recording_on_its_source_is() {
+    let src = "0 HEAD\n0 @I1@ INDI\n1 NAME Ivan /Shevchuk/\n0 @S1@ SOUR\n1 TITL Interview\n1 OBJE @O1@\n\
+               0 @O1@ OBJE\n1 FILE interview.ogg\n2 FORM ogg\n0 TRLR\n";
+    let mut t = import(src.as_bytes(), &opts()).tree;
+    let media = *t.media.keys().next().unwrap();
+    let person = t.persons.values_mut().next().unwrap();
+    person.common.media.push(MediaLink {
+        media,
+        region: None,
+        primary: false,
+        clip: Some(Clip {
+            id: gt_core::Uuid::from_u128(1),
+            start_ms: 1_000,
+            end_ms: 2_000,
+            label: Some("a clip".into()),
+        }),
+    });
+    for v in [GedcomVersion::V551, GedcomVersion::V70] {
+        let out = ex(&t, v);
+        assert_eq!(out.matches("OBJE @").count(), 1, "{out}");
+        assert!(!out.contains("a clip"));
+        let back = import(out.as_bytes(), &opts()).tree;
+        assert!(back.persons.values().all(|p| p.common.media.is_empty()));
+        assert_eq!(back.sources.values().next().unwrap().common.media.len(), 1);
+    }
+}
+
+#[test]
 fn v70_has_no_conc_and_uses_lf() {
     let long = "x".repeat(1000);
     let src = format!("0 HEAD\n0 @I1@ INDI\n1 NOTE {long}\n0 TRLR\n");

@@ -9,6 +9,7 @@ import type {
   LogRowDto,
   MediaDto,
   RecordHomeDto,
+  RecordingDto,
   ReviewScopeDto,
   UndoReport,
   AttachResult,
@@ -117,6 +118,8 @@ export interface Api {
   exifSuggestion(media: Id): Promise<ExifSuggestion | null>;
   /** Media that no record links to (left by a deleted note or person), so it can still be removed. */
   unlinkedMedia(): Promise<MediaDto[]>;
+  /** A sound recording with the sources it is on and every clip of it, each with the record it is linked to. */
+  getRecording(media: Id): Promise<RecordingDto>;
   /** add_media_file + Media record + link, one undo step. */
   /** `silent` asks the shell's default toaster to stay quiet because the caller shows its own notice. */
   attachFiles(target: OwnerRef, paths: string[], opts?: { silent?: boolean }): Promise<AttachResult>;

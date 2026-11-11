@@ -211,12 +211,19 @@ pub fn rich_tree() -> Tree {
                     }),
                     rotation: 90,
                     text: "Dear Olha,".into(),
+                    speaker: None,
+                    time: None,
                 },
                 TextRegion {
                     id: Uuid::from_u128(0xA2),
                     area: None,
                     rotation: 0,
                     text: "The rest, with no place on the picture.".into(),
+                    speaker: Some("Narrator".into()),
+                    time: Some(TimeSpan {
+                        start_ms: 1_000,
+                        end_ms: 4_250,
+                    }),
                 },
             ],
             rotation: Some(270),
@@ -281,11 +288,35 @@ pub fn rich_tree() -> Tree {
                 h: 0.4,
             }),
             primary: true,
+            clip: None,
         },
         MediaLink {
             media: media_id,
             region: None,
             primary: false,
+            clip: None,
+        },
+        MediaLink {
+            media: media_id,
+            region: None,
+            primary: false,
+            clip: Some(Clip {
+                id: Uuid::from_u128(0xC1),
+                start_ms: 65_000,
+                end_ms: 102_500,
+                label: Some("How the house was built".into()),
+            }),
+        },
+        MediaLink {
+            media: media_id,
+            region: None,
+            primary: false,
+            clip: Some(Clip {
+                id: Uuid::from_u128(0xC2),
+                start_ms: 0,
+                end_ms: 1,
+                label: None,
+            }),
         },
     ];
     p2.common.ext_ids = vec![

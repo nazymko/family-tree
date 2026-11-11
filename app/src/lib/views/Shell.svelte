@@ -33,6 +33,9 @@
   import CitationList from '../editors/CitationList.svelte';
   import MediaGrid from '../media/MediaGrid.svelte';
   import VoiceSamples from '../media/VoiceSamples.svelte';
+  /** The full recording player loads the first time a recording is opened. */
+  const loadPlayer = () => import('../media/RecordingPlayer.svelte');
+  import { recordingView } from '../state/recording.svelte';
   import { isSound } from '../media/sound';
   import People from './People.svelte';
   import FamilyView from './FamilyView.svelte';
@@ -428,7 +431,7 @@
             <PersonEditor id={nav.route.id} {mediaSection} {sourcesSection} />
           {/key}
         {:else if nav.route.name === 'sources'}
-          <Sources />
+          <Sources selectedId={nav.route.id ?? null} />
         {:else if nav.route.name === 'log'}
           <ChangeLog />
         {:else if nav.route.name === 'media'}
@@ -448,6 +451,13 @@
 </div>
 
 <SearchPalette open={searchOpen} onclose={() => (searchOpen = false)} onpick={picked} />
+{#if recordingView.open}
+  {#key recordingView.open}
+    {#await loadPlayer() then { default: RecordingPlayer }}
+      <RecordingPlayer media={recordingView.open.media} clip={recordingView.open.clip} onclose={() => recordingView.close()} />
+    {/await}
+  {/key}
+{/if}
 <ShortcutSheet open={sheetOpen} onclose={() => (sheetOpen = false)} {shortcuts} />
 {#if quickWanted && quickAnchor && quickWanted.relation}
   <QuickAdd

@@ -15,6 +15,7 @@ import type {
   LogFilterDto,
   LogRowDto,
   RecordHomeDto,
+  RecordingDto,
   ReviewScopeDto,
   UndoReport,
   RelinkResult,
@@ -79,6 +80,7 @@ import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
 import { orientLayout, type Layout } from './mockLayout';
 import { DEFAULT_DIRECTIONS } from '../../chart/direction';
+import { clockMs } from '../../media/clips';
 import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } from './layout';
 import { GROUP_BASE, layoutAround, layoutAroundAll, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
 import { layoutWhole, lineageOf, type WholeResult } from './wholeLayout';
@@ -257,6 +259,9 @@ const LABELS: Record<EditCommand['type'], string> = {
   updateMedia: 'Edit media',
   setMediaTranscription: 'Edit transcription',
   setMediaRotation: 'Turn picture',
+  addAudioClip: 'Add clip',
+  updateAudioClip: 'Edit clip',
+  deleteAudioClip: 'Delete clip',
   importDraft: 'Add traced people',
   addNumber: 'Record number',
 };
@@ -625,7 +630,75 @@ export class MockApi implements Api {
         return cp ? [{ person: this.ref(cp), rel: c.rel, birth: this.birth(cp)?.date?.display ?? '', preferred: c.preferred }] : [];
       }),
       notes: f.notes,
+      media: f.media ?? [],
     });
+  }
+
+  /** Every list of media links in the tree, with the record that holds it. */
+  private linkLists(): { owner: OwnerRef; links: MediaLinkDto[]; person: PersonRec | null }[] {
+    const out: { owner: OwnerRef; links: MediaLinkDto[]; person: PersonRec | null }[] = [];
+    const cites = (cs: CitationDto[], person: PersonRec | null) => {
+      for (const c of cs) if (c.media) out.push({ owner: { kind: 'citation', id: c.id }, links: c.media, person });
+    };
+    const notes = (ns: NoteDto[], person: PersonRec | null) => {
+      for (const n of ns) out.push({ owner: { kind: 'note', id: n.id }, links: n.media, person });
+    };
+    for (const p of this.db.persons.values()) {
+      out.push({ owner: { kind: 'person', id: p.id }, links: p.media, person: p });
+      notes(p.notes, p);
+      cites(p.citations, p);
+      for (const n of p.names) cites(n.citations, p);
+      for (const e of p.events) {
+        out.push({ owner: { kind: 'event', id: e.id }, links: e.media, person: p });
+        notes(e.notes, p);
+        cites(e.citations, p);
+      }
+    }
+    for (const f of this.db.families.values()) {
+      const first = (f.partner1 && this.db.persons.get(f.partner1)) || (f.partner2 && this.db.persons.get(f.partner2)) || null;
+      if (f.media) out.push({ owner: { kind: 'family', id: f.id }, links: f.media, person: first });
+      notes(f.notes, first);
+      cites(f.citations, first);
+      for (const e of f.events) {
+        out.push({ owner: { kind: 'event', id: e.id }, links: e.media, person: first });
+        notes(e.notes, first);
+        cites(e.citations, first);
+      }
+    }
+    for (const s of this.db.sources.values()) out.push({ owner: { kind: 'source', id: s.id }, links: s.media, person: null });
+    return out;
+  }
+
+  async getRecording(media: Id): Promise<RecordingDto> {
+    const m = this.db.media.get(media);
+    if (!m) throw missing('media item', media);
+    const sources: RecordingDto['sources'] = [];
+    const clips: RecordingDto['clips'] = [];
+    for (const { owner, links, person } of this.linkLists()) {
+      for (const l of links) {
+        if (l.media.id !== media) continue;
+        if (!l.clip) {
+          if (owner.kind === 'source') sources.push({ id: owner.id, title: this.db.sources.get(owner.id)?.title ?? null });
+          continue;
+        }
+        const title =
+          owner.kind === 'note'
+            ? (this.findNote(owner.id)?.text.split('\n')[0] ?? undefined)
+            : owner.kind === 'citation'
+              ? (this.findCitation(owner.id)?.source?.title ?? undefined)
+              : undefined;
+        const ev = owner.kind === 'event' ? this.findEvent(owner.id)?.ev : undefined;
+        clips.push({
+          clip: structuredClone(l.clip),
+          target: owner,
+          ...(title ? { title } : {}),
+          ...(ev ? { eventKind: ev.kind } : {}),
+          ...(person ? { person: this.ref(person) } : {}),
+        });
+      }
+    }
+    clips.sort((a, b) => a.clip.startMs - b.clip.startMs || a.clip.endMs - b.clip.endMs);
+    return structuredClone({ media: m, sources, clips });
   }
 
   async search(query: string, limit: number): Promise<SearchHitDto[]> {
@@ -942,7 +1015,7 @@ export class MockApi implements Api {
       else if (/[\\/]$/.test(path) || !/\.[A-Za-z0-9]{1,8}$/.test(name)) failed.push({ path, reason: 'Folders cannot be attached. Choose files.' });
       else if (/\.(exe|bat|cmd|msi|dll|com|scr)$/i.test(name)) failed.push({ path, reason: 'This file type cannot be attached.' });
       else if (target.kind === 'note' && !audioName.test(name)) failed.push({ path, reason: 'only sound recordings can be attached to a note' });
-      else if (target.kind !== 'note' && audioName.test(name)) failed.push({ path, reason: 'sound recordings can only be attached to a note' });
+      else if (target.kind !== 'note' && target.kind !== 'source' && audioName.test(name)) failed.push({ path, reason: 'sound recordings can only be attached to a note or a source' });
       else if (known.has(name.toLowerCase()) || accepted.some((a) => a.name.toLowerCase() === name.toLowerCase()))
         failed.push({ path, reason: 'Already attached' });
       else accepted.push({ path, name });
@@ -969,6 +1042,8 @@ export class MockApi implements Api {
           sha256: null,
           transcription: [],
           rotation: 0,
+          // The backend reads a recording's length from its headers; the mock invents one from the name.
+          ...(audioName.test(a.name) ? { durationMs: 60_000 * (20 + (hashString(a.name) % 25)) + 17_000 } : {}),
         };
         this.db.media.set(m.id, m);
         bag.media.push({ media: m, primary: bag.media.length === 0 });
@@ -2105,7 +2180,12 @@ export class MockApi implements Api {
       }
       case 'family': {
         const f = this.family(t.id);
-        return { notes: f.notes, citations: f.citations };
+        return { notes: f.notes, citations: f.citations, media: (f.media ??= []) };
+      }
+      case 'citation': {
+        const c = this.findCitation(t.id);
+        if (!c) throw missing('citation', t.id);
+        return { media: (c.media ??= []) };
       }
       case 'event': {
         const e = this.findEvent(t.id);
@@ -2451,14 +2531,14 @@ export class MockApi implements Api {
         for (const id of cmd.media) {
           const m = this.db.media.get(id);
           if (!m) throw missing('media item', id);
-          if (!bag.media.some((l) => l.media.id === id)) bag.media.push({ media: m, primary: bag.media.length === 0 });
+          if (!bag.media.some((l) => l.media.id === id && !l.clip)) bag.media.push({ media: m, primary: !bag.media.some((l) => !l.clip) });
         }
         return { focus: cmd.target.kind === 'person' ? cmd.target.id : null, touched: [cmd.target.id, ...cmd.media] };
       }
 
       case 'detachMedia': {
         const bag = this.owner(cmd.target);
-        const i = bag.media?.findIndex((l) => l.media.id === cmd.media) ?? -1;
+        const i = bag.media?.findIndex((l) => l.media.id === cmd.media && !l.clip) ?? -1;
         if (!bag.media || i < 0) throw missing('media link', cmd.media);
         const [gone] = bag.media.splice(i, 1);
         if (gone.primary && bag.media[0]) bag.media[0].primary = true;
@@ -2468,17 +2548,14 @@ export class MockApi implements Api {
       case 'deleteMedia': {
         if (!this.db.media.has(cmd.id)) throw missing('media item', cmd.id);
         const touched: Id[] = [cmd.id];
-        const sweep = (links: MediaLinkDto[] | undefined, owner: Id) => {
-          const i = links?.findIndex((l) => l.media.id === cmd.id) ?? -1;
-          if (!links || i < 0) return;
-          const [gone] = links.splice(i, 1);
-          if (gone.primary && links[0]) links[0].primary = true;
-          touched.push(owner);
-        };
-        for (const p of this.db.persons.values()) {
-          sweep(p.media, p.id);
-          for (const e of p.events) sweep(e.media, e.id);
-          for (const n of p.notes) sweep(n.media, n.id);
+        // Every link to it goes, clips included, as in the backend.
+        for (const { owner, links } of this.linkLists()) {
+          const before = links.length;
+          const wasPrimary = links.some((l) => l.primary && l.media.id === cmd.id);
+          for (let i = links.length - 1; i >= 0; i--) if (links[i].media.id === cmd.id) links.splice(i, 1);
+          if (links.length === before) continue;
+          if (wasPrimary && links[0] && !links.some((l) => l.primary)) links[0].primary = true;
+          touched.push(owner.id);
         }
         this.db.media.delete(cmd.id);
         return { focus: null, touched };
@@ -2507,7 +2584,26 @@ export class MockApi implements Api {
         const m = this.db.media.get(cmd.id);
         if (!m) throw missing('media item', cmd.id);
         const seen = new Set<Id>();
+        const sound = (m.mime ?? '').startsWith('audio/');
         const next = cmd.regions.map((r) => {
+          if (sound) {
+            if (r.area || r.rotation) throw invalid('A sound recording has no picture: give each piece its text, and its start and end times, without an area or a rotation.');
+            if ((r.startMs == null) !== (r.endMs == null)) throw invalid('Give a piece of a transcript both its start and its end, or neither.');
+            if (r.startMs != null && r.endMs != null && r.endMs <= r.startMs) throw invalid('A piece of a transcript must end after it starts.');
+            const id = r.id ?? this.ids.next();
+            if (seen.has(id)) throw invalid('Two pieces of the transcription have the same id.');
+            seen.add(id);
+            const speaker = r.speaker?.trim();
+            return {
+              id,
+              area: null,
+              rotation: 0 as const,
+              text: r.text,
+              ...(r.startMs != null ? { startMs: r.startMs, endMs: r.endMs } : {}),
+              ...(speaker ? { speaker } : {}),
+            };
+          }
+          if (r.startMs != null || r.endMs != null || r.speaker) throw invalid('Times and speakers belong to the transcript of a sound recording.');
           const rotation = r.rotation ?? 0;
           if (![0, 90, 180, 270].includes(rotation)) throw invalid('rotation must be 0, 90, 180 or 270.');
           const a = r.area;
@@ -2531,6 +2627,50 @@ export class MockApi implements Api {
         }
         m.transcription = next;
         return { focus: null, touched: [m.id] };
+      }
+
+      case 'addAudioClip':
+      case 'updateAudioClip': {
+        const label = cmd.label?.trim() ? cmd.label.trim() : null;
+        if (label && label.length > 200) throw invalid("A clip's label holds at most 200 characters.");
+        if (cmd.endMs <= cmd.startMs || cmd.startMs < 0) throw invalid('A clip must end after it starts.');
+        const clipBag = (t: OwnerRef) => {
+          if (!['note', 'citation', 'event', 'person', 'family'].includes(t.kind)) throw invalid('A clip goes on a note, citation, event, person or family.');
+          const bag = this.owner(t);
+          if (!bag.media) throw invalid('A clip cannot be attached to this record.');
+          return bag.media;
+        };
+        let media: MediaDto;
+        let id: Id;
+        if (cmd.type === 'addAudioClip') {
+          const m = this.db.media.get(cmd.media);
+          if (!m) throw missing('media item', cmd.media);
+          if (!(m.mime ?? '').startsWith('audio/')) throw invalid('Only a sound recording has clips.');
+          media = m;
+          id = this.ids.next();
+        } else {
+          const links = clipBag(cmd.target);
+          const i = links.findIndex((l) => l.clip?.id === cmd.clip);
+          if (i < 0) throw missing('clip', cmd.clip);
+          media = links[i].media;
+          id = cmd.clip;
+          links.splice(i, 1);
+        }
+        if (media.durationMs != null && cmd.endMs > media.durationMs) throw invalid(`The recording lasts ${clockMs(media.durationMs)}; a clip must end by then.`);
+        const to = cmd.type === 'updateAudioClip' && cmd.moveTo ? cmd.moveTo : cmd.target;
+        const links = clipBag(to);
+        if (links.some((l) => l.media.id === media.id && l.clip && l.clip.startMs === cmd.startMs && l.clip.endMs === cmd.endMs && l.clip.label === label))
+          throw invalid('That clip is already on this record.');
+        links.push({ media, primary: false, clip: { id, startMs: cmd.startMs, endMs: cmd.endMs, label } });
+        return { focus: null, touched: [to.id, media.id, id] };
+      }
+
+      case 'deleteAudioClip': {
+        const links = this.owner(cmd.target).media;
+        const i = links?.findIndex((l) => l.clip?.id === cmd.clip) ?? -1;
+        if (!links || i < 0) throw missing('clip', cmd.clip);
+        links.splice(i, 1);
+        return { focus: null, touched: [cmd.target.id, cmd.clip] };
       }
 
       case 'setMediaRotation': {

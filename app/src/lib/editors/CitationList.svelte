@@ -6,6 +6,7 @@
   import { getApi } from '../api/context';
   import type { CitationDto, EditCommand, EditResult, OwnerRef } from '../api/api';
   import { t } from '../i18n';
+  import VoiceSamples from '../media/VoiceSamples.svelte';
 
   let { target, citations, onChanged }: { target: OwnerRef; citations: CitationDto[]; onChanged: (r: EditResult) => void } = $props();
   const api = getApi();
@@ -46,7 +47,10 @@
     <ul>
       {#each citations as c (c.id)}
         <li>
-          <span class="t">{label(c)}</span>
+          <div class="t">
+            <span>{label(c)}</span>
+            {#if c.media?.some((l) => l.clip)}<VoiceSamples items={c.media} />{/if}
+          </div>
           <Button aria-label={t('citation.editNamed', { label: label(c) })} onclick={() => (editing = { citation: c, focusPage: false })}>{t('common.edit')}</Button>
           <Button aria-label={t('citation.cloneNamed', { label: label(c) })} onclick={() => clone(c)}>{t('citation.clone')}</Button>
           <Button variant="danger" aria-label={t('citation.removeNamed', { label: label(c) })} onclick={() => remove(c)}>{t('common.remove')}</Button>
@@ -89,6 +93,8 @@
   }
   .t {
     flex: 1;
+    min-width: 0;
+    padding-block: var(--s-2);
   }
   .none {
     color: var(--ink-1);

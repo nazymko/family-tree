@@ -327,9 +327,20 @@ fn common_rows(c: &Common, w: &dyn Words) -> Vec<Row> {
         media,
         region,
         primary,
+        clip,
     } in media
     {
         let name = w.media(*media);
+        // A clip is its own row, keyed by the clip: one recording can have several on a record.
+        if let Some(c) = clip {
+            out.push(Row {
+                field: "mediaClip",
+                of: Some(name),
+                key: Some(c.id),
+                value: Some(gt_core::time::clip_text(c)),
+            });
+            continue;
+        }
         out.push(Row {
             field: "mediaPrimary",
             of: Some(name.clone()),

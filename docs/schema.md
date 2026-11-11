@@ -1,4 +1,4 @@
-# Project database schema (version 6)
+# Project database schema (version 8)
 
 A gene-tree project is a folder:
 
@@ -10,7 +10,7 @@ MyFamily.genetree/
   backups/    timestamped copies of tree.db
 ```
 
-`tree.db` is plain SQLite and can be read with any SQLite tool. The schema version is stored in `PRAGMA user_version` (currently `7`), and migrations are applied in order when a project is opened. A project written by a newer version of the app is refused.
+`tree.db` is plain SQLite and can be read with any SQLite tool. The schema version is stored in `PRAGMA user_version` (currently `8`), and migrations are applied in order when a project is opened. A project written by a newer version of the app is refused.
 
 ## Conventions
 
@@ -173,7 +173,7 @@ A file in `media/` (or elsewhere) with its description.
 - `date_raw`, `date_json`, `date_sort_min`, `date_sort_max`: date of the item.
 - `description`: free-text description.
 - `sha256`: hex SHA-256 of the file, used to detect duplicates.
-- `transcription_json`: what is written on the picture (schema 6), or null when nothing is. A JSON array of pieces in reading order, each `{"id", "area", "rotation", "text"}`: `area` is `{"x", "y", "w", "h"}`, fractions from 0 to 1 of the picture as it is displayed (after its EXIF orientation), from the top left corner, or null for text with no place on the picture (a whole transcript); `rotation` is how far the writing is turned clockwise, 0, 90, 180 or 270. The text belongs to the picture wherever it is attached. The joined full text is the pieces' texts, trimmed, with a blank line between them. A GEDCOM export does not carry it (GEDCOM has no place for it), and it is not in the search tables.
+- `transcription_json`: what is written on the picture (schema 6), or null when nothing is. A JSON array of pieces in reading order, each `{"id", "area", "rotation", "text"}`: `area` is `{"x", "y", "w", "h"}`, fractions from 0 to 1 of the picture as it is displayed (after its EXIF orientation), from the top left corner, or null for text with no place on the picture (a whole transcript); `rotation` is how far the writing is turned clockwise, 0, 90, 180 or 270. On a sound recording the same array is a time-coded transcript: each piece has no `area` and may have `"time": {"start_ms", "end_ms"}` (milliseconds from the start of the recording, start before end; a piece whose times are not in that order loses them when the tree opens) and `"speaker"` (who says it, as written); both are left out when absent, and a recording has no transcript unless one is entered. The text belongs to the picture wherever it is attached. The joined full text is the pieces' texts, trimmed, with a blank line between them. A GEDCOM export does not carry it (GEDCOM has no place for it), and it is not in the search tables.
 - `rotation`: how the picture is shown (schema 7): degrees clockwise, 0, 90, 180 or 270, on top of its EXIF orientation; null when nobody has turned it, which shows as 0. The transcription's areas stay on the picture upright by EXIF, before this turn, so turning a picture never moves them. A value that is not a quarter turn is read as 0 when the tree opens. A GEDCOM export does not carry it.
 
 ### `note`
@@ -198,12 +198,13 @@ Attaches a note to any record or assertion.
 - `note_id`: the note.
 
 ### `media_link`
-Attaches a media item to any record, optionally to a region of the picture (for example one face).
+Attaches a media item to any record, optionally to a region of the picture (for example one face) or to a clip: a stretch of a sound recording (schema 8). A clip lives on its link because it belongs to exactly one record: the same stretch told on two records is two links, and one recording cut into many clips is many links, so undo, history, merges and the agent's own-item rules work on clips as on any other link.
 - `target_type`, `target_id`: the record carrying the media.
 - `pos`: order among that record's media.
 - `media_id`: the media item.
 - `primary`: `1` if this is the record's main picture.
 - `region_x`, `region_y`, `region_w`, `region_h`: the region as fractions of the picture from 0 to 1 (left, top, width, height); all null for the whole picture.
+- `clip_id`, `clip_start_ms`, `clip_end_ms`, `clip_label`: a clip of a sound recording (schema 8), all null for the whole media. `clip_id` is a UUID that stays the same when the clip's times or label change; the times are milliseconds from the start of the recording, start before end, and within its length when the length is known; `clip_label` is an optional short name. A link whose clip cannot be read (no id, a time that is not a whole number of milliseconds, an end not after the start) is left out when the tree opens, with a note on stderr, rather than shown as the whole recording. A GEDCOM export does not carry clips (GEDCOM has no place for them): it writes the recording once, on its source, and not on the records its clips are attached to.
 
 ### `ext_id`
 Identifiers of a record in other systems.

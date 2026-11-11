@@ -94,6 +94,9 @@ fn turning_keeps_the_transcription_exactly_where_it_was() {
             }),
             rotation: Some(90),
             text: "Kyiv, 1901".into(),
+            end_ms: None,
+            speaker: None,
+            start_ms: None,
         }],
         known: None,
     })
@@ -159,6 +162,9 @@ fn a_picture_on_a_source_and_a_dozen_people_is_one_picture_and_unlinks_from_one_
             area: None,
             rotation: None,
             text: "Twelve names".into(),
+            end_ms: None,
+            speaker: None,
+            start_ms: None,
         }],
         known: None,
     })
@@ -224,7 +230,7 @@ fn a_picture_on_a_source_and_a_dozen_people_is_one_picture_and_unlinks_from_one_
 
 fn agents_picture(dir: &Path, s: &mut Session, anna: Uuid, b: Uuid) -> Uuid {
     let file = write(dir, "register.jpg", &jpeg(30, 40, 90));
-    let f = prepare_agent_file(&s.project_dir(), &file).unwrap();
+    let f = prepare_agent_file(&s.project_dir(), &file, OwnerKind::Source).unwrap();
     let (_, _, id) = s
         .attach_as_agent(person(anna), f, &MediaAbout::default(), &me(), b)
         .unwrap();

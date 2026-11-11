@@ -179,7 +179,8 @@ impl<'a> Bld<'a> {
                 out.push(n);
             }
         }
-        for l in &c.media {
+        // A clip of a recording has no place in GEDCOM; the recording itself is on its source.
+        for l in c.media.iter().filter(|l| l.clip.is_none()) {
             if let Some(n) = self.media_ref(l) {
                 out.push(n);
             }

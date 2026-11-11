@@ -38,6 +38,8 @@
   import NameEditor from '../editors/NameEditor.svelte';
   import NoteEditor from '../editors/NoteEditor.svelte';
   import VoiceSamples from '../media/VoiceSamples.svelte';
+  import PersonRecordings from '../media/PersonRecordings.svelte';
+  import { personRecordings } from '../media/clips';
   import QuickAdd from '../editors/QuickAdd.svelte';
   import EventEditor from '../editors/EventEditor.svelte';
   import SurnamesEditor from '../editors/SurnamesEditor.svelte';
@@ -255,6 +257,8 @@
     nav.focus(id);
     nav.go(kind === 'around' ? { name: 'around', ids: [id] } : { name: kind });
   }
+
+  const recordingCount = $derived(detail ? personRecordings(detail).length : 0);
 
   /** Scrolls to a section and moves focus to its heading (the history folds open first). */
   async function jump(headingId: string) {
@@ -511,6 +515,9 @@
         <div class="qbtns" role="group" aria-labelledby="g-sections">
           <Button variant="secondary" onclick={() => jump('h-notes')}>{withCount(t('person.notes'), detail.notes.length)}</Button>
           <Button variant="secondary" onclick={() => jump('h-media')}>{withCount(t('nav.media'), detail.media.length)}</Button>
+          {#if recordingCount > 0}
+            <Button variant="secondary" onclick={() => jump('h-recordings')}>{withCount(t('rec.recordings'), recordingCount)}</Button>
+          {/if}
           <Button variant="secondary" onclick={() => jump('h-sources')}>{withCount(t('sources.title'), detail.citations.length)}</Button>
           <Button variant="secondary" onclick={() => jump('h-history')}>{t('person.history')}</Button>
           <Menu label={t('person.addMenu')} text={t('person.addMenu')} items={addItems} align="start" variant="secondary" />
@@ -713,6 +720,11 @@
     <section aria-labelledby="h-media">
       <h2 id="h-media" tabindex="-1">{t('nav.media')}</h2>
       {#if mediaSection}{@render mediaSection(detail)}{:else}<p class="empty">{t('person.attachedCount', { n: detail.media.length })}</p>{/if}
+    </section>
+
+    <section aria-labelledby="h-recordings">
+      <h2 id="h-recordings" tabindex="-1">{t('rec.recordings')}</h2>
+      <PersonRecordings {detail} />
     </section>
 
     <section aria-labelledby="h-sources">
