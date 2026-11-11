@@ -2251,6 +2251,7 @@ export const en = {
     pieceBothTimes: 'Give a piece of a transcript both its start and its end, or neither.',
     clipTargets: 'A clip goes on a note, citation, event, person or family.',
     clipEndAfterStart: 'A clip must end after it starts.',
+    timeMax: 'A time in a recording is at most 100 hours.',
     clipLabelMax: "A clip's label holds at most {n} characters.",
     clipSoundOnly: 'Only a sound recording has clips.',
     clipNotHere: 'A clip cannot be attached to this record.',

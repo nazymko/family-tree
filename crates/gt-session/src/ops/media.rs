@@ -274,6 +274,9 @@ fn checked_said(
     }
     let time = match (r.start_ms, r.end_ms) {
         (None, None) => None,
+        (Some(_), Some(end_ms)) if end_ms > TIME_MAX_MS => {
+            return Err(invalid("A time in a recording is at most 100 hours."));
+        }
         (Some(start_ms), Some(end_ms)) if start_ms < end_ms => Some(TimeSpan { start_ms, end_ms }),
         (Some(_), Some(_)) => {
             return Err(invalid("A piece of a transcript must end after it starts."));
@@ -348,9 +351,16 @@ fn clip_target(target: OwnerRef) -> Result<(), ApiError> {
 
 /// A clip's times and label, checked; the label trimmed (empty is none). The length of the
 /// recording is checked by the session, which can read the file.
+/// No time in a recording lies past this: 100 hours. It keeps every stored time far inside the
+/// range the store can hold, also when the recording's own length could not be read.
+const TIME_MAX_MS: u64 = 100 * 60 * 60 * 1000;
+
 fn checked_clip(mut c: Clip) -> Result<Clip, ApiError> {
     if c.start_ms >= c.end_ms {
         return Err(invalid("A clip must end after it starts."));
+    }
+    if c.end_ms > TIME_MAX_MS {
+        return Err(invalid("A time in a recording is at most 100 hours."));
     }
     c.label = text(c.label.as_deref());
     if c.label
@@ -533,7 +543,7 @@ pub(crate) fn plan_attach(
                 links.push(MediaLink {
                     media: id,
                     region: None,
-                    primary: may_be_primary && links.is_empty(),
+                    primary: may_be_primary && !links.iter().any(|l| l.clip.is_none()),
                     clip: None,
                 });
                 out.push(Some(id));

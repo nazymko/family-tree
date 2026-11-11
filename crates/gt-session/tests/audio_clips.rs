@@ -644,6 +644,14 @@ fn a_recording_takes_a_time_coded_transcript_and_a_picture_does_not() {
         "A piece of a transcript must end after it starts."
     );
     assert!(refuse(&mut w.s, rec, vec![piece(Some(5), None, None, "a")]).contains("both"));
+    assert_eq!(
+        refuse(
+            &mut w.s,
+            rec,
+            vec![piece(Some(5), Some(u64::MAX), None, "a")]
+        ),
+        "A time in a recording is at most 100 hours."
+    );
     let mut placed = piece(None, None, None, "a");
     placed.area = Some(TextAreaInput {
         x: 0.1,
