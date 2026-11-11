@@ -21,14 +21,14 @@ describe('mock descendants layout: a person with a partnered and a partnerless f
   it('the partnerless family stands left of the couple family, no child line crosses', () => {
     const l = layoutDescendants('M', 5, src as never);
     const x = (key: string) => {
-      const n = l.nodes.find((q) => q.person.id === key)!;
+      const n = l.nodes.find((q) => q.person?.id === key)!;
       return n.x + n.w / 2;
     };
     expect(x('C2')).toBeLessThan(x('C1'));
     const conn = l.edges.find((e) => e.kind === 'partner')!;
     const mid = (conn.pts[0] + conn.pts[2]) / 2;
-    const c1 = l.edges.find((e) => e.kind === 'parent' && l.nodes[e.to].person.id === 'C1')!;
-    const c2 = l.edges.find((e) => e.kind === 'parent' && l.nodes[e.to].person.id === 'C2')!;
+    const c1 = l.edges.find((e) => e.kind === 'parent' && l.nodes[e.to].person?.id === 'C1')!;
+    const c2 = l.edges.find((e) => e.kind === 'parent' && l.nodes[e.to].person?.id === 'C2')!;
     expect(c1.pts[0]).toBeCloseTo(mid, 1);
     expect(c2.pts[0]).toBeLessThan(mid);
   });
