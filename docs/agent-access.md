@@ -95,6 +95,9 @@ the place, description and everything else on the event stay as they are.
 - The change is in the **Change log** under the agent's name, with the date before and after, and in the event's history.
   **Undo** takes back the date and the note together.
 - It never changes whether someone counts as alive or dead: a date that would is refused, as every other write is.
+- A death date before the same person's birth date, or a birth date after their death date, is refused (when the two
+  dates surely do not overlap): the agent leaves a note with both dates instead. The date holds up to 100 characters,
+  the reason up to 1000.
 - When sources disagree and nobody has confirmed which is right, the agent does not correct anything: it adds a note with
   both versions.
 
@@ -103,17 +106,29 @@ the place, description and everything else on the event stay as they are.
 An agent can attach a picture of a document and write down what is on it.
 
 - `add_media` copies a picture (JPEG, PNG, WebP, GIF or TIFF) or a PDF from a file on this computer into the tree, on a
-  person, family, event, source or citation. The file must be a picture that can actually be read, or a whole PDF, of at most
-  50 MiB; anything else is refused before it is copied, so the tool cannot pull other files into the tree. Sound recordings
-  stay yours to attach. The same file on the same record twice is recognised and not added again.
+  person, family, event, source or citation. **With agent access on, an agent can attach any picture or PDF that your
+  Windows user can read from a local drive.** The copy then lives in the tree: it travels with your backups and with every
+  copy of the tree you share, so treat it like a picture you attached yourself.
+- What it may attach: a picture that can actually be read, of at most 50 MiB, or a whole PDF of at most 8 MiB (the most
+  `get_media` sends back; a larger document is refused, attach its pages as pictures). The path must be a plain path on a
+  local drive: network shares (`\\server\share`), device paths and paths through a link (symbolic link or junction) are
+  refused before anything is opened, so the tool never makes Windows connect to another computer. The batch, the record
+  and the date are checked before the file is touched, and a refused call leaves nothing in the tree's media folder. The
+  copy is named by what the file is (a PNG is stored as `.png` whatever its name says), and only the bytes actually copied
+  count towards the limit. Sound recordings stay yours to attach. The same file on the same record twice is recognised and
+  not added again; a file already in the tree is linked, and the answer carries its id.
+- An agent's picture never becomes a person's main picture: you choose that.
 - `set_media_transcription` stores the text of the picture as pieces in reading order. Each piece can have a box on the
   picture (fractions of its width and height, measured on the picture as shown, already turned upright) and a rotation for
   writing that runs sideways. It can also be one text with no boxes. The agent replaces only the pieces it wrote itself;
-  pieces you wrote or corrected stay as they are. `update_own_media_region` changes one of its own pieces.
+  pieces you wrote or corrected stay as they are. `update_own_media_region` changes one of its own pieces; a piece you
+  wrote with text in it it cannot change at all, not even give it a place.
 - In the app, open the picture: **Show text** lays the pieces over it, **Full text** shows them as one text, and you can
   correct, move, resize, turn, add, reorder or delete pieces. Your edits are ordinary edits: Ctrl+Z undoes them and they
   are in the history. Once you change a piece, it is yours and the agent leaves it alone.
 - Transcriptions are not exported to GEDCOM (it has no place for them) and are not searched yet.
+- A damaged transcription in the tree file never stops the tree from opening: unreadable pieces are left out, a box off
+  the picture is pulled onto it, an unknown rotation becomes upright, and the app reports it on its error output.
 
 ## Review and undo
 
