@@ -721,6 +721,7 @@ export const en = {
     mediaPrimary: 'Main picture',
     mediaRegion: 'Part of the picture',
     transcription: 'Transcription',
+    mediaRotation: 'Turned',
     and: 'and',
     removed: '(record removed)',
     items: { one: '{n} item', other: '{n} items' },

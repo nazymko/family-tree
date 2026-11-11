@@ -219,6 +219,7 @@ pub fn rich_tree() -> Tree {
                     text: "The rest, with no place on the picture.".into(),
                 },
             ],
+            rotation: Some(270),
         },
     );
 

@@ -824,6 +824,7 @@ impl<'a> Ctx<'a> {
                 description: None,
                 sha256: None,
                 transcription: Vec::new(),
+                rotation: None,
             },
         );
     }

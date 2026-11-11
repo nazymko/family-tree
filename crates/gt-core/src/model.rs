@@ -310,6 +310,18 @@ pub struct Media {
     /// wherever it is attached. Old change-log rows have no such field.
     #[serde(default)]
     pub transcription: Vec<TextRegion>,
+    /// How the picture is shown: degrees clockwise (0, 90, 180 or 270) on top of its EXIF
+    /// orientation. `None`: nobody has turned it, which shows as 0. The transcription's areas stay
+    /// on the picture upright by EXIF, before this turn. Old change-log rows have no such field.
+    #[serde(default)]
+    pub rotation: Option<u16>,
+}
+
+impl Media {
+    /// The turn the picture is shown with: 0 when nobody has set one.
+    pub fn shown_rotation(&self) -> u16 {
+        self.rotation.unwrap_or(0)
+    }
 }
 
 /// One piece of the transcription of a picture: a text and, when known, where it is written.

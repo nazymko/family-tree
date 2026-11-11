@@ -307,6 +307,7 @@ fn citation_source_place_repository_and_media_have_their_fields() {
         description: None,
         sha256: None,
         transcription: Vec::new(),
+        rotation: None,
     };
     assert_eq!(
         diff(None, Some(Record::Media(media))),

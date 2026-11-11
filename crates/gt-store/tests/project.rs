@@ -91,12 +91,12 @@ fn schema_5_project_gains_the_transcription_column() {
         // What a schema 5 app left behind: no transcription column.
         let c = Connection::open(dir.join("tree.db")).unwrap();
         c.execute_batch(
-            "ALTER TABLE media DROP COLUMN transcription_json; PRAGMA user_version = 5;",
+            "ALTER TABLE media DROP COLUMN rotation; ALTER TABLE media DROP COLUMN transcription_json; PRAGMA user_version = 5;",
         )
         .unwrap();
     }
     let p = Project::open(&dir).unwrap();
-    assert_eq!(p.schema_version(), 6);
+    assert_eq!(p.schema_version(), 7);
     let has: i64 = p
         .conn()
         .query_row(
@@ -106,6 +106,37 @@ fn schema_5_project_gains_the_transcription_column() {
         )
         .unwrap();
     assert_eq!(has, 1);
+}
+
+#[test]
+fn schema_6_project_gains_the_rotation_column_and_its_pictures_stay_unturned() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // What a schema 6 app left behind: a picture, no rotation column.
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            "ALTER TABLE media DROP COLUMN rotation; PRAGMA user_version = 6; \
+             INSERT INTO media(id, seq, private, path, mime) \
+             VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.jpg', 'image/jpeg');",
+        )
+        .unwrap();
+    }
+    let mut p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), 7);
+    let has: i64 = p
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('media') WHERE name = 'rotation'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(has, 1);
+    let tree = p.load_tree().unwrap();
+    let m = tree.media.values().next().unwrap();
+    assert_eq!((m.rotation, m.shown_rotation()), (None, 0));
 }
 
 #[test]

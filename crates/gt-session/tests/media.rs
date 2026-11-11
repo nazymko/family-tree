@@ -619,6 +619,7 @@ fn stored_paths_outside_media_are_never_served() {
                 description: None,
                 sha256: Some("../../../etc/passwd".into()),
                 transcription: Vec::new(),
+                rotation: None,
             },
         );
     }

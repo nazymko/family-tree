@@ -720,6 +720,7 @@ export const uk: Messages = {
     mediaPrimary: 'Головне зображення',
     mediaRegion: 'Ділянка зображення',
     transcription: 'Розшифровка',
+    mediaRotation: 'Поворот',
     and: 'та',
     removed: '(запис вилучено)',
     items: { one: '{n} елемент', few: '{n} елементи', many: '{n} елементів', other: '{n} елемента' },

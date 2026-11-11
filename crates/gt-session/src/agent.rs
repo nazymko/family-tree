@@ -1003,6 +1003,7 @@ impl Session {
             description: clean(&about.description),
             sha256: Some(sha.clone()),
             transcription: Vec::new(),
+            rotation: None,
         };
         let (cs, outcomes) =
             crate::ops::plan_attach(&self.tree, target, vec![media], now, order, false)?;

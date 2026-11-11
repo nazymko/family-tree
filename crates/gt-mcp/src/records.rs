@@ -359,6 +359,7 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         description,
         sha256,
         transcription,
+        rotation: _,
     } = media;
     let link = MediaLink {
         media: common.id,

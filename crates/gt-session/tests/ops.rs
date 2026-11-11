@@ -943,6 +943,7 @@ fn notes_sources_and_media() {
             description: None,
             sha256: None,
             transcription: Vec::new(),
+            rotation: None,
         };
         let id = media.common.id;
         t.media.insert(id, media);
@@ -1005,6 +1006,7 @@ fn delete_media_leaves_no_link_anywhere_and_undo_restores_it() {
         description: None,
         sha256: None,
         transcription: Vec::new(),
+        rotation: None,
     };
     let (gone, kept) = (make("gone.jpg"), make("kept.jpg"));
     let (gone_id, kept_id) = (gone.common.id, kept.common.id);

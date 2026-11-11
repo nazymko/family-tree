@@ -17,6 +17,10 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
         "0006_media_text",
         include_str!("migrations/0006_media_text.sql"),
     ),
+    (
+        "0007_media_rotation",
+        include_str!("migrations/0007_media_rotation.sql"),
+    ),
 ];
 
 pub(crate) fn user_version(conn: &Connection) -> Result<i32, StoreError> {
