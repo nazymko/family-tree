@@ -1,6 +1,6 @@
 import type { TextAreaInput, TextRegionDto, TextRegionInput } from '../api/api';
 
-/** The smallest side of a marked piece, as a fraction of the picture (the backend refuses less than 0.001). */
+/** The smallest side of a marked piece, as a fraction of the picture (the backend refuses less, too). */
 export const MIN_SIDE = 0.01;
 /** How far one arrow key moves or resizes a piece, as a fraction of the picture. */
 export const KEY_STEP = 0.01;
@@ -46,6 +46,58 @@ export function areaBetween(x1: number, y1: number, x2: number, y2: number): Tex
 /** A quarter turn clockwise. */
 export function nextRotation(r: Rotation): Rotation {
   return ((r + 90) % 360) as Rotation;
+}
+
+/** `r` turned by a quarter: 90 clockwise, -90 the other way. */
+export function turnedBy(r: Rotation, by: 90 | -90): Rotation {
+  return ((((r + by) % 360) + 360) % 360) as Rotation;
+}
+
+/**
+ * How a piece's writing looks once the picture is shown turned `picture` degrees clockwise. A piece's rotation is
+ * how far its writing is turned on the picture upright by EXIF; turning the picture turns the writing with it, so a
+ * line running down the page (90) reads upright on a picture turned left once (270).
+ */
+export function shownTurn(piece: Rotation, picture: Rotation): Rotation {
+  return ((piece + picture) % 360) as Rotation;
+}
+
+/**
+ * A move on screen, as a move on the picture upright by EXIF, when the picture is shown turned `turn` degrees
+ * clockwise: the screen's x and y turned back the other way.
+ */
+export function unturn(turn: Rotation, x: number, y: number): [number, number] {
+  const [a, b] = turn === 90 ? [y, -x] : turn === 180 ? [-x, -y] : turn === 270 ? [-y, x] : [x, y];
+  // No negative zero: it would only confuse comparisons.
+  return [a + 0, b + 0];
+}
+
+/** A box on screen: what getBoundingClientRect gives of the turned picture. */
+export type ScreenBox = { left: number; top: number; w: number; h: number };
+
+/** The picture's own width and height on screen: across a quarter turn they swap. */
+function upright(turn: Rotation, b: ScreenBox): { w: number; h: number } {
+  return turn % 180 === 0 ? { w: b.w, h: b.h } : { w: b.h, h: b.w };
+}
+
+/** A pointer move in pixels, as fractions of the picture upright by EXIF (where the pieces are stored). */
+export function moveOnPicture(turn: Rotation, b: ScreenBox, dx: number, dy: number): { dx: number; dy: number } {
+  const [x, y] = unturn(turn, dx, dy);
+  const s = upright(turn, b);
+  return { dx: x / s.w, dy: y / s.h };
+}
+
+/** A point on screen, as fractions of the picture upright by EXIF; the turn is about the picture's middle. */
+export function pointOnPicture(turn: Rotation, b: ScreenBox, cx: number, cy: number): { x: number; y: number } {
+  const d = moveOnPicture(turn, b, cx - (b.left + b.w / 2), cy - (b.top + b.h / 2));
+  return { x: 0.5 + d.dx, y: 0.5 + d.dy };
+}
+
+/** Which corner of a stored area shows at the corner `shown` of the screen. */
+export function cornerShownAt(turn: Rotation, shown: Corner): Corner {
+  const v: Record<Corner, [number, number]> = { nw: [-1, -1], ne: [1, -1], sw: [-1, 1], se: [1, 1] };
+  const [x, y] = unturn(turn, ...v[shown]);
+  return `${y < 0 ? 'n' : 's'}${x < 0 ? 'w' : 'e'}` as Corner;
 }
 
 /** What the backend takes back: the same ids, so a piece keeps its identity (and its author) across edits. */

@@ -1319,6 +1319,8 @@ export const uk: Messages = {
     moveUp: 'Вище',
     moveDown: 'Нижче',
     addTextOnly: 'Додати текст без місця',
+    turnLeft: 'Повернути ліворуч',
+    turnRight: 'Повернути праворуч',
   },
   chartAdd: {
     addRelative: 'Додати родича',

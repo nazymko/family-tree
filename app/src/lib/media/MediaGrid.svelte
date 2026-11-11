@@ -46,7 +46,8 @@
         </div>
       {:else}
         <button type="button" class="face photo" aria-label={t('media.viewNamed', { label: mediaLabel(m) })} onclick={() => onOpen(i)}>
-          <img loading="lazy" alt={mediaLabel(m)} src={api.mediaUrl(m.id, 'thumb')} />
+          <!-- Turned as the owner saved it; the tile is square, so a turned picture fills it the same. -->
+          <img loading="lazy" alt={mediaLabel(m)} src={api.mediaUrl(m.id, 'thumb')} style={m.rotation ? `transform: rotate(${m.rotation}deg)` : undefined} />
         </button>
       {/if}
       {#if link.primary}

@@ -12,7 +12,7 @@
   import { isPdf, mediaLabel, openOriginal } from './MediaGrid.svelte';
   import TextOverlay from './TextOverlay.svelte';
   import FullTextPanel from './FullTextPanel.svelte';
-  import { toInput } from './transcription';
+  import { toInput, turnedBy, type Rotation } from './transcription';
   import type { EditCommand, Id, MediaLinkDto, OwnerRef, TextRegionDto } from '../api/api';
   import { t } from '../i18n';
 
@@ -71,18 +71,36 @@
   let queue: Promise<void> = Promise.resolve();
   let generation = 0;
   let panel = $state<ReturnType<typeof FullTextPanel>>();
+  /** How each picture is turned here: shown at once, until the parent hands over fresh items. */
+  let turns = $state<Record<Id, Rotation>>({});
   $effect(() => {
     void items;
     saved = {};
     stored = {};
+    turns = {};
   });
   const regions = $derived(m ? (saved[m.id] ?? m.transcription ?? []) : []);
   const picture = $derived(!!m && m.resolved && !isPdf(m));
   const placedAny = $derived(regions.some((r) => r.area));
-  const transform = $derived(`translate(${panX}px, ${panY}px) scale(${zoom})`);
+  /** Degrees clockwise the picture is shown turned, on top of its EXIF orientation. */
+  const turn = $derived<Rotation>(m ? (turns[m.id] ?? m.rotation ?? 0) : 0);
+  const across = $derived(turn % 180 !== 0);
+  /** Picture and boxes turn together, about the middle of the frame; panning is on screen, so it comes last. */
+  const transform = $derived(`translate(${panX}px, ${panY}px) scale(${zoom}) rotate(${turn}deg)`);
   /** The box the picture fills, so the boxes on it line up whatever the stage's shape. */
   let naturalRatio = $state(4 / 3);
   const ratio = $derived(m?.width && m?.height ? m.width / m.height : naturalRatio);
+  /** The frame takes the turned picture's shape, so a turned picture fits the stage too. */
+  const frameRatio = $derived(across ? 1 / ratio : ratio);
+  /**
+   * Where the picture upright by EXIF sits in the frame before it is turned: centred, its width the frame's height
+   * across a quarter turn. The pieces' boxes are placed in % of this same box.
+   */
+  const place = $derived(
+    across
+      ? `left: ${(100 - 100 * ratio) / 2}%; top: ${(100 - 100 / ratio) / 2}%; width: ${100 * ratio}%; height: ${100 / ratio}%;`
+      : 'left: 0%; top: 0%; width: 100%; height: 100%;',
+  );
 
   /**
    * Shows `next` at once and saves it after any save still on its way. It says which pieces it knew of, so a piece
@@ -143,6 +161,30 @@
       panX = 0;
       panY = 0;
     }
+  }
+
+  /**
+   * Turns the shown picture a quarter and saves it as an ordinary edit (undoable, in the history). The turned picture
+   * is fitted to the stage. When the save fails, the turn goes back to what was last stored.
+   */
+  function turnPicture(by: 90 | -90): Promise<void> {
+    if (!m || !picture) return queue;
+    const id = m.id;
+    const before = turn;
+    const next = turnedBy(before, by);
+    turns[id] = next;
+    fit();
+    error = '';
+    queue = queue.then(async () => {
+      try {
+        await api.apply({ type: 'setMediaRotation', id, rotation: next });
+        onChanged?.();
+      } catch (e) {
+        if (turns[id] === next) turns[id] = before;
+        error = errMessage(e, t('edit.wentWrong'));
+      }
+    });
+    return queue;
   }
 
   async function setPrimary() {
@@ -227,6 +269,13 @@
       case 'P':
         void setPrimary();
         break;
+      // Brackets, not R: R turns a piece of the transcription, and the arrows change the picture.
+      case '[':
+        void turnPicture(-90);
+        break;
+      case ']':
+        void turnPicture(90);
+        break;
       default:
         return;
     }
@@ -276,12 +325,12 @@
         {:else if isPdf(m)}
           <p class="note"><Icon name="file" size="2rem" /> {t('media.isDocument')}</p>
         {:else}
-          <div class="frame" style="--ratio: {ratio}">
+          <div class="frame" style="--ratio: {frameRatio}" data-turn={turn}>
             <img
               alt={mediaLabel(m)}
               src={api.mediaUrl(m.id, 'preview')}
               draggable="false"
-              style="transform: {transform}"
+              style="{place} transform: {transform}"
               onload={(e) => {
                 const i = e.currentTarget as HTMLImageElement;
                 if (i.naturalWidth && i.naturalHeight) naturalRatio = i.naturalWidth / i.naturalHeight;
@@ -291,6 +340,8 @@
               <TextOverlay
                 {regions}
                 {transform}
+                {place}
+                {turn}
                 {editing}
                 {drawing}
                 {selected}
@@ -330,6 +381,10 @@
         {#if primary}<span>{t('media.primaryPhoto')}</span>{/if}
         <Button disabled={at === 0} onclick={() => go(at - 1)}>{t('media.previous')}</Button>
         <Button disabled={at >= items.length - 1} onclick={() => go(at + 1)}>{t('media.next')}</Button>
+        {#if picture}
+          <Button aria-keyshortcuts="[" title="{t('media.turnLeft')} ([)" onclick={() => turnPicture(-90)}>{t('media.turnLeft')}</Button>
+          <Button aria-keyshortcuts="]" title="{t('media.turnRight')} (])" onclick={() => turnPicture(90)}>{t('media.turnRight')}</Button>
+        {/if}
         {#if target?.kind === 'person' && m.resolved && !isPdf(m)}
           <Button onclick={setPrimary}>{t('media.setPrimary')}</Button>
         {/if}
@@ -393,10 +448,10 @@
     width: min(100cqw, calc(100cqh * var(--ratio)));
     aspect-ratio: var(--ratio);
   }
+  /* Placed by `place`: the picture upright by EXIF, turned about the frame's middle. */
   img {
     display: block;
-    width: 100%;
-    height: 100%;
+    position: absolute;
     transform-origin: center;
     user-select: none;
   }

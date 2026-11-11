@@ -1320,6 +1320,8 @@ export const en = {
     moveUp: 'Move up',
     moveDown: 'Move down',
     addTextOnly: 'Add text without a place',
+    turnLeft: 'Turn left',
+    turnRight: 'Turn right',
   },
   chartAdd: {
     addRelative: 'Add relative',
