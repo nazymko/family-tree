@@ -305,3 +305,49 @@ fn mirrored_for_right_to_left_the_person_stays_in_the_middle_and_connectors_hold
         }
     }
 }
+
+/// The whole-tree chart (its own layout) already draws the person in the middle; keep it so.
+#[test]
+fn whole_tree_draws_the_person_between_two_partners() {
+    use gt_layout::{WholeFamily, WholeInput, whole};
+    // 0 = X, 1 = A, 2 = P1, 3 = P2, 4 = C1, 5 = C2, 6 = C3.
+    let fam = |a, b, kids: &[u32]| WholeFamily {
+        partners: [Some(a), Some(b)],
+        children: kids.to_vec(),
+    };
+    let input = WholeInput {
+        count: 7,
+        families: vec![
+            WholeFamily {
+                partners: [Some(0), None],
+                children: vec![1],
+            },
+            fam(1, 2, &[4]),
+            fam(1, 3, &[5, 6]),
+        ],
+        birth: vec![None; 7],
+        surname: vec![String::new(); 7],
+        include: None,
+    };
+    let w = whole(&input, &Metrics::default());
+    let x = |k: Key| {
+        let n = &w.layout.nodes[w.extras.node_of(k).unwrap() as usize];
+        n.rect.x + n.rect.w / 2.0
+    };
+    let order_ok = (x(2) < x(1) && x(1) < x(3)) || (x(3) < x(1) && x(1) < x(2));
+    assert!(order_ok, "A between P1 and P2: {} {} {}", x(2), x(1), x(3));
+    let id = |k: Key| w.extras.node_of(k).unwrap();
+    for e in w
+        .layout
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Partner)
+    {
+        assert!(
+            e.from == id(1) || e.to == id(1),
+            "partner connector {} - {} does not join A",
+            e.from,
+            e.to
+        );
+    }
+}
