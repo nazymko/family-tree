@@ -63,12 +63,18 @@
   let editing = $state(false);
   let drawing = $state(false);
   let selected = $state<Id | null>(null);
-  /** Pieces as last saved from here, until the parent hands over fresh items. */
+  /** Pieces as shown: what was edited here, saved or on its way, until the parent hands over fresh items. */
   let saved = $state<Record<Id, TextRegionDto[]>>({});
+  /** Pieces as the tree last stored them, as far as this viewer knows: what a failed save goes back to. */
+  let stored: Record<Id, TextRegionDto[]> = {};
+  /** Saves go one after another; a failure starts a new generation and drops the saves built on it. */
+  let queue: Promise<void> = Promise.resolve();
+  let generation = 0;
   let panel = $state<ReturnType<typeof FullTextPanel>>();
   $effect(() => {
     void items;
     saved = {};
+    stored = {};
   });
   const regions = $derived(m ? (saved[m.id] ?? m.transcription ?? []) : []);
   const picture = $derived(!!m && m.resolved && !isPdf(m));
@@ -78,20 +84,37 @@
   let naturalRatio = $state(4 / 3);
   const ratio = $derived(m?.width && m?.height ? m.width / m.height : naturalRatio);
 
-  async function saveRegions(next: TextRegionDto[]) {
-    if (!m) return;
+  /**
+   * Shows `next` at once and saves it after any save still on its way. It says which pieces it knew of, so a piece
+   * an agent added meanwhile stays. When a save fails, the pieces go back to what was last stored, and edits made
+   * on top of the failed one are not sent.
+   */
+  function saveRegions(next: TextRegionDto[]): Promise<void> {
+    if (!m) return queue;
     const id = m.id;
-    const before = saved[id];
+    if (!(id in stored)) stored[id] = m.transcription ?? [];
     saved[id] = next;
     error = '';
-    try {
-      await api.apply({ type: 'setMediaTranscription', id, regions: toInput(next) });
-      onChanged?.();
-    } catch (e) {
-      if (before) saved[id] = before;
-      else delete saved[id];
-      error = errMessage(e, t('edit.wentWrong'));
-    }
+    const gen = generation;
+    queue = queue.then(async () => {
+      if (gen !== generation) return;
+      try {
+        await api.apply({ type: 'setMediaTranscription', id, regions: toInput(next), known: stored[id].map((r) => r.id) });
+        stored[id] = next;
+        onChanged?.();
+      } catch (e) {
+        generation++;
+        saved[id] = stored[id];
+        error = errMessage(e, t('edit.wentWrong'));
+      }
+    });
+    return queue;
+  }
+
+  /** Text typed and not yet saved is saved before the picture changes or the viewer closes. */
+  function close() {
+    panel?.flush();
+    onClose();
   }
 
   function toggleEditing() {
@@ -102,6 +125,7 @@
   function go(to: number) {
     const next = Math.min(Math.max(to, 0), items.length - 1);
     if (next === at) return;
+    panel?.flush();
     at = next;
     confirming = false;
     selected = null;
@@ -157,7 +181,7 @@
       await api.apply(command);
       fit();
       onChanged?.();
-      if (wasOnly) onClose();
+      if (wasOnly) close();
       else closeConfirm();
     } catch (e) {
       error = errMessage(e, t('edit.wentWrong'));
@@ -230,7 +254,7 @@
 
 <svelte:window {onkeydown} />
 
-<Dialog open title={m ? mediaLabel({ ...m, title: title || m.title }) : t('media.photo')} onclose={onClose}>
+<Dialog open title={m ? mediaLabel({ ...m, title: title || m.title }) : t('media.photo')} onclose={close}>
   {#if m}
     <div class="viewer">
       {#if error}<Banner kind="error">{error}</Banner>{/if}

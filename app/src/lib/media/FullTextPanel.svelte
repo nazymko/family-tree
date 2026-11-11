@@ -38,7 +38,21 @@
     panel?.querySelector<HTMLTextAreaElement>(`[data-para="${id}"] textarea`)?.focus();
   }
 
+  /** Text typed and not yet saved (a field saves when it loses focus), by piece. Nothing draws from it, so it is
+   *  deliberately not reactive. */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const drafts = new Map<Id, string>();
+
+  /** Saves what is typed but not yet saved: the viewer calls it before it closes or changes picture. */
+  export function flush() {
+    if (drafts.size === 0) return;
+    const next = regions.map((x) => (drafts.has(x.id) ? { ...x, text: drafts.get(x.id) ?? x.text } : x));
+    drafts.clear();
+    if (next.some((x, i) => x.text !== regions[i].text)) onchange(next);
+  }
+
   function setText(id: Id, text: string) {
+    drafts.delete(id);
     const r = regions.find((x) => x.id === id);
     if (!r || r.text === text) return;
     onchange(regions.map((x) => (x.id === id ? { ...x, text } : x)));
@@ -98,6 +112,7 @@
             rows="2"
             value={r.text}
             onfocus={() => onselect(r.id)}
+            oninput={(e) => drafts.set(r.id, e.currentTarget.value)}
             onchange={(e) => setText(r.id, e.currentTarget.value)}
           ></textarea>
           {#if selected === r.id}

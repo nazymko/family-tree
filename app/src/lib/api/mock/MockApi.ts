@@ -2505,7 +2505,7 @@ export class MockApi implements Api {
         const m = this.db.media.get(cmd.id);
         if (!m) throw missing('media item', cmd.id);
         const seen = new Set<Id>();
-        m.transcription = cmd.regions.map((r) => {
+        const next = cmd.regions.map((r) => {
           const rotation = r.rotation ?? 0;
           if (![0, 90, 180, 270].includes(rotation)) throw invalid('rotation must be 0, 90, 180 or 270.');
           const a = r.area;
@@ -2516,6 +2516,18 @@ export class MockApi implements Api {
           seen.add(id);
           return { id, area: a ? { x: a.x, y: a.y, w: Math.min(a.w, 1 - a.x), h: Math.min(a.h, 1 - a.y) } : null, rotation, text: r.text };
         });
+        // As the backend: pieces stored since the sender read the list stay, after the piece they followed.
+        if (cmd.known) {
+          let after: Id | null = null;
+          for (const r of m.transcription) {
+            if (!cmd.known.includes(r.id) && !next.some((n) => n.id === r.id)) {
+              const i = after === null ? -1 : next.findIndex((n) => n.id === after);
+              next.splice(i + 1, 0, structuredClone(r));
+            }
+            after = r.id;
+          }
+        }
+        m.transcription = next;
         return { focus: null, touched: [m.id] };
       }
 

@@ -37,9 +37,10 @@ function setup(over: Partial<MediaDto> = {}, count = 2) {
   const spy = vi.spyOn(api, 'apply').mockResolvedValue(OK);
   const items: MediaLinkDto[] = Array.from({ length: count }, (_, i) => ({ media: media(`m${i}`, i === 0 ? over : {}), primary: false }));
   const onChanged = vi.fn();
-  renderWith(MediaViewer, { items, index: 0, onClose: vi.fn(), onChanged }, { api });
+  const onClose = vi.fn();
+  renderWith(MediaViewer, { items, index: 0, onClose, onChanged }, { api });
   const stage = screen.getByRole('group', { name: /^Preview/ });
-  return { api, spy, stage, onChanged };
+  return { api, spy, stage, onChanged, onClose };
 }
 
 /** The pieces sent by the last save. */
@@ -251,4 +252,94 @@ describe('editing the transcription', () => {
     expect(await screen.findByText('the tree file is read-only')).toBeInTheDocument();
     expect(box(1).getAttribute('style')).toContain('left: 10%');
   });
+
+  it('a click gives the box the keyboard, so arrows move it and not the picture', async () => {
+    const user = userEvent.setup();
+    const { spy } = setup();
+    await user.click(screen.getByRole('button', { name: 'Edit text' }));
+    await user.click(box(2));
+    expect(document.activeElement).toBe(box(2));
+    await user.keyboard('{ArrowRight}');
+    await waitFor(() => expect(lastRegions(spy)[1].area).toEqual({ x: 0.11, y: 0.3, w: 0.6, h: 0.2 }));
+    expect(screen.getByText('1 of 2')).toBeInTheDocument();
+  });
+
+  it('a cancelled drag is dropped, not saved', async () => {
+    const user = userEvent.setup();
+    const { spy } = setup();
+    await user.click(screen.getByRole('button', { name: 'Edit text' }));
+    fakeSize(layer());
+    pointer(box(2), 'pointerdown', 50, 50);
+    pointer(layer(), 'pointermove', 90, 70);
+    pointer(layer(), 'pointercancel', 90, 70);
+    pointer(layer(), 'pointerup', 90, 70);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spy).not.toHaveBeenCalled();
+    expect(box(2).getAttribute('style')).toContain('left: 10%');
+  });
+
+  it('a failed save puts back what was last saved, and the edit built on it is not sent', async () => {
+    const user = userEvent.setup();
+    const { spy } = setup();
+    let fail: (e: Error) => void = () => {};
+    spy.mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)));
+    await user.click(screen.getByRole('button', { name: 'Edit text' }));
+    box(1).focus();
+    await user.keyboard('{ArrowRight}{ArrowRight}');
+    expect(box(1).getAttribute('style')).toContain('left: 12%');
+    fail(new Error('the disk is full'));
+    expect(await screen.findByText('the disk is full')).toBeInTheDocument();
+    await waitFor(() => expect(box(1).getAttribute('style')).toContain('left: 10%'));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('text typed but not yet saved is saved when the viewer closes', async () => {
+    const user = userEvent.setup();
+    const { spy, onClose } = setup();
+    await user.click(screen.getByRole('button', { name: 'Edit text' }));
+    const first = screen.getByRole('textbox', { name: /Text of piece 1/ });
+    await user.click(first);
+    await user.type(first, ' and Ivan');
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalled();
+    await waitFor(() => expect(lastRegions(spy)[0].text).toBe('Dear Marta, and Ivan'));
+  });
 });
+
+describe('saving over a list that changed meanwhile', () => {
+  it('keeps a piece an agent added after the viewer opened', async () => {
+    const user = userEvent.setup();
+    const api = new MockApi(fixtureTree(30));
+    const page = await api.listPersons({ sort: 'surname', desc: false, text: '', living: 'any', noSource: false, noBirthDate: false, privateOnly: false }, 0, 30);
+    let link: MediaLinkDto | undefined;
+    for (const row of page.items) {
+      link = (await api.getPerson(row.id)).media[0];
+      if (link) break;
+    }
+    if (!link) throw new Error('the fixture tree has a picture');
+    const id = link.media.id;
+    await api.apply({ type: 'setMediaTranscription', id, regions: toInput(PIECES) });
+    const opened = { ...link, media: { ...link.media, transcription: structuredClone(PIECES) } };
+    renderWith(MediaViewer, { items: [opened], index: 0, onClose: vi.fn() }, { api });
+    // An agent adds a piece; the open viewer does not know it.
+    await api.apply({ type: 'setMediaTranscription', id, regions: [...toInput(PIECES), { text: 'Added by an agent' }] });
+    await user.click(screen.getByRole('button', { name: 'Edit text' }));
+    box(1).focus();
+    await user.keyboard('{ArrowRight}');
+    await waitFor(async () => {
+      const m = await findMedia(api, id);
+      expect(m?.transcription.map((r) => r.text)).toEqual(['Dear Marta,', 'the orchard is in bloom.', 'Lviv, May', 'Added by an agent']);
+      expect(m?.transcription[0].area?.x).toBeCloseTo(0.11);
+    });
+  });
+});
+
+async function findMedia(api: MockApi, id: string): Promise<MediaDto | undefined> {
+  const page = await api.listPersons({ sort: 'surname', desc: false, text: '', living: 'any', noSource: false, noBirthDate: false, privateOnly: false }, 0, 30);
+  for (const row of page.items) {
+    const hit = (await api.getPerson(row.id)).media.find((l) => l.media.id === id);
+    if (hit) return hit.media;
+  }
+  return undefined;
+}

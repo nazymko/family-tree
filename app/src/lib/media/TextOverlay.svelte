@@ -81,7 +81,10 @@
   function start(e: PointerEvent, kind: 'move' | 'resize', r: { id: Id; area: TextAreaInput }, corner?: Corner) {
     if (!editing || e.button > 0) return;
     e.stopPropagation();
+    // No text selection or native drag; that also keeps the browser from focusing the box, so it is done here:
+    // after a click the arrow keys must move the box, not change the picture.
     e.preventDefault();
+    focusBox(r.id);
     onselect(r.id);
     drag = { kind, id: r.id, corner, x: e.clientX, y: e.clientY, from: r.area, moved: false };
     layer?.setPointerCapture?.(e.pointerId);
@@ -113,6 +116,16 @@
           ? resizeArea(f, drag.corner ?? 'se', dx, dy)
           : areaBetween(f.x, f.y, f.x + dx, f.y + dy);
     live = { id: drag.id, area };
+  }
+
+  function focusBox(id: Id) {
+    layer?.querySelector<HTMLElement>(`[data-piece="${id}"]`)?.focus({ preventScroll: true });
+  }
+
+  /** The pointer was taken away (a touch turned into a scroll, the window lost it): nothing is saved. */
+  function onlayercancel() {
+    drag = null;
+    live = null;
   }
 
   function onlayerup() {
@@ -174,7 +187,7 @@
   onpointerdown={onlayerdown}
   onpointermove={onlayermove}
   onpointerup={onlayerup}
-  onpointercancel={onlayerup}
+  onpointercancel={onlayercancel}
 >
   {#each placed as { r, i } (r.id)}
     {@const a = areaOf(r)}
@@ -187,7 +200,10 @@
       aria-pressed={selected === r.id}
       aria-describedby={[tipFor === r.id ? `tip-${r.id}` : '', editing ? 'box-help' : ''].filter(Boolean).join(' ') || undefined}
       style="left: {pct(a.x)}; top: {pct(a.y)}; width: {pct(a.w)}; height: {pct(a.h)}"
-      onclick={() => onselect(r.id)}
+      onclick={() => {
+        focusBox(r.id);
+        onselect(r.id);
+      }}
       onpointerenter={(e) => showTip(r.id, e.currentTarget)}
       onpointerleave={() => hideTip(r.id)}
       onfocus={(e) => showTip(r.id, e.currentTarget)}
