@@ -123,7 +123,7 @@ fn schema_6_project_gains_the_rotation_column_and_its_pictures_stay_unturned() {
         )
         .unwrap();
     }
-    let mut p = Project::open(&dir).unwrap();
+    let p = Project::open(&dir).unwrap();
     assert_eq!(p.schema_version(), 7);
     let has: i64 = p
         .conn()
