@@ -823,6 +823,10 @@ pub struct FamilyDto {
     pub events: Vec<EventDto>,
     pub children: Vec<FamilyChildDto>,
     pub notes: Vec<NoteDto>,
+    /// Clips of recordings (and any other media) linked to the family.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<MediaLinkDto>>", optional)]
+    pub media: Vec<MediaLinkDto>,
 }
 
 /// One entry of the recent-projects list (`Api.recentProjects`).

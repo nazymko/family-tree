@@ -96,6 +96,7 @@ command_list!(
     exif_suggestion,
     attach_files,
     unlinked_media,
+    get_recording,
     stage_trace_image,
     save_trace_draft,
     load_trace_draft,
@@ -713,6 +714,15 @@ pub async fn attach_files<R: Runtime>(
 #[tauri::command(async)]
 pub fn unlinked_media(state: State<'_, AppState>) -> ApiResult<Vec<MediaDto>> {
     state.with_session(|s| Ok(s.unlinked_media()))
+}
+
+/// A recording with its sources and every clip of it, for the full player.
+#[tauri::command(async)]
+pub fn get_recording(
+    state: State<'_, AppState>,
+    media: Uuid,
+) -> ApiResult<gt_session::recording::RecordingDto> {
+    state.with_session(|s| s.get_recording(media))
 }
 
 // ------------------------------------------------------------ trace a tree picture
