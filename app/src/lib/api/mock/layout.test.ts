@@ -2,7 +2,37 @@ import { describe, expect, it } from 'vitest';
 import type { ChartNode } from '../types';
 import { MockApi } from './MockApi';
 import { fixtureTree } from './fixtures';
-import { ahnenRelation } from './layout';
+import { ahnenRelation, layoutDescendants } from './layout';
+
+describe('mock descendants layout: a person with a partnered and a partnerless family', () => {
+  // Invented people: M has partner P with child C1, and a family alone with child C2.
+  const src = {
+    ref: (id: string) => ({ id, name: `Person ${id}` }),
+    parents: () => [null, null],
+    unions: (id: string) =>
+      id === 'M'
+        ? [
+            { partner: 'P', children: ['C1'] },
+            { partner: null, children: ['C2'] },
+          ]
+        : [],
+  };
+
+  it('the partnerless family stands left of the couple family, no child line crosses', () => {
+    const l = layoutDescendants('M', 5, src as never);
+    const x = (key: string) => {
+      const n = l.nodes.find((q) => q.person.id === key)!;
+      return n.x + n.w / 2;
+    };
+    expect(x('C2')).toBeLessThan(x('C1'));
+    const conn = l.edges.find((e) => e.kind === 'partner')!;
+    const mid = (conn.pts[0] + conn.pts[2]) / 2;
+    const c1 = l.edges.find((e) => e.kind === 'parent' && l.nodes[e.to].person.id === 'C1')!;
+    const c2 = l.edges.find((e) => e.kind === 'parent' && l.nodes[e.to].person.id === 'C2')!;
+    expect(c1.pts[0]).toBeCloseTo(mid, 1);
+    expect(c2.pts[0]).toBeLessThan(mid);
+  });
+});
 
 const BIG = { x: -1e6, y: -1e6, w: 2e6, h: 2e6 };
 

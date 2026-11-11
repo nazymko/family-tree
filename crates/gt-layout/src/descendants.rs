@@ -8,7 +8,7 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::types::{
     ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Node, Rect, couple_link, dup_edge,
-    link_children, member_col, new_node,
+    link_children, member_col, new_node, order_unions,
 };
 
 struct Unit {
@@ -78,6 +78,7 @@ impl Builder<'_> {
                 pend.push((at, children));
             }
         }
+        order_unions(person, partners, &mut pend);
         self.pending.push(pend);
         self.units.push(Unit {
             person,

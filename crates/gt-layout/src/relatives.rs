@@ -14,7 +14,7 @@ use std::collections::{HashMap, VecDeque};
 use crate::route::{Family, route};
 use crate::types::{
     ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Node, PartnerOf, Rect, Rel, couple_link,
-    dup_edge, link_children, member_col, new_node, person_shift,
+    dup_edge, link_children, member_col, new_node, order_unions, person_shift,
 };
 
 /// What to show around the centred person.
@@ -225,6 +225,13 @@ fn siblings(src: &dyn ChartSource, x: Key) -> Vec<Sibling> {
     }
     // Stable: undated people keep their listed order after the dated ones.
     out.sort_by_key(|s| src.birth_sort(s.key).unwrap_or(i32::MAX));
+    // Brothers and sisters of one parent only stand on that parent's side of the full ones, so their line does not run
+    // under the other parent or across the full siblings' line. Birth order still orders those within one family.
+    out.sort_by_key(|s| match s.hang {
+        [true, false] => 0,
+        [false, true] => 2,
+        _ => 1,
+    });
     out
 }
 
@@ -309,6 +316,7 @@ impl Builder<'_> {
                 pend.push((at, kids));
             }
         }
+        order_unions(person, partners, &mut pend);
         self.pending.push(pend);
         self.units.push(Unit {
             person,

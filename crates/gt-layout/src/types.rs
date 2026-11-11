@@ -431,3 +431,16 @@ pub(crate) fn couple_link(a: Rect, b: Rect, dip: f32) -> (Vec<f32>, (f32, f32)) 
         )
     }
 }
+
+/// Puts the unions of one unit in the order of their anchors along the row, so the children of each family hang below
+/// their own anchor and no two child lines cross. The anchor of a union with a partner is the couple connector (the
+/// middle of the person's and the partner's columns); the anchor of a union without a partner is the person's own card.
+/// With one partner (drawn to the right of the person) the partnerless families therefore come first. The sort is stable:
+/// families with the same anchor keep their order, and nothing moves when every union has a partner.
+pub(crate) fn order_unions<T>(person: u32, partners: u32, unions: &mut [(Option<u32>, T)]) {
+    let own = member_col(partners, 0);
+    unions.sort_by_key(|(at, _)| match at {
+        Some(node) => own + member_col(partners, node - person),
+        None => 2 * own,
+    });
+}
