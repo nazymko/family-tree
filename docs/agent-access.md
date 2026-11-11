@@ -66,7 +66,7 @@ agent's own report: what it added, what it left unsettled, and questions for the
   and it deletes nothing of yours. If a source disagrees with the tree, the agent adds a note that gives both versions. The
   exceptions are its own work: it may correct a note, event, name, citation or piece of a transcription that it wrote itself
   and that nobody has changed since, and it may remove an empty family it made itself in the batch still open, which a refused
-  link can leave behind.
+  link can leave behind. And one more, below: a confirmed birth or death date.
 - **Add a person with no name.** Someone a source knows only by a role, such as somebody's father, goes in a note on the people
   around them.
 - **Change whether a living person counts as alive or dead.** The app decides this from dates and relationships, and the
@@ -82,6 +82,21 @@ agent's own report: what it added, what it left unsettled, and questions for the
   makes no link and writes a note on the people involved.
 - **Connect people a source says are not related.** They stay apart, and the agent lists them in its report.
 - **Open the tree file, or change settings, other connections or the rules.**
+
+### Correcting a birth or death date
+
+When you, or a source, have confirmed the exact date of a birth or a death, an agent may set it with the tool
+`correct_event_date`, on any person's birth or death event, whoever entered it: it fills an empty date, or replaces one such as
+a year alone with the full date. It must give the reason (who confirmed it, or which source says so). Only the date changes;
+the place, description and everything else on the event stay as they are.
+
+- The reason is kept as a research note on the event, added in the same change: *"Birth date corrected from 1901 to
+  12 MAR 1901. Reason: ..."*. The note is written in English, as the agent's own text is.
+- The change is in the **Change log** under the agent's name, with the date before and after, and in the event's history.
+  **Undo** takes back the date and the note together.
+- It never changes whether someone counts as alive or dead: a date that would is refused, as every other write is.
+- When sources disagree and nobody has confirmed which is right, the agent does not correct anything: it adds a note with
+  both versions.
 
 ### Photographed documents
 

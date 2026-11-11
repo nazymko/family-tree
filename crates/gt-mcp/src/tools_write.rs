@@ -325,6 +325,19 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             call: update_own_citation::<H>,
         },
         Tool {
+            name: "correct_event_date",
+            description: "Corrects the date of a birth or death event, whoever wrote it, when the family or a source has confirmed the right date: it fills an empty date or replaces the one there, such as a year with the full date. Give the reason: who confirmed it, or which source says so. A research note on the event records the old date, the new one and the reason, the change is in the log under your name, and the owner can undo it. Add a citation for the new date as well. Only the date changes; nothing else on the event. When sources disagree and nobody has confirmed which is right, do not correct: add a note giving both versions. Saying the date it already has answers alreadyThere. A date that would change whether someone counts as alive or dead is refused: leave a note and list it in your report.",
+            schema: with_batch(
+                &["event", "date", "reason"],
+                json!({
+                    "event": id("The birth or death event's id."),
+                    "date": date(),
+                    "reason": writing("Who confirmed the date, or which source says so."),
+                }),
+            ),
+            call: correct_event_date::<H>,
+        },
+        Tool {
             name: "add_media",
             description: "Attaches a picture or PDF document from a file on this computer to a person, family, event, source or citation, such as a photographed letter or register page. The file is copied into the tree; the original stays where it is. It must be a picture (JPEG, PNG, WebP, GIF, TIFF) that can be read, or a whole PDF, of at most 50 MiB: anything else is refused before it is copied. Sound recordings are the owner's to attach. A photographed document usually goes on its source: make the source with add_source first. The same file on the same record again answers alreadyThere with the media's id; a file already in the tree keeps its title. Then write what is on it with set_media_transcription.",
             schema: with_batch(
@@ -1328,6 +1341,27 @@ fn regions_arg(args: &Value) -> Result<Vec<TextRegionInput>, ApiError> {
             "Give regions (a list) or text, one of them.".into(),
         )),
     }
+}
+
+fn correct_event_date<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let event = uuid_arg(args, "event")?;
+    let reason = long(args, "reason")?
+        .filter(|r| !r.trim().is_empty())
+        .ok_or_else(|| {
+            invalid("reason must say who confirmed the date, or which source says so.".into())
+        })?;
+    apply(
+        host,
+        ctx,
+        |s, warnings| {
+            let date = date_arg(s, args, "date", warnings)?
+                .ok_or_else(|| invalid("date must be the confirmed date.".into()))?;
+            let (write, reached) = s.correct_date_as_agent(event, &date, &reason, ctx, batch)?;
+            Ok((write, reached, None))
+        },
+        |_, _| Some(event),
+    )
 }
 
 fn add_media<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {

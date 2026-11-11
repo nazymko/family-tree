@@ -238,3 +238,34 @@ pub(super) fn add_birth(
     });
     Ok(())
 }
+
+/// A birth or death date set straight, and a note on the event that says what the date was, what
+/// it is now and why: one change set, so one undo takes back both. Nothing else on the event
+/// changes.
+pub(crate) fn plan_date_correction(
+    tree: &gt_core::tree::Tree,
+    event: Uuid,
+    date: gt_core::date::GenDate,
+    note: &str,
+    now: i64,
+    order: gt_core::date::DayOrder,
+) -> Result<(gt_store::ChangeSet, Option<Uuid>), ApiError> {
+    let mut p = Planner::new(tree, now, order);
+    let mut e: Event = p.get(event)?;
+    e.date = Some(date);
+    e.common.changed = Some(now);
+    p.put(e);
+    let focus = super::cite::save_note(
+        &mut p,
+        crate::command::OwnerRef {
+            kind: crate::command::OwnerKind::Event,
+            id: event,
+        },
+        &crate::command::NoteInput {
+            id: None,
+            kind: crate::dto::NoteKindDto::Research,
+            text: note.to_string(),
+        },
+    )?;
+    Ok((p.finish("Correct date".into()), focus))
+}

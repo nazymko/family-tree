@@ -1065,6 +1065,70 @@ impl Session {
         Ok((write, reached, kept))
     }
 
+    /// The one change an agent may make to what is already there: a birth or death date someone
+    /// confirmed, on any person's birth or death event. The date is set and a research note on the
+    /// event says what it was, what it is now and `reason`, in one write the owner can undo. Step 5
+    /// of the gate is what this replaces; step 6 still holds, so it can never change whether
+    /// anyone counts as alive or dead.
+    pub fn correct_date_as_agent(
+        &mut self,
+        event: Uuid,
+        date_raw: &str,
+        reason: &str,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(refused(
+                "Give the reason: who confirmed the date, or which source says so.",
+            ));
+        }
+        let e = self
+            .tree
+            .events
+            .get(&event)
+            .ok_or_else(|| ApiError::not_found("event", event))?;
+        let word = match e.kind {
+            EventKind::Birth => "Birth",
+            EventKind::Death => "Death",
+            _ => {
+                return Err(refused(
+                    "Only the date of a birth or a death can be corrected. For anything else add \
+                     a note giving both versions, and list it in your report.",
+                ));
+            }
+        };
+        let order = self.day_order();
+        let date_raw = date_raw.trim();
+        let Some(date) = crate::ops::parse_date(Some(date_raw), order) else {
+            return Err(ApiError::new(ErrorCode::Invalid, "date must be a date."));
+        };
+        let old = e.date.clone();
+        // The same date, however it was typed, is a repeat.
+        let same = old.as_ref().is_some_and(|o| {
+            let mut as_typed = o.clone();
+            as_typed.raw = date.raw.clone();
+            as_typed == date || o.raw.trim().eq_ignore_ascii_case(date_raw)
+        });
+        if same {
+            return Ok((AgentWrite::AlreadyThere { record: event }, Vec::new()));
+        }
+        let was = old
+            .as_ref()
+            .map_or("no date".to_string(), |d| d.raw.clone());
+        let note = format!(
+            "{word} date corrected from {was} to {}. Reason: {reason}",
+            date.raw
+        );
+        let (_, now) = (self.clock.0)();
+        let (cs, focus) =
+            crate::ops::plan_date_correction(&self.tree, event, date, &note, now, order)?;
+        self.check_living(&cs)?;
+        self.store(cs, focus, ctx, batch)
+    }
+
     fn marker_of(&self, family: Uuid) -> Option<Uuid> {
         let family = self.tree.families.get(&family)?;
         family
