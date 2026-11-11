@@ -45,6 +45,8 @@ pub enum OwnerKind {
     /// A note: only media (voice samples) can be attached to it.
     Note,
     ChildLink,
+    /// A source: only media (pictures of the document) can be attached to it.
+    Source,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -297,6 +299,39 @@ pub struct SourceInput {
     pub text: Option<String>,
 }
 
+/// Where a piece of transcribed text is written: fractions 0..1 of the picture as displayed
+/// (after its EXIF orientation), from its top left corner.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TextAreaInput {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+// Coordinates are checked to be finite before anything stores them, so equality is total.
+impl Eq for TextAreaInput {}
+
+/// One piece of a picture's transcription, in reading order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TextRegionInput {
+    /// Keeps a piece that is already there; a new one gets an id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub id: Option<Uuid>,
+    /// Absent: text with no place on the picture (a whole transcript).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub area: Option<TextAreaInput>,
+    /// Degrees clockwise the writing is turned: 0, 90, 180 or 270 (absent: 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "0 | 90 | 180 | 270")]
+    pub rotation: Option<u16>,
+    pub text: String,
+}
+
 /// One person on the trace screen. `existing` set: the card stands for a person already in the
 /// tree and nothing is created for it; otherwise a new person is made from the other fields.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -529,6 +564,11 @@ pub enum EditCommand {
         #[ts(optional)]
         date_raw: Option<String>,
     },
+    /// Replaces the whole transcription of a picture: every piece, in reading order.
+    SetMediaTranscription {
+        id: Uuid,
+        regions: Vec<TextRegionInput>,
+    },
     /// Everything traced from a picture, in ONE undoable step. With `attach_picture` the staged
     /// trace picture is stored as a media item attached to every new person and to a new source.
     ImportDraft {
@@ -587,6 +627,7 @@ impl EditCommand {
             EditCommand::DeleteMedia { .. } => "Delete media".into(),
             EditCommand::SetPrimaryMedia { .. } => "Set primary media".into(),
             EditCommand::UpdateMedia { .. } => "Edit media".into(),
+            EditCommand::SetMediaTranscription { .. } => "Edit transcription".into(),
             EditCommand::ImportDraft { .. } => "Add traced people".into(),
             EditCommand::AddNumber { .. } => "Record number".into(),
         }

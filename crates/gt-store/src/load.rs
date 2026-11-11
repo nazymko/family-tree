@@ -384,13 +384,18 @@ impl Project {
 
         let mut st = conn.prepare(
             "SELECT id, private, changed, unknown_json, path, original_name, mime, title, \
-             date_json, description, sha256 FROM media ORDER BY seq",
+             date_json, description, sha256, transcription_json FROM media ORDER BY seq",
         )?;
         let mut rows = st.query([])?;
         while let Some(r) = rows.next()? {
             let common = links.common("media", r)?;
             let id = common.id;
+            let transcription = match r.get::<_, Option<String>>(11)? {
+                Some(j) => serde_json::from_str(&j).map_err(|e| corrupt(e.to_string()))?,
+                None => Vec::new(),
+            };
             let m = Media {
+                transcription,
                 path: r.get(4)?,
                 original_name: r.get(5)?,
                 mime: r.get(6)?,

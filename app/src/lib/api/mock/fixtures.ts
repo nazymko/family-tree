@@ -85,6 +85,7 @@ export function fixtureTree(n: number, seed = 1): Fixture {
     abbreviation: null,
     text: null,
     citationCount: 0,
+    media: [],
   }));
 
   const makeCitation = (): CitationDto => {
@@ -211,6 +212,7 @@ export function fixtureTree(n: number, seed = 1): Fixture {
         width: 1200,
         height: 900,
         sha256: null,
+        transcription: [],
       });
       rec.media.push({ media: media[media.length - 1], primary: true });
     }

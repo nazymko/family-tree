@@ -164,6 +164,7 @@ impl Session {
                 .get(&id)
                 .copied()
                 .unwrap_or(0),
+            media: self.media_dtos(&s.common.media),
         })
     }
 
@@ -228,6 +229,7 @@ impl Session {
                         width: self.media_dims(l.media, &md.path).0,
                         height: self.media_dims(l.media, &md.path).1,
                         sha256: md.sha256.clone(),
+                        transcription: md.transcription.iter().map(text_region_dto).collect(),
                     },
                     primary: l.primary,
                 })
@@ -364,4 +366,19 @@ pub fn person_detail(s: &Session, id: Uuid) -> Result<PersonDetail, ApiError> {
         citations: s.citations_dto(&p.common.citations),
         changed: p.common.changed.unwrap_or(0),
     })
+}
+
+/// A stored piece of transcription as the app shows it.
+pub fn text_region_dto(r: &gt_core::model::TextRegion) -> crate::dto::TextRegionDto {
+    crate::dto::TextRegionDto {
+        id: r.id,
+        area: r.area.as_ref().map(|a| crate::command::TextAreaInput {
+            x: a.x,
+            y: a.y,
+            w: a.w,
+            h: a.h,
+        }),
+        rotation: r.rotation,
+        text: r.text.clone(),
+    }
 }

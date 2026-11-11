@@ -272,6 +272,7 @@ fn media_record(name: &str) -> gt_core::model::Media {
         date: None,
         description: None,
         sha256: None,
+        transcription: Vec::new(),
     }
 }
 

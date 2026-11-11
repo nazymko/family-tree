@@ -403,7 +403,7 @@ fn a_copy_saved_by_the_previous_schema_is_read_in_a_scratch_copy_only() {
     drop(rel);
     let db = rel_dir.join("tree.db");
     let c = rusqlite::Connection::open(&db).unwrap();
-    c.execute_batch("DROP TABLE merged_group; DROP TABLE merge_alias; PRAGMA user_version = 4;")
+    c.execute_batch("ALTER TABLE media DROP COLUMN transcription_json; DROP TABLE merged_group; DROP TABLE merge_alias; PRAGMA user_version = 4;")
         .unwrap();
     drop(c);
     let before = std::fs::read(&db).unwrap();

@@ -618,7 +618,9 @@ fn media_rows(m: &Media, w: &dyn Words) -> Vec<Row> {
         date,
         description,
         sha256,
+        transcription,
     } = m;
+    let written = gt_core::model::transcription_text(transcription);
     let mut out = vec![
         row("path", Some(path.clone()).filter(|s| !s.is_empty())),
         text("originalName", original_name),
@@ -627,6 +629,7 @@ fn media_rows(m: &Media, w: &dyn Words) -> Vec<Row> {
         row("when", date.as_ref().map(|d| d.display())),
         text("description", description),
         text("sha256", sha256),
+        row("transcription", Some(written).filter(|s| !s.is_empty())),
     ];
     out.extend(common_rows(common, w));
     out

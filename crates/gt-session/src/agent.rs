@@ -85,7 +85,10 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         | C::SaveSource { .. }
         | C::UpdateCitation { .. }
         | C::AddNumber { .. }
-        | C::AddSiblingMarker { .. } => Ok(()),
+        | C::AddSiblingMarker { .. }
+        // Pieces of text are items of a list: the comparison of step 5 lets the agent add its
+        // own and change or remove only those, never the owner's.
+        | C::SetMediaTranscription { .. } => Ok(()),
         C::AddCitation { citation, .. } => match citation {
             CitationArg::Reuse(_) => Err(refused(
                 "Reusing the last citation shares the owner's working state. Give the source and \
@@ -241,7 +244,9 @@ fn edited_record(cmd: &EditCommand) -> Option<Uuid> {
         C::SaveNote { note, .. } => note.id,
         C::SaveEvent { event, .. } => event.id,
         C::SaveName { name, .. } => name.id,
-        C::UpdateCitation { id, .. } | C::UpdatePerson { id, .. } => Some(*id),
+        C::UpdateCitation { id, .. }
+        | C::UpdatePerson { id, .. }
+        | C::SetMediaTranscription { id, .. } => Some(*id),
         _ => None,
     }
 }
@@ -441,6 +446,21 @@ fn same_role(a: &Sex, b: &Sex) -> bool {
 /// The item of a list with this identity (see `revert::identity`).
 fn find_item<'a>(list: &'a [Value], id: &Value) -> Option<&'a Value> {
     list.iter().find(|x| identity(x) == *id)
+}
+
+/// A stored piece of transcription as the command that keeps it.
+pub fn region_input(r: &TextRegion) -> crate::command::TextRegionInput {
+    crate::command::TextRegionInput {
+        id: Some(r.id),
+        area: r.area.as_ref().map(|a| crate::command::TextAreaInput {
+            x: a.x,
+            y: a.y,
+            w: a.w,
+            h: a.h,
+        }),
+        rotation: Some(r.rotation),
+        text: r.text.clone(),
+    }
 }
 
 /// One logged write to a record and who made it (`None`: the owner, or before authors were kept).
@@ -886,6 +906,155 @@ impl Session {
         Ok((AgentWrite::Done(result), reached))
     }
 
+    /// Records a file an agent's tool copied in with [`crate::media::prepare_attach`] (one file,
+    /// checked first with [`crate::media::check_agent_file`]) and links it to `target`, through
+    /// the same checks and log as any write. The same file already on `target` is a repeat.
+    pub fn attach_as_agent(
+        &mut self,
+        target: OwnerRef,
+        prepared: crate::media::PreparedAttach,
+        about: &crate::media::MediaAbout,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        if !matches!(
+            target.kind,
+            OwnerKind::Person
+                | OwnerKind::Family
+                | OwnerKind::Event
+                | OwnerKind::Source
+                | OwnerKind::Citation
+        ) {
+            return Err(refused(
+                "A picture or document goes on a person, family, event, source or citation.",
+            ));
+        }
+        if prepared.dir != self.project.dir {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                "The tree changed while the file was being copied; nothing was attached.",
+            ));
+        }
+        if let Some(failed) = prepared.failed.first() {
+            return Err(ApiError::new(ErrorCode::Invalid, failed.reason.clone()));
+        }
+        let [file] = prepared.files.as_slice() else {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "Attach one file at a time.",
+            ));
+        };
+        let (_, now) = (self.clock.0)();
+        let order = self.day_order();
+        let clean = |t: &Option<String>| {
+            t.as_deref()
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_string)
+        };
+        let media = Media {
+            common: crate::ops::new_common(now),
+            path: file.rel.clone(),
+            original_name: file.original_name.clone(),
+            mime: Some(file.mime.into()),
+            title: clean(&about.title),
+            date: crate::ops::parse_date(clean(&about.date_raw).as_deref(), order),
+            description: clean(&about.description),
+            sha256: Some(file.sha.clone()),
+            transcription: Vec::new(),
+        };
+        let sha = file.sha.clone();
+        let (cs, outcomes) = crate::ops::plan_attach(&self.tree, target, vec![media], now, order)?;
+        let Some(Some(id)) = outcomes.first().copied() else {
+            let record = self
+                .tree
+                .media
+                .values()
+                .find(|m| m.sha256.as_deref() == Some(sha.as_str()))
+                .map_or(target.id, |m| m.common.id);
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
+        };
+        let cmd = EditCommand::AttachMedia {
+            target,
+            media: vec![id],
+        };
+        let focus = (target.kind == OwnerKind::Person).then_some(target.id);
+        self.pass_and_store(&cmd, cs, focus, ctx, batch)
+    }
+
+    /// Which pieces of a picture's transcription this connection wrote and nobody has changed
+    /// since, in order.
+    pub fn own_text_regions(&self, media: Uuid, me: Uuid) -> Result<Vec<bool>, ApiError> {
+        let m = self
+            .tree
+            .media
+            .get(&media)
+            .ok_or_else(|| ApiError::not_found("media", media))?;
+        let writers = self.project.last_writers(media)?;
+        let rows: Vec<Written> = writers
+            .into_iter()
+            .map(|(by, _)| by)
+            .zip(self.project.rows_of(media)?)
+            .collect();
+        if record_is_own(&rows, me) {
+            return Ok(vec![true; m.transcription.len()]);
+        }
+        let path = ["Media".to_string(), "transcription".to_string()];
+        Ok(m.transcription
+            .iter()
+            .map(|r| item_is_own(&rows, &path, &Value::String(r.id.to_string()), me))
+            .collect())
+    }
+
+    /// Replaces this connection's own pieces of a picture's transcription with `regions`, in one
+    /// write. Pieces anyone else wrote or changed stay as they are and where they are. Ids of the
+    /// pieces replaced are used again, so saying the same again is a repeat. Returns, besides the write, how many pieces were kept.
+    pub fn set_transcription_as_agent(
+        &mut self,
+        media: Uuid,
+        regions: Vec<crate::command::TextRegionInput>,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>, usize), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let own = self.own_text_regions(media, ctx.id)?;
+        let Some(m) = self.tree.media.get(&media) else {
+            return Err(ApiError::not_found("media", media));
+        };
+        // The agent's pieces are replaced where they stand, one for one, so nobody else's piece
+        // moves; what is left over goes, and what is new comes at the end.
+        let mut list = Vec::new();
+        let mut kept = 0;
+        let mut new = regions.into_iter();
+        for (r, mine) in m.transcription.iter().zip(own) {
+            if !mine {
+                list.push(region_input(r));
+                kept += 1;
+            } else if let Some(mut next) = new.next() {
+                next.id = Some(r.id);
+                list.push(next);
+            }
+        }
+        for mut r in new {
+            r.id = None;
+            list.push(r);
+        }
+        let cmd = EditCommand::SetMediaTranscription {
+            id: media,
+            regions: list,
+        };
+        let (write, reached) = self.gated(cmd, None, ctx, batch)?;
+        // The planner leaves out a record that ends as it was: nothing was written.
+        let write = match write {
+            AgentWrite::Done(r) if r.touched.is_empty() => {
+                AgentWrite::AlreadyThere { record: media }
+            }
+            other => other,
+        };
+        Ok((write, reached, kept))
+    }
+
     fn marker_of(&self, family: Uuid) -> Option<Uuid> {
         let family = self.tree.families.get(&family)?;
         family
@@ -1105,7 +1274,7 @@ impl Session {
                 .flat_map(|p| &p.names)
                 .find(|n| n.id == target.id)
                 .map(|n| (&n.notes[..], &n.citations[..])),
-            OwnerKind::Note => None,
+            OwnerKind::Note | OwnerKind::Source => None,
             OwnerKind::ChildLink => None,
         }
     }

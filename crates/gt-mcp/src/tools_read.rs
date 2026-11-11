@@ -1166,7 +1166,7 @@ fn list_citations<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     )
 }
 
-fn get_media<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
+fn get_media<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "id")?;
     let max_size = optional_u64(args, "max_size")?
         .unwrap_or(PICTURE_DEFAULT_PX)
@@ -1186,11 +1186,18 @@ fn get_media<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
             .map(str::to_string)
             .or_else(|| media.mime.clone())
             .unwrap_or_default();
-        Ok((
-            records::media_full(s, media),
-            (mime, sound),
-            s.media_original_path(id).ok(),
-        ))
+        let mut details = records::media_full(s, media);
+        // Which pieces of the transcription this agent may still change or remove.
+        let own = s.own_text_regions(id, ctx.id)?;
+        if let Some(rows) = details
+            .get_mut("transcription")
+            .and_then(Value::as_array_mut)
+        {
+            for (row, yours) in rows.iter_mut().zip(own) {
+                row["yours"] = json!(yours);
+            }
+        }
+        Ok((details, (mime, sound), s.media_original_path(id).ok()))
     })?;
     let (mime, sound) = mime;
     let block = match path {

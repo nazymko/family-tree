@@ -220,6 +220,7 @@ impl Session {
                 date: None,
                 description: None,
                 sha256: Some(sha),
+                transcription: Vec::new(),
             },
         })
     }

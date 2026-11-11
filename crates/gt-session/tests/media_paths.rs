@@ -36,6 +36,7 @@ fn resolved_for(paths: &[String], make_files: impl Fn(&std::path::Path)) -> Vec<
                 date: None,
                 description: None,
                 sha256: None,
+                transcription: Vec::new(),
             },
         );
         tree.persons

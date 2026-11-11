@@ -306,6 +306,38 @@ pub struct Media {
     pub date: Option<GenDate>,
     pub description: Option<String>,
     pub sha256: Option<String>,
+    /// What is written on the picture, in reading order. The text belongs to the picture
+    /// wherever it is attached. Old change-log rows have no such field.
+    #[serde(default)]
+    pub transcription: Vec<TextRegion>,
+}
+
+/// One piece of the transcription of a picture: a text and, when known, where it is written.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TextRegion {
+    pub id: Uuid,
+    /// Where on the picture, as fractions of the picture as displayed (after its EXIF
+    /// orientation). `None`: text with no place on the picture, such as a whole transcript.
+    #[serde(default)]
+    pub area: Option<Region>,
+    /// Degrees clockwise the writing is turned: 0, 90, 180 or 270.
+    #[serde(default)]
+    pub rotation: u16,
+    pub text: String,
+}
+
+/// The rotations a text region may have.
+pub const TEXT_ROTATIONS: [u16; 4] = [0, 90, 180, 270];
+
+/// The whole transcription as one text: the parts in order, each trimmed, empty ones left out,
+/// with a blank line between them.
+pub fn transcription_text(regions: &[TextRegion]) -> String {
+    regions
+        .iter()
+        .map(|r| r.text.trim())
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

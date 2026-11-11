@@ -823,6 +823,7 @@ impl<'a> Ctx<'a> {
                 date,
                 description: None,
                 sha256: None,
+                transcription: Vec::new(),
             },
         );
     }

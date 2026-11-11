@@ -83,6 +83,32 @@ fn open_newer_schema_refused() {
 }
 
 #[test]
+fn schema_5_project_gains_the_transcription_column() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // What a schema 5 app left behind: no transcription column.
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            "ALTER TABLE media DROP COLUMN transcription_json; PRAGMA user_version = 5;",
+        )
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), 6);
+    let has: i64 = p
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('media') WHERE name = 'transcription_json'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(has, 1);
+}
+
+#[test]
 fn schema_doc_lists_every_table() {
     let doc = include_str!("../../../docs/schema.md");
     let tmp = tempfile::tempdir().unwrap();

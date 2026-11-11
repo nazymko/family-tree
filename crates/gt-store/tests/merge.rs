@@ -58,8 +58,8 @@ fn create_set(batch_id: Uuid, given: &str) -> ((ChangeSet, LogMeta), Uuid) {
 }
 
 #[test]
-fn schema_is_five_and_a_v4_project_upgrades_with_a_backup() {
-    assert_eq!(SCHEMA_VERSION, 5);
+fn schema_is_six_and_a_v4_project_upgrades_with_a_backup() {
+    assert_eq!(SCHEMA_VERSION, 6);
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("old.genetree");
     std::fs::create_dir_all(&dir).unwrap();
@@ -71,7 +71,7 @@ fn schema_is_five_and_a_v4_project_upgrades_with_a_backup() {
         c.pragma_update(None, "user_version", 4).unwrap();
     }
     let p = Project::open(&dir).unwrap();
-    assert_eq!(p.schema_version(), 5);
+    assert_eq!(p.schema_version(), 6);
     assert!(p.merged_source_groups().unwrap().is_empty());
     let aliases: i64 = p
         .conn()

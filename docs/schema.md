@@ -1,4 +1,4 @@
-# Project database schema (version 5)
+# Project database schema (version 6)
 
 A gene-tree project is a folder:
 
@@ -10,7 +10,7 @@ MyFamily.genetree/
   backups/    timestamped copies of tree.db
 ```
 
-`tree.db` is plain SQLite and can be read with any SQLite tool. The schema version is stored in `PRAGMA user_version` (currently `5`), and migrations are applied in order when a project is opened. A project written by a newer version of the app is refused.
+`tree.db` is plain SQLite and can be read with any SQLite tool. The schema version is stored in `PRAGMA user_version` (currently `6`), and migrations are applied in order when a project is opened. A project written by a newer version of the app is refused.
 
 ## Conventions
 
@@ -173,6 +173,7 @@ A file in `media/` (or elsewhere) with its description.
 - `date_raw`, `date_json`, `date_sort_min`, `date_sort_max`: date of the item.
 - `description`: free-text description.
 - `sha256`: hex SHA-256 of the file, used to detect duplicates.
+- `transcription_json`: what is written on the picture (schema 6), or null when nothing is. A JSON array of pieces in reading order, each `{"id", "area", "rotation", "text"}`: `area` is `{"x", "y", "w", "h"}`, fractions from 0 to 1 of the picture as it is displayed (after its EXIF orientation), from the top left corner, or null for text with no place on the picture (a whole transcript); `rotation` is how far the writing is turned clockwise, 0, 90, 180 or 270. The text belongs to the picture wherever it is attached. The joined full text is the pieces' texts, trimmed, with a blank line between them. A GEDCOM export does not carry it (GEDCOM has no place for it), and it is not in the search tables.
 
 ### `note`
 A note or story, written in Markdown. Links to people and places use `genetree://person/<uuid>` addresses.

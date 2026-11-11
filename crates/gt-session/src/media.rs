@@ -206,11 +206,11 @@ fn fail(failed: &mut Vec<AttachFailure>, path: &Path, reason: &str) {
 /// Why a recording is refused on anything but a note.
 pub(crate) const SOUND_ON_NOTE_ONLY: &str = "sound recordings can only be attached to a note";
 
-struct PreparedFile {
-    rel: String,
-    sha: String,
-    mime: &'static str,
-    original_name: Option<String>,
+pub(crate) struct PreparedFile {
+    pub(crate) rel: String,
+    pub(crate) sha: String,
+    pub(crate) mime: &'static str,
+    pub(crate) original_name: Option<String>,
     too_large: bool,
     src: String,
 }
@@ -218,15 +218,81 @@ struct PreparedFile {
 /// Files already copied into a project's media folder and described, waiting to be recorded by
 /// [`Session::commit_attach`]. Made without the session, so a long copy and hash never holds it.
 pub struct PreparedAttach {
-    dir: PathBuf,
-    files: Vec<PreparedFile>,
-    failed: Vec<AttachFailure>,
+    pub(crate) dir: PathBuf,
+    pub(crate) files: Vec<PreparedFile>,
+    pub(crate) failed: Vec<AttachFailure>,
 }
 
 impl PreparedAttach {
     /// The files refused so far (before anything was recorded).
     pub fn failed(&self) -> &[AttachFailure] {
         &self.failed
+    }
+}
+
+/// What an agent says of a file it attaches. Used only when the file is new to the tree: a file
+/// already in it keeps what it says.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MediaAbout {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub date_raw: Option<String>,
+}
+
+/// The largest file an agent may attach.
+pub const AGENT_FILE_MAX: u64 = 50 * 1024 * 1024;
+
+/// What an agent may attach: an absolute path to an ordinary file of at most
+/// [`AGENT_FILE_MAX`] bytes that decodes whole as a picture, or a PDF document. Checked before
+/// anything is copied, so the tool cannot pull any other file into the tree. Sound recordings
+/// are the owner's to attach.
+pub fn check_agent_file(path: &Path) -> Result<(), ApiError> {
+    let refuse = |msg: &str| ApiError::new(ErrorCode::Invalid, msg);
+    if !path.is_absolute() {
+        return Err(refuse(
+            "file_path must be the full path of a file on this computer.",
+        ));
+    }
+    let meta = std::fs::metadata(path)
+        .map_err(|_| refuse("There is no file at file_path, or it cannot be read."))?;
+    if !meta.is_file() {
+        return Err(refuse("file_path must name a file, not a folder."));
+    }
+    if meta.len() == 0 {
+        return Err(refuse("The file is empty."));
+    }
+    if meta.len() > AGENT_FILE_MAX {
+        return Err(refuse(
+            "The file is larger than 50 MiB. Make a smaller copy of the picture and attach that.",
+        ));
+    }
+    let head = read_head(path).map_err(|_| refuse("The file cannot be read."))?;
+    match sniff(&head) {
+        Some(kind) if kind.is_audio() => Err(refuse(
+            "Sound recordings are attached by the owner only. Name the recording in your report.",
+        )),
+        Some(Kind::Pdf) => {
+            // A real PDF ends with its end-of-file marker; a renamed file of something else does not.
+            let bytes = std::fs::read(path).map_err(|_| refuse("The file cannot be read."))?;
+            let tail = &bytes[bytes.len().saturating_sub(2048)..];
+            if tail.windows(5).any(|w| w == b"%%EOF") {
+                Ok(())
+            } else {
+                Err(refuse(
+                    "The file starts like a PDF but is not a whole PDF document.",
+                ))
+            }
+        }
+        Some(_) => thumbs::decodes(path).map_err(|e| {
+            if e.message == thumbs::TOO_LARGE {
+                e
+            } else {
+                refuse("The file is not a picture that can be read (JPEG, PNG, WebP, GIF or TIFF).")
+            }
+        }),
+        None => Err(refuse(
+            "Only pictures (JPEG, PNG, WebP, GIF, TIFF) and PDF documents can be attached.",
+        )),
     }
 }
 
@@ -425,6 +491,7 @@ impl Session {
                     date: None,
                     description: None,
                     sha256: Some(f.sha),
+                    transcription: Vec::new(),
                 },
                 too_large: f.too_large,
                 src: f.src,

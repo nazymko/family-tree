@@ -103,6 +103,23 @@ pub(crate) fn image_dims(path: &Path) -> Option<(u32, u32)> {
     Some(if turned { (h, w) } else { (w, h) })
 }
 
+/// Decodes the whole picture, within the same limits as a preview, to prove it is one.
+pub(crate) fn decodes(path: &Path) -> Result<(), ApiError> {
+    let mut reader = ImageReader::open(path)
+        .and_then(ImageReader::with_guessed_format)
+        .map_err(|_| ApiError::new(ErrorCode::Invalid, "cannot read image"))?;
+    reader.limits(limits());
+    let (w, h) = reader.into_dimensions().map_err(map_image_err)?;
+    if u64::from(w) * u64::from(h) > MAX_PIXELS {
+        return Err(too_large());
+    }
+    let mut reader = ImageReader::open(path)
+        .and_then(ImageReader::with_guessed_format)
+        .map_err(|_| ApiError::new(ErrorCode::Invalid, "cannot read image"))?;
+    reader.limits(limits());
+    reader.decode().map(|_| ()).map_err(map_image_err)
+}
+
 fn flatten_to_rgb(img: &DynamicImage) -> (u32, u32, Vec<u8>) {
     if img.color().has_alpha() {
         let rgba = img.to_rgba8();

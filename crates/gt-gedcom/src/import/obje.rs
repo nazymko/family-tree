@@ -66,6 +66,7 @@ fn read_media_node(ctx: &mut Ctx, node: &GedNode, id: Uuid, inline: bool) -> Opt
         date: None,
         description: None,
         sha256: None,
+        transcription: Vec::new(),
     };
     if let Some(x) = &node.xref {
         m.common.ext_ids.push(ExternalId {

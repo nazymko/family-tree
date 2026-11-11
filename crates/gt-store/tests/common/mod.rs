@@ -200,6 +200,25 @@ pub fn rich_tree() -> Tree {
             date: date("ABT 1900"),
             description: Some("desc".into()),
             sha256: Some("abcdef".into()),
+            transcription: vec![
+                TextRegion {
+                    id: Uuid::from_u128(0xA1),
+                    area: Some(Region {
+                        x: 0.125,
+                        y: 0.25,
+                        w: 0.5,
+                        h: 0.0625,
+                    }),
+                    rotation: 90,
+                    text: "Dear Olha,".into(),
+                },
+                TextRegion {
+                    id: Uuid::from_u128(0xA2),
+                    area: None,
+                    rotation: 0,
+                    text: "The rest, with no place on the picture.".into(),
+                },
+            ],
         },
     );
 

@@ -45,6 +45,11 @@ export const commandFixtureMap = {
   deleteMedia: { type: 'deleteMedia', id: `${ID}9` },
   setPrimaryMedia: { type: 'setPrimaryMedia', person: `${ID}1`, media: `${ID}9` },
   updateMedia: { type: 'updateMedia', id: `${ID}9`, title: 'Wedding photograph', description: 'Outside the church', dateRaw: 'abt 1878' },
+  setMediaTranscription: {
+    type: 'setMediaTranscription',
+    id: `${ID}9`,
+    regions: [{ id: `${ID}a`, area: { x: 0.1, y: 0.2, w: 0.5, h: 0.1 }, rotation: 90, text: 'Dear Olha,' }, { text: 'Signed below' }],
+  },
   linkExisting: { type: 'linkExisting', anchor: `${ID}1`, relation: 'mother', person: `${ID}3`, family: `${ID}4`, newParentSet: false },
   importDraft: {
     type: 'importDraft',

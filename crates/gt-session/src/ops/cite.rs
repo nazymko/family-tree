@@ -81,6 +81,19 @@ pub(super) fn with_owner<R>(
             p.put(x);
             Ok((r, None))
         }
+        OwnerKind::Source => {
+            // A source holds pictures of itself (a photographed document); its notes and
+            // citations are not shown anywhere, so none are added to it.
+            let mut x: Source = p.get(target.id)?;
+            let r = f(&mut Fields {
+                notes: None,
+                citations: None,
+                media: Some(&mut x.common.media),
+            })?;
+            x.common.changed = Some(now);
+            p.put(x);
+            Ok((r, None))
+        }
         OwnerKind::Citation => {
             let mut x: Citation = p.get(target.id)?;
             let r = f(&mut common_fields(&mut x.common))?;
