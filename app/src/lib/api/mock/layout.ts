@@ -191,6 +191,19 @@ function memberCol(partners: number, member: number): number {
   return member === 0 ? 1 : member === 1 ? 0 : member;
 }
 
+/**
+ * Puts the unions of one unit in the order of their anchors along the row (the Rust `order_unions`): the anchor of a
+ * union with a partner is the couple connector, of a union without one the person's own card. So the children of each
+ * family hang below their own anchor and no two child lines cross; with one partner (on the right) the partnerless
+ * families come first. Stable; nothing moves when every union has a partner.
+ */
+function orderUnions<T extends { at: number | null }>(person: number, partners: number, unions: T[]): void {
+  const own = memberCol(partners, 0);
+  const key = (u: T): number => (u.at === null ? 2 * own : own + memberCol(partners, u.at - person));
+  const sorted = unions.map((u, i) => ({ u, i, k: key(u) })).sort((a, b) => a.k - b.k || a.i - b.i);
+  sorted.forEach((s, i) => (unions[i] = s.u));
+}
+
 /** The couple connector between a person and one partner, and where the children's line hangs from (`couple_link`). */
 function coupleLink(a: N, b: N, dip: number): [number[], [number, number]] {
   const [l, r] = a.x <= b.x ? [a, b] : [b, a];
@@ -241,6 +254,7 @@ export function layoutDescendants(root: Id, generationsIn: number, src: RustLayo
         pend.push({ at, children: u.children });
       }
     }
+    orderUnions(person, partners, pend);
     pending.push(pend);
     units.push({ person, partners, depth, parent, attach, children: [] });
     return units.length - 1;
