@@ -22,6 +22,18 @@ const MAX_ALLOC: u64 = 1024 * 1024 * 1024;
 const JPEG_QUALITY: u8 = 82;
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Held while a whole picture is decoded for an agent, so parallel calls cannot each take the
+/// memory of a full decode at once.
+static DECODING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Runs `f` while no other agent call is decoding a picture.
+pub fn one_decode_at_a_time<T>(f: impl FnOnce() -> T) -> T {
+    let _one = DECODING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    f()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThumbSize {
     /// 256 px longest side.

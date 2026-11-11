@@ -15,7 +15,6 @@ use serde_json::{Value, json};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::{Mutex, PoisonError};
 use uuid::Uuid;
 
 const PAGE_DEFAULT: u64 = 50;
@@ -41,9 +40,8 @@ const PICTURE_MAX_PX: u64 = 4096;
 const PICTURE_MIN_PX: u64 = 16;
 /// A picture is decoded and shrunk, so its file may be bigger than what goes back.
 const PICTURE_FILE_MAX: u64 = 256 * 1024 * 1024;
-const BLOB_MAX: u64 = 8 * 1024 * 1024;
-/// Decoding takes a lot of memory for a short while, so only one picture is decoded at a time.
-static DECODING: Mutex<()> = Mutex::new(());
+/// The largest file sent back whole; add_media refuses a bigger PDF for that reason.
+const BLOB_MAX: u64 = gt_session::AGENT_PDF_MAX;
 
 pub(crate) type ToolResult = Result<Vec<Value>, ApiError>;
 
@@ -1217,11 +1215,9 @@ fn get_media<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     Ok(vec![json_block(&details)?, block])
 }
 
-/// Runs `f` while no other picture is being decoded.
-fn one_decode_at_a_time<T>(f: impl FnOnce() -> T) -> T {
-    let _one = DECODING.lock().unwrap_or_else(PoisonError::into_inner);
-    f()
-}
+/// Decoding takes a lot of memory for a short while, so only one picture is decoded at a time,
+/// here and in add_media's check alike.
+use gt_session::one_decode_at_a_time;
 
 fn picture_block(path: &Path, max_size: u64, id: Uuid, mime: &str) -> Value {
     let too_big = std::fs::metadata(path).is_ok_and(|m| m.len() > PICTURE_FILE_MAX);

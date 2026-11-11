@@ -17,7 +17,7 @@ use gt_session::{
     EditCommand, EditResult, EventInput, EventOwner, EventOwnerKind, LivingPatch, MediaAbout,
     NameInput, NameKindDto, NoteInput, NoteKindDto, OwnerKind, OwnerRef, ParentRelId, PersonDraft,
     Relation, Session, SexKind, SourceInput, SourceRef, TextAreaInput, TextRegionInput,
-    UnionKindId, check_agent_file, parse_date_preview, prepare_attach,
+    UnionKindId, parse_date_preview, prepare_agent_file,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -339,7 +339,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "add_media",
-            description: "Attaches a picture or PDF document from a file on this computer to a person, family, event, source or citation, such as a photographed letter or register page. The file is copied into the tree; the original stays where it is. It must be a picture (JPEG, PNG, WebP, GIF, TIFF) that can be read, or a whole PDF, of at most 50 MiB: anything else is refused before it is copied. Sound recordings are the owner's to attach. A photographed document usually goes on its source: make the source with add_source first. The same file on the same record again answers alreadyThere with the media's id; a file already in the tree keeps its title. Then write what is on it with set_media_transcription.",
+            description: "Attaches a picture or PDF document from a file on this computer to a person, family, event, source or citation, such as a photographed letter or register page. The file is copied into the tree; the original stays where it is. It must be a picture (JPEG, PNG, WebP, GIF, TIFF) of at most 50 MiB that can be read, or a whole PDF of at most 8 MiB, on a local drive: network shares, device paths and paths through a link are refused, and anything else is refused before it is recorded. The batch, target and date are checked first. Sound recordings are the owner's to attach. A photographed document usually goes on its source: make the source with add_source first. The same file on the same record again answers alreadyThere with the media's id; a file already in the tree keeps its title. Then write what is on it with set_media_transcription.",
             schema: with_batch(
                 &["file_path", "target"],
                 json!({
@@ -1249,8 +1249,8 @@ fn update_own_citation<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolR
     )
 }
 
-/// Bytes of the text of one piece of a transcription.
-const REGION_TEXT_MAX: usize = 64 * 1024;
+/// Bytes of the text of one piece of a transcription: the same limit the session keeps.
+const REGION_TEXT_MAX: usize = gt_core::model::TEXT_PIECE_MAX;
 
 /// A number from 0 to 1 named `name` in `given`, or `None`.
 fn fraction(given: &Value, name: &str) -> Result<Option<f32>, ApiError> {
@@ -1285,9 +1285,11 @@ fn area_arg(given: &Value) -> Result<Option<TextAreaInput>, ApiError> {
 fn rotation_arg(given: &Value) -> Result<Option<u16>, ApiError> {
     match given.get("rotation") {
         None | Some(Value::Null) => Ok(None),
+        // 90 and 90.0 are the same number; 90.5 is not a rotation.
         Some(v) => v
-            .as_u64()
-            .and_then(|r| u16::try_from(r).ok())
+            .as_f64()
+            .filter(|r| r.fract() == 0.0 && (0.0..=270.0).contains(r))
+            .map(|r| r as u16)
             .filter(|r| gt_core::model::TEXT_ROTATIONS.contains(r))
             .map(Some)
             .ok_or_else(|| invalid("rotation must be 0, 90, 180 or 270".into())),
@@ -1386,33 +1388,40 @@ fn add_media<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
             .ok_or_else(|| invalid(format!("target.kind must be one of: {MEDIA_TARGETS}")))?,
         id: uuid_arg(given, "id").map_err(|_| invalid("target.id must be a record's id".into()))?,
     };
-    let about = MediaAbout {
+    let mut about = MediaAbout {
         title: short(args, "title")?,
         description: long(args, "description")?,
         date_raw: None,
     };
+    // Everything the tree can refuse is checked before the file is touched: the batch, the
+    // record and the date. A refused call then never learns anything about the path, and
+    // nothing is copied for it.
+    let mut date_warnings = Vec::new();
+    let (dir, date_raw) = host.with_session(&mut |s| {
+        s.check_attach_as_agent(target, ctx, batch)?;
+        let date = date_arg(s, args, "date", &mut date_warnings)?;
+        Ok((s.project_dir(), date))
+    })?;
+    about.date_raw = date_raw;
     // The file is checked, copied and hashed without the tree's lock, as the app's own attach is.
-    check_agent_file(&path)?;
-    let dir = host.with_session(&mut |s| Ok(s.project_dir()))?;
-    let prepared = std::cell::RefCell::new(Some(prepare_attach(
-        &dir,
-        target.kind,
-        std::slice::from_ref(&path),
-    )));
+    // A copy that is not recorded below is removed again when `file` is dropped.
+    let file = std::cell::RefCell::new(Some(prepare_agent_file(&dir, &path)?));
+    let media = std::cell::Cell::new(None);
     apply(
         host,
         ctx,
         |s, warnings| {
-            let mut about = about.clone();
-            about.date_raw = date_arg(s, args, "date", warnings)?;
-            let prepared = prepared
+            warnings.extend(date_warnings.iter().cloned());
+            let file = file
                 .borrow_mut()
                 .take()
                 .ok_or_else(|| invalid("The file was already handled.".into()))?;
-            let (write, reached) = s.attach_as_agent(target, prepared, &about, ctx, batch)?;
+            let (write, reached, id) = s.attach_as_agent(target, file, &about, ctx, batch)?;
+            media.set(Some(id));
             Ok((write, reached, None))
         },
-        |s, result| written(result, |id| s.tree().media.contains_key(id)),
+        // The media's id, also when the file was in the tree before and only the link is new.
+        |_, _| media.get(),
     )
 }
 
@@ -1455,8 +1464,17 @@ fn update_own_media_region<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> T
                 .media
                 .get(&media)
                 .ok_or_else(|| ApiError::not_found("media", media))?;
-            if !m.transcription.iter().any(|r| r.id == region) {
+            let Some(at) = m.transcription.iter().position(|r| r.id == region) else {
                 return Err(ApiError::not_found("piece of transcription", region));
+            };
+            // Someone else's piece may only be filled while its text is empty, and then only
+            // what is empty (the gate checks that): its place belongs with its text.
+            let own = s.own_text_regions(media, ctx.id)?;
+            if !own[at] && !m.transcription[at].text.trim().is_empty() {
+                return Err(ApiError::new(
+                    gt_session::ErrorCode::Conflict,
+                    "This piece was written by someone else, so it stays as it is, its place and                      turn too. Leave a note on the source instead, and say so in your report.",
+                ));
             }
             let regions = m
                 .transcription

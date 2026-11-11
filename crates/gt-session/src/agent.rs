@@ -923,45 +923,68 @@ impl Session {
         Ok((AgentWrite::Done(result), reached))
     }
 
-    /// Records a file an agent's tool copied in with [`crate::media::prepare_attach`] (one file,
-    /// checked first with [`check_agent_file`]) and links it to `target`, through
-    /// the same checks and log as any write. The same file already on `target` is a repeat.
+    /// What an agent's attach needs from the tree, checked before its file is touched at all: its
+    /// own open batch, and a record of an allowed kind that is there. So a closed or foreign batch
+    /// cannot be used to learn whether a path exists, and nothing is copied for a refused call.
+    pub fn check_attach_as_agent(
+        &self,
+        target: OwnerRef,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let there = match target.kind {
+            OwnerKind::Person => self.tree.persons.contains_key(&target.id),
+            OwnerKind::Family => self.tree.families.contains_key(&target.id),
+            OwnerKind::Event => self.tree.events.contains_key(&target.id),
+            OwnerKind::Source => self.tree.sources.contains_key(&target.id),
+            OwnerKind::Citation => self.tree.citations.contains_key(&target.id),
+            _ => {
+                return Err(refused(
+                    "A picture or document goes on a person, family, event, source or citation.",
+                ));
+            }
+        };
+        let kind = match target.kind {
+            OwnerKind::Person => "person",
+            OwnerKind::Family => "family",
+            OwnerKind::Event => "event",
+            OwnerKind::Source => "source",
+            _ => "citation",
+        };
+        if there {
+            Ok(())
+        } else {
+            Err(ApiError::not_found(kind, target.id))
+        }
+    }
+
+    /// Records a file an agent's tool copied in with [`prepare_agent_file`] and links it to
+    /// `target`, through the same checks and log as any write. It never becomes a person's main
+    /// picture: the owner chooses that. The same file already on `target` is a repeat. Returns,
+    /// besides the write, the media record's id, also when the file was in the tree before.
     pub fn attach_as_agent(
         &mut self,
         target: OwnerRef,
-        prepared: crate::media::PreparedAttach,
+        mut file: AgentFile,
         about: &crate::media::MediaAbout,
         ctx: &AgentCtx,
         batch: Uuid,
-    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
-        self.check_batch(ctx, batch)?;
-        if !matches!(
-            target.kind,
-            OwnerKind::Person
-                | OwnerKind::Family
-                | OwnerKind::Event
-                | OwnerKind::Source
-                | OwnerKind::Citation
-        ) {
-            return Err(refused(
-                "A picture or document goes on a person, family, event, source or citation.",
-            ));
-        }
-        if prepared.dir != self.project.dir {
+    ) -> Result<(AgentWrite, Vec<Uuid>, Uuid), ApiError> {
+        self.check_attach_as_agent(target, ctx, batch)?;
+        if file.prepared.dir != self.project.dir {
             return Err(ApiError::new(
                 ErrorCode::Conflict,
                 "The tree changed while the file was being copied; nothing was attached.",
             ));
         }
-        if let Some(failed) = prepared.failed.first() {
-            return Err(ApiError::new(ErrorCode::Invalid, failed.reason.clone()));
-        }
-        let [file] = prepared.files.as_slice() else {
+        let [prepared] = file.prepared.files.as_slice() else {
             return Err(ApiError::new(
                 ErrorCode::Invalid,
                 "Attach one file at a time.",
             ));
         };
+        let (rel, sha) = (prepared.rel.clone(), prepared.sha.clone());
         let (_, now) = (self.clock.0)();
         let order = self.day_order();
         let clean = |t: &Option<String>| {
@@ -972,17 +995,17 @@ impl Session {
         };
         let media = Media {
             common: crate::ops::new_common(now),
-            path: file.rel.clone(),
-            original_name: file.original_name.clone(),
-            mime: Some(file.mime.into()),
+            path: rel.clone(),
+            original_name: prepared.original_name.clone(),
+            mime: Some(prepared.mime.into()),
             title: clean(&about.title),
             date: crate::ops::parse_date(clean(&about.date_raw).as_deref(), order),
             description: clean(&about.description),
-            sha256: Some(file.sha.clone()),
+            sha256: Some(sha.clone()),
             transcription: Vec::new(),
         };
-        let sha = file.sha.clone();
-        let (cs, outcomes) = crate::ops::plan_attach(&self.tree, target, vec![media], now, order)?;
+        let (cs, outcomes) =
+            crate::ops::plan_attach(&self.tree, target, vec![media], now, order, false)?;
         let Some(Some(id)) = outcomes.first().copied() else {
             let record = self
                 .tree
@@ -990,14 +1013,20 @@ impl Session {
                 .values()
                 .find(|m| m.sha256.as_deref() == Some(sha.as_str()))
                 .map_or(target.id, |m| m.common.id);
-            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new(), record));
         };
         let cmd = EditCommand::AttachMedia {
             target,
             media: vec![id],
         };
         let focus = (target.kind == OwnerKind::Person).then_some(target.id);
-        self.pass_and_store(&cmd, cs, focus, ctx, batch)
+        let (write, reached) = self.pass_and_store(&cmd, cs, focus, ctx, batch)?;
+        // Recorded: the copy stays. A file already in the tree under another name is left to
+        // the record that has it, and this copy goes.
+        if self.tree.media.values().any(|m| m.path == rel) {
+            file.made = None;
+        }
+        Ok((write, reached, id))
     }
 
     /// Which pieces of a picture's transcription this connection wrote and nobody has changed
@@ -1792,58 +1821,206 @@ impl Session {
 /// The largest file an agent may attach.
 pub const AGENT_FILE_MAX: u64 = 50 * 1024 * 1024;
 
-/// What an agent may attach: an absolute path to an ordinary file of at most
-/// [`AGENT_FILE_MAX`] bytes that decodes whole as a picture, or a PDF document. Checked before
-/// anything is copied, so the tool cannot pull any other file into the tree. Sound recordings
-/// are the owner's to attach.
-pub fn check_agent_file(path: &std::path::Path) -> Result<(), ApiError> {
-    let refuse = |msg: &str| ApiError::new(ErrorCode::Invalid, msg);
+/// The largest PDF an agent may attach: what get_media can send back whole.
+pub const AGENT_PDF_MAX: u64 = 8 * 1024 * 1024;
+
+fn refuse_file(msg: &str) -> ApiError {
+    ApiError::new(ErrorCode::Invalid, msg)
+}
+
+/// The form of a path an agent gives, before anything is opened: a plain path on a local drive.
+/// A network share (`\\server\share`) would make Windows connect to that server and offer the
+/// user's credentials; device and verbatim paths (`\\.\`, `\\?\`) skip the usual checks.
+fn check_path_form(path: &std::path::Path) -> Result<(), ApiError> {
     if !path.is_absolute() {
-        return Err(refuse(
+        return Err(refuse_file(
             "file_path must be the full path of a file on this computer.",
         ));
     }
-    let meta = std::fs::metadata(path)
-        .map_err(|_| refuse("There is no file at file_path, or it cannot be read."))?;
+    let local = "file_path must be a file on a local drive of this computer, such as \
+                 C:\\Scans\\letter.jpg: not a network share or a device.";
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        match path.components().next() {
+            Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::Disk(_)) => {}
+            _ => return Err(refuse_file(local)),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let text = path.to_string_lossy();
+        if ["/dev/", "/proc/", "/sys/", "/net/"]
+            .iter()
+            .any(|p| text.starts_with(p))
+            || text.starts_with("//")
+        {
+            return Err(refuse_file(local));
+        }
+    }
+    Ok(())
+}
+
+/// What an agent may read: the path's form, no link (symbolic link or junction) anywhere on the
+/// way, an ordinary file of 1 byte to [`AGENT_FILE_MAX`]. Only the folders' and the file's own
+/// entries are read, and links are never followed.
+fn check_agent_path(path: &std::path::Path) -> Result<(), ApiError> {
+    check_path_form(path)?;
+    let missing = "There is no file at file_path, or it cannot be read.";
+    let linked = "file_path goes through a link (a symbolic link or junction). Give the real \
+                  path of the file.";
+    for step in path.ancestors().skip(1) {
+        if step.parent().is_none() {
+            break; // the drive itself
+        }
+        match std::fs::symlink_metadata(step) {
+            Ok(m) if m.file_type().is_symlink() => return Err(refuse_file(linked)),
+            Ok(_) => {}
+            Err(_) => return Err(refuse_file(missing)),
+        }
+    }
+    let meta = std::fs::symlink_metadata(path).map_err(|_| refuse_file(missing))?;
+    if meta.file_type().is_symlink() {
+        return Err(refuse_file(linked));
+    }
+    if meta.is_dir() {
+        return Err(refuse_file("file_path must name a file, not a folder."));
+    }
     if !meta.is_file() {
-        return Err(refuse("file_path must name a file, not a folder."));
-    }
-    if meta.len() == 0 {
-        return Err(refuse("The file is empty."));
-    }
-    if meta.len() > AGENT_FILE_MAX {
-        return Err(refuse(
-            "The file is larger than 50 MiB. Make a smaller copy of the picture and attach that.",
+        return Err(refuse_file(
+            "file_path must name an ordinary file, not a device or a pipe.",
         ));
     }
+    if meta.len() == 0 {
+        return Err(refuse_file("The file is empty."));
+    }
+    if meta.len() > AGENT_FILE_MAX {
+        return Err(refuse_file(TOO_BIG));
+    }
+    Ok(())
+}
+
+const TOO_BIG: &str =
+    "The file is larger than 50 MiB. Make a smaller copy of the picture and attach that.";
+const NOT_ALLOWED: &str =
+    "Only pictures (JPEG, PNG, WebP, GIF, TIFF) and PDF documents can be attached.";
+const SOUND: &str =
+    "Sound recordings are attached by the owner only. Name the recording in your report.";
+
+/// What the bytes at `path` are, when an agent may attach them: a picture that decodes whole
+/// (one decode at a time, see [`crate::thumbs::one_decode_at_a_time`]) or a whole PDF of at most
+/// [`AGENT_PDF_MAX`]. The PDF's end is read with a seek, never the whole file.
+fn check_agent_content(path: &std::path::Path) -> Result<crate::media::Kind, ApiError> {
     use crate::media::{Kind, read_head, sniff};
     use crate::thumbs;
-    let head = read_head(path).map_err(|_| refuse("The file cannot be read."))?;
+    use std::io::{Read, Seek, SeekFrom};
+    let unreadable = || refuse_file("The file cannot be read.");
+    let head = read_head(path).map_err(|_| unreadable())?;
     match sniff(&head) {
-        Some(kind) if kind.is_audio() => Err(refuse(
-            "Sound recordings are attached by the owner only. Name the recording in your report.",
-        )),
+        Some(kind) if kind.is_audio() => Err(refuse_file(SOUND)),
         Some(Kind::Pdf) => {
+            let mut f = std::fs::File::open(path).map_err(|_| unreadable())?;
+            let len = f.metadata().map_err(|_| unreadable())?.len();
+            if len > AGENT_PDF_MAX {
+                return Err(refuse_file(
+                    "A PDF can be at most 8 MiB, the most get_media can send back. Attach its \
+                     pages as pictures instead, or name the document in your report.",
+                ));
+            }
             // A real PDF ends with its end-of-file marker; a renamed file of something else does not.
-            let bytes = std::fs::read(path).map_err(|_| refuse("The file cannot be read."))?;
-            let tail = &bytes[bytes.len().saturating_sub(2048)..];
+            let mut tail = Vec::with_capacity(2048);
+            f.seek(SeekFrom::Start(len.saturating_sub(2048)))
+                .and_then(|_| f.take(2048).read_to_end(&mut tail))
+                .map_err(|_| unreadable())?;
             if tail.windows(5).any(|w| w == b"%%EOF") {
-                Ok(())
+                Ok(Kind::Pdf)
             } else {
-                Err(refuse(
+                Err(refuse_file(
                     "The file starts like a PDF but is not a whole PDF document.",
                 ))
             }
         }
-        Some(_) => thumbs::decodes(path).map_err(|e| {
-            if e.message == thumbs::TOO_LARGE {
-                e
-            } else {
-                refuse("The file is not a picture that can be read (JPEG, PNG, WebP, GIF or TIFF).")
-            }
-        }),
-        None => Err(refuse(
-            "Only pictures (JPEG, PNG, WebP, GIF, TIFF) and PDF documents can be attached.",
-        )),
+        Some(kind) => thumbs::one_decode_at_a_time(|| thumbs::decodes(path))
+            .map(|()| kind)
+            .map_err(|e| {
+                if e.message == thumbs::TOO_LARGE {
+                    e
+                } else {
+                    refuse_file(
+                        "The file is not a picture that can be read (JPEG, PNG, WebP, GIF or TIFF).",
+                    )
+                }
+            }),
+        None => Err(refuse_file(NOT_ALLOWED)),
     }
+}
+
+/// Whether an agent may attach the file at `path`, without copying it. The tool itself uses
+/// [`prepare_agent_file`], which checks the copy it makes.
+pub fn check_agent_file(path: &std::path::Path) -> Result<(), ApiError> {
+    check_agent_path(path)?;
+    check_agent_content(path).map(|_| ())
+}
+
+/// A file an agent's tool copied into the media folder, not yet recorded. Dropped before
+/// [`Session::attach_as_agent`] recorded it, a copy this call made is removed again, so a
+/// refused call leaves nothing behind.
+pub struct AgentFile {
+    prepared: crate::media::PreparedAttach,
+    /// The copy this call made; `None` once recorded, or when the same file was there before.
+    made: Option<std::path::PathBuf>,
+}
+
+impl Drop for AgentFile {
+    fn drop(&mut self) {
+        if let Some(p) = self.made.take() {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
+
+/// Copies the file at `path` into `<dir>/media` for an agent, without the session: the path's
+/// form first, then at most [`AGENT_FILE_MAX`] bytes copied, then the copy itself checked, so
+/// what is recorded is what was checked even if the original changes meanwhile. The copy is
+/// named by its type, never by the file's name.
+pub fn prepare_agent_file(
+    dir: &std::path::Path,
+    path: &std::path::Path,
+) -> Result<AgentFile, ApiError> {
+    use crate::media::{PreparedAttach, PreparedFile, read_head, sniff};
+    check_agent_path(path)?;
+    let head = read_head(path).map_err(|_| refuse_file("The file cannot be read."))?;
+    // Only the extension of the copy comes from here; the copy is checked again below.
+    let kind = sniff(&head).ok_or_else(|| refuse_file(NOT_ALLOWED))?;
+    if kind.is_audio() {
+        return Err(refuse_file(SOUND));
+    }
+    let stored = gt_store::add_media_file_as(dir, path, kind.ext(), Some(AGENT_FILE_MAX))
+        .map_err(|_| refuse_file("The file cannot be read."))?
+        .ok_or_else(|| refuse_file(TOO_BIG))?;
+    let copy = dir.join(&stored.rel);
+    let mut file = AgentFile {
+        prepared: PreparedAttach {
+            dir: dir.to_path_buf(),
+            files: Vec::new(),
+            failed: Vec::new(),
+        },
+        made: stored.created.then(|| copy.clone()),
+    };
+    if check_agent_content(&copy)? != kind {
+        return Err(refuse_file(
+            "The file changed while it was being copied. Try again.",
+        ));
+    }
+    let too_large = crate::thumbs::raw_dims(&copy)
+        .is_some_and(|(w, h)| u64::from(w) * u64::from(h) > crate::thumbs::MAX_PIXELS);
+    file.prepared.files.push(PreparedFile {
+        rel: stored.rel,
+        sha: stored.sha,
+        mime: kind.mime(),
+        original_name: path.file_name().map(|n| n.to_string_lossy().into_owned()),
+        too_large,
+        src: path.to_string_lossy().into_owned(),
+    });
+    Ok(file)
 }

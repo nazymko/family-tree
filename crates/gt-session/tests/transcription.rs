@@ -291,8 +291,8 @@ fn agent_attaches_a_picture_once_to_a_source() {
         description: None,
         date_raw: Some("1901".into()),
     };
-    let prepared = prepare_attach(&s.project_dir(), target.kind, std::slice::from_ref(&file));
-    let (w, _) = s
+    let prepared = prepare_agent_file(&s.project_dir(), &file).unwrap();
+    let (w, _, _) = s
         .attach_as_agent(target, prepared, &about, &me(), b)
         .unwrap();
     let AgentWrite::Done(_) = w else {
@@ -303,8 +303,8 @@ fn agent_attaches_a_picture_once_to_a_source() {
     assert_eq!(src.media[0].media.title.as_deref(), Some("Page 1"));
     let media = src.media[0].media.id;
     // The same file again is a repeat.
-    let prepared = prepare_attach(&s.project_dir(), target.kind, std::slice::from_ref(&file));
-    let (w, _) = s
+    let prepared = prepare_agent_file(&s.project_dir(), &file).unwrap();
+    let (w, _, _) = s
         .attach_as_agent(target, prepared, &about, &me(), b)
         .unwrap();
     assert!(matches!(w, AgentWrite::AlreadyThere { record } if record == media));
@@ -355,21 +355,13 @@ fn agent_attach_refuses_a_closed_batch_and_a_note() {
         kind: OwnerKind::Note,
         id: anna,
     };
-    let prepared = prepare_attach(
-        &s.project_dir(),
-        OwnerKind::Person,
-        std::slice::from_ref(&file),
-    );
+    let prepared = prepare_agent_file(&s.project_dir(), &file).unwrap();
     let e = s
         .attach_as_agent(note, prepared, &MediaAbout::default(), &me(), b)
         .unwrap_err();
     assert_eq!(e.code, ErrorCode::AgentRefused);
     s.end_batch(&me(), b, "done").unwrap();
-    let prepared = prepare_attach(
-        &s.project_dir(),
-        OwnerKind::Person,
-        std::slice::from_ref(&file),
-    );
+    let prepared = prepare_agent_file(&s.project_dir(), &file).unwrap();
     let e = s
         .attach_as_agent(person(anna), prepared, &MediaAbout::default(), &me(), b)
         .unwrap_err();

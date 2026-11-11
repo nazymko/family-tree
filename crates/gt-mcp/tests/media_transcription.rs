@@ -289,7 +289,7 @@ fn an_owners_region_stays_and_only_own_regions_change() {
         "update_own_media_region",
         json!({"batch": batch, "media": media, "region": ids[0], "text": "Rewritten"}),
     );
-    assert!(message.contains("did not create"), "{message}");
+    assert!(message.contains("someone else"), "{message}");
     assert_eq!(media_texts(&host, media)[0], "Owner's line");
     // Bad shapes are refused before anything is planned.
     let half = call_err(
