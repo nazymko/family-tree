@@ -155,11 +155,11 @@ pub(super) fn update_media(
 /// The most pieces one transcription holds.
 pub const TRANSCRIPTION_PARTS_MAX: usize = 2000;
 /// Bytes of the text of one piece.
-pub const TRANSCRIPTION_PART_MAX: usize = 64 * 1024;
+pub const TRANSCRIPTION_PART_MAX: usize = gt_core::model::TEXT_PIECE_MAX;
 /// Bytes of the text of a whole transcription.
 pub const TRANSCRIPTION_TEXT_MAX: usize = 1024 * 1024;
 /// The smallest width or height of an area, as a fraction of the picture.
-const AREA_MIN: f32 = 0.001;
+const AREA_MIN: f32 = gt_core::model::TEXT_AREA_MIN;
 
 /// An area of the picture, checked and pulled inside it.
 fn checked_area(a: &crate::command::TextAreaInput) -> Result<Region, ApiError> {
@@ -176,7 +176,7 @@ fn checked_area(a: &crate::command::TextAreaInput) -> Result<Region, ApiError> {
     if a.x < -0.01 || a.y < -0.01 || a.x > 1.0 || a.y > 1.0 || w < AREA_MIN || h < AREA_MIN {
         return Err(invalid(
             "An area must lie on the picture: x, y, w and h are fractions from 0 to 1 of its width \
-             and height, from the top left corner, and w and h are more than 0.",
+             and height, from the top left corner, and w and h are at least 0.01.",
         ));
     }
     Ok(Region { x, y, w, h })
@@ -258,6 +258,7 @@ pub(crate) fn plan_attach(
     staged: Vec<Media>,
     now: i64,
     order: DayOrder,
+    may_be_primary: bool,
 ) -> Result<(ChangeSet, Vec<Option<Uuid>>), ApiError> {
     let mut p = Planner::new(tree, now, order);
     let mut by_sha: HashMap<String, Uuid> = tree
@@ -291,7 +292,7 @@ pub(crate) fn plan_attach(
                 links.push(MediaLink {
                     media: id,
                     region: None,
-                    primary: links.is_empty(),
+                    primary: may_be_primary && links.is_empty(),
                 });
                 out.push(Some(id));
             }

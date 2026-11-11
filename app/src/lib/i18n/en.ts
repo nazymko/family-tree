@@ -2129,7 +2129,7 @@ export const en = {
     aiStopped: 'The reader stopped unexpectedly. Try again.',
     // A picture's transcription
     textAreaNumbers: 'An area of the picture needs x, y, w and h as numbers.',
-    textAreaOff: 'An area must lie on the picture: x, y, w and h are fractions from 0 to 1 of its width and height, from the top left corner, and w and h are more than 0.',
+    textAreaOff: 'An area must lie on the picture: x, y, w and h are fractions from 0 to 1 of its width and height, from the top left corner, and w and h are at least 0.01.',
     textOnSound: 'A sound recording has no picture to transcribe.',
     textPiecesMax: 'A transcription holds at most {n} pieces.',
     textTotalMax: 'A transcription holds up to 1 MiB of text. Put the rest on a source.',

@@ -329,6 +329,36 @@ pub struct TextRegion {
 /// The rotations a text region may have.
 pub const TEXT_ROTATIONS: [u16; 4] = [0, 90, 180, 270];
 
+/// The smallest width or height of a marked piece, as a fraction of the picture. The app's
+/// viewer draws no smaller box either.
+pub const TEXT_AREA_MIN: f32 = 0.01;
+
+/// Bytes of the text of one piece of a transcription.
+pub const TEXT_PIECE_MAX: usize = 64 * 1024;
+
+/// Makes a stored piece sound again: an area is pulled onto the picture (and dropped when
+/// nothing of it is left), an unknown rotation becomes 0. True when anything changed.
+pub fn mend_text_region(r: &mut TextRegion) -> bool {
+    let mut changed = false;
+    if !TEXT_ROTATIONS.contains(&r.rotation) {
+        r.rotation = 0;
+        changed = true;
+    }
+    if let Some(a) = r.area.clone() {
+        let ok = [a.x, a.y, a.w, a.h].iter().all(|v| v.is_finite());
+        let x = if ok { a.x.clamp(0.0, 1.0) } else { 0.0 };
+        let y = if ok { a.y.clamp(0.0, 1.0) } else { 0.0 };
+        let w = if ok { a.w.min(1.0 - x) } else { 0.0 };
+        let h = if ok { a.h.min(1.0 - y) } else { 0.0 };
+        let mended = (w > 0.0 && h > 0.0).then_some(Region { x, y, w, h });
+        if mended.as_ref() != Some(&a) {
+            r.area = mended;
+            changed = true;
+        }
+    }
+    changed
+}
+
 /// The whole transcription as one text: the parts in order, each trimmed, empty ones left out,
 /// with a blank line between them.
 pub fn transcription_text(regions: &[TextRegion]) -> String {
