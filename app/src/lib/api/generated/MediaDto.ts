@@ -10,4 +10,9 @@ resolved: boolean, width: number | null, height: number | null, sha256: string |
 /**
  * What is written on the picture, in reading order.
  */
-transcription: Array<TextRegionDto>, };
+transcription: Array<TextRegionDto>, 
+/**
+ * Degrees clockwise the picture is shown turned, on top of its EXIF orientation. The
+ * transcription's areas are on the picture before this turn.
+ */
+rotation: 0 | 90 | 180 | 270, };

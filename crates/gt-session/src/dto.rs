@@ -288,6 +288,10 @@ pub struct MediaDto {
     pub sha256: Option<String>,
     /// What is written on the picture, in reading order.
     pub transcription: Vec<TextRegionDto>,
+    /// Degrees clockwise the picture is shown turned, on top of its EXIF orientation. The
+    /// transcription's areas are on the picture before this turn.
+    #[ts(type = "0 | 90 | 180 | 270")]
+    pub rotation: u16,
 }
 
 /// One piece of a picture's transcription.

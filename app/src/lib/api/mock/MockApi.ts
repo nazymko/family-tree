@@ -256,6 +256,7 @@ const LABELS: Record<EditCommand['type'], string> = {
   setPrimaryMedia: 'Set primary media',
   updateMedia: 'Edit media',
   setMediaTranscription: 'Edit transcription',
+  setMediaRotation: 'Turn picture',
   importDraft: 'Add traced people',
   addNumber: 'Record number',
 };
@@ -967,6 +968,7 @@ export class MockApi implements Api {
           height: audioName.test(a.name) ? null : 768,
           sha256: null,
           transcription: [],
+          rotation: 0,
         };
         this.db.media.set(m.id, m);
         bag.media.push({ media: m, primary: bag.media.length === 0 });
@@ -2531,6 +2533,15 @@ export class MockApi implements Api {
         return { focus: null, touched: [m.id] };
       }
 
+      case 'setMediaRotation': {
+        const m = this.db.media.get(cmd.id);
+        if (!m) throw missing('media item', cmd.id);
+        if (![0, 90, 180, 270].includes(cmd.rotation)) throw invalid('rotation must be 0, 90, 180 or 270.');
+        if ((m.mime ?? '').startsWith('audio/') || m.mime === 'application/pdf') throw invalid('Only a picture can be turned.');
+        m.rotation = cmd.rotation;
+        return { focus: null, touched: [m.id] };
+      }
+
       case 'addNumber': {
         if (!cmd.sourceFile.trim() || !cmd.number.trim()) throw invalid('Give both the source file and the number.');
         const p = this.person(cmd.person);
@@ -2624,6 +2635,7 @@ export class MockApi implements Api {
         height: this.trace.image.height ?? null,
         sha256: null,
         transcription: [],
+        rotation: 0,
       };
       this.db.media.set(picture.id, picture);
       const sid = this.ids.next();

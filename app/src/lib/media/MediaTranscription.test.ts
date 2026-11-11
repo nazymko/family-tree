@@ -27,6 +27,7 @@ const media = (id: string, over: Partial<MediaDto> = {}): MediaDto => ({
   height: 400,
   sha256: null,
   transcription: PIECES,
+  rotation: 0,
   ...over,
 });
 

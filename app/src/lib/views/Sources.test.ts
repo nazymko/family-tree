@@ -24,6 +24,7 @@ describe('Sources', () => {
               id: 'scan1', title: 'Letter, page 1', mime: 'image/png', originalName: 'page1.png', date: null, description: null,
               resolved: true, width: 600, height: 800, sha256: null,
               transcription: [{ id: 't1', area: { x: 0.1, y: 0.1, w: 0.8, h: 0.1 }, rotation: 0, text: 'Dear cousin,' }],
+              rotation: 0,
             },
           },
         ],

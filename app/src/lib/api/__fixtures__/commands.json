@@ -232,6 +232,7 @@
       { "text": "Signed below" }
     ]
   },
+  { "type": "setMediaRotation", "id": "018f3a6e-0000-7000-8000-000000000009", "rotation": 270 },
   {
     "type": "linkExisting",
     "anchor": "018f3a6e-0000-7000-8000-000000000001",

@@ -148,6 +148,7 @@ export const uk: Messages = {
     setPrimaryMedia: 'Вибрати головне фото',
     editMedia: 'Змінити медіафайл',
     editTranscription: 'Змінити розшифровку',
+    turnPicture: 'Повернути зображення',
     correctDate: 'Виправити дату',
     recordNumber: 'Записати номер',
     linkMediaFiles: 'Зв’язати медіафайли',
@@ -183,6 +184,7 @@ export const uk: Messages = {
     donePrimaryMediaSet: 'Головне фото вибрано',
     doneMediaSaved: 'Медіафайл збережено',
     doneTranscriptionSaved: 'Розшифровку збережено',
+    donePictureTurned: 'Зображення повернуто',
     doneDateCorrected: 'Дату виправлено',
     doneNumberRecorded: 'Номер записано',
     doneMediaFilesLinked: 'Медіафайли зв’язано',
@@ -2122,6 +2124,7 @@ export const uk: Messages = {
     textRotation: 'Поворот має бути 0, 90, 180 або 270 градусів.',
     textOnDocument: 'Документ не має зображення, на якому можна позначити ділянку: подайте його текст без ділянки.',
     textSameId: 'Два фрагменти розшифровки мають однаковий ідентифікатор.',
+    turnNotPicture: 'Повернути можна лише зображення.',
     repairKind: {
       dangling_pointer: 'Посилання на відсутній запис',
       duplicate_xref: 'Повторювані ідентифікатори записів',

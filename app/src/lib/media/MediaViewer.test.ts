@@ -20,6 +20,7 @@ const media = (id: string): MediaDto => ({
   height: 600,
   sha256: null,
   transcription: [],
+  rotation: 0,
 });
 
 async function setup(count = 3, index = 0) {
