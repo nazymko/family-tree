@@ -1101,7 +1101,7 @@ fn every_kind_the_refusal_lists_can_be_used() {
     let (_, list) = message.split_once(": ").unwrap();
     let list = list.split(", or custom").next().unwrap();
     let kinds: Vec<&str> = list.split(", ").collect();
-    assert_eq!(kinds.len(), 33, "{kinds:?}");
+    assert_eq!(kinds.len(), 34, "{kinds:?}");
     let old = owners(&host, "Olena", SexKind::Female, Some("1805"));
     for kind in kinds {
         let reply = call_raw(

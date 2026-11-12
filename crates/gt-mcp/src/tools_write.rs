@@ -99,7 +99,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
     };
     let event_fields = |required: &[&str], more: Value| {
         let mut properties = json!({
-            "kind": {"type": "string", "description": "birth, death, burial, baptism, marriage, residence, occupation and so on, or custom:<your words>. A family takes what happens to a couple, like marriage, engagement, divorce, or residence."},
+            "kind": {"type": "string", "description": "birth, death, missing (went missing without trace), burial, baptism, marriage, residence, occupation and so on, or custom:<your words>. A family takes what happens to a couple, like marriage, engagement, divorce, or residence."},
             "date": date(),
             "place": short("As the source writes it, smallest place first, with commas. Other readings of it go in a note."),
             "description": writing("What the source says of it."),

@@ -105,6 +105,7 @@ const EVENT_KINDS = new Set([
   'christening',
   'baptism',
   'death',
+  'missing',
   'burial',
   'cremation',
   'adoption',

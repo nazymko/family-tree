@@ -89,6 +89,19 @@ describe('EventEditor', () => {
     expect(screen.getByRole('textbox', { name: 'Cause' })).toBeInTheDocument();
   });
 
+  it('went_missing_is_offered_after_death_and_saves_as_missing', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'apply');
+    show();
+    const kind = screen.getByRole('combobox', { name: 'Kind of event' });
+    const labels = within(kind).getAllByRole('option').map((o) => o.textContent);
+    expect(labels.indexOf('Went missing')).toBe(labels.indexOf('Death') + 1);
+    await user.selectOptions(kind, 'missing');
+    await user.click(screen.getByRole('button', { name: 'Save event' }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(lastEvent(spy).kind).toBe('missing');
+  });
+
   it('custom_kind_prefix', async () => {
     const user = userEvent.setup();
     const spy = vi.spyOn(api, 'apply');

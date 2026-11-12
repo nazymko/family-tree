@@ -93,7 +93,11 @@ pub(crate) fn read_event_child(ctx: &mut Ctx, owner: ParticipantRef, c: &GedNode
 }
 
 fn custom_kind(c: &GedNode) -> EventKind {
-    EventKind::Custom(child(c, "TYPE").and_then(val).unwrap_or("").to_string())
+    let t = child(c, "TYPE").and_then(val).unwrap_or("");
+    if t.trim().eq_ignore_ascii_case("missing") {
+        return EventKind::Missing;
+    }
+    EventKind::Custom(t.to_string())
 }
 
 fn some(s: &str) -> Option<String> {
@@ -305,7 +309,7 @@ pub(crate) fn read_event(
     kind: EventKind,
     negative: bool,
 ) {
-    let custom = matches!(kind, EventKind::Custom(_));
+    let custom = matches!(kind, EventKind::Custom(_) | EventKind::Missing);
     let evid = child(node, "_EVID")
         .and_then(val)
         .map(|s| s.trim().to_string());
