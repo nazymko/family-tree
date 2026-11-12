@@ -1692,11 +1692,9 @@ fn add_media<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
                 about.title = Some(d.title.clone());
                 taken.push(format!("title \"{}\"", d.title));
             }
-            if about.description.is_none() {
-                if let Some(t) = d.description.clone() {
-                    about.description = Some(t);
-                    taken.push("the time of day (in the description)".to_string());
-                }
+            if let (None, Some(t)) = (&about.description, d.description.clone()) {
+                about.description = Some(t);
+                taken.push("the time of day (in the description)".to_string());
             }
             if !taken.is_empty() {
                 from_name = Some(format!(

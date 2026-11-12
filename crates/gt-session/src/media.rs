@@ -540,7 +540,7 @@ impl Session {
                 let named = f
                     .mime
                     .starts_with("audio/")
-                    .then(|| f.original_name.as_deref())
+                    .then_some(f.original_name.as_deref())
                     .flatten()
                     .and_then(|n| crate::file_stamp::recording_defaults(n, year, language));
                 (f, named)

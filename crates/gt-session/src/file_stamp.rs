@@ -274,16 +274,18 @@ fn clock_after(rest: &str) -> Clock {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
     use super::*;
 
-    fn stamp(name: &str) -> Option<(i32, u8, u8, Option<(u8, u8, u8)>)> {
+    type Got = Option<(i32, u8, u8, Option<(u8, u8, u8)>)>;
+
+    fn stamp(name: &str) -> Got {
         stamp_from_file_name(name, 2026).map(|s| (s.year, s.month, s.day, s.time))
     }
 
-    const NOV: Option<(i32, u8, u8, Option<(u8, u8, u8)>)> = Some((2026, 11, 11, Some((9, 0, 49))));
-    const OCT: Option<(i32, u8, u8, Option<(u8, u8, u8)>)> =
-        Some((2026, 10, 31, Some((20, 29, 24))));
+    const NOV: Got = Some((2026, 11, 11, Some((9, 0, 49))));
+    const OCT: Got = Some((2026, 10, 31, Some((20, 29, 24))));
 
     #[test]
     fn voice_style_two_digit_year() {
