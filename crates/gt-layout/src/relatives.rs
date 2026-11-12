@@ -1336,6 +1336,52 @@ fn around_many_kin_with(
                 w,
             });
         }
+        // A couple of fresh parents stands with each partner on the side of their own parents: a partner whose
+        // brother or sister (or other child of their parents) stands in this row on one side of the couple, and
+        // whose partner has no such pull, goes to that side. Otherwise the order of the parents is kept.
+        let at_default: Vec<Vec<(Key, f32)>> = plans
+            .iter()
+            .map(|p| match p.fresh.len() {
+                2 => vec![
+                    (p.fresh[0], p.c - pstep / 2.0),
+                    (p.fresh[1], p.c + pstep / 2.0),
+                ],
+                1 => vec![(p.fresh[0], p.c)],
+                _ => Vec::new(),
+            })
+            .collect();
+        for pi in 0..plans.len() {
+            if plans[pi].fresh.len() != 2 {
+                continue;
+            }
+            let c = plans[pi].c;
+            let pull = |k: Key| -> Option<f32> {
+                let mine: Vec<Key> = src.parents(k).into_iter().flatten().collect();
+                if mine.is_empty() {
+                    return None;
+                }
+                let xs: Vec<f32> = at_default
+                    .iter()
+                    .enumerate()
+                    .filter(|&(qi, _)| qi != pi)
+                    .flat_map(|(_, v)| v.iter())
+                    .filter(|(o, _)| {
+                        src.parents(*o)
+                            .into_iter()
+                            .flatten()
+                            .any(|q| mine.contains(&q))
+                    })
+                    .map(|&(_, x)| x)
+                    .collect();
+                (!xs.is_empty()).then(|| xs.iter().sum::<f32>() / xs.len() as f32 - c)
+            };
+            let (a, b2) = (plans[pi].fresh[0], plans[pi].fresh[1]);
+            if let (pa, pb) = (pull(a), pull(b2))
+                && pa.unwrap_or(0.0) > pb.unwrap_or(0.0) + 0.5
+            {
+                plans[pi].fresh.swap(0, 1);
+            }
+        }
         // Place from the middle of the row outward: the group nearest the middle where it wants to be, the next
         // one outside it only as far as needed to clear it.
         let targets: Vec<f32> = plans
