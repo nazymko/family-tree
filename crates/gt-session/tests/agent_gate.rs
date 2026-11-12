@@ -403,6 +403,8 @@ fn delete_commands_refused() {
             media: any,
         },
         EditCommand::UpdateMedia {
+            place_text: None,
+            place_id: None,
             id: any,
             title: None,
             description: None,
@@ -2377,6 +2379,8 @@ fn an_agent_cannot_attach_or_remove_media_on_a_note() {
             media: any,
         },
         EditCommand::UpdateMedia {
+            place_text: None,
+            place_id: None,
             id: any,
             title: Some("A title".into()),
             description: None,

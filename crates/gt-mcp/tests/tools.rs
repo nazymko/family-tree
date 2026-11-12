@@ -400,6 +400,8 @@ fn person_with_voice_sample(host: &TestHost, bytes: &[u8]) -> (Uuid, Uuid, Uuid)
     });
     with(host, |s| {
         s.apply(EditCommand::UpdateMedia {
+            place_text: None,
+            place_id: None,
             id: media,
             title: Some("At the table".into()),
             description: None,
@@ -440,6 +442,7 @@ fn host_with_imported_media(mime: Option<&str>, bytes: &[u8]) -> (TestHost, Uuid
     tree.media.insert(
         id,
         Media {
+            place: None,
             common: Common {
                 id,
                 private: false,
@@ -1865,6 +1868,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
     tree.media.insert(
         ids.media,
         Media {
+            place: None,
             common: common(ids.media, "media", &second),
             path: mark("media-path"),
             original_name: Some(mark("media-original-name")),
@@ -1878,6 +1882,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
         },
     );
     let plain_media = |id: Uuid, title: &str| Media {
+        place: None,
         common: plain(id),
         path: mark("plain-path"),
         original_name: None,

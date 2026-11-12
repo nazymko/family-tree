@@ -1035,6 +1035,7 @@ impl Session {
                 .map(str::to_string)
         };
         let media = Media {
+            place: None,
             common: crate::ops::new_common(now),
             path: rel.clone(),
             original_name: prepared.original_name.clone(),

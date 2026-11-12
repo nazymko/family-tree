@@ -315,6 +315,10 @@ pub struct Media {
     /// on the picture upright by EXIF, before this turn. Old change-log rows have no such field.
     #[serde(default)]
     pub rotation: Option<u16>,
+    /// Where it was made (a recording recorded, a picture taken): a place of the same kind an
+    /// event has. Old change-log rows have no such field.
+    #[serde(default)]
+    pub place: Option<Uuid>,
 }
 
 impl Media {

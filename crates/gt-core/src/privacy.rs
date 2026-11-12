@@ -116,7 +116,12 @@ fn scrub_dangling(t: &mut Tree, orig: &Tree) {
             r.source = None;
         }
     });
-    t.media.values_mut().for_each(|r| fix(&mut r.common));
+    t.media.values_mut().for_each(|r| {
+        fix(&mut r.common);
+        if r.place.is_some_and(|p| places.contains(&p)) {
+            r.place = None;
+        }
+    });
     t.notes.values_mut().for_each(|r| fix(&mut r.common));
 }
 
@@ -165,6 +170,7 @@ fn reach(t: &Tree) -> [HashSet<Uuid>; 6] {
         for id in &keep[2] {
             if let Some(m) = t.media.get(id) {
                 common_refs(&m.common, &mut notes, &mut cits, &mut media);
+                places.extend(m.place);
             }
         }
         for id in &keep[3] {

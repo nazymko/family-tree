@@ -601,6 +601,7 @@ fn stored_paths_outside_media_are_never_served() {
         tree.media.insert(
             id,
             Media {
+                place: None,
                 common: Common {
                     id,
                     private: false,

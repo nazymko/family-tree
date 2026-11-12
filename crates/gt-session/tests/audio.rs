@@ -534,6 +534,8 @@ fn a_title_can_be_given_and_is_logged() {
     .unwrap();
     let id = note_media(&s, ivan)[0].media.id;
     s.apply(EditCommand::UpdateMedia {
+        place_text: None,
+        place_id: None,
         id,
         title: Some("Olena at the well".into()),
         description: None,

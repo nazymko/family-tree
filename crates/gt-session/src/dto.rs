@@ -285,6 +285,10 @@ pub struct MediaDto {
     pub original_name: Option<String>,
     pub date: Option<DateDto>,
     pub description: Option<String>,
+    /// Where it was made, when someone said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub place: Option<PlaceOption>,
     /// The file is in the project folder.
     pub resolved: bool,
     pub width: Option<u32>,

@@ -58,8 +58,8 @@ fn create_set(batch_id: Uuid, given: &str) -> ((ChangeSet, LogMeta), Uuid) {
 }
 
 #[test]
-fn schema_is_eight_and_a_v4_project_upgrades_with_a_backup() {
-    assert_eq!(SCHEMA_VERSION, 8);
+fn schema_is_nine_and_a_v4_project_upgrades_with_a_backup() {
+    assert_eq!(SCHEMA_VERSION, 9);
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("old.genetree");
     std::fs::create_dir_all(&dir).unwrap();

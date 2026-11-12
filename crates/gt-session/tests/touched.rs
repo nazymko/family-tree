@@ -255,6 +255,7 @@ fn new_citation(source: Uuid) -> CitationArg {
 
 fn media_record(name: &str) -> gt_core::model::Media {
     gt_core::model::Media {
+        place: None,
         common: gt_core::model::Common {
             id: Uuid::now_v7(),
             private: false,
@@ -464,6 +465,8 @@ fn media_commands_reach_those_who_show_the_picture() {
     let everyone_in_family = ["Ivan", "Olena", "Petro", "Stefan"];
 
     let edit = EditCommand::UpdateMedia {
+        place_text: None,
+        place_id: None,
         id: on_family,
         title: Some("The wedding".into()),
         description: None,

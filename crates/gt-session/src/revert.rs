@@ -339,6 +339,7 @@ pub(crate) fn all_refs(r: &Record, f: &mut dyn FnMut(Uuid)) {
         Record::Place(x) => x.parent.iter().for_each(|p| f(*p)),
         Record::Source(x) => x.repositories.iter().for_each(|p| f(p.repository)),
         Record::Citation(x) => x.source.iter().for_each(|p| f(*p)),
+        Record::Media(x) => x.place.iter().for_each(|p| f(*p)),
         _ => {}
     }
 }

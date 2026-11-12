@@ -631,6 +631,7 @@ fn media_rows(m: &Media, w: &dyn Words) -> Vec<Row> {
         sha256,
         transcription,
         rotation,
+        place,
     } = m;
     let written = gt_core::model::transcription_text(transcription);
     let mut out = vec![
@@ -639,6 +640,7 @@ fn media_rows(m: &Media, w: &dyn Words) -> Vec<Row> {
         text("mime", mime),
         text("title", title),
         row("when", date.as_ref().map(|d| d.display())),
+        row("place", place.map(|p| w.place(p))),
         text("description", description),
         text("sha256", sha256),
         row("transcription", Some(written).filter(|s| !s.is_empty())),

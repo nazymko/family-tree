@@ -555,6 +555,7 @@ impl Session {
             })
             .map(|(f, named)| Staged {
                 media: Media {
+                    place: None,
                     common: crate::ops::new_common(now),
                     path: f.rel,
                     original_name: f.original_name,

@@ -925,6 +925,7 @@ fn notes_sources_and_media() {
     // Media: attach (first is primary), set primary, detach.
     let mut m = |name: &str| {
         let media = Media {
+            place: None,
             common: gt_core::model::Common {
                 id: Uuid::now_v7(),
                 private: false,
@@ -972,6 +973,8 @@ fn notes_sources_and_media() {
     run_apply(
         &mut t,
         &EditCommand::UpdateMedia {
+            place_text: None,
+            place_id: None,
             id: m1,
             title: Some("Portrait".into()),
             description: None,
@@ -988,6 +991,7 @@ fn delete_media_leaves_no_link_anywhere_and_undo_restores_it() {
     let (anna, hans) = (find(&t, "Anna"), find(&t, "Hans"));
     let family = *t.families.keys().next().unwrap();
     let make = |name: &str| Media {
+        place: None,
         common: gt_core::model::Common {
             id: Uuid::now_v7(),
             private: false,

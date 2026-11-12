@@ -395,6 +395,7 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         sha256,
         transcription,
         rotation: _,
+        place,
     } = media;
     let rotation = media.shown_rotation();
     let link = MediaLink {
@@ -411,6 +412,7 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         "title": title,
         "date": date.as_ref().map(date_dto),
         "description": description,
+        "place": place.and_then(|p| s.place_option(p)),
         "sha256": sha256,
         "resolved": file.as_ref().is_some_and(|f| f.resolved),
         "width": file.as_ref().and_then(|f| f.width),

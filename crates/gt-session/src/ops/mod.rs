@@ -460,12 +460,16 @@ pub fn plan_with(
             title,
             description,
             date_raw,
+            place_text,
+            place_id,
         } => media::update_media(
             &mut p,
             *id,
             title.as_deref(),
             description.as_deref(),
             date_raw.as_deref(),
+            place_text.as_deref(),
+            *place_id,
         )?,
         C::AddNumber {
             person,
