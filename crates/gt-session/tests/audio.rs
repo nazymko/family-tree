@@ -241,6 +241,85 @@ fn cut_or_garbled_boxes_do_not_panic_on_attach() {
     let _ = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
 }
 
+// ---- the size line of "send a copy" ----
+
+#[test]
+fn copy_size_counts_recordings_apart_from_pictures() {
+    let (_d, mut s, _ivan, note, src) = setup();
+    let empty = s.copy_size().unwrap();
+    assert_eq!((empty.photos, empty.recordings), (0, 0));
+    let mut other = wav();
+    other.push(0);
+    for (name, bytes) in [("v1.wav", wav()), ("v2.wav", other)] {
+        let f = write(&src, name, &bytes);
+        s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+    }
+    let size = s.copy_size().unwrap();
+    assert_eq!(
+        (size.photos, size.recordings),
+        (0, 2),
+        "a recording is not a photo"
+    );
+}
+
+// ---- date and title from the file name ----
+
+#[test]
+fn a_recording_named_by_a_phone_gets_its_date_a_title_and_the_time() {
+    let (_d, mut s, _ivan, note, src) = setup();
+    let f = write(&src, "Voice 261111_090049.wav", &wav());
+    let r = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+    let m = &r.attached[0];
+    assert_eq!(m.date.as_ref().map(|d| d.raw.as_str()), Some("11 NOV 2026"));
+    let language = s.settings().language;
+    let (title, description) = if language == Language::Uk {
+        (
+            "Запис розмови 11.11.2026 (Voice 261111_090049)",
+            "Записано о 09:00:49 (за назвою файлу).",
+        )
+    } else {
+        (
+            "Recording 11.11.2026 (Voice 261111_090049)",
+            "Recorded at 09:00:49 (from the file name).",
+        )
+    };
+    assert_eq!(m.title.as_deref(), Some(title));
+    assert_eq!(m.description.as_deref(), Some(description));
+    // The other language, on a second file.
+    s.set_settings(SettingsPatch {
+        language: Some(if language == Language::Uk {
+            Language::En
+        } else {
+            Language::Uk
+        }),
+        ..Default::default()
+    })
+    .unwrap();
+    let f = write(&src, "Voice_261111_090050.wav", &{
+        let mut v = wav();
+        v.push(0);
+        v
+    });
+    let r = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+    assert_ne!(r.attached[0].title.as_deref(), Some(title));
+    assert!(
+        r.attached[0]
+            .title
+            .as_deref()
+            .unwrap()
+            .contains("11.11.2026 (Voice_261111_090050)")
+    );
+}
+
+#[test]
+fn a_recording_with_an_ordinary_name_gets_no_date() {
+    let (_d, mut s, _ivan, note, src) = setup();
+    let f = write(&src, "grandfather.wav", &wav());
+    let r = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+    let m = &r.attached[0];
+    assert!(m.date.is_none() && m.title.is_none() && m.description.is_none());
+}
+
 // ---- sniffing ----
 
 #[test]

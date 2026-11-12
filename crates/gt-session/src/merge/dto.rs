@@ -152,6 +152,9 @@ pub struct CopySizeDto {
     /// The database plus the photos, before compression.
     #[ts(type = "number")]
     pub bytes: u64,
+    /// Pictures and other non-audio files.
     pub photos: u32,
+    /// Sound recordings.
+    pub recordings: u32,
     pub people: u32,
 }

@@ -365,7 +365,7 @@ export class MockApi implements Api {
 
   async copySize(): Promise<CopySizeDto> {
     const people = [...this.db.persons.values()].filter((p) => !p.siblingMarker).length;
-    return { bytes: this.copyBytes, photos: 38, people };
+    return { bytes: this.copyBytes, photos: 38, recordings: 4, people };
   }
 
   /** Zip and folder passed to `openReceivedCopy`, for tests. */

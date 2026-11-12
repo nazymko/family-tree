@@ -272,6 +272,7 @@
     {#if !rec}
       {#if !error}<p class="muted">{t('rec.loading')}</p>{/if}
     {:else}
+      {#if rec.media.date?.display}<p class="muted" data-testid="recording-date">{rec.media.date.display}</p>{/if}
       <p class="sources">
         {#if rec.sources.length}
           {t('rec.onSources')}

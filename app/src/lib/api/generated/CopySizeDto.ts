@@ -7,4 +7,12 @@ export type CopySizeDto = {
 /**
  * The database plus the photos, before compression.
  */
-bytes: number, photos: number, people: number, };
+bytes: number, 
+/**
+ * Pictures and other non-audio files.
+ */
+photos: number, 
+/**
+ * Sound recordings.
+ */
+recordings: number, people: number, };

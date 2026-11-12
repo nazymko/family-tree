@@ -2367,6 +2367,33 @@ pub struct AgentFile {
     made: Option<std::path::PathBuf>,
 }
 
+impl Session {
+    /// The date, title and time of day a recording gets from its original file name, in the
+    /// interface language and by the session's clock; `None` when the name holds no date.
+    pub fn recording_defaults_for(
+        &self,
+        original_name: &str,
+    ) -> Option<crate::file_stamp::RecordingDefaults> {
+        let (_, now) = (self.clock.0)();
+        crate::file_stamp::recording_defaults(
+            original_name,
+            crate::file_stamp::year_of_unix_ms(now),
+            self.settings.language,
+        )
+    }
+}
+
+impl AgentFile {
+    /// The original file name when the copy is a sound recording; `None` for anything else.
+    pub fn recording_name(&self) -> Option<&str> {
+        let f = self.prepared.files.first()?;
+        f.mime
+            .starts_with("audio/")
+            .then_some(f.original_name.as_deref())
+            .flatten()
+    }
+}
+
 impl Drop for AgentFile {
     fn drop(&mut self) {
         if let Some(p) = self.made.take() {
