@@ -274,12 +274,12 @@ fn a_recording_named_by_a_phone_gets_its_date_a_title_and_the_time() {
     let language = s.settings().language;
     let (title, description) = if language == Language::Uk {
         (
-            "Запис розмови 11.11.2026 (Voice 261111_090049)",
+            "Запис розмови 11 листопада 2026 (Voice 261111_090049)",
             "Записано о 09:00:49 (за назвою файлу).",
         )
     } else {
         (
-            "Recording 11.11.2026 (Voice 261111_090049)",
+            "Recording 11 November 2026 (Voice 261111_090049)",
             "Recorded at 09:00:49 (from the file name).",
         )
     };
