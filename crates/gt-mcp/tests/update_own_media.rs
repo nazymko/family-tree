@@ -117,7 +117,11 @@ fn setup() -> Setup {
         "add_audio_clip",
         json!({"batch": first, "media": rec, "start": 0, "end": 1000, "target": {"kind": "note", "id": note}}),
     );
-    call(&host, "end_batch", json!({"batch": first, "report": "Done."}));
+    call(
+        &host,
+        "end_batch",
+        json!({"batch": first, "report": "Done."}),
+    );
     let batch = begin(&host);
     Setup {
         host,
@@ -136,7 +140,14 @@ fn update(t: &Setup, fields: Value) -> Value {
     call(&t.host, "update_own_media", args)
 }
 
-fn media_fields(t: &Setup) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+fn media_fields(
+    t: &Setup,
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
     with(&t.host, |s| {
         let m = &s.tree().media[&t.rec];
         (
@@ -157,12 +168,7 @@ fn untouched_parts(t: &Setup) -> (usize, Option<u16>, usize, String) {
             .iter()
             .filter(|l| l.clip.is_some())
             .count();
-        (
-            m.transcription.len(),
-            m.rotation,
-            clips,
-            m.path.clone(),
-        )
+        (m.transcription.len(), m.rotation, clips, m.path.clone())
     })
 }
 
@@ -181,7 +187,11 @@ fn changes_the_title_only() {
             Some("Lviv, Ukraine".into()),
         )
     );
-    assert_eq!(untouched_parts(&t), parts, "file, transcript, clips and turn stay");
+    assert_eq!(
+        untouched_parts(&t),
+        parts,
+        "file, transcript, clips and turn stay"
+    );
     assert_eq!(parts.0, 1);
     assert_eq!(parts.2, 1);
     let sources = with(&t.host, |s| s.source_dto(t.source).unwrap().media.len());
@@ -242,9 +252,9 @@ fn refuses_without_a_batch_and_with_no_field() {
 fn refuses_media_someone_else_added_and_media_the_owner_changed() {
     let t = setup();
     // Another agent, in a batch of its own, may not change what is not its own.
-    let theirs = call_as(&t.host, &other(), "begin_batch", json!({"title": "Other"})).unwrap()
-        ["batch"]
-        .clone();
+    let theirs =
+        call_as(&t.host, &other(), "begin_batch", json!({"title": "Other"})).unwrap()["batch"]
+            .clone();
     let message = call_as(
         &t.host,
         &other(),
@@ -283,7 +293,10 @@ fn refuses_media_someone_else_added_and_media_the_owner_changed() {
 fn history_label_names_the_title_and_the_batch_undo_restores_the_old_values() {
     let t = setup();
     // The record was added in an earlier batch; this batch only corrects it.
-    update(&t, json!({"title": "Interview with Ivan", "description": "", "date": "6 MAR 1987", "place": "Kyiv, Ukraine"}));
+    update(
+        &t,
+        json!({"title": "Interview with Ivan", "description": "", "date": "6 MAR 1987", "place": "Kyiv, Ukraine"}),
+    );
     assert_eq!(
         media_fields(&t),
         (
@@ -304,8 +317,15 @@ fn history_label_names_the_title_and_the_batch_undo_restores_the_old_values() {
         assert_eq!(groups[0].label, "Update media: Interview with Ivan");
     });
     let log = call(&t.host, "get_log", json!({"batch": t.batch})).to_string();
-    assert!(log.contains("Interview, side A"), "the old title is in the log: {log}");
-    call(&t.host, "end_batch", json!({"batch": t.batch, "report": "Corrected."}));
+    assert!(
+        log.contains("Interview, side A"),
+        "the old title is in the log: {log}"
+    );
+    call(
+        &t.host,
+        "end_batch",
+        json!({"batch": t.batch, "report": "Corrected."}),
+    );
     with(&t.host, |s| {
         s.undo_batch(batch).unwrap();
     });
@@ -333,7 +353,11 @@ fn place_is_set_on_add_media_changed_and_cleared_and_get_media_returns_it() {
     let t = setup();
     let raw = call_raw(&t.host, "get_media", json!({"id": t.rec}));
     let details: Value = serde_json::from_str(raw["content"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(details["place"]["full"], json!("Lviv, Ukraine"), "{details}");
+    assert_eq!(
+        details["place"]["full"],
+        json!("Lviv, Ukraine"),
+        "{details}"
+    );
 
     update(&t, json!({"place": "Kyiv, Ukraine"}));
     assert_eq!(media_fields(&t).3.as_deref(), Some("Kyiv, Ukraine"));

@@ -29,13 +29,33 @@ const MONTHS: [&str; 12] = [
 ];
 
 const MONTHS_EN: [&str; 12] = [
-    "January", "February", "March", "April", "May", "June", "July", "August", "September",
-    "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ];
 
 const MONTHS_UK: [&str; 12] = [
-    "січня", "лютого", "березня", "квітня", "травня", "червня", "липня", "серпня", "вересня",
-    "жовтня", "листопада", "грудня",
+    "січня",
+    "лютого",
+    "березня",
+    "квітня",
+    "травня",
+    "червня",
+    "липня",
+    "серпня",
+    "вересня",
+    "жовтня",
+    "листопада",
+    "грудня",
 ];
 
 impl FileStamp {
@@ -51,7 +71,11 @@ impl FileStamp {
     /// The date written out in the interface language: `11 листопада 2026` or `11 November 2026`.
     pub fn long_date(&self, language: Language) -> String {
         let i = usize::from(self.month).saturating_sub(1).min(11);
-        let month = if language == Language::Uk { MONTHS_UK[i] } else { MONTHS_EN[i] };
+        let month = if language == Language::Uk {
+            MONTHS_UK[i]
+        } else {
+            MONTHS_EN[i]
+        };
         format!("{} {month} {}", self.day, self.year)
     }
 
@@ -387,7 +411,10 @@ mod tests {
     #[test]
     fn titles_follow_the_language() {
         let uk = recording_defaults("Voice 261111_090049.m4a", 2026, Language::Uk).unwrap();
-        assert_eq!(uk.title, "Запис розмови 11 листопада 2026 (Voice 261111_090049)");
+        assert_eq!(
+            uk.title,
+            "Запис розмови 11 листопада 2026 (Voice 261111_090049)"
+        );
         assert_eq!(uk.date_raw, "11 NOV 2026");
         assert_eq!(
             uk.description.as_deref(),
