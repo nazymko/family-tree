@@ -34,6 +34,14 @@
     };
   });
 
+  /** "130 people, 2 photos, 4 recordings": a part with nothing in it is left out. */
+  function sizeParts(s: CopySizeDto): string {
+    const parts = [plural('merge.sendPeopleCount', s.people)];
+    if (s.photos > 0 || s.recordings === 0) parts.push(plural('merge.sendPhotoCount', s.photos));
+    if (s.recordings > 0) parts.push(plural('merge.sendRecordingCount', s.recordings));
+    return parts.join(', ');
+  }
+
   async function make() {
     error = '';
     const dest = await platform.pickSavePath({
@@ -79,8 +87,7 @@
       <p class="size">
         {t('merge.sendSize', {
           size: sizeText(size.bytes),
-          people: plural('merge.sendPeopleCount', size.people),
-          photos: plural('merge.sendPhotoCount', size.photos),
+          parts: sizeParts(size),
         })}
       </p>
     {:else}

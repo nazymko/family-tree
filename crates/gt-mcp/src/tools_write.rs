@@ -1676,13 +1676,44 @@ fn add_media<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     about.date_raw = date_raw;
     // The file is checked, copied and hashed without the tree's lock, as the app's own attach is.
     // A copy that is not recorded below is removed again when `file` is dropped.
-    let file = std::cell::RefCell::new(Some(prepare_agent_file(&dir, &path, target.kind)?));
+    let prepared = prepare_agent_file(&dir, &path, target.kind)?;
+    // A recording named by a phone recorder: what the agent left out is read from the name.
+    let mut from_name = None;
+    if let Some(name) = prepared.recording_name() {
+        let name = name.to_string();
+        let defaults = host.with_session(&mut |s| Ok(s.recording_defaults_for(&name)))?;
+        if let Some(d) = defaults {
+            let mut taken = Vec::new();
+            if about.date_raw.is_none() {
+                about.date_raw = Some(d.date_raw.clone());
+                taken.push(format!("date {}", d.date_raw));
+            }
+            if about.title.is_none() {
+                about.title = Some(d.title.clone());
+                taken.push(format!("title \"{}\"", d.title));
+            }
+            if about.description.is_none() {
+                if let Some(t) = d.description.clone() {
+                    about.description = Some(t);
+                    taken.push("the time of day (in the description)".to_string());
+                }
+            }
+            if !taken.is_empty() {
+                from_name = Some(format!(
+                    "Taken from the file name, as you gave none: {}. Change them with the                      media's own edit tools if the name is wrong.",
+                    taken.join(", ")
+                ));
+            }
+        }
+    }
+    let file = std::cell::RefCell::new(Some(prepared));
     let media = std::cell::Cell::new(None);
     apply(
         host,
         ctx,
         |s, warnings| {
             warnings.extend(date_warnings.iter().cloned());
+            warnings.extend(from_name.iter().cloned());
             let file = file
                 .borrow_mut()
                 .take()

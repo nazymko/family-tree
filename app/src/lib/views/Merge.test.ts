@@ -35,7 +35,7 @@ describe('SendCopyDialog', () => {
     expect(screen.getByText('Living people, with their names and details.')).toBeInTheDocument();
     expect(screen.getByText('Records you marked private.')).toBeInTheDocument();
     expect(screen.getByText(/edit history, including old text and text you have since removed, reports from assistants, and the names of relatives/)).toBeInTheDocument();
-    await screen.findByText(/Size of the file: about 3.3 MB/);
+    await screen.findByText(/Size of the file: about 3.3 MB \(30 people, 38 photos, 4 recordings\)/);
     expect(api.sentZips).toEqual([]);
   });
 

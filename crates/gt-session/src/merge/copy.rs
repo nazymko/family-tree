@@ -297,9 +297,21 @@ impl Session {
             .filter_map(|(p, _)| std::fs::metadata(p).ok())
             .map(|m| m.len())
             .sum();
+        let audio_paths: HashSet<String> = self
+            .tree
+            .media
+            .values()
+            .filter(|m| m.mime.as_deref().is_some_and(|t| t.starts_with("audio/")))
+            .map(|m| m.path.trim().to_string())
+            .collect();
+        let recordings = files
+            .iter()
+            .filter(|(_, name)| audio_paths.contains(name))
+            .count();
         Ok(CopySizeDto {
             bytes: db_bytes + photo_bytes,
-            photos: u32::try_from(files.len()).unwrap_or(u32::MAX),
+            photos: u32::try_from(files.len() - recordings).unwrap_or(u32::MAX),
+            recordings: u32::try_from(recordings).unwrap_or(u32::MAX),
             people: u32::try_from(
                 self.tree
                     .persons

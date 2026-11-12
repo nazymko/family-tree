@@ -12,6 +12,7 @@ pub mod dto;
 pub mod error;
 pub mod family_view;
 pub mod field_diff;
+pub mod file_stamp;
 pub mod import_format;
 pub mod index;
 pub mod kinship;

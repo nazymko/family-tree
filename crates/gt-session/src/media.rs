@@ -528,17 +528,34 @@ impl Session {
         let PreparedAttach {
             files, mut failed, ..
         } = prepared;
+        let (year, language, order) = (
+            crate::file_stamp::year_of_unix_ms(now),
+            self.settings.language,
+            self.day_order(),
+        );
         let staged: Vec<Staged> = files
             .into_iter()
-            .map(|f| Staged {
+            .map(|f| {
+                // A recording named by a phone recorder gets its date and a readable title.
+                let named = f
+                    .mime
+                    .starts_with("audio/")
+                    .then(|| f.original_name.as_deref())
+                    .flatten()
+                    .and_then(|n| crate::file_stamp::recording_defaults(n, year, language));
+                (f, named)
+            })
+            .map(|(f, named)| Staged {
                 media: Media {
                     common: crate::ops::new_common(now),
                     path: f.rel,
                     original_name: f.original_name,
                     mime: Some(f.mime.into()),
-                    title: None,
-                    date: None,
-                    description: None,
+                    title: named.as_ref().map(|d| d.title.clone()),
+                    date: named
+                        .as_ref()
+                        .and_then(|d| crate::ops::parse_date(Some(&d.date_raw), order)),
+                    description: named.and_then(|d| d.description),
                     sha256: Some(f.sha),
                     transcription: Vec::new(),
                     rotation: None,

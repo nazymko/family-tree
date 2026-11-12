@@ -87,6 +87,59 @@ fn setup() -> Setup {
 }
 
 #[test]
+fn a_recording_without_a_date_takes_it_from_its_phone_file_name_and_says_so() {
+    let t = setup();
+    let path = file(&t.host, "Voice 261111_090049.wav", &wav(1_000));
+    let answer = call(
+        &t.host,
+        "add_media",
+        json!({"batch": t.batch, "file_path": path.to_string_lossy(), "target": {"kind": "source", "id": t.source}}),
+    );
+    let said = answer["warnings"][0].as_str().unwrap();
+    assert!(
+        said.contains("Taken from the file name") && said.contains("11 NOV 2026"),
+        "{said}"
+    );
+    let id: Uuid = serde_json::from_value(answer["id"].clone()).unwrap();
+    let (date, title, description) = with(&t.host, |s| {
+        let m = &s.tree().media[&id];
+        (
+            m.date.as_ref().map(|d| d.raw.clone()),
+            m.title.clone(),
+            m.description.clone(),
+        )
+    });
+    assert_eq!(date.as_deref(), Some("11 NOV 2026"));
+    // The session's interface language is Ukrainian by default.
+    assert_eq!(
+        title.as_deref(),
+        Some("Запис розмови 11.11.2026 (Voice 261111_090049)")
+    );
+    assert!(description.unwrap().contains("09:00:49"));
+}
+
+#[test]
+fn an_explicit_title_and_date_from_the_agent_win_over_the_file_name() {
+    let t = setup();
+    let path = file(&t.host, "VID20261031202924.wav", &wav(1_000));
+    let answer = call(
+        &t.host,
+        "add_media",
+        json!({"batch": t.batch, "file_path": path.to_string_lossy(), "target": {"kind": "source", "id": t.source},
+               "title": "Side B", "date": "5 MAR 1987"}),
+    );
+    let id: Uuid = serde_json::from_value(answer["id"].clone()).unwrap();
+    let (date, title) = with(&t.host, |s| {
+        let m = &s.tree().media[&id];
+        (m.date.as_ref().map(|d| d.raw.clone()), m.title.clone())
+    });
+    assert_eq!(date.as_deref(), Some("5 MAR 1987"));
+    assert_eq!(title.as_deref(), Some("Side B"));
+    let said = answer["warnings"][0].as_str().unwrap_or_default();
+    assert!(!said.contains("date"), "{said}");
+}
+
+#[test]
 fn a_recording_goes_on_its_source_only_and_get_media_reads_it_without_its_sound() {
     let t = setup();
     let path = file(&t.host, "again.wav", &wav(1_000));
