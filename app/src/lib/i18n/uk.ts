@@ -2169,6 +2169,7 @@ export const uk: Messages = {
     fileEmpty: 'файл порожній',
     alreadyAttached: 'уже прикріплено',
     unsupportedType: 'непідтримуваний тип',
+    videoNotSound: 'це відео, а не звукозапис',
     noPreview: 'Для цього типу файлу немає попереднього перегляду.',
     imageTooLarge: 'зображення завелике для попереднього перегляду',
     imageRead: 'не вдалося прочитати зображення',

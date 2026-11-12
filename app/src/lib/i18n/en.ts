@@ -2183,6 +2183,7 @@ export const en = {
     fileEmpty: 'file is empty',
     alreadyAttached: 'already attached',
     unsupportedType: 'unsupported type',
+    videoNotSound: 'this is a video, not a sound recording',
     noPreview: 'No preview for this file type.',
     imageTooLarge: 'image too large to preview',
     imageRead: 'cannot read image',
