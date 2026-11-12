@@ -1336,10 +1336,7 @@ fn around_many_kin_with(
                 w,
             });
         }
-        // A couple of fresh parents stands with each partner on the side of their own parents: a partner whose
-        // brother or sister (or other child of their parents) stands in this row on one side of the couple, and
-        // whose partner has no such pull, goes to that side. Otherwise the order of the parents is kept.
-        let at_default: Vec<Vec<(Key, f32)>> = plans
+        let fresh_at: Vec<Vec<(Key, f32)>> = plans
             .iter()
             .map(|p| match p.fresh.len() {
                 2 => vec![
@@ -1350,35 +1347,51 @@ fn around_many_kin_with(
                 _ => Vec::new(),
             })
             .collect();
+        // A couple of fresh parents whose two partners both have parents of their own on the chart stands with
+        // each partner on the side of their own parents: a partner whose brother or sister (or other child of their
+        // parents) stands in this row on one side of the couple goes to that side. Otherwise the order is kept.
+        let mut pulls: Option<HashMap<Key, (f32, u32)>> = None;
         for (pi, plan) in plans.iter_mut().enumerate() {
             if plan.fresh.len() != 2 {
                 continue;
             }
-            let c = plan.c;
-            let pull = |k: Key| -> Option<f32> {
-                let mine: Vec<Key> = src.parents(k).into_iter().flatten().collect();
-                if mine.is_empty() {
-                    return None;
-                }
-                let xs: Vec<f32> = at_default
-                    .iter()
-                    .enumerate()
-                    .filter(|&(qi, _)| qi != pi)
-                    .flat_map(|(_, v)| v.iter())
-                    .filter(|(o, _)| {
-                        src.parents(*o)
-                            .into_iter()
-                            .flatten()
-                            .any(|q| mine.contains(&q))
-                    })
-                    .map(|&(_, x)| x)
-                    .collect();
-                (!xs.is_empty()).then(|| xs.iter().sum::<f32>() / xs.len() as f32 - c)
-            };
             let (a, b2) = (plan.fresh[0], plan.fresh[1]);
-            if let (pa, pb) = (pull(a), pull(b2))
-                && pa.unwrap_or(0.0) > pb.unwrap_or(0.0) + 0.5
-            {
+            let (pa, pb) = (src.parents(a), src.parents(b2));
+            if pa.iter().all(Option::is_none) || pb.iter().all(Option::is_none) {
+                continue;
+            }
+            // Where every parent's children of this row stand, by default order: sum of x and count.
+            let idx = pulls.get_or_insert_with(|| {
+                let mut m: HashMap<Key, (f32, u32)> = HashMap::new();
+                for p in &fresh_at {
+                    for &(o, x) in p {
+                        for q in src.parents(o).into_iter().flatten() {
+                            let e = m.entry(q).or_insert((0.0, 0));
+                            e.0 += x;
+                            e.1 += 1;
+                        }
+                    }
+                }
+                m
+            });
+            let c = plan.c;
+            let pull = |ps: [Option<Key>; 2]| -> f32 {
+                let (mut sum, mut n) = (0.0, 0u32);
+                for q in ps.into_iter().flatten() {
+                    if let Some(&(s, k)) = idx.get(&q) {
+                        // Without the couple's own two people (counted once each in the index).
+                        let own: Vec<f32> = fresh_at[pi]
+                            .iter()
+                            .filter(|(o, _)| src.parents(*o).into_iter().flatten().any(|z| z == q))
+                            .map(|&(_, x)| x)
+                            .collect();
+                        sum += s - own.iter().sum::<f32>();
+                        n += k - own.len() as u32;
+                    }
+                }
+                if n == 0 { 0.0 } else { sum / n as f32 - c }
+            };
+            if pull(pa) > pull(pb) + 0.5 {
                 plan.fresh.swap(0, 1);
             }
         }
