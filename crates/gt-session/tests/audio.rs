@@ -302,13 +302,13 @@ fn a_recording_named_by_a_phone_gets_its_date_a_title_and_the_time() {
     });
     let r = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
     assert_ne!(r.attached[0].title.as_deref(), Some(title));
-    assert!(
-        r.attached[0]
-            .title
-            .as_deref()
-            .unwrap()
-            .contains("11.11.2026 (Voice_261111_090050)")
-    );
+    // The language switched, so the date is written the other way.
+    let other = if language == Language::Uk {
+        "Recording 11 November 2026 (Voice_261111_090050)"
+    } else {
+        "Запис розмови 11 листопада 2026 (Voice_261111_090050)"
+    };
+    assert_eq!(r.attached[0].title.as_deref(), Some(other));
 }
 
 #[test]
