@@ -330,6 +330,23 @@ describe('the full player', () => {
     expect(screen.getByRole('combobox', { name: 'Speed' })).toBeTruthy();
   });
 
+  it('shows_the_place_next_to_the_date_and_saves_a_new_one_only_with_the_button', async () => {
+    const t = await interview();
+    await t.api.apply({ type: 'updateMedia', id: t.media.id, dateRaw: '5 MAR 1987', placeText: 'Lviv, Ukraine' });
+    renderWith(RecordingPlayer, { media: t.media.id, onclose: vi.fn() }, { api: t.api });
+    await screen.findByRole('heading', { name: 'Clips of recordings' });
+    expect(screen.getByTestId('recording-date').textContent).toContain('1987');
+    expect(screen.getByTestId('recording-place').textContent).toBe('Lviv, Ukraine');
+    const spy = vi.spyOn(t.api, 'apply');
+    const field = screen.getByRole('combobox', { name: 'Where it was recorded' });
+    await userEvent.clear(field);
+    await userEvent.type(field, 'Kyiv, Ukraine');
+    expect(spy).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Save place' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ type: 'updateMedia', id: t.media.id, placeText: 'Kyiv, Ukraine' }));
+    await waitFor(() => expect(screen.getByTestId('recording-place').textContent).toBe('Kyiv, Ukraine'));
+  });
+
   it('starts_at_the_clip_it_was_opened_for_and_pages_between_clips', async () => {
     const t = await interview();
     const id = (await t.api.getRecording(t.media.id)).clips[1].clip.id;

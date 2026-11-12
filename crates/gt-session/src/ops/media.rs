@@ -142,8 +142,16 @@ pub(super) fn update_media(
     title: Option<&str>,
     description: Option<&str>,
     date_raw: Option<&str>,
+    place_text: Option<&str>,
+    place_id: Option<Uuid>,
 ) -> Result<Option<Uuid>, ApiError> {
     let mut m: Media = p.get(id)?;
+    if let Some(pl) = place_id {
+        p.get::<gt_core::model::Place>(pl)?;
+        m.place = Some(pl);
+    } else if let Some(t) = place_text {
+        m.place = super::places::place_for_text(p, t)?;
+    }
     if let Some(t) = title {
         m.title = text(Some(t));
     }

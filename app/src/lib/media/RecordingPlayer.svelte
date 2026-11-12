@@ -34,6 +34,7 @@
   import Banner from '../ui/Banner.svelte';
   import '../ui/controls.css';
   import ClipEditor from './ClipEditor.svelte';
+  import PlacePicker from '../editors/PlacePicker.svelte';
   import TranscriptPanel from './TranscriptPanel.svelte';
   import { getApi } from '../api/context';
   import type { Id, PersonRef, RecordingClipDto, RecordingDto } from '../api/api';
@@ -261,6 +262,21 @@
     }
   }
 
+  // Where it was recorded: picked or typed, saved with the button so typing alone makes no places.
+  let pendingPlace = $state<{ placeId?: Id; placeText?: string } | null | undefined>(undefined);
+  async function savePlace() {
+    if (pendingPlace === undefined) return;
+    const v = pendingPlace;
+    try {
+      await api.apply({ type: 'updateMedia', id: media, ...(v?.placeId ? { placeId: v.placeId } : { placeText: v?.placeText ?? '' }) });
+      pendingPlace = undefined;
+      error = '';
+      await load(media, undefined, false);
+    } catch (e) {
+      error = errMessage(e);
+    }
+  }
+
   const clipName = (c: RecordingClipDto) => c.clip.label || t('rec.untitledClip');
   const pct = (ms: number) => `${(Math.min(ms, span) / span) * 100}%`;
 </script>
@@ -272,7 +288,19 @@
     {#if !rec}
       {#if !error}<p class="muted">{t('rec.loading')}</p>{/if}
     {:else}
-      {#if rec.media.date?.display}<p class="muted" data-testid="recording-date">{rec.media.date.display}</p>{/if}
+      {#if rec.media.date?.display || rec.media.place}
+        <p class="muted">
+          {#if rec.media.date?.display}<span data-testid="recording-date">{rec.media.date.display}</span>{/if}
+          {#if rec.media.date?.display && rec.media.place}<span aria-hidden="true"> · </span>{/if}
+          {#if rec.media.place}<span data-testid="recording-place">{rec.media.place.full}</span>{/if}
+        </p>
+      {/if}
+      {#key rec.media.id}
+        <div class="place">
+          <PlacePicker label={t('rec.placeLabel')} value={rec.media.place ?? null} text="" onChange={(v) => (pendingPlace = v)} />
+          {#if pendingPlace !== undefined}<Button onclick={savePlace}>{t('rec.savePlace')}</Button>{/if}
+        </div>
+      {/key}
       <p class="sources">
         {#if rec.sources.length}
           {t('rec.onSources')}
@@ -427,6 +455,11 @@
 </Dialog>
 
 <style>
+  .place {
+    display: grid;
+    gap: var(--s-2);
+    justify-items: start;
+  }
   .player {
     display: grid;
     gap: var(--s-4);

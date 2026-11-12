@@ -139,8 +139,9 @@ fn schema_6_project_gains_the_rotation_column_and_its_pictures_stay_unturned() {
     assert_eq!((m.rotation, m.shown_rotation()), (None, 0));
 }
 
-/// Takes a project back from schema 8: no clip columns on media links.
-const DROP_CLIPS: &str = "ALTER TABLE media_link DROP COLUMN clip_id; \
+/// Takes a project back from schema 8: no place on media, no clip columns on media links.
+const DROP_CLIPS: &str = "ALTER TABLE media DROP COLUMN place_id; \
+    ALTER TABLE media_link DROP COLUMN clip_id; \
     ALTER TABLE media_link DROP COLUMN clip_start_ms; ALTER TABLE media_link DROP COLUMN clip_end_ms; \
     ALTER TABLE media_link DROP COLUMN clip_label;";
 
@@ -165,7 +166,7 @@ fn schema_7_project_gains_the_clip_columns_and_its_links_stay_whole() {
         .unwrap();
     }
     let p = Project::open(&dir).unwrap();
-    assert_eq!(p.schema_version(), 8);
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
     let has: i64 = p
         .conn()
         .query_row(
@@ -182,6 +183,42 @@ fn schema_7_project_gains_the_clip_columns_and_its_links_stay_whole() {
         person.common.media[0].clip, None,
         "an old link is to the whole recording"
     );
+}
+
+#[test]
+fn schema_8_project_gains_the_media_place_column_and_its_media_have_no_place() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // What a schema 8 app left behind: a recording, no place column.
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            "ALTER TABLE media DROP COLUMN place_id; PRAGMA user_version = 8; \
+             INSERT INTO media(id, seq, private, path, mime) \
+             VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.ogg', 'audio/ogg');",
+        )
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
+    assert_eq!(SCHEMA_VERSION, 9);
+    let has: i64 = p
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('media') WHERE name = 'place_id'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(has, 1);
+    let tree = p.load_tree().unwrap();
+    assert_eq!(tree.media.values().next().unwrap().place, None);
+    // The upgrade left a backup of the schema 8 file beside it.
+    let backups = std::fs::read_dir(dir.join("backups"))
+        .map(|d| d.count())
+        .unwrap_or(0);
+    assert!(backups >= 1, "no pre-migration backup");
 }
 
 #[test]

@@ -864,15 +864,16 @@ pub(crate) fn insert_media(tx: &Transaction, m: &Media, seq: i64) -> Result<(), 
     tx.prepare_cached(
         "INSERT INTO media(id, seq, private, changed, unknown_json, path, original_name, mime, \
          title, date_raw, date_json, date_sort_min, date_sort_max, description, sha256, \
-         transcription_json, rotation) \
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17) \
+         transcription_json, rotation, place_id) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18) \
          ON CONFLICT(id) DO UPDATE SET private=excluded.private, changed=excluded.changed, \
          unknown_json=excluded.unknown_json, path=excluded.path, \
          original_name=excluded.original_name, mime=excluded.mime, title=excluded.title, \
          date_raw=excluded.date_raw, date_json=excluded.date_json, \
          date_sort_min=excluded.date_sort_min, date_sort_max=excluded.date_sort_max, \
          description=excluded.description, sha256=excluded.sha256, \
-         transcription_json=excluded.transcription_json, rotation=excluded.rotation",
+         transcription_json=excluded.transcription_json, rotation=excluded.rotation, \
+         place_id=excluded.place_id",
     )?
     .execute(params![
         s(&c.id),
@@ -896,6 +897,7 @@ pub(crate) fn insert_media(tx: &Transaction, m: &Media, seq: i64) -> Result<(), 
             Some(serde_json::to_string(&m.transcription).map_err(|e| corrupt(e.to_string()))?)
         },
         m.rotation,
+        m.place.as_ref().map(s),
     ])?;
     save_common(tx, "media", c)
 }

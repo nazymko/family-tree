@@ -380,6 +380,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
                     "title": short("A title, such as Letter from Olha, page 1."),
                     "description": writing("What it shows."),
                     "date": date(),
+                    "place": short("Where it was recorded or taken, as the source writes it, smallest place first, with commas."),
                 }),
             ),
             call: add_media::<H>,
@@ -473,6 +474,21 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
                 }),
             ),
             call: set_media_rotation::<H>,
+        },
+        Tool {
+            name: "update_own_media",
+            description: "Changes the title, description, date or place of a picture, document or recording. What you leave out stays as it is; an empty title, description or place takes it away. The date is read like the date of add_media. Give at least one of them. It works on a media record you added yourself, which the owner has not changed since; on any other you can only fill what is empty, and the rest stays as it is: say what you found in a note. Only these fields change: the file, its transcription, its clips, its rotation and where it is linked stay as they are. Saying again what it says answers alreadyThere. The change is in the history under your name, and the owner can undo it with the batch.",
+            schema: with_batch(
+                &["media"],
+                json!({
+                    "media": id("The media's id."),
+                    "title": short("A title, such as Letter from Olha, page 1. Empty takes it away."),
+                    "description": writing("What it shows. Empty takes it away."),
+                    "date": date(),
+                    "place": short("Where it was recorded or taken, as the source writes it, smallest place first, with commas. Empty takes it away."),
+                }),
+            ),
+            call: update_own_media::<H>,
         },
     ]
 }
@@ -1663,6 +1679,7 @@ fn add_media<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
         title: short(args, "title")?,
         description: long(args, "description")?,
         date_raw: None,
+        place_text: short(args, "place")?,
     };
     // Everything the tree can refuse is checked before the file is touched: the batch, the
     // record and the date. A refused call then never learns anything about the path, and
@@ -1760,6 +1777,36 @@ fn set_media_rotation<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolRe
             Ok((write, reached, None))
         },
         |_, _| Some(media),
+    )
+}
+
+fn update_own_media<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let id = uuid_arg(args, "media")?;
+    let title = short(args, "title")?;
+    let description = long(args, "description")?;
+    let place = short(args, "place")?;
+    let given = |name: &str| args.get(name).is_some_and(|v| !v.is_null());
+    if !(given("title") || given("description") || given("date") || given("place")) {
+        return Err(invalid(
+            "Give at least one of title, description, date or place.".into(),
+        ));
+    }
+    write(
+        host,
+        ctx,
+        batch,
+        |s, warnings| {
+            Ok(EditCommand::UpdateMedia {
+                id,
+                title: title.clone(),
+                description: description.clone(),
+                date_raw: date_arg(s, args, "date", warnings)?,
+                place_text: place.clone(),
+                place_id: None,
+            })
+        },
+        |_, _| Some(id),
     )
 }
 

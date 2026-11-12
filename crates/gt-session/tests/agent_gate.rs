@@ -402,12 +402,6 @@ fn delete_commands_refused() {
             person: anna,
             media: any,
         },
-        EditCommand::UpdateMedia {
-            id: any,
-            title: None,
-            description: None,
-            date_raw: None,
-        },
         EditCommand::ImportDraft {
             persons: vec![],
             families: vec![],
@@ -2375,12 +2369,6 @@ fn an_agent_cannot_attach_or_remove_media_on_a_note() {
         EditCommand::DetachMedia {
             target: on_note,
             media: any,
-        },
-        EditCommand::UpdateMedia {
-            id: any,
-            title: Some("A title".into()),
-            description: None,
-            date_raw: None,
         },
         EditCommand::DeleteMedia { id: any },
     ] {

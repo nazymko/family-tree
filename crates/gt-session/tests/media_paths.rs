@@ -28,6 +28,7 @@ fn resolved_for(paths: &[String], make_files: impl Fn(&std::path::Path)) -> Vec<
         tree.media.insert(
             id,
             Media {
+                place: None,
                 common: common(id),
                 path: p.clone(),
                 original_name: None,

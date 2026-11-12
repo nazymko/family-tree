@@ -574,6 +574,15 @@ pub enum EditCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         date_raw: Option<String>,
+        /// Where it was made, as comma-separated text (smallest place first), found or created
+        /// like an event's place; `Some("")` clears the place.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        place_text: Option<String>,
+        /// An existing place, as the place picker gives it; wins over `place_text`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        place_id: Option<Uuid>,
     },
     /// Replaces the whole transcription of a picture: every piece, in reading order.
     SetMediaTranscription {

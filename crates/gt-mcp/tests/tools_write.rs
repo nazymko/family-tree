@@ -121,6 +121,7 @@ fn write_needs_batch() {
             json!({"media": id, "region": id, "text": "x"}),
         ),
         ("set_media_rotation", json!({"media": id, "rotation": 90})),
+        ("update_own_media", json!({"media": id, "title": "x"})),
     ];
     for (tool, args) in writes {
         let message = call_err(&host, tool, args);
@@ -1413,6 +1414,8 @@ fn only_the_tools_named_here_can_write() {
             "update_own_audio_clip",
             // How a picture is shown: on the agent's own, or one nobody has turned.
             "set_media_rotation",
+            // Title, description, date and place of a media record: its own, or what is empty.
+            "update_own_media",
         ]
     );
 }

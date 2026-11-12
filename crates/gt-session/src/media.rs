@@ -265,6 +265,8 @@ pub struct MediaAbout {
     pub title: Option<String>,
     pub description: Option<String>,
     pub date_raw: Option<String>,
+    /// Where it was made, as comma-separated text (smallest place first), as an event's place.
+    pub place_text: Option<String>,
 }
 
 /// Step one of attaching: look at each file's content, refuse what the owner cannot hold, copy
@@ -555,6 +557,7 @@ impl Session {
             })
             .map(|(f, named)| Staged {
                 media: Media {
+                    place: None,
                     common: crate::ops::new_common(now),
                     path: f.rel,
                     original_name: f.original_name,

@@ -1276,6 +1276,8 @@ export const uk: Messages = {
     sampleCount: { one: '{n} голосовий запис', few: '{n} голосові записи', many: '{n} голосових записів', other: '{n} голосового запису' },
   },
   rec: {
+    placeLabel: 'Де записано',
+    savePlace: 'Зберегти місце',
     // Уривок: частина запису, прив’язана туди, де йдеться про цю частину історії
     clips: 'Уривки записів',
     play: 'Відтворити',
@@ -1426,6 +1428,8 @@ export const uk: Messages = {
     keep: 'Залишити',
     title: 'Назва',
     description: 'Опис',
+    place: 'Місце',
+    savePlace: 'Зберегти місце',
     showText: 'Показати текст',
     editText: 'Редагувати текст',
     fullText: 'Повний текст',

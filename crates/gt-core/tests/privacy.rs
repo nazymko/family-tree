@@ -312,6 +312,7 @@ fn shared_media_is_reported_and_exclusive_media_dropped() {
         &[(dead, Role::Principal)],
     );
     let group = Media {
+        place: None,
         common: common(),
         path: "group.jpg".into(),
         original_name: None,
@@ -354,6 +355,7 @@ fn shared_media_is_reported_and_exclusive_media_dropped() {
 
 fn bare_media(path: &str) -> Media {
     Media {
+        place: None,
         common: common(),
         path: path.into(),
         original_name: None,

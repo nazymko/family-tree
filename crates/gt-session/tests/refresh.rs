@@ -415,6 +415,8 @@ fn extended_command(s: &Session, rng: &mut Rng, n: usize) -> Option<EditCommand>
                 }
             }
             _ => EditCommand::UpdateMedia {
+                place_text: None,
+                place_id: None,
                 id: nth_key(&t.media, rng)?,
                 title: Some(format!("Title {n}")),
                 description: None,

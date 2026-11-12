@@ -226,6 +226,7 @@ impl Session {
                         original_name: md.original_name.clone(),
                         date: md.date.as_ref().map(date_dto),
                         description: md.description.clone(),
+                        place: md.place.and_then(|p| self.place_option(p)),
                         resolved: self.media_file_exists(&md.path),
                         width: self.media_dims(l.media, &md.path).0,
                         height: self.media_dims(l.media, &md.path).1,

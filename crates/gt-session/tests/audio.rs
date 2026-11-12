@@ -274,12 +274,12 @@ fn a_recording_named_by_a_phone_gets_its_date_a_title_and_the_time() {
     let language = s.settings().language;
     let (title, description) = if language == Language::Uk {
         (
-            "Запис розмови 11.11.2026 (Voice 261111_090049)",
+            "Запис розмови 11 листопада 2026 (Voice 261111_090049)",
             "Записано о 09:00:49 (за назвою файлу).",
         )
     } else {
         (
-            "Recording 11.11.2026 (Voice 261111_090049)",
+            "Recording 11 November 2026 (Voice 261111_090049)",
             "Recorded at 09:00:49 (from the file name).",
         )
     };
@@ -302,13 +302,13 @@ fn a_recording_named_by_a_phone_gets_its_date_a_title_and_the_time() {
     });
     let r = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
     assert_ne!(r.attached[0].title.as_deref(), Some(title));
-    assert!(
-        r.attached[0]
-            .title
-            .as_deref()
-            .unwrap()
-            .contains("11.11.2026 (Voice_261111_090050)")
-    );
+    // The language switched, so the date is written the other way.
+    let other = if language == Language::Uk {
+        "Recording 11 November 2026 (Voice_261111_090050)"
+    } else {
+        "Запис розмови 11 листопада 2026 (Voice_261111_090050)"
+    };
+    assert_eq!(r.attached[0].title.as_deref(), Some(other));
 }
 
 #[test]
@@ -534,6 +534,8 @@ fn a_title_can_be_given_and_is_logged() {
     .unwrap();
     let id = note_media(&s, ivan)[0].media.id;
     s.apply(EditCommand::UpdateMedia {
+        place_text: None,
+        place_id: None,
         id,
         title: Some("Olena at the well".into()),
         description: None,

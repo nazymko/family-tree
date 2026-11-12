@@ -92,6 +92,9 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         // How a picture is shown: a turn nobody set is empty, so step 5 lets the agent set it;
         // afterwards only on a picture that is the agent's own.
         | C::SetMediaRotation { .. }
+        // Title, description, date and place of a media record: step 5 lets the agent fill what
+        // is empty, and change or clear anything only on a record it made and nobody changed.
+        | C::UpdateMedia { .. }
         // A clip is a link of its own: step 5 lets the agent add one and change or move only
         // the clips it made itself.
         | C::AddAudioClip { .. }
@@ -141,7 +144,6 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         | C::DetachMedia { .. }
         | C::DeleteMedia { .. }
         | C::SetPrimaryMedia { .. }
-        | C::UpdateMedia { .. }
         | C::DeleteAudioClip { .. }
         | C::ImportDraft { .. } => Err(refused(format!(
             "\"{}\" is not open to agents. {ONLY_ADD}",
@@ -245,6 +247,21 @@ fn people_named(cmd: &EditCommand) -> Vec<Uuid> {
     }
 }
 
+/// `Update media: <title>`, the title being the new one, else the one the record has, else the
+/// name of its file.
+fn update_media_label(tree: &gt_core::tree::Tree, id: Uuid, new_title: Option<&str>) -> String {
+    let old = tree.media.get(&id);
+    let title = new_title
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .or_else(|| old.and_then(|m| m.title.as_deref()))
+        .or_else(|| old.and_then(|m| m.original_name.as_deref()));
+    match title {
+        Some(t) => format!("Update media: {}", t.chars().take(80).collect::<String>()),
+        None => "Update media".into(),
+    }
+}
+
 /// The record an edit names, for telling the agent it already says this.
 fn edited_record(cmd: &EditCommand) -> Option<Uuid> {
     use EditCommand as C;
@@ -255,6 +272,7 @@ fn edited_record(cmd: &EditCommand) -> Option<Uuid> {
         C::UpdateCitation { id, .. }
         | C::UpdatePerson { id, .. }
         | C::SetMediaTranscription { id, .. }
+        | C::UpdateMedia { id, .. }
         | C::SetMediaRotation { id, .. } => Some(*id),
         C::UpdateAudioClip { target, .. } => Some(target.id),
         _ => None,
@@ -880,6 +898,9 @@ impl Session {
             None => &cmd,
         };
         let (mut cs, focus) = plan_with(&self.tree, planned, now, self.day_order(), None)?;
+        if let EditCommand::UpdateMedia { id, title, .. } = &cmd {
+            cs.label = update_media_label(&self.tree, *id, title.as_deref());
+        }
         if let Some((_, nick)) = &nick {
             unfill_nickname(&mut cs, nick);
         }
@@ -1034,7 +1055,12 @@ impl Session {
                 .filter(|t| !t.is_empty())
                 .map(str::to_string)
         };
+        let place = match clean(&about.place_text) {
+            Some(t) => Some(crate::ops::places::ensure_chain(&self.tree, &t)?),
+            None => None,
+        };
         let media = Media {
+            place: place.as_ref().map(|(id, _)| *id),
             common: crate::ops::new_common(now),
             path: rel.clone(),
             original_name: prepared.original_name.clone(),
@@ -1046,7 +1072,7 @@ impl Session {
             transcription: Vec::new(),
             rotation: None,
         };
-        let (cs, outcomes) =
+        let (mut cs, outcomes) =
             crate::ops::plan_attach(&self.tree, target, vec![media], now, order, false)?;
         let Some(Some(id)) = outcomes.first().copied() else {
             let record = self
@@ -1057,6 +1083,16 @@ impl Session {
                 .map_or(target.id, |m| m.common.id);
             return Ok((AgentWrite::AlreadyThere { record }, Vec::new(), record));
         };
+        // Places the media's place needed that the tree did not have yet, new with the media.
+        if let Some((_, created)) = place {
+            let made = created.into_iter().map(|p| Change {
+                kind: RecordKind::Place,
+                id: p.common.id,
+                before: None,
+                after: Some(Record::Place(p)),
+            });
+            cs.changes.splice(0..0, made);
+        }
         let cmd = EditCommand::AttachMedia {
             target,
             media: vec![id],

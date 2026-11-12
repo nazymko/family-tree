@@ -28,6 +28,36 @@ const MONTHS: [&str; 12] = [
     "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
 ];
 
+const MONTHS_EN: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+
+const MONTHS_UK: [&str; 12] = [
+    "січня",
+    "лютого",
+    "березня",
+    "квітня",
+    "травня",
+    "червня",
+    "липня",
+    "серпня",
+    "вересня",
+    "жовтня",
+    "листопада",
+    "грудня",
+];
+
 impl FileStamp {
     /// The date as the app stores dates (GEDCOM-like): `11 NOV 2026`.
     pub fn gedcom_date(&self) -> String {
@@ -38,9 +68,15 @@ impl FileStamp {
         format!("{} {month} {}", self.day, self.year)
     }
 
-    /// `11.11.2026`.
-    pub fn dotted(&self) -> String {
-        format!("{:02}.{:02}.{}", self.day, self.month, self.year)
+    /// The date written out in the interface language: `11 листопада 2026` or `11 November 2026`.
+    pub fn long_date(&self, language: Language) -> String {
+        let i = usize::from(self.month).saturating_sub(1).min(11);
+        let month = if language == Language::Uk {
+            MONTHS_UK[i]
+        } else {
+            MONTHS_EN[i]
+        };
+        format!("{} {month} {}", self.day, self.year)
     }
 
     /// `09:00:49`, when the name has a time.
@@ -55,7 +91,7 @@ pub struct RecordingDefaults {
     pub stamp: FileStamp,
     /// For the media record's date field, e.g. `11 NOV 2026`.
     pub date_raw: String,
-    /// `Recording 11.11.2026 (Voice 261111_090049)`, in the interface language.
+    /// `Recording 11 November 2026 (Voice 261111_090049)`, in the interface language.
     pub title: String,
     /// The time of day, which the date field cannot hold; `None` when the name has no time.
     pub description: Option<String>,
@@ -83,7 +119,7 @@ pub fn recording_defaults(
 ) -> Option<RecordingDefaults> {
     let stamp = stamp_from_file_name(original_name, current_year)?;
     let stem = stem_of(original_name);
-    let date = stamp.dotted();
+    let date = stamp.long_date(language);
     let (title, description) = if language == Language::Uk {
         (
             format!("Запис розмови {date} ({stem})"),
@@ -367,21 +403,25 @@ mod tests {
     fn stored_forms() {
         let s = stamp_from_file_name("Voice 261111_090049.m4a", 2026).unwrap();
         assert_eq!(s.gedcom_date(), "11 NOV 2026");
-        assert_eq!(s.dotted(), "11.11.2026");
+        assert_eq!(s.long_date(Language::En), "11 November 2026");
+        assert_eq!(s.long_date(Language::Uk), "11 листопада 2026");
         assert_eq!(s.time_text().as_deref(), Some("09:00:49"));
     }
 
     #[test]
     fn titles_follow_the_language() {
         let uk = recording_defaults("Voice 261111_090049.m4a", 2026, Language::Uk).unwrap();
-        assert_eq!(uk.title, "Запис розмови 11.11.2026 (Voice 261111_090049)");
+        assert_eq!(
+            uk.title,
+            "Запис розмови 11 листопада 2026 (Voice 261111_090049)"
+        );
         assert_eq!(uk.date_raw, "11 NOV 2026");
         assert_eq!(
             uk.description.as_deref(),
             Some("Записано о 09:00:49 (за назвою файлу).")
         );
         let en = recording_defaults("Voice 261111_090049.m4a", 2026, Language::En).unwrap();
-        assert_eq!(en.title, "Recording 11.11.2026 (Voice 261111_090049)");
+        assert_eq!(en.title, "Recording 11 November 2026 (Voice 261111_090049)");
         assert_eq!(
             en.description.as_deref(),
             Some("Recorded at 09:00:49 (from the file name).")

@@ -346,6 +346,7 @@ fn agent_attaches_a_picture_once_to_a_source() {
         title: Some("Page 1".into()),
         description: None,
         date_raw: Some("1901".into()),
+        place_text: None,
     };
     let prepared = prepare_agent_file(&s.project_dir(), &file, OwnerKind::Source).unwrap();
     let (w, _, _) = s

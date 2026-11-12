@@ -113,7 +113,7 @@ fn a_recording_without_a_date_takes_it_from_its_phone_file_name_and_says_so() {
     // The session's interface language is Ukrainian by default.
     assert_eq!(
         title.as_deref(),
-        Some("Запис розмови 11.11.2026 (Voice 261111_090049)")
+        Some("Запис розмови 11 листопада 2026 (Voice 261111_090049)")
     );
     assert!(description.unwrap().contains("09:00:49"));
 }
