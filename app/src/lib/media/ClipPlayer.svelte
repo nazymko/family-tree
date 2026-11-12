@@ -4,7 +4,8 @@
   import { getApi } from '../api/context';
   import { t } from '../i18n';
   import { clockMs, type ClipLink } from './clips';
-  import { playOnly } from './playback';
+  import { onDestroy } from 'svelte';
+  import { playOnly, watchEnd } from './playback';
   import { recordingView } from '../state/recording.svelte';
 
   /** A stretch of a recording where it is linked: plays only that stretch, and opens the whole recording. */
@@ -41,16 +42,37 @@
     void a.play().catch(() => (failed = true));
   }
 
+  let unwatch: (() => void) | null = null;
+  function unwatchEnd() {
+    unwatch?.();
+    unwatch = null;
+  }
+  onDestroy(unwatchEnd);
+
+  /** The clip ends where it ends, not where the recording does: back to its start. */
+  function finish() {
+    const a = audio;
+    if (!a) return;
+    unwatchEnd();
+    a.pause();
+    a.currentTime = clip.startMs / 1000;
+    now = a.currentTime;
+  }
+
+  function onplay(e: Event & { currentTarget: HTMLAudioElement }) {
+    const a = e.currentTarget;
+    playOnly(a);
+    playing = true;
+    // Exactly at the end, not at the next `timeupdate` (about 250 ms later).
+    unwatchEnd();
+    unwatch = watchEnd(a, clip.endMs, finish);
+  }
+
   function ontimeupdate() {
     const a = audio;
     if (!a) return;
     now = a.currentTime;
-    // The clip ends where it ends, not where the recording does.
-    if (a.currentTime * 1000 >= clip.endMs) {
-      a.pause();
-      a.currentTime = clip.startMs / 1000;
-      now = a.currentTime;
-    }
+    if (a.currentTime * 1000 >= clip.endMs) finish();
   }
 </script>
 
@@ -79,12 +101,15 @@
       bind:this={audio}
       preload="none"
       src={api.mediaUrl(link.media.id, 'original')}
-      onplay={(e) => {
-        playOnly(e.currentTarget);
-        playing = true;
+      {onplay}
+      onpause={() => {
+        playing = false;
+        unwatchEnd();
       }}
-      onpause={() => (playing = false)}
-      onended={() => (playing = false)}
+      onended={() => {
+        playing = false;
+        unwatchEnd();
+      }}
       {ontimeupdate}
       onerror={() => (failed = true)}
     ></audio>

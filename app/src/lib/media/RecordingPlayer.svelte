@@ -43,7 +43,8 @@
   import { nav } from '../state/nav.svelte';
   import { project } from '../state/project.svelte';
   import { clipAt, clockMs, stepClip } from './clips';
-  import { playOnly } from './playback';
+  import { onDestroy, untrack } from 'svelte';
+  import { playOnly, watchEnd } from './playback';
 
   let { media, clip: startClip, onclose }: { media: Id; clip?: Id; onclose: () => void } = $props();
 
@@ -59,15 +60,52 @@
   let fileDuration = $state(Number.NaN);
   /** Where to go once the file can seek (the clip the player was opened at). */
   let pending: number | null = null;
-  /** Where the current listen stops: a clip played from its row stops at its end. */
-  let stopAt: number | null = null;
+  /**
+   * "Clip mode": a clip played from its row stops at its end. Leaving its range by seeking ends the mode and the
+   * recording plays on from the new place.
+   */
+  let limit = $state<{ startMs: number; endMs: number; label: string } | null>(null);
+  /** Said once the player has left clip mode, until the next clip is played. */
+  let notice = $state('');
+  let unwatch: (() => void) | null = null;
   let editor = $state<{ editing?: RecordingClipDto } | null>(null);
+  /** Counts loads; only the latest one may show its result (an older one can resolve after a newer one). */
+  let loadSeq = 0;
+  /** The recording and clip the state below belongs to. */
+  let shown = '';
 
-  async function load() {
+  function unwatchEnd() {
+    unwatch?.();
+    unwatch = null;
+  }
+  onDestroy(() => {
+    loadSeq++;
+    unwatchEnd();
+  });
+
+  /** Back to a blank player: another recording (or clip) was asked for. */
+  function reset() {
+    loadSeq++;
+    unwatchEnd();
+    limit = null;
+    notice = '';
+    rec = null;
+    error = '';
+    failed = false;
+    fileDuration = Number.NaN;
+    now = 0;
+    playing = false;
+    pending = null;
+    editor = null;
+  }
+
+  async function load(id: Id, startAt: Id | undefined, first: boolean) {
+    const mine = ++loadSeq;
     try {
-      const r = await api.getRecording(media);
-      if (!rec && startClip) {
-        const c = r.clips.find((x) => x.clip.id === startClip);
+      const r = await api.getRecording(id);
+      if (mine !== loadSeq) return;
+      if (first && startAt) {
+        const c = r.clips.find((x) => x.clip.id === startAt);
         if (c) {
           now = c.clip.startMs;
           pending = c.clip.startMs;
@@ -76,13 +114,19 @@
       rec = r;
       error = '';
     } catch (e) {
-      error = errMessage(e);
+      if (mine === loadSeq) error = errMessage(e);
     }
   }
 
   $effect(() => {
     void project.rev; // a clip added, changed or undone anywhere
-    void load();
+    const id = media;
+    const startAt = startClip;
+    const key = `${id}|${startAt ?? ''}`;
+    const first = key !== shown;
+    shown = key;
+    if (first) untrack(reset);
+    void load(id, startAt, first);
   });
 
   const durationMs = $derived(rec?.media.durationMs ?? (Number.isFinite(fileDuration) && fileDuration > 0 ? Math.round(fileDuration * 1000) : null));
@@ -95,8 +139,32 @@
   );
   const span = $derived(Math.max(durationMs ?? 0, ...clips.map((c) => c.clip.endMs), 1));
 
+  /** Stops the clip at its end: pause and leave clip mode. */
+  function clipEnded() {
+    const a = audio;
+    unwatchEnd();
+    if (limit && a) now = limit.endMs;
+    limit = null;
+    a?.pause();
+  }
+
+  /** Leaves clip mode; the recording goes on from where it is. */
+  function leaveClip() {
+    unwatchEnd();
+    limit = null;
+    notice = t('rec.clipLeft');
+  }
+
+  function setLimit(next: { startMs: number; endMs: number; label: string } | null) {
+    unwatchEnd();
+    limit = next;
+    if (next && audio) unwatch = watchEnd(audio, next.endMs, clipEnded);
+  }
+
   function seek(ms: number) {
     const to = Math.max(0, durationMs !== null ? Math.min(ms, durationMs) : ms);
+    // Past the clip's end (or before its start): no longer a clip. Playing goes on, it does not stop.
+    if (limit && (to < limit.startMs || to >= limit.endMs)) leaveClip();
     now = to;
     if (audio && audio.readyState > 0) audio.currentTime = to / 1000;
     else pending = to;
@@ -106,14 +174,16 @@
     const a = audio;
     if (!a) return;
     if (a.paused) {
-      stopAt = null;
+      if (limit && (now < limit.startMs || now >= limit.endMs)) setLimit(null);
       void a.play().catch(() => {});
     } else a.pause();
   }
 
-  function playSpan(startMs: number, endMs: number) {
+  function playSpan(startMs: number, endMs: number, label = '') {
+    setLimit(null);
+    notice = '';
     seek(startMs);
-    stopAt = endMs;
+    setLimit({ startMs, endMs, label });
     void audio?.play().catch(() => {});
   }
 
@@ -140,10 +210,8 @@
     const a = audio;
     if (!a) return;
     now = Math.round(a.currentTime * 1000);
-    if (stopAt !== null && now >= stopAt) {
-      a.pause();
-      stopAt = null;
-    }
+    // The timer from `watchEnd` stops a clip exactly; this is the fallback if it did not run.
+    if (limit && now >= limit.endMs) clipEnded();
   }
 
   function onloadedmetadata() {
@@ -241,7 +309,11 @@
             playing = true;
           }}
           onpause={() => (playing = false)}
-          onended={() => (playing = false)}
+          onended={() => {
+            playing = false;
+            unwatchEnd();
+            limit = null;
+          }}
           onerror={() => (failed = true)}
         ></audio>
       {/if}
@@ -290,6 +362,14 @@
           </select>
         </label>
       </div>
+      {#if limit}
+        <p class="limit" data-testid="clip-limit">
+          <span>{t('rec.clipOnly', { label: limit.label || t('rec.untitledClip'), start: clockMs(limit.startMs), end: clockMs(limit.endMs) })}</span>
+          <Button variant="quiet" onclick={leaveClip}>{t('rec.playWhole')}</Button>
+        </p>
+      {:else if notice}
+        <p class="hint" role="status" data-testid="clip-left">{notice}</p>
+      {/if}
       <p class="hint">{t('rec.keys')}</p>
 
       <div class="cols">
@@ -322,7 +402,7 @@
                     type="button"
                     class="at"
                     aria-label={t('rec.playClipNamed', { label: clipName(c) })}
-                    onclick={() => playSpan(c.clip.startMs, c.clip.endMs)}
+                    onclick={() => playSpan(c.clip.startMs, c.clip.endMs, clipName(c))}
                   >
                     <span dir="ltr">{clockMs(c.clip.startMs)}–{clockMs(c.clip.endMs)}</span>
                   </button>
@@ -339,7 +419,7 @@
             </ol>
           {/if}
         </section>
-        <TranscriptPanel media={rec.media} {now} onSeek={seek} onSaved={() => void load()} />
+        <TranscriptPanel media={rec.media} {now} onSeek={seek} onSaved={() => void load(media, startClip, false)} />
       </div>
     {/if}
   </div>
@@ -350,6 +430,17 @@
     display: grid;
     gap: var(--s-4);
     min-width: 0;
+  }
+  .limit {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-3);
+    color: var(--ink-0);
+    font-size: var(--t-sm);
+    border-inline-start: 3px solid var(--verdigris);
+    padding-inline-start: var(--s-3);
   }
   .muted,
   .hint {
