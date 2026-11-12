@@ -1350,11 +1350,11 @@ fn around_many_kin_with(
                 _ => Vec::new(),
             })
             .collect();
-        for pi in 0..plans.len() {
-            if plans[pi].fresh.len() != 2 {
+        for (pi, plan) in plans.iter_mut().enumerate() {
+            if plan.fresh.len() != 2 {
                 continue;
             }
-            let c = plans[pi].c;
+            let c = plan.c;
             let pull = |k: Key| -> Option<f32> {
                 let mine: Vec<Key> = src.parents(k).into_iter().flatten().collect();
                 if mine.is_empty() {
@@ -1375,11 +1375,11 @@ fn around_many_kin_with(
                     .collect();
                 (!xs.is_empty()).then(|| xs.iter().sum::<f32>() / xs.len() as f32 - c)
             };
-            let (a, b2) = (plans[pi].fresh[0], plans[pi].fresh[1]);
+            let (a, b2) = (plan.fresh[0], plan.fresh[1]);
             if let (pa, pb) = (pull(a), pull(b2))
                 && pa.unwrap_or(0.0) > pb.unwrap_or(0.0) + 0.5
             {
-                plans[pi].fresh.swap(0, 1);
+                plan.fresh.swap(0, 1);
             }
         }
         // Place from the middle of the row outward: the group nearest the middle where it wants to be, the next
