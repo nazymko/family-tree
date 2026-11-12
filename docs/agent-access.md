@@ -164,6 +164,15 @@ An agent can attach a picture of a document and write down what is on it.
   how the picture is shown changes: the places of the transcription stay measured on the picture upright by its EXIF
   orientation, before this turn, and `get_media` sends the agent that same unturned picture, with the turn as a number
   beside it, so the places and the picture always match.
+- `update_own_media` corrects the title, description, date and place of a picture, document or recording (inputs: the
+  batch, the media, and any of `title`, `description`, `date`, `place`; at least one). What is left out stays; an empty
+  title, description or place takes it away. The date is read like the date of `add_media`, and a date that cannot be
+  read is refused. `place` is written as for `add_event`, smallest place first with commas, and is found or created in
+  the same places the events use. `add_media` takes the same `place`, and `get_media` returns it. On a media record the
+  agent added itself and nobody has changed since, it may change anything; on any other it can only fill what is empty
+  (the same rule as for its own citations), and the answer says so when it refuses. The file, its transcription, clips,
+  rotation and links stay. It is in the log as "Update media: <title>" with the old values, **Undo** takes it back,
+  and saying the same again answers that it is already so.
 - In the app, open the picture: **Show text** lays the pieces over it, **Full text** shows them as one text, and you can
   correct, move, resize, turn, add, reorder or delete pieces. Your edits are ordinary edits: Ctrl+Z undoes them and they
   are in the history. Once you change a piece, it is yours and the agent leaves it alone.

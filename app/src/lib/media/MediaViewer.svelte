@@ -7,6 +7,7 @@
   import Icon from '../ui/Icon.svelte';
   import TextField from '../ui/TextField.svelte';
   import TextArea from '../ui/TextArea.svelte';
+  import PlacePicker from '../editors/PlacePicker.svelte';
   import { getApi } from '../api/context';
   import { notices } from '../ui/notices.svelte';
   import { isPdf, mediaLabel, openOriginal } from './MediaGrid.svelte';
@@ -232,6 +233,27 @@
     }
   }
 
+  // The place picked or typed but not saved yet: typing alone must not make places.
+  let pendingPlace = $state<{ placeId?: Id; placeText?: string } | null | undefined>(undefined);
+  $effect(() => {
+    void m?.id;
+    pendingPlace = undefined;
+  });
+
+  async function savePlace() {
+    if (!m || pendingPlace === undefined) return;
+    const v = pendingPlace;
+    error = '';
+    try {
+      const cmd: EditCommand = { type: 'updateMedia', id: m.id, ...(v?.placeId ? { placeId: v.placeId } : { placeText: v?.placeText ?? '' }) };
+      await api.apply(cmd);
+      pendingPlace = undefined;
+      onChanged?.();
+    } catch (e) {
+      error = errMessage(e, t('edit.wentWrong'));
+    }
+  }
+
   async function saveField(field: 'title' | 'description', value: string) {
     if (!m) return;
     const prev = edits[m.id] ?? { title: m.title ?? '', description: m.description ?? '' };
@@ -418,12 +440,21 @@
       {#key m.id}
         <TextField label={t('media.title')} value={title} onchange={(e) => saveField('title', e.currentTarget.value)} />
         <TextArea label={t('media.description')} value={description} rows={2} onchange={(e) => saveField('description', e.currentTarget.value)} />
+        <div class="place">
+          <PlacePicker label={t('media.place')} value={m.place ?? null} text="" onChange={(v) => (pendingPlace = v)} />
+          {#if pendingPlace !== undefined}<Button onclick={savePlace}>{t('media.savePlace')}</Button>{/if}
+        </div>
       {/key}
     </div>
   {/if}
 </Dialog>
 
 <style>
+  .place {
+    display: grid;
+    gap: var(--s-2);
+    justify-items: start;
+  }
   .viewer {
     display: grid;
     gap: var(--s-4);

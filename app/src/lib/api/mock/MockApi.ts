@@ -2577,6 +2577,13 @@ export class MockApi implements Api {
         if (cmd.title !== undefined) m.title = cmd.title || null;
         if (cmd.description !== undefined) m.description = cmd.description || null;
         if (cmd.dateRaw !== undefined) m.date = toDateDto(cmd.dateRaw, this.settings.dayOrder);
+        if (cmd.placeId) {
+          const p = this.db.places.get(cmd.placeId);
+          if (!p) throw missing('place', cmd.placeId);
+          m.place = p;
+        } else if (cmd.placeText !== undefined) {
+          m.place = cmd.placeText.trim() ? this.ensurePlace(cmd.placeText) : undefined;
+        }
         return { focus: null, touched: [m.id] };
       }
 

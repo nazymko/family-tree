@@ -1277,6 +1277,8 @@ export const en = {
     sampleCount: { one: '{n} voice sample', other: '{n} voice samples' },
   },
   rec: {
+    placeLabel: 'Where it was recorded',
+    savePlace: 'Save place',
     // A clip: a stretch of a recording linked where that part of the story is told
     clips: 'Clips of recordings',
     play: 'Play',
@@ -1427,6 +1429,8 @@ export const en = {
     keep: 'Keep it',
     title: 'Title',
     description: 'Description',
+    place: 'Where it was made',
+    savePlace: 'Save place',
     showText: 'Show text',
     editText: 'Edit text',
     fullText: 'Full text',

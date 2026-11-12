@@ -165,6 +165,20 @@ describe('MediaViewer', () => {
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ type: 'updateMedia', id: 'm0', title: 'Garden party' }));
   });
 
+  it('place_is_saved_with_its_button_and_cleared_with_an_empty_field', async () => {
+    const user = userEvent.setup();
+    const { api } = await setup();
+    const spy = vi.spyOn(api, 'apply').mockResolvedValue({ label: 'Edit media', focus: null, touched: [], undo: { canUndo: true, canRedo: false, undoLabel: null, redoLabel: null } });
+    const field = screen.getByRole('combobox', { name: 'Where it was made' });
+    await user.type(field, 'Lviv, Ukraine');
+    expect(spy).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Save place' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ type: 'updateMedia', id: 'm0', placeText: 'Lviv, Ukraine' }));
+    await user.clear(field);
+    await user.click(screen.getByRole('button', { name: 'Save place' }));
+    await waitFor(() => expect(spy).toHaveBeenLastCalledWith({ type: 'updateMedia', id: 'm0', placeText: '' }));
+  });
+
   it('keys_work_after_clicking_next', async () => {
     const user = userEvent.setup();
     await setup(3, 0);

@@ -41,7 +41,7 @@ pub const INSTRUCTIONS: &str = concat!(
      of the picture get_media shows (already upright), and rotation 0, 90, 180 or 270 for \
      sideways writing; give text alone when you have no places. It replaces only your own pieces; \
      the owner's stay. get_media returns the pieces, the joined fullText, and yours: true on \
-     those update_own_media_region may change. set_media_rotation turns how the app shows a \
+     those update_own_media_region may change. update_own_media corrects the title, description, date and place of a media record. set_media_rotation turns how the app shows a \
      picture (your own, or one nobody has turned) so sideways writing reads upright; the image \
      get_media returns and every x, y, w and h stay upright by EXIF, not turned.\n\n\
      Recordings: add_media also copies a sound recording (MP3, WAV, Ogg, M4A, AAC, FLAC, up to 2 \
