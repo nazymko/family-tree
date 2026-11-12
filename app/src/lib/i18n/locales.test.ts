@@ -124,6 +124,8 @@ describe('fallback to English, key by key', () => {
   it('shows_a_translated_key_and_English_for_the_rest', async () => {
     setLanguage('de');
     await loadLocale('de');
+    // Every real language is fully translated now, so a partial catalogue is put in by hand.
+    localeStore.loaded = { ...localeStore.loaded, de: { nav: { people: 'Personen', family: 'Familie' } } };
     expect(t('nav.people')).toBe('Personen');
     expect(t('nav.family')).toBe('Familie');
     expect(t('agent.title')).toBe(en.agent.title);
@@ -137,6 +139,7 @@ describe('fallback to English, key by key', () => {
   it('fills_placeholders_in_the_fallback_text', async () => {
     setLanguage('de');
     await loadLocale('de');
+    localeStore.loaded = { ...localeStore.loaded, de: { nav: { people: 'Personen' } } };
     expect(t('shell.openFolder', { dir: 'X' })).toBe(en.shell.openFolder.replace('{dir}', 'X'));
   });
 
@@ -166,10 +169,12 @@ describe('fallback to English, key by key', () => {
   it('plural_missing_in_the_locale_uses_English_with_English_rules', async () => {
     setLanguage('ar');
     await loadLocale('ar');
+    localeStore.loaded = { ...localeStore.loaded, ar: { nav: { people: 'الأشخاص' } } };
     expect(plural('common.sources', 1)).toBe('1 source');
     expect(plural('common.sources', 2)).toBe('2 sources');
     setLanguage('ja');
     await loadLocale('ja');
+    localeStore.loaded = { ...localeStore.loaded, ja: { nav: { people: '人物' } } };
     expect(plural('common.sources', 1)).toBe('1 source');
   });
 

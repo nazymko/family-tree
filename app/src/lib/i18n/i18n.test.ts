@@ -26,7 +26,7 @@ describe('i18n', () => {
     expect(resolveSystemLanguage('uk')).toBe('uk');
     expect(resolveSystemLanguage('uk-UA')).toBe('uk');
     expect(resolveSystemLanguage('en-GB')).toBe('en');
-    expect(resolveSystemLanguage('de-DE')).toBe('en');
+    expect(resolveSystemLanguage('pl-PL')).toBe('en');
     expect(resolveSystemLanguage('')).toBe('en');
     setLanguage('system');
     expect(currentLocale()).toBe('en');

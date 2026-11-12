@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import Settings from './Settings.svelte';
 import { renderWith, ALL_PERSONS } from '../testing/renderWith';
 import { settings } from '../state/settings.svelte';
-import { currentLocale, setLanguage } from '../i18n';
+import { currentLocale, LANGUAGES, setLanguage } from '../i18n';
 import { MockApi } from '../api/mock/MockApi';
 import { fixtureTree } from '../api/mock/fixtures';
 
@@ -95,6 +95,11 @@ describe('Settings', () => {
   });
 
   it('language_options_show_each_language_by_its_own_name', async () => {
+    // Every language is fully translated now; make two partial for this test to see the share label.
+    const partial = LANGUAGES.filter((l) => l.code === 'ar' || l.code === 'de') as { code: string; percent: number }[];
+    const before = partial.map((l) => l.percent);
+    partial.forEach((l) => (l.percent = l.code === 'de' ? 1 : 70));
+    onTestFinished(() => partial.forEach((l, i) => (l.percent = before[i])));
     await mount();
     const box = screen.getByRole('combobox', { name: 'Language' });
     const options = within(box).getAllByRole('option').map((o) => (o.textContent ?? '').replace(/[⁦-⁩]/g, ''));
