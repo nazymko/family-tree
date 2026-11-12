@@ -17,6 +17,7 @@ pub mod index;
 pub mod kinship;
 pub mod log;
 pub mod merge;
+mod mp4_tracks;
 pub use merge::{CopySizeDto, CopyZipDto, MergePreviewDto, MergeResultDto};
 pub mod names;
 pub mod ops;

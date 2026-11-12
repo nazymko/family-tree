@@ -54,6 +54,10 @@ pub struct AttachResult {
 /// Why a picture or document is refused on a note.
 pub(crate) const NOTE_SOUND_ONLY: &str = "only sound recordings can be attached to a note";
 
+/// Why an MP4/3GP with a picture track is refused: its brand is the one a phone voice recorder
+/// writes, only the track handler types tell the two apart.
+pub(crate) const VIDEO_NOT_SOUND: &str = "this is a video, not a sound recording";
+
 /// The most one ranged reply carries. A player asks again for the next piece, so a long
 /// recording never has to sit in memory whole.
 pub const MAX_RANGE_BYTES: u64 = 4 << 20;
@@ -296,6 +300,10 @@ pub fn prepare_attach(dir: &Path, target: OwnerKind, paths: &[PathBuf]) -> Prepa
             fail(&mut failed, path, "unsupported type");
             continue;
         };
+        if kind == Kind::M4a && crate::mp4_tracks::has_video_track(path) {
+            fail(&mut failed, path, VIDEO_NOT_SOUND);
+            continue;
+        }
         // A note holds recordings only, and only a note or a source holds them: a picture on a
         // note, or a whole recording on a person, would be attached and then shown nowhere
         // sensible (a person gets clips of it instead). Refused here, before anything is copied.

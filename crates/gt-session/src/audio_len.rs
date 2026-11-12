@@ -34,7 +34,7 @@ pub(crate) fn length(path: &Path) -> Option<Length> {
     }
 }
 
-fn read_at(f: &mut File, at: u64, len: usize) -> Option<Vec<u8>> {
+pub(crate) fn read_at(f: &mut File, at: u64, len: usize) -> Option<Vec<u8>> {
     f.seek(SeekFrom::Start(at)).ok()?;
     let mut buf = Vec::with_capacity(len);
     f.take(len as u64).read_to_end(&mut buf).ok()?;
@@ -98,7 +98,7 @@ fn flac(f: &mut File) -> Option<u64> {
 }
 
 /// The boxes from `at` to `end`: `(type, body start, body end)`.
-fn boxes(f: &mut File, mut at: u64, end: u64) -> Vec<([u8; 4], u64, u64)> {
+pub(crate) fn boxes(f: &mut File, mut at: u64, end: u64) -> Vec<([u8; 4], u64, u64)> {
     let mut out = Vec::new();
     while at + 8 <= end && out.len() < 4096 {
         let Some(h) = read_at(f, at, 16) else { break };

@@ -162,6 +162,85 @@ fn note_media(s: &Session, person: Uuid) -> Vec<MediaLinkDto> {
     s.get_person(person).unwrap().notes[0].media.clone()
 }
 
+fn mp4_box(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+    let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+    out.extend(kind);
+    out.extend(body);
+    out
+}
+
+/// An MP4-family file of the given brand with one track per handler type; `moov` last, after a
+/// block of `mdat`, as phones write it.
+fn mp4_with_tracks(brand: &[u8; 4], handlers: &[&[u8; 4]]) -> Vec<u8> {
+    let mut ftyp = brand.to_vec();
+    ftyp.extend(0u32.to_be_bytes());
+    ftyp.extend(brand);
+    let mut out = mp4_box(b"ftyp", &ftyp);
+    out.extend(mp4_box(b"mdat", &[0u8; 4000]));
+    let mut moov = mp4_box(b"mvhd", &[0u8; 100]);
+    for h in handlers {
+        let mut hdlr = vec![0u8; 8];
+        hdlr.extend(*h);
+        hdlr.extend([0u8; 12]);
+        moov.extend(mp4_box(
+            b"trak",
+            &mp4_box(b"mdia", &mp4_box(b"hdlr", &hdlr)),
+        ));
+    }
+    out.extend(mp4_box(b"moov", &moov));
+    out
+}
+
+#[test]
+fn a_video_with_a_sound_brand_is_refused_and_a_sound_only_file_is_taken() {
+    let (_d, mut s, ivan, note, src) = setup();
+    let brands: [&[u8; 4]; 6] = [b"M4A ", b"mp41", b"mp42", b"isom", b"3gp4", b"3gp6"];
+    for (i, brand) in brands.iter().enumerate() {
+        let f = write(
+            &src,
+            &format!("a{i}.m4a"),
+            &mp4_with_tracks(brand, &[b"soun"]),
+        );
+        let r = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+        assert!(r.failed.is_empty(), "{:?}: {:?}", brand, r.failed);
+        assert_eq!(r.attached.len(), 1);
+    }
+    let before = note_media(&s, ivan).len();
+    for (i, brand) in brands.iter().enumerate() {
+        for handlers in [&[b"vide"][..], &[b"soun", b"vide"][..]] {
+            let f = write(
+                &src,
+                &format!("v{i}.m4a"),
+                &mp4_with_tracks(brand, handlers),
+            );
+            let r = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+            assert!(r.attached.is_empty(), "{:?}", brand);
+            assert_eq!(r.failed.len(), 1);
+            assert_eq!(r.failed[0].reason, "this is a video, not a sound recording");
+        }
+    }
+    assert_eq!(note_media(&s, ivan).len(), before);
+}
+
+#[test]
+fn cut_or_garbled_boxes_do_not_panic_on_attach() {
+    let (_d, mut s, _ivan, note, src) = setup();
+    let full = mp4_with_tracks(b"3gp4", &[b"soun", b"vide"]);
+    for (i, cut) in [30usize, 40, 4020, full.len() - 20, full.len() - 1]
+        .into_iter()
+        .enumerate()
+    {
+        let f = write(&src, &format!("c{i}.m4a"), &full[..cut]);
+        // Taken or refused, never a panic.
+        let _ = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+    }
+    let mut junk = mp4_with_tracks(b"3gp4", &[b"soun"]);
+    let n = junk.len();
+    junk[n - 60..].fill(0xFF);
+    let f = write(&src, "junk.m4a", &junk);
+    let _ = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+}
+
 // ---- sniffing ----
 
 #[test]
