@@ -2307,6 +2307,8 @@ fn check_agent_content(path: &std::path::Path) -> Result<crate::media::Kind, Api
         Some(kind) if kind.is_audio() => {
             if len > AGENT_AUDIO_MAX {
                 Err(refuse_file(TOO_BIG_SOUND))
+            } else if kind == Kind::M4a && crate::mp4_tracks::has_video_track(path) {
+                Err(refuse_file(crate::media::VIDEO_NOT_SOUND))
             } else {
                 Ok(kind)
             }
@@ -2388,6 +2390,9 @@ pub fn prepare_agent_file(
     let head = read_head(path).map_err(|_| refuse_file("The file cannot be read."))?;
     // Only the extension of the copy comes from here; the copy is checked again below.
     let kind = sniff(&head).ok_or_else(|| refuse_file(NOT_ALLOWED))?;
+    if kind == crate::media::Kind::M4a && crate::mp4_tracks::has_video_track(path) {
+        return Err(refuse_file(crate::media::VIDEO_NOT_SOUND));
+    }
     // Refused before a byte is copied: a recording is large, and has one place.
     if kind.is_audio() && target != OwnerKind::Source {
         return Err(refuse_file(SOUND));

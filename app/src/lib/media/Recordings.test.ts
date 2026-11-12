@@ -209,6 +209,33 @@ describe('a clip where it is linked', () => {
     expect(recordingView.open).toEqual({ media: 'rec1', clip: 'c1' });
   });
 
+  it('stops_at_its_end_to_the_millisecond_without_waiting_for_a_timeupdate', async () => {
+    renderWith(ClipPlayer, { link: clipLink('c1', 65_000, 102_500, 'How the house was built') });
+    const audio = document.querySelector('audio')!;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Play the clip How the house was built' }));
+      expect(audio.paused).toBe(false);
+      // Time passes in the element; no `timeupdate` is ever sent.
+      audio.currentTime = 102.4;
+      audio.dispatchEvent(new Event('ratechange'));
+      vi.advanceTimersByTime(99);
+      expect(audio.paused).toBe(false);
+      audio.currentTime = 102.5;
+      vi.advanceTimersByTime(2);
+      expect(audio.paused).toBe(true);
+      expect(audio.currentTime).toBe(65);
+      // A pause before the end leaves nothing running.
+      fireEvent.click(screen.getByRole('button', { name: 'Play the clip How the house was built' }));
+      audio.pause();
+      audio.currentTime = 102.5;
+      vi.advanceTimersByTime(60_000);
+      expect(audio.currentTime).toBe(102.5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('says_so_when_the_file_is_missing_and_keeps_the_clip', () => {
     renderWith(ClipPlayer, { link: clipLink('c1', 0, 1_000, null, sound({ resolved: false })) });
     expect(screen.getByTestId('clip-missing').textContent).toContain('missing');
@@ -315,6 +342,128 @@ describe('the full player', () => {
     expect((slider as HTMLInputElement).value).toBe('65000');
     await userEvent.click(screen.getByRole('button', { name: 'Forward 10 seconds' }));
     expect((slider as HTMLInputElement).value).toBe('75000');
+  });
+
+  describe('clip mode', () => {
+    function mockPlayback() {
+      vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
+        Object.defineProperty(this, 'paused', { value: false, configurable: true });
+        this.dispatchEvent(new Event('play'));
+        return Promise.resolve();
+      });
+      vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (this: HTMLMediaElement) {
+        Object.defineProperty(this, 'paused', { value: true, configurable: true });
+        this.dispatchEvent(new Event('pause'));
+      });
+    }
+
+    it('stays_playing_the_whole_recording_when_seeking_past_the_clip_end', async () => {
+      mockPlayback();
+      await open();
+      const audio = document.querySelector('audio')!;
+      Object.defineProperty(audio, 'readyState', { value: 4, configurable: true });
+      const slider = screen.getByRole('slider', { name: 'Position in the recording' });
+      await userEvent.click(screen.getByRole('button', { name: 'Play the clip The house' }));
+      expect(audio.paused).toBe(false);
+      expect(audio.currentTime).toBe(65);
+      expect(screen.getByTestId('clip-limit').textContent).toContain('Playing only the clip The house (1:05–1:42');
+      // Inside the clip: still the clip.
+      await fireEvent.input(slider, { target: { value: '80000' } });
+      expect(screen.getByTestId('clip-limit')).toBeTruthy();
+      // Past its end: the recording goes on from there, and says it is no longer the clip.
+      await fireEvent.input(slider, { target: { value: '200000' } });
+      expect(audio.currentTime).toBe(200);
+      expect(audio.paused).toBe(false);
+      expect(screen.queryByTestId('clip-limit')).toBeNull();
+      expect(screen.getByTestId('clip-left').textContent).toContain('No longer limited to the clip');
+      // Not stopped by a later time update either.
+      audio.currentTime = 210;
+      await fireEvent.timeUpdate(audio);
+      expect(audio.paused).toBe(false);
+    });
+
+    it('leaves_clip_mode_on_a_button_and_before_the_start_and_stops_at_the_end_otherwise', async () => {
+      mockPlayback();
+      await open();
+      const audio = document.querySelector('audio')!;
+      Object.defineProperty(audio, 'readyState', { value: 4, configurable: true });
+      const slider = screen.getByRole('slider', { name: 'Position in the recording' });
+      await userEvent.click(screen.getByRole('button', { name: 'Play the clip The house' }));
+      await fireEvent.input(slider, { target: { value: '1000' } });
+      expect(audio.paused).toBe(false);
+      expect(screen.queryByTestId('clip-limit')).toBeNull();
+      await userEvent.click(screen.getByRole('button', { name: 'Play the clip The house' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Play the whole recording' }));
+      expect(screen.queryByTestId('clip-limit')).toBeNull();
+      expect(audio.paused).toBe(false);
+      // Left alone, the clip ends at its end and pauses.
+      await userEvent.click(screen.getByRole('button', { name: 'Play the clip The house' }));
+      audio.currentTime = 102.6;
+      await fireEvent.timeUpdate(audio);
+      expect(audio.paused).toBe(true);
+      expect(screen.queryByTestId('clip-limit')).toBeNull();
+    });
+
+    it('stops_exactly_at_the_end_with_a_timer_not_a_timeupdate', async () => {
+      mockPlayback();
+      await open();
+      const audio = document.querySelector('audio')!;
+      Object.defineProperty(audio, 'readyState', { value: 4, configurable: true });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        fireEvent.click(screen.getByRole('button', { name: 'Play the clip The house' }));
+        expect(audio.paused).toBe(false);
+        audio.currentTime = 102.45;
+        audio.dispatchEvent(new Event('seeked'));
+        vi.advanceTimersByTime(49);
+        expect(audio.paused).toBe(false);
+        audio.currentTime = 102.5;
+        vi.advanceTimersByTime(2);
+        expect(audio.paused).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it('shows_only_the_latest_of_two_loads_when_recordings_are_switched_quickly', async () => {
+    const t = await interview();
+    const second = (await t.api.attachFiles({ kind: 'source', id: t.source }, ['C:/Mock/side-b.m4a'])).attached[0];
+    const original = t.api.getRecording.bind(t.api);
+    const gates = new Map<string, () => void>();
+    vi.spyOn(t.api, 'getRecording').mockImplementation(async (id: Id) => {
+      const r = await original(id);
+      await new Promise<void>((done) => gates.set(id, done));
+      return r;
+    });
+    const view = renderWith(RecordingPlayer, { media: t.media.id, onclose: vi.fn() }, { api: t.api });
+    await waitFor(() => expect(gates.has(t.media.id)).toBe(true));
+    await view.rerender({ props: { props: { media: second.id, onclose: vi.fn() } } }); // the host's own `props` prop
+    await waitFor(() => expect(gates.has(second.id)).toBe(true));
+    // The newer load lands first, then the older one.
+    gates.get(second.id)!();
+    await screen.findByRole('heading', { name: 'side-b' });
+    gates.get(t.media.id)!();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByRole('heading', { name: 'side-b' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'side-a' })).toBeNull();
+    expect(document.querySelectorAll('.marks .mark')).toHaveLength(0);
+  });
+
+  it('clears_the_previous_recording_at_once_when_another_is_asked_for', async () => {
+    const t = await interview();
+    const second = (await t.api.attachFiles({ kind: 'source', id: t.source }, ['C:/Mock/side-b.m4a'])).attached[0];
+    const view = renderWith(RecordingPlayer, { media: t.media.id, onclose: vi.fn() }, { api: t.api });
+    await screen.findByRole('heading', { name: 'side-a' });
+    const original = t.api.getRecording.bind(t.api);
+    vi.spyOn(t.api, 'getRecording').mockImplementation(async (id: Id) => {
+      await new Promise((r) => setTimeout(r, 30));
+      return original(id);
+    });
+    await view.rerender({ props: { props: { media: second.id, onclose: vi.fn() } } }); // the host's own `props` prop
+    expect(screen.queryByRole('heading', { name: 'side-a' })).toBeNull();
+    expect(document.querySelectorAll('.marks .mark')).toHaveLength(0);
+    await screen.findByRole('heading', { name: 'side-b' });
   });
 
   it('deletes_a_clip_as_one_undoable_command', async () => {
