@@ -25,7 +25,16 @@ parentRel?: ParentRelId, } | { "type": "linkExisting", anchor: string, relation:
 /**
  * Father, mother or child: how they are related when it is not by birth (stepfather, adopted son, ...).
  */
-parentRel?: ParentRelId, } | { "type": "saveFamily", id?: string, partner1: string | null, partner2: string | null, kind: UnionKindId, } | { "type": "deleteFamily", id: string, } | { "type": "linkChild", family: string, child: string, rel: [ParentRelId, ParentRelId], preferred: boolean, } | { "type": "updateChildLink", family: string, child: string, rel: [ParentRelId, ParentRelId], preferred: boolean, } | { "type": "unlinkChild", family: string, child: string, } | { "type": "reorderChildren", family: string, order: Array<string>, } | { "type": "addSiblingMarker", family: string, } | { "type": "saveNote", target: OwnerRef, note: NoteInput, } | { "type": "deleteNote", target: OwnerRef, note: string, } | { "type": "saveSource", source: SourceInput, } | { "type": "addCitation", target: OwnerRef, citation: CitationArg, } | { "type": "updateCitation", id: string, citation: CitationPatch, } | { "type": "removeCitation", target: OwnerRef, citation: string, } | { "type": "attachMedia", target: OwnerRef, media: Array<string>, } | { "type": "detachMedia", target: OwnerRef, media: string, } | { "type": "deleteMedia", id: string, } | { "type": "setPrimaryMedia", person: string, media: string, } | { "type": "updateMedia", id: string, title?: string, description?: string, dateRaw?: string, } | { "type": "setMediaTranscription", id: string, regions: Array<TextRegionInput>, 
+parentRel?: ParentRelId, } | { "type": "saveFamily", id?: string, partner1: string | null, partner2: string | null, kind: UnionKindId, } | { "type": "deleteFamily", id: string, } | { "type": "linkChild", family: string, child: string, rel: [ParentRelId, ParentRelId], preferred: boolean, } | { "type": "updateChildLink", family: string, child: string, rel: [ParentRelId, ParentRelId], preferred: boolean, } | { "type": "unlinkChild", family: string, child: string, } | { "type": "reorderChildren", family: string, order: Array<string>, } | { "type": "addSiblingMarker", family: string, } | { "type": "saveNote", target: OwnerRef, note: NoteInput, } | { "type": "deleteNote", target: OwnerRef, note: string, } | { "type": "saveSource", source: SourceInput, } | { "type": "addCitation", target: OwnerRef, citation: CitationArg, } | { "type": "updateCitation", id: string, citation: CitationPatch, } | { "type": "removeCitation", target: OwnerRef, citation: string, } | { "type": "attachMedia", target: OwnerRef, media: Array<string>, } | { "type": "detachMedia", target: OwnerRef, media: string, } | { "type": "deleteMedia", id: string, } | { "type": "setPrimaryMedia", person: string, media: string, } | { "type": "updateMedia", id: string, title?: string, description?: string, dateRaw?: string, 
+/**
+ * Where it was made, as comma-separated text (smallest place first), found or created
+ * like an event's place; `Some("")` clears the place.
+ */
+placeText?: string, 
+/**
+ * An existing place, as the place picker gives it; wins over `place_text`.
+ */
+placeId?: string, } | { "type": "setMediaTranscription", id: string, regions: Array<TextRegionInput>, 
 /**
  * The ids of the pieces the sender knew of. A stored piece not among them was added
  * meanwhile (by an agent, say) and stays, after the piece it followed. Absent: `regions`
