@@ -909,6 +909,7 @@ fn gen_cs(r: &mut Rng, t: &Tree) -> Option<ChangeSet> {
         13 => {
             let (pid, pl) = r.pick(&t.places)?;
             let used = t.events.values().any(|e| e.place == Some(pid))
+                || t.media.values().any(|m| m.place == Some(pid))
                 || t.places.values().any(|x| x.parent == Some(pid));
             if used {
                 return None;
