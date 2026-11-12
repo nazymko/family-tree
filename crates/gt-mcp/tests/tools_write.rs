@@ -100,6 +100,10 @@ fn write_needs_batch() {
         ),
         ("set_sex", json!({"person": id, "sex": "male"})),
         ("update_own_note", json!({"note": id, "text": "A note"})),
+        (
+            "rewrite_note",
+            json!({"note": id, "text": "A note", "reason": "x"}),
+        ),
         ("update_own_event", json!({"event": id})),
         ("update_own_name", json!({"person": id, "name": id})),
         ("update_own_citation", json!({"citation": id})),
@@ -1391,6 +1395,8 @@ fn only_the_tools_named_here_can_write() {
             "set_number",
             "set_sex",
             "update_own_note",
+            // The owner's rewrite of any note: a reason in the log label, the old text kept in the log.
+            "rewrite_note",
             "update_own_event",
             "update_own_name",
             "update_own_citation",

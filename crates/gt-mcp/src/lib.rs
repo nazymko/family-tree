@@ -57,6 +57,9 @@ pub const INSTRUCTIONS: &str = concat!(
      birth or death event, with the reason (who confirmed it or which source says so). Add a \
      citation for the new date too. Disagreeing sources with nobody confirming are a note, not a \
      correction. It never changes whether someone counts as alive or dead.\n\n\
+     Rewriting a note: rewrite_note replaces the text of any note, the owner's too, when the \
+     owner asked for a rewrite; give the reason. Keep every fact, name, date and doubt. The old \
+     text stays in the history and the owner can undo it. Your own notes: update_own_note.\n\n\
      Taking back a link: remove_own_child_link removes a parent-child link you made yourself \
      (person, family, reason), in this batch or an earlier one, when it turns out the child \
      belongs to other parents; then link the child to the right family with link_people. It \

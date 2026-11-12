@@ -57,6 +57,8 @@ export function editLabel(label: string): string {
   if (m) return t(m[1] === 'Undo' ? 'edit.undoPrefix' : 'edit.redoPrefix', { label: editLabel(m[2]) });
   const merged = /^Merged copy: (.+)$/.exec(label);
   if (merged) return t('merge.mergedLabel', { name: merged[1] });
+  const rewritten = /^Rewrite note: ([\s\S]+)$/.exec(label);
+  if (rewritten) return t('edit.rewriteNote', { reason: rewritten[1] });
   const keys = EDIT_KEYS[label];
   return keys ? t(keys[0]) : label;
 }
