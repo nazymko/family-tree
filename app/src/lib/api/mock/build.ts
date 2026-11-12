@@ -33,6 +33,7 @@ export class IdGen {
 const KIND_LABELS: Record<string, string> = {
   birth: 'Birth',
   death: 'Death',
+  missing: 'Went missing',
   baptism: 'Baptism',
   christening: 'Christening',
   burial: 'Burial',

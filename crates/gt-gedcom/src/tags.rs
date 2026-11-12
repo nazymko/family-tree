@@ -51,6 +51,14 @@ pub fn event_tag(kind: &EventKind, v70: bool) -> &'static str {
         Christening => "CHR",
         Baptism => "BAPM",
         Death => "DEAT",
+        // No standard tag: written as a generic event with `TYPE Missing`.
+        Missing => {
+            if v70 {
+                "FACT"
+            } else {
+                "EVEN"
+            }
+        }
         Burial => "BURI",
         Cremation => "CREM",
         Adoption => "ADOP",

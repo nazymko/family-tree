@@ -8,7 +8,7 @@ use gt_core::model::*;
 use uuid::Uuid;
 
 /// Every kind of event but `custom:`, by id.
-const EVENT_KINDS: &str = "birth, christening, baptism, death, burial, cremation, adoption, \
+const EVENT_KINDS: &str = "birth, christening, baptism, death, missing, burial, cremation, adoption, \
     marriage, marriage_banns, marriage_contract, marriage_license, marriage_settlement, \
     engagement, divorce, divorce_filed, annulment, separation, census, residence, occupation, \
     education, religion, nationality, title, emigration, immigration, naturalization, probate, \

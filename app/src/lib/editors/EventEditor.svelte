@@ -38,7 +38,7 @@
 
   // svelte-ignore state_referenced_locally
   const ownerKind = owner.kind;
-  const LIFE = ['birth', 'christening', 'baptism', 'death', 'burial', 'cremation'];
+  const LIFE = ['birth', 'christening', 'baptism', 'death', 'missing', 'burial', 'cremation'];
   const FAMILY = ['marriage', 'divorce', 'annulment', 'engagement', 'separation'];
   const FACTS = [
     'occupation',

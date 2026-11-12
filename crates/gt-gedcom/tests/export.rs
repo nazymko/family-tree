@@ -193,6 +193,39 @@ fn shared_event_written_under_each_principal() {
 }
 
 #[test]
+fn missing_event_round_trips_as_a_typed_generic_event() {
+    let src = "0 HEAD
+0 @I1@ INDI
+1 NAME Ivan /Testenko/
+1 EVEN
+2 TYPE missing
+2 DATE 1943
+0 TRLR
+";
+    let a = import(src.as_bytes(), &opts());
+    let ev: Vec<_> = a.tree.events.values().collect();
+    assert_eq!(ev.len(), 1);
+    assert_eq!(ev[0].kind, EventKind::Missing);
+    for (v, tag) in [
+        (GedcomVersion::V551, "1 EVEN"),
+        (GedcomVersion::V70, "1 FACT"),
+    ] {
+        let text = ex(&a.tree, v);
+        assert!(text.contains(tag), "{text}");
+        assert!(text.contains("2 TYPE Missing"), "{text}");
+        let b = import(text.as_bytes(), &opts());
+        assert_eq!(
+            b.tree.events.values().next().unwrap().kind,
+            EventKind::Missing
+        );
+        assert_eq!(
+            a.tree.normalized_for_compare(),
+            b.tree.normalized_for_compare()
+        );
+    }
+}
+
+#[test]
 fn unparsed_date_in_70_uses_phrase() {
     let src = "0 HEAD\n0 @I1@ INDI\n1 BIRT\n2 DATE sometime in spring\n0 TRLR\n";
     let a = import(src.as_bytes(), &opts());

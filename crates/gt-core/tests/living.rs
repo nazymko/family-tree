@@ -100,6 +100,27 @@ fn living_with_birth(d: &str) -> bool {
 }
 
 #[test]
+fn a_missing_event_does_not_make_a_person_dead() {
+    // Only a Missing event: as if it carried no date at all.
+    let mut t = Tree::new();
+    let p = add_person(&mut t);
+    add_event(&mut t, p, EventKind::Missing, Some("1943"));
+    assert!(compute_living(&t, &LivingRule::default(), today())[&p]);
+    // Birth and Missing: same answer as the birth alone.
+    for birth in ["1990", "1850"] {
+        let alone = living_with_birth(birth);
+        let mut t = Tree::new();
+        let p = add_person(&mut t);
+        add_event(&mut t, p, EventKind::Birth, Some(birth));
+        add_event(&mut t, p, EventKind::Missing, Some("1943"));
+        assert_eq!(
+            compute_living(&t, &LivingRule::default(), today())[&p],
+            alone
+        );
+    }
+}
+
+#[test]
 fn no_dates_anywhere_is_living() {
     let mut t = Tree::new();
     let p = add_person(&mut t);

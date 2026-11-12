@@ -349,6 +349,8 @@ impl<'a> Bld<'a> {
             && !t.is_empty()
         {
             n.children.push(self.kv("TYPE", t));
+        } else if ev.kind == EventKind::Missing {
+            n.children.push(self.kv("TYPE", "Missing"));
         }
         let mut phrase_note = None;
         if let Some(g) = &ev.date {

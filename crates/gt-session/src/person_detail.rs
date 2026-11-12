@@ -61,6 +61,7 @@ pub fn event_label(k: &EventKind) -> String {
             }
         }
         EventKind::Military => "Military service".to_string(),
+        EventKind::Missing => "Went missing".to_string(),
         other => capitalise(&event_kind_id(other).replace('_', " ")),
     }
 }

@@ -95,7 +95,7 @@ Links a child to a family and says how the child is related to each partner.
 
 ### `event`
 A fact with a date and place. Family events (marriage and so on) are events whose participant is the family.
-- `kind`: event type such as `birth`, `death`, `marriage`, `residence`, or `custom:<text>`.
+- `kind`: event type such as `birth`, `death`, `missing` (went missing without trace; it does not count as a death), `marriage`, `residence`, or `custom:<text>`.
 - `date_raw`, `date_json`, `date_sort_min`, `date_sort_max`: when it happened (`date_sort_min` is indexed).
 - `place_id`: where it happened.
 - `description`: free-text detail (for example the occupation).
