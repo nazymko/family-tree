@@ -619,6 +619,7 @@ const messages: PartialMessages = {
     "christening": "Pagbibinyag",
     "baptism": "Binyag",
     "death": "Kamatayan",
+    "missing": "Nawala",
     "burial": "Libing",
     "cremation": "Cremation",
     "adoption": "Pag-ampon",

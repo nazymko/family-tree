@@ -619,6 +619,7 @@ const messages: PartialMessages = {
     "christening": "Sanya suna (Kirista)",
     "baptism": "Baftisma",
     "death": "Mutuwa",
+    "missing": "Ya ɓace",
     "burial": "Jana’iza",
     "cremation": "Ƙona gawa",
     "adoption": "Riƙon yaro",

@@ -619,6 +619,7 @@ const messages: PartialMessages = {
     "christening": "Ubatizo wa mtoto",
     "baptism": "Ubatizo",
     "death": "Kifo",
+    "missing": "Alipotea",
     "burial": "Mazishi",
     "cremation": "Kuchomwa maiti",
     "adoption": "Kuasili",

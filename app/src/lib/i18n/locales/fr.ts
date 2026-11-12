@@ -625,6 +625,7 @@ const messages: PartialMessages = {
     "christening": "Baptême d'enfant",
     "baptism": "Baptême",
     "death": "Décès",
+    "missing": "Disparition",
     "burial": "Inhumation",
     "cremation": "Crémation",
     "adoption": "Adoption",

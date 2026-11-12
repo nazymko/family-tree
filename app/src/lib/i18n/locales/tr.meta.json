@@ -543,6 +543,7 @@
  "eventKind.christening": "c709ede062",
  "eventKind.baptism": "cb0743609a",
  "eventKind.death": "e4c350a5cf",
+ "eventKind.missing": "07c53d1d62",
  "eventKind.burial": "7ab94fb640",
  "eventKind.cremation": "0da228d956",
  "eventKind.adoption": "8f1b573ac1",

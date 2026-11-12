@@ -619,6 +619,7 @@ const messages: PartialMessages = {
     "christening": "نام رکھائی",
     "baptism": "بپتسمہ",
     "death": "وفات",
+    "missing": "لاپتہ",
     "burial": "تدفین",
     "cremation": "آخری رسومات بذریعہ نذرِ آتش",
     "adoption": "گود لینا",

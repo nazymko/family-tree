@@ -613,6 +613,7 @@ const messages: PartialMessages = {
     "christening": "Lễ rửa tội đặt tên",
     "baptism": "Lễ rửa tội",
     "death": "Mất",
+    "missing": "Mất tích",
     "burial": "Mai táng",
     "cremation": "Hỏa táng",
     "adoption": "Nhận con nuôi",

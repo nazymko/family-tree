@@ -619,6 +619,7 @@ const messages: PartialMessages = {
     "christening": "Vaftiz töreni",
     "baptism": "Vaftiz",
     "death": "Ölüm",
+    "missing": "Kayboldu",
     "burial": "Defin",
     "cremation": "Yakma (kremasyon)",
     "adoption": "Evlat edinme",

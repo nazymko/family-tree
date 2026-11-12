@@ -619,6 +619,7 @@ const messages: PartialMessages = {
     "christening": "నామకరణం (క్రైస్తవ)",
     "baptism": "బాప్తిస్మం",
     "death": "మరణం",
+    "missing": "అదృశ్యం",
     "burial": "ఖననం",
     "cremation": "దహనం",
     "adoption": "దత్తత",

@@ -613,6 +613,7 @@ const messages: PartialMessages = {
     "christening": "洗礼式（命名）",
     "baptism": "洗礼",
     "death": "死去",
+    "missing": "行方不明",
     "burial": "埋葬",
     "cremation": "火葬",
     "adoption": "養子縁組",

@@ -643,6 +643,7 @@ const messages: PartialMessages = {
     "christening": "تسمية وتعميد",
     "baptism": "معمودية",
     "death": "وفاة",
+    "missing": "فُقد أثره",
     "burial": "دفن",
     "cremation": "حرق الجثمان",
     "adoption": "تبنٍّ",

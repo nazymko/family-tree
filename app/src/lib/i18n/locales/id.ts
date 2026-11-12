@@ -613,6 +613,7 @@ const messages: PartialMessages = {
     "christening": "Pembaptisan bayi",
     "baptism": "Baptisan",
     "death": "Kematian",
+    "missing": "Hilang",
     "burial": "Pemakaman",
     "cremation": "Kremasi",
     "adoption": "Adopsi",
