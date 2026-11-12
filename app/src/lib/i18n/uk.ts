@@ -601,6 +601,7 @@ export const uk: Messages = {
     christening: 'Хрестини',
     baptism: 'Хрещення',
     death: 'Смерть',
+    missing: 'Зник(ла) безвісти',
     burial: 'Поховання',
     cremation: 'Кремація',
     adoption: 'Усиновлення',

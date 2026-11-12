@@ -602,6 +602,7 @@ export const en = {
     christening: 'Christening',
     baptism: 'Baptism',
     death: 'Death',
+    missing: 'Went missing',
     burial: 'Burial',
     cremation: 'Cremation',
     adoption: 'Adoption',

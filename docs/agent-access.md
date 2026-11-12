@@ -77,6 +77,9 @@ agent's own report: what it added, what it left unsettled, and questions for the
   add a death date or burial to a person the app counts as living. It leaves a note and lists the person in its report.
   A death that agrees with what the app already shows is allowed: on a person you marked *Deceased*, or one who is already
   counted as dead because of their age.
+  An event of kind `missing` (went missing without trace, for example in a war) is not a death: the agent may add it with
+  `add_event`, and it never changes whether the app counts the person as alive. In GEDCOM it is written as a generic event
+  with `TYPE Missing`.
 - **Fill in an unknown sex on your people.** Sex can be set only on people the agent added itself. On anyone else a note says
   it instead.
 - **Enter a date that reads two ways.** A date like `03/04/1901` could be the third of April or the fourth of March, so it is

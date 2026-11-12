@@ -203,6 +203,7 @@ pub enum EventKind {
     Christening,
     Baptism,
     Death,
+    Missing,
     Burial,
     Cremation,
     Adoption,
