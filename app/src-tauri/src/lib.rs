@@ -135,9 +135,6 @@ pub fn run() {
         .build(context)
         .expect("error while building Family Tree")
         .run(|app, event| {
-            // Close the project cleanly: dropping it checkpoints the WAL into tree.db, so a
-            // user who copies only that file loses nothing, and the lock file is released.
-            // The server goes first, so no request meets a tree on its way out.
             // A phone may end the process while it is in the background, with no exit event: empty the
             // write-ahead log into tree.db whenever the app is sent away.
             #[cfg(mobile)]
@@ -148,10 +145,14 @@ pub fn run() {
             {
                 mobile::checkpoint_open_tree(&app.state::<AppState>());
             }
+            // Close the project cleanly: dropping it checkpoints the WAL into tree.db, so a
+            // user who copies only that file loses nothing, and the lock file is released.
+            // The server goes first, so no request meets a tree on its way out.
             if let tauri::RunEvent::Exit = event {
                 let state = app.state::<AppState>();
                 agent_access::shutdown(&state);
                 commands::close_project_impl(&state);
+                mobile::end_process();
             }
         });
 }

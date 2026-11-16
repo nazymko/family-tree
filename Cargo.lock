@@ -1833,6 +1833,7 @@ dependencies = [
  "image",
  "keyring",
  "reqwest",
+ "rustix",
  "serde",
  "serde_json",
  "tauri",

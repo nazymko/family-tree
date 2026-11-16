@@ -202,6 +202,18 @@ pub fn checkpoint_open_tree(state: &crate::state::AppState) {
     }
 }
 
+/// Ends the Android process once the tree is closed. Returning from `run` lets the C runtime run its exit
+/// handlers (`exit()`) while worker threads still use global mutexes, and the process then aborts with
+/// "pthread_mutex_lock called on a destroyed mutex". Nothing is left to save at this point, and SIGKILL is what the
+/// system does to a swiped-away app anyway.
+pub fn end_process() {
+    #[cfg(target_os = "android")]
+    {
+        use rustix::process::{Signal, getpid, kill_process};
+        let _ = kill_process(getpid(), Signal::KILL);
+    }
+}
+
 /// Handler for the three commands above.
 pub fn handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![mobile_info, mobile_stage_pick, mobile_deliver]
