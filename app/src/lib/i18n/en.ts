@@ -303,6 +303,15 @@ export const en = {
     openFailed: 'Could not open the browser. The address is {url}.',
     privacy: 'Pressing the button sends one request to github.com. Nothing is sent otherwise.',
   },
+  mobile: {
+    menu: 'Menu',
+    closeMenu: 'Close menu',
+    lede: 'Your family history, kept on your own device.',
+    storedHere: "On this device your trees are kept in the app's own storage. To move one to another device, use Export or Send a copy.",
+    noFolders: "A phone or tablet app cannot browse folders, so this is not offered here. Trees are kept in the app's own storage.",
+    noAgents: 'Connecting AI agents works only in the desktop app.',
+    saveOffered: 'The file is ready: choose where to save or send it.',
+  },
   welcome: {
     lede: 'Your family history, kept on your own computer.',
     importFile: 'Import a family tree file',
@@ -520,6 +529,7 @@ export const en = {
     endKidsAloneF: 'Raised alone by {who}',
     endKidsAloneX: 'Raised alone by {who}',
     treeMenu: 'Actions for {who}',
+    moreActionsFor: 'More actions for {who}',
     treeOpen: 'Open {who}',
     treeAnd: ' and ',
     treeDetach: 'Detach',

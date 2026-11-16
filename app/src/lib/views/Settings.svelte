@@ -8,13 +8,14 @@
   import Banner from '../ui/Banner.svelte';
   import AgentAccessSettings from './AgentAccessSettings.svelte';
   import AboutSection from './AboutSection.svelte';
-  import { getApi } from '../api/context';
+  import { getApi, getPlatform } from '../api/context';
   import { settings } from '../state/settings.svelte';
   import { t, LANGUAGES } from '../i18n';
   import type { Id, SearchHitDto, Settings } from '../api/api';
   import { CHART_LABEL, DIRECTION_KEYS, DIRECTION_LABEL, choicesFor, directionOf, type ChartDirection } from '../chart/direction';
 
   const api = getApi();
+  const platform = getPlatform();
   let error = $state('');
 
   let threshold = $state('100');
@@ -169,7 +170,11 @@
     </fieldset>
     <TextField label={t('settings.backups')} type="number" min="1" max="50" bind:value={backups} onchange={commitBackups} />
   </div>
-  <AgentAccessSettings />
+  {#if platform.isMobile}
+    <p class="hint" data-testid="mobile-no-agents">{t('mobile.noAgents')}</p>
+  {:else}
+    <AgentAccessSettings />
+  {/if}
   <AboutSection />
 </section>
 

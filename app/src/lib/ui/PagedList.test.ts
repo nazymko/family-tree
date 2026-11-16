@@ -73,6 +73,30 @@ describe('PagedList', () => {
     expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-rowindex', '1');
   });
 
+  it('a_finger_tap_selects_and_opens_the_row_the_mouse_keeps_click_then_double_click', async () => {
+    const { onSelect, onActivate } = mount(100);
+    await waitFor(() => expect(screen.getByText('Row 2')).toBeInTheDocument());
+    const row = screen.getByText('Row 2').closest('[role="option"]') as HTMLElement;
+    const press = (pointerType: string) => {
+      const e = new MouseEvent('pointerdown', { bubbles: true });
+      Object.defineProperty(e, 'pointerType', { value: pointerType });
+      row.dispatchEvent(e);
+    };
+    press('mouse');
+    await fireEvent.click(row);
+    expect(onSelect).toHaveBeenLastCalledWith(2);
+    expect(onActivate).not.toHaveBeenCalled();
+    await fireEvent.dblClick(row);
+    expect(onActivate).toHaveBeenCalledTimes(1);
+    onActivate.mockClear();
+    press('touch');
+    await fireEvent.click(row);
+    expect(onActivate).toHaveBeenCalledWith(2);
+    // The double-click the browser may add after a double tap does not open it a second time.
+    await fireEvent.dblClick(row);
+    expect(onActivate).toHaveBeenCalledTimes(1);
+  });
+
   it('initial_page_avoids_duplicate_request', async () => {
     const { loadPage } = mount(1000, { initialPage: { offset: 0, items: Array.from({ length: 200 }, (_, i) => `Row ${i}`) } });
     await new Promise((r) => setTimeout(r, 20));

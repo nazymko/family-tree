@@ -206,6 +206,29 @@
     }, run: () => (sheetOpen = true) },
   ];
 
+  // Below this width the sidebar is a drawer behind a menu button (a phone, a small tablet). The desktop window
+  // cannot get this narrow (its minimum is 960 px), so the desktop layout never changes.
+  const NARROW = '(max-width: 940px)';
+  let narrow = $state(false);
+  let drawerOpen = $state(false);
+  const mobile = !!platform.isMobile;
+
+  $effect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const q = window.matchMedia(NARROW);
+    const sync = () => {
+      narrow = q.matches;
+      if (!narrow) drawerOpen = false;
+    };
+    sync();
+    q.addEventListener?.('change', sync);
+    return () => q.removeEventListener?.('change', sync);
+  });
+
+  function closeDrawer() {
+    drawerOpen = false;
+  }
+
   onMount(() => {
     void undoState.refresh(api);
     if (!nav.focusPerson && homeId) nav.focus(homeId);
@@ -292,13 +315,20 @@
   <CitationList target={{ kind: 'person', id: d.ref.id }} citations={d.citations} onChanged={() => {}} />
 {/snippet}
 
-<div class="shell">
-  <aside class="side">
+<svelte:window onkeydown={(e) => e.key === 'Escape' && drawerOpen && closeDrawer()} />
+
+<div class="shell" class:narrow>
+  {#if narrow && drawerOpen}
+    <button type="button" class="scrim" aria-label={t('mobile.closeMenu')} onclick={closeDrawer}></button>
+  {/if}
+  <aside class="side" class:open={drawerOpen} inert={narrow && !drawerOpen} aria-label={narrow ? t('shell.main') : undefined}>
     <div class="brand">
       <Ribbon title="Family Tree" size="1.25rem" />
       <span class="brand-name">Family Tree<span class="byline">{t('about.byline')}</span></span>
     </div>
-    <nav aria-label={t('shell.main')}>
+    <!-- A choice in the drawer closes it; the drawer is the only place this matters. -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_click_events_have_key_events -->
+    <nav aria-label={t('shell.main')} onclick={() => narrow && closeDrawer()}>
       <ul>
         {#each ITEMS as it (it.name)}
           <li>
@@ -371,7 +401,11 @@
       </ul>
     </nav>
     <footer class="foot">
-      <button type="button" class="pname" title={t('shell.openFolder', { dir: project.info?.dir ?? '' })} onclick={openFolder}>{project.info?.name}</button>
+      {#if mobile}
+        <span class="pname static">{project.info?.name}</span>
+      {:else}
+        <button type="button" class="pname" title={t('shell.openFolder', { dir: project.info?.dir ?? '' })} onclick={openFolder}>{project.info?.name}</button>
+      {/if}
       <div class="pcount tnum">{plural('common.people', project.info?.personCount ?? 0)}</div>
       <div class="saved" role="status" aria-label={t('shell.saveStatus')} class:bad={project.save === 'failed'}>
         <Icon name="check" />
@@ -382,6 +416,9 @@
 
   <div class="col">
     <header class="top">
+      {#if narrow}
+        <IconButton label={t('mobile.menu')} icon="menu" aria-expanded={drawerOpen} onclick={() => (drawerOpen = !drawerOpen)} />
+      {/if}
       <div class="hist">
         <IconButton label={t('common.back')} icon="chevron-left" disabled={!nav.canBack} onclick={() => nav.back()} />
         <IconButton label={t('common.forward')} icon="chevron-right" disabled={!nav.canForward} onclick={() => nav.forward()} />
@@ -389,7 +426,7 @@
       <button type="button" class="find" onclick={() => (searchOpen = true)}>
         <Icon name="search" />
         <span>{t('ui.searchTheTree')}</span>
-        <Kbd>{modLabel}</Kbd>
+        {#if !mobile}<Kbd>{modLabel}</Kbd>{/if}
       </button>
       <div class="hist">
         <IconButton
@@ -593,6 +630,11 @@
     text-align: start;
     transition: background-color var(--dur-fast) var(--ease);
   }
+  @media (pointer: coarse) {
+    .item {
+      min-height: 2.75rem;
+    }
+  }
   .item:hover {
     background: var(--rule);
     color: var(--ink-0);
@@ -703,35 +745,96 @@
     padding: var(--s-6) var(--s-7) var(--s-8);
   }
   @media (max-width: 1100px) {
-    .shell {
+    .shell:not(.narrow) {
       grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr);
     }
-    .lbl,
-    .brand-name,
-    .pname,
-    .pcount {
+    .shell:not(.narrow) .lbl,
+    .shell:not(.narrow) .brand-name,
+    .shell:not(.narrow) .pname,
+    .shell:not(.narrow) .pcount {
       position: absolute;
       width: 1px;
       height: 1px;
       overflow: hidden;
       clip-path: inset(50%);
     }
-    .brand {
+    .shell:not(.narrow) .brand {
       justify-content: center;
       padding-inline: 0;
     }
-    .item {
+    .shell:not(.narrow) .item {
       justify-content: center;
       padding: 0;
     }
-    .saved {
+    .shell:not(.narrow) .saved {
       justify-content: center;
     }
-    .foot {
+    .shell:not(.narrow) .foot {
       padding-inline: var(--s-2);
     }
     .page {
       padding-inline: var(--s-5);
+    }
+  }
+  /* A phone or small tablet: the sidebar slides in over the page from a menu button. */
+  .shell.narrow {
+    grid-template-columns: minmax(0, 1fr);
+    height: 100dvh;
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+  }
+  .shell.narrow .side {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: 50;
+    width: min(20rem, 86vw);
+    padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom);
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.28);
+    transform: translateX(-105%);
+    visibility: hidden;
+    transition:
+      transform 0.18s ease,
+      visibility 0s linear 0.18s;
+  }
+  .shell.narrow .side.open {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.18s ease;
+  }
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    border: 0;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.4);
+  }
+  .shell.narrow .top {
+    padding-block-start: max(var(--s-3), env(safe-area-inset-top));
+  }
+  .shell.narrow .top {
+    padding-inline: var(--s-3);
+    gap: var(--s-2);
+  }
+  .shell.narrow .find span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .shell.narrow .find {
+    min-width: 0;
+    overflow: hidden;
+  }
+  .shell.narrow .page {
+    padding: var(--s-4) var(--s-4) calc(var(--s-6) + env(safe-area-inset-bottom));
+  }
+  .pname.static {
+    cursor: default;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .shell.narrow .side,
+    .shell.narrow .side.open {
+      transition: none;
     }
   }
 </style>

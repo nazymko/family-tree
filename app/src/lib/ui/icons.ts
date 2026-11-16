@@ -1,5 +1,6 @@
 /** Stroke paths on a 24x24 grid. Derived from Lucide (ISC licence); pedigree and descendants are custom in the same style. */
 export const icons = {
+  menu: ['M4 6h16', 'M4 12h16', 'M4 18h16'],
   family: [
     'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2',
     'M13 7a4 4 0 1 0-8 0 4 4 0 0 0 8 0',

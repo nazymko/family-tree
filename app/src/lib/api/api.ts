@@ -214,4 +214,13 @@ export interface Platform {
   onFilesDropped(cb: (paths: string[]) => void, onHover?: (over: boolean) => void): () => void;
   onTreeChangedByAgent(cb: (e: AgentChangeEvent) => void): () => void;
   reveal(path: string): Promise<void>;
+  /**
+   * True on a phone or tablet. There a tree lives in the app's own storage (`treesDir`), there is no folder picker,
+   * and a file made for the person (`pickSavePath`) is handed over with `deliver` once it is written.
+   */
+  isMobile?: boolean;
+  /** Mobile only: the folder every tree of this app lives in. */
+  treesDir?(): Promise<string>;
+  /** Mobile only: offers the file `pickSavePath` returned to the person to save or send; false when they backed out. */
+  deliver?(path: string): Promise<boolean>;
 }

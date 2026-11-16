@@ -11,6 +11,7 @@
   import { t, type MessageKey } from '../i18n';
   import { isMarriage } from '../family/kinship';
   import ContextMenu from '../ui/ContextMenu.svelte';
+  import { isCoarsePointer, isTouchPointer, longPress } from '../ui/longPress';
   import type { MenuItem } from '../ui/Menu.svelte';
   import Dialog from '../ui/Dialog.svelte';
   import Button from '../ui/Button.svelte';
@@ -495,17 +496,37 @@
     };
   }
 
+  /** Right-click, menu key or Shift+F10 on a box. */
   function openMenu(e: MouseEvent, p: PersonRef, acts: () => (MenuItem | null)[]) {
     const items = acts().filter((x): x is MenuItem => !!x);
     if (items.length === 0) return;
     e.preventDefault();
     const from = e.currentTarget as HTMLElement;
+    // The browser's own menu event for a finger press: the long press (see below) has opened, or opens, the menu.
+    if (isTouchPointer(e as PointerEvent)) return;
     let { clientX: x, clientY: y } = e;
     if (isKeyboardMenu(e as PointerEvent)) {
       const r = from.getBoundingClientRect();
       x = r.left + r.width / 2;
       y = r.bottom;
     }
+    showMenu(from, x, y, p, items);
+  }
+
+  /** The box button a press landed on (the target may be a name or date inside it). */
+  const markerEl = (t: EventTarget | null): HTMLElement => ((t as HTMLElement | null)?.closest?.('button.box') ?? t) as HTMLElement;
+
+  /** Finger input was seen (or the main input is a finger): boxes with actions show a visible "More actions" button. */
+  let touchInput = $state(isCoarsePointer());
+
+  /** A finger held on a box, or the "More actions" button: the same menu, at the finger or under the button. */
+  function openMenuAt(from: HTMLElement, x: number, y: number, p: PersonRef, acts: () => (MenuItem | null)[]) {
+    const items = acts().filter((i): i is MenuItem => !!i);
+    if (items.length === 0) return;
+    showMenu(from, x, y, p, items);
+  }
+
+  function showMenu(from: HTMLElement, x: number, y: number, p: PersonRef, items: MenuItem[]) {
     const open: MenuItem = { label: t('family.treeOpen', { who: p.name }), onselect: () => onopen(p.id) };
     menu = { x, y, who: p, items: [open, ...items.map((it, i) => (i === 0 ? { ...it, separatorBefore: true } : it))], from };
   }
@@ -580,6 +601,7 @@
     aria-label={t('person.siblingMarker')}
     onfocus={() => (active = `p:${p.id}`)}
     oncontextmenu={(e) => openMenu(e, p, () => [deleteMarker(p)])}
+    use:longPress={{ onLongPress: (pt) => openMenuAt(markerEl(pt.target), pt.x, pt.y, p, () => [deleteMarker(p)]) }}
     aria-haspopup="menu"
   >
     <bdi dir="auto" class="nm">{t('person.siblingMarker')}</bdi>
@@ -589,7 +611,31 @@
 {#snippet box(p: PersonRef, role: Role, row: number, current = false, acts: (() => (MenuItem | null)[]) | null = null, note: string | null = null)}
   {#if p.siblingMarker}
     {@render marker(p, row)}
+  {:else if acts}
+    <span class="bx" class:touch={touchInput}>
+      {@render boxButton(p, role, row, current, acts, note)}
+      {#if touchInput}
+        <button
+          type="button"
+          class="moreact"
+          data-testid="more-actions"
+          aria-haspopup="menu"
+          aria-label={t('family.moreActionsFor', { who: p.name })}
+          onclick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            openMenuAt(e.currentTarget, r.left, r.bottom, p, acts);
+          }}
+        >
+          <span aria-hidden="true">⋯</span>
+        </button>
+      {/if}
+    </span>
   {:else}
+    {@render boxButton(p, role, row, current, acts, note)}
+  {/if}
+{/snippet}
+
+{#snippet boxButton(p: PersonRef, role: Role, row: number, current: boolean, acts: (() => (MenuItem | null)[]) | null, note: string | null)}
   <button
     type="button"
     class="box"
@@ -606,6 +652,7 @@
       if (!current) onopen(p.id);
     }}
     oncontextmenu={acts ? (e) => openMenu(e, p, acts) : undefined}
+    use:longPress={{ accept: () => !!acts, onLongPress: (pt) => acts && openMenuAt(markerEl(pt.target), pt.x, pt.y, p, acts) }}
     aria-haspopup={acts ? 'menu' : undefined}
   >
     {#if role}<span class="kin" aria-hidden="true">{t(roleKey(role))}{#if note}<span class="endtag">{` · ${note}`}</span>{/if}</span>{/if}
@@ -619,7 +666,6 @@
     </span>
     {#if p.id === homeId}<span class="rib"><Ribbon size="0.9rem" /></span>{/if}
   </button>
-  {/if}
 {/snippet}
 
 {#snippet slot(relation: AddRelation, anchor: PersonRef, row: number)}
@@ -640,7 +686,7 @@
 
 <div class="treebar" class:fitted={paneFit} style:width={paneFit && `${paneFit.width}px`} style:margin-inline-start={paneFit && `${paneFit.shift}px`}><DirectionControl chart="family" /></div>
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<div class="tree" class:reversed class:fitted={paneFit} style:width={paneFit && `${paneFit.width}px`} style:margin-inline-start={paneFit && `${paneFit.shift}px`} data-direction={reversed ? 'reversed' : 'normal'} bind:this={treeEl} role="group" aria-label={t('family.treeLabel', { who: focus.name })} onkeydown={keys}>
+<div class="tree" class:reversed class:fitted={paneFit} style:width={paneFit && `${paneFit.width}px`} style:margin-inline-start={paneFit && `${paneFit.shift}px`} data-direction={reversed ? 'reversed' : 'normal'} bind:this={treeEl} role="group" aria-label={t('family.treeLabel', { who: focus.name })} onkeydown={keys} onpointerdowncapture={(e) => { if (isTouchPointer(e)) touchInput = true; }}>
   <!-- Every row keeps to one line (wrapped rows would lose their lines); the tree scrolls sideways when wider. -->
   <div class="inner" style:--dx="{dx}px">
   {#if view.parentSets.length > 1 || hasParent}
@@ -1175,6 +1221,45 @@
     text-align: start;
     cursor: pointer;
     font: inherit;
+  }
+  /* A finger holds a box to open its menu: no browser callout or text selection on the boxes. */
+  .box {
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  /* A box with actions on a touch screen: the box and its visible "More actions" button. */
+  .bx {
+    position: relative;
+    display: grid;
+    min-width: 0;
+  }
+  .bx.touch > .box {
+    padding-inline-end: 2.75rem;
+  }
+  .moreact {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-end: 0;
+    width: 2.75rem;
+    height: 2.75rem;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: var(--r-1);
+    background: transparent;
+    color: var(--ink-1);
+    font: inherit;
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .moreact:hover {
+    background: var(--paper-2, var(--rule));
+  }
+  .moreact:focus-visible {
+    outline: 2px solid var(--ribbon);
+    outline-offset: -2px;
   }
   .box.male {
     border-inline-start-color: var(--verdigris);

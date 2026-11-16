@@ -91,7 +91,7 @@
       <Ribbon title="Family Tree" size="2rem" />
       <h1>Family Tree</h1>
       <p class="byline">{t('about.byline')}</p>
-      <p class="lede">{t('welcome.lede')}</p>
+      <p class="lede">{platform.isMobile ? t('mobile.lede') : t('welcome.lede')}</p>
     </header>
 
     {#if error}<Banner kind="error">{error}</Banner>{/if}
@@ -101,9 +101,11 @@
         <Button variant="primary" onclick={() => (mode = 'import')}>{t('welcome.importFile')}</Button>
         <Button onclick={() => (mode = 'create')}>{t('welcome.createTree')}</Button>
         <Button onclick={() => (mode = 'trace')}>{t('welcome.traceTree')}</Button>
-        <Button onclick={openFolder}>{t('welcome.openTree')}</Button>
+        {#if !platform.isMobile}<Button onclick={openFolder}>{t('welcome.openTree')}</Button>{/if}
         <Button onclick={openReceived}>{t('merge.openReceived')}</Button>
       </div>
+
+      {#if platform.isMobile}<p class="mobile-note" data-testid="mobile-storage-note">{t('mobile.storedHere')}</p>{/if}
 
       <section aria-labelledby="recent-h">
         <div class="ledger">
@@ -132,13 +134,14 @@
                         <a
                           href="#/open"
                           class="row"
+                          class:mob={platform.isMobile}
                           onclick={(e) => {
                             e.preventDefault();
                             void open(r.dir);
                           }}
                         >
                           <span class="rname">{r.name}</span>
-                          <bdi dir="auto" class="rdir">{r.dir}</bdi>
+                          {#if !platform.isMobile}<bdi dir="auto" class="rdir">{r.dir}</bdi>{/if}
                           <span class="rwhen tnum">{#if recent(r.openedAt)}{t('welcome.opened', { date: when(r.openedAt) })}{/if}</span>
                         </a>
                         <Button variant="quiet" onclick={() => setHidden(r.dir, true)} aria-label={t('welcome.hideNamed', { name: r.name })}>
@@ -173,7 +176,7 @@
                             }}
                           >
                             <span class="rname">{r.name}</span>
-                            <bdi dir="auto" class="rdir">{r.dir}</bdi>
+                            {#if !platform.isMobile}<bdi dir="auto" class="rdir">{r.dir}</bdi>{/if}
                             <span class="rwhen tnum">{#if recent(r.openedAt)}{t('welcome.opened', { date: when(r.openedAt) })}{/if}</span>
                           </a>
                         {/if}
@@ -197,6 +200,11 @@
 </main>
 
 <style>
+  .mobile-note {
+    color: var(--ink-1);
+    font-size: var(--t-sm);
+    margin: 0;
+  }
   .welcome {
     min-height: 100vh;
     padding: var(--s-9) var(--s-7);
@@ -274,6 +282,12 @@
     min-height: 56px;
     color: inherit;
     text-decoration: none;
+  }
+  /* No folder column on a phone: the date goes under the name. */
+  .row.mob {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-1);
+    padding-block: var(--s-3);
   }
   .row:hover .rname {
     text-decoration: underline;

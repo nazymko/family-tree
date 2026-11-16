@@ -181,11 +181,12 @@ export async function savePicture(
       ({ bytes, plan } = await renderPngAdaptive(built));
     }
     await deps.api.savePicture(dest, bytes);
+    if (deps.platform.isMobile && deps.platform.deliver && !(await deps.platform.deliver(dest))) return;
     const scaled = format === 'png' && plan.reduced;
     const message = scaled
       ? t('picture.savedScaled', { percent: plan.percent }) + (plan.percent < 50 ? ` ${t('picture.svgHint')}` : '')
       : t('picture.saved');
-    notices.show({ message, actionLabel: t('exp.reveal'), onaction: () => void deps.platform.reveal(dest) });
+    notices.show({ message, ...(deps.platform.isMobile ? {} : { actionLabel: t('exp.reveal'), onaction: () => void deps.platform.reveal(dest) }) });
   } catch (e) {
     notices.show({ message: messageOf(e) });
   } finally {

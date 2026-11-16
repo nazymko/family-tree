@@ -5,6 +5,10 @@
   import type { Id, OutlineItem } from '../api/types';
   import { t } from '../i18n';
   import { birthSurnameText } from '../ui/birthSurname';
+  import { isTouchPointer } from '../ui/longPress';
+
+  /** The last press on an entry came from a finger: one tap opens the person. */
+  let lastTouch = false;
   import { outlineLabel, relationText } from '../i18n/relation';
 
   let {
@@ -179,8 +183,16 @@
         {:else}
           <span class="twist"></span>
         {/if}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <span class="text" ondblclick={() => it.person && onPick(it.person.id, it.relation === undefined ? undefined : relationText(it))}>
+        <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+        <span
+          class="text"
+          onpointerdown={(e) => (lastTouch = isTouchPointer(e))}
+          onclick={() => {
+            // A finger has no double-click: one tap opens the person.
+            if (lastTouch && it.person) onPick(it.person.id, it.relation === undefined ? undefined : relationText(it));
+          }}
+          ondblclick={() => it.person && !lastTouch && onPick(it.person.id, it.relation === undefined ? undefined : relationText(it))}
+        >
           <span class="rel">{outlineLabel(it)}</span>
           {#if it.person}
             <bdi dir="auto" class="nm">{it.person.name}</bdi>
