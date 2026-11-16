@@ -32,13 +32,14 @@ describe('Right-to-left and CJK interface languages', () => {
     await openTreeFromReport();
     await goTo('Settings');
 
-    // The list has all 21 languages, the partial ones with their share.
+    // The list has all 21 languages; a partly translated one would also show its share ("— 85 %"), but every
+    // language is complete now, so only the name is checked.
     const labels = await languageSelect().then((s) => s.$$('option').map((o) => o.getText())).then((all) => all.map((l) => l.replace(/[⁦-⁩]/g, '')));
     expect(labels.length).toBe(22); // 21 languages + "Same as the system"
     expect(labels).toContain('English');
     expect(labels).toContain('Українська');
-    expect(labels.some((l) => l.startsWith('العربية — '))).toBe(true);
-    expect(labels.some((l) => l.startsWith('中文简体 — '))).toBe(true);
+    expect(labels.some((l) => l.startsWith('العربية'))).toBe(true);
+    expect(labels.some((l) => l.startsWith('中文简体'))).toBe(true);
 
     await chooseLanguage('ar');
     expect(await html()).toEqual({ dir: 'rtl', lang: 'ar' });
