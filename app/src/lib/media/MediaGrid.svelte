@@ -31,7 +31,7 @@
 <ul class="grid" aria-label={t('media.photosAndDocs')}>
   {#each items as link, i (link.media.id)}
     {@const m = link.media}
-    <li class="tile">
+    <li class="tile" data-media-id={m.id}>
       {#if !m.resolved}
         <div class="face missing">
           <Icon name="file" size="2rem" />

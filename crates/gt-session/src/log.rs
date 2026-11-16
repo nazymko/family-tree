@@ -176,15 +176,23 @@ pub enum LocationPage {
     Source,
 }
 
-/// Where a record is shown: the page to open and, for a note, the note to bring into view.
+/// The record to bring into view on a page: `person`, `family`, `event`, `name`, `note`, `media`,
+/// `citation` or `source`. It is the changed record when the page draws it, else the nearest record
+/// up the chain of holders that the page does draw (a note on an event: the event).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RevealTarget {
+    pub kind: String,
+    pub id: Uuid,
+}
+
+/// Where a record is shown: the page to open and the record on it to bring into view.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct LocationDto {
     pub page: LocationPage,
     pub id: Uuid,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub note: Option<Uuid>,
+    pub target: RevealTarget,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -345,6 +353,20 @@ impl Words for LogWords<'_> {
     }
     fn media(&self, id: Uuid) -> String {
         self.text_of(RecordKind::Media, id)
+    }
+}
+
+/// The name a [`RevealTarget`] gives a kind of record.
+fn target_kind(k: OwnerKind) -> &'static str {
+    match k {
+        OwnerKind::Person => "person",
+        OwnerKind::Name => "name",
+        OwnerKind::Family | OwnerKind::ChildLink => "family",
+        OwnerKind::Event => "event",
+        OwnerKind::Media => "media",
+        OwnerKind::Citation => "citation",
+        OwnerKind::Source => "source",
+        OwnerKind::Note => "note",
     }
 }
 
@@ -839,13 +861,17 @@ impl Session {
     ) -> Result<Vec<Option<LocationDto>>, ApiError> {
         let t = &self.tree;
         let mut holders: HashMap<Uuid, OwnerRef> = HashMap::new();
+        // Recordings that a holder links as a stretch (a clip): pages draw those apart.
+        let mut clipped: HashSet<Uuid> = HashSet::new();
         let mut hold = |c: &gt_core::model::Common, kind: OwnerKind, id: Uuid| {
             let owner = OwnerRef { kind, id };
             for x in c.notes.iter().chain(&c.citations) {
                 holders.entry(*x).or_insert(owner);
             }
             for m in &c.media {
-                holders.entry(m.media).or_insert(owner);
+                if *holders.entry(m.media).or_insert(owner) == owner && m.clip.is_some() {
+                    clipped.insert(m.media);
+                }
             }
         };
         let mut name_owner: HashMap<Uuid, Uuid> = HashMap::new();
@@ -883,11 +909,7 @@ impl Session {
                 });
             }
         }
-        let at = |page: LocationPage, id: Uuid| LocationDto {
-            page,
-            id,
-            note: None,
-        };
+        let at = |page: LocationPage, id: Uuid| (page, id);
         let person = |id: Uuid| {
             t.persons
                 .get(&id)
@@ -906,7 +928,7 @@ impl Session {
         };
         // The page of a record that has one of its own or is shown on one; `None` for a record
         // that is only held by others (a note, a picture).
-        let page_of = |owner: OwnerRef| -> Option<LocationDto> {
+        let page_of = |owner: OwnerRef| -> Option<(LocationPage, Uuid)> {
             match owner.kind {
                 OwnerKind::Person => person(owner.id),
                 OwnerKind::Name => name_owner.get(&owner.id).and_then(|p| person(*p)),
@@ -930,36 +952,76 @@ impl Session {
             }
         };
         // Up through the holders until a record with a page; a loop in the data ends the walk.
-        let climb = |start: OwnerRef| -> Option<LocationDto> {
+        // Gives the page and the records walked through, the changed one first.
+        let climb = |start: OwnerRef| -> Option<((LocationPage, Uuid), Vec<OwnerRef>)> {
             let mut here = start;
+            let mut chain = Vec::new();
             for _ in 0..16 {
+                chain.push(here);
                 if let Some(found) = page_of(here) {
-                    return Some(found);
+                    return Some((found, chain));
                 }
                 here = *holders.get(&here.id)?;
             }
             None
         };
+        // Whether the page draws chain[i] as a row or item of its own.
+        let drawn = |page: (LocationPage, Uuid), chain: &[OwnerRef], i: usize| -> bool {
+            let node = chain[i];
+            let next = chain.get(i + 1);
+            let held_by_page = next.is_some_and(|h| h.id == page.1);
+            let clip =
+                clipped.contains(&node.id) && next.is_some_and(|h| h.kind != OwnerKind::Name);
+            match (page.0, node.kind) {
+                (_, OwnerKind::Event) | (LocationPage::Person, OwnerKind::Name) => true,
+                (LocationPage::Person, OwnerKind::Note | OwnerKind::Citation)
+                | (LocationPage::Family, OwnerKind::Note)
+                | (LocationPage::Source, OwnerKind::Media) => held_by_page,
+                (LocationPage::Person, OwnerKind::Media) => held_by_page || clip,
+                (LocationPage::Family, OwnerKind::Media) => held_by_page && clip,
+                _ => false,
+            }
+        };
         let owner = |kind: OwnerKind, id: Uuid| OwnerRef { kind, id };
+        let located = |start: OwnerRef| -> Option<LocationDto> {
+            let (page, chain) = climb(start)?;
+            let target = (0..chain.len())
+                .find(|&i| drawn(page, &chain, i))
+                .map_or_else(
+                    || RevealTarget {
+                        kind: match page.0 {
+                            LocationPage::Person => "person",
+                            LocationPage::Family => "family",
+                            LocationPage::Source => "source",
+                        }
+                        .into(),
+                        id: page.1,
+                    },
+                    |i| RevealTarget {
+                        kind: target_kind(chain[i].kind).into(),
+                        id: chain[i].id,
+                    },
+                );
+            Some(LocationDto {
+                page: page.0,
+                id: page.1,
+                target,
+            })
+        };
         Ok(refs
             .iter()
             .map(|r| {
                 let id = r.id;
                 match r.kind.as_str() {
-                    "person" => person(id),
-                    "family" => family(id),
-                    "source" => source(id),
-                    "event" => page_of(owner(OwnerKind::Event, id)),
+                    "person" => located(owner(OwnerKind::Person, id)),
+                    "family" => located(owner(OwnerKind::Family, id)),
+                    "source" => located(owner(OwnerKind::Source, id)),
+                    "event" => located(owner(OwnerKind::Event, id)),
                     "citation" if t.citations.contains_key(&id) => {
-                        climb(owner(OwnerKind::Citation, id))
+                        located(owner(OwnerKind::Citation, id))
                     }
-                    "media" if t.media.contains_key(&id) => climb(owner(OwnerKind::Media, id)),
-                    "note" if t.notes.contains_key(&id) => {
-                        climb(owner(OwnerKind::Note, id)).map(|l| LocationDto {
-                            note: Some(id),
-                            ..l
-                        })
-                    }
+                    "media" if t.media.contains_key(&id) => located(owner(OwnerKind::Media, id)),
+                    "note" if t.notes.contains_key(&id) => located(owner(OwnerKind::Note, id)),
                     _ => None,
                 }
             })

@@ -129,6 +129,7 @@ export * from './Relation';
 export * from './RelinkResult';
 export * from './RepairDto';
 export * from './ReuseLast';
+export * from './RevealTarget';
 export * from './ReviewScopeDto';
 export * from './RoleDto';
 export * from './RoleKind';

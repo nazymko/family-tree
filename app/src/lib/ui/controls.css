@@ -39,11 +39,33 @@
   border-radius: var(--r-1);
   transition: background var(--dur-fast) var(--ease);
 }
-/* A note the change log sent the person to: marked for a moment. */
-[data-note-id].revealed {
+/* The record the change log sent the person to: marked for a moment. */
+.revealed:is([data-person-id], [data-family-id], [data-event-id], [data-name-id], [data-note-id], [data-media-id], [data-citation-id], [data-source-id]) {
   outline: 3px solid var(--foxing);
   outline-offset: 4px;
   background: var(--foxing-wash);
+  border-radius: var(--r-1);
+}
+/* Pulses three times in about 2 s, then the class is removed (state/reveal.ts). Reduced motion keeps it steady. */
+@media (prefers-reduced-motion: no-preference) {
+  .revealed:is([data-person-id], [data-family-id], [data-event-id], [data-name-id], [data-note-id], [data-media-id], [data-citation-id], [data-source-id]) {
+    animation: reveal-glow 2s var(--ease) 1;
+  }
+}
+@keyframes reveal-glow {
+  0%,
+  33%,
+  66%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+    background-color: var(--foxing-wash);
+  }
+  16%,
+  50%,
+  83% {
+    box-shadow: 0 0 0 6px var(--foxing), 0 0 22px 8px var(--foxing);
+    background-color: var(--foxing-wash);
+  }
 }
 @media (prefers-reduced-motion: no-preference) {
   [data-required][data-missing] {

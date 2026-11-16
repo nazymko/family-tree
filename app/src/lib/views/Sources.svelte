@@ -164,7 +164,7 @@
     <div class="right">
       {#if current}
         {#key current.id}
-          <h2>{current.title ?? t('sources.untitled')}</h2>
+          <h2 tabindex="-1" data-source-id={current.id}>{current.title ?? t('sources.untitled')}</h2>
           <p class="n">{count(current.citationCount)}</p>
           {#if error}<Banner kind="error">{error}</Banner>{/if}
           {#key formEpoch}

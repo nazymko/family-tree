@@ -293,7 +293,7 @@ export function runApiContract(make: () => Promise<Api>): void {
         { kind: 'note', id: r.focus! },
         { kind: 'place', id: r.focus! },
       ]);
-      expect(where).toEqual([{ page: 'person', id: r.focus! }, null, null]);
+      expect(where).toEqual([{ page: 'person', id: r.focus!, target: { kind: 'person', id: r.focus! } }, null, null]);
       const history = await api.personHistory(r.focus!, 0, 20);
       expect(history.total).toBe(1);
       expect(history.items[0].group).toBe(page.items[0].group);

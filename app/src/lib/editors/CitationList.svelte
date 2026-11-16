@@ -46,7 +46,7 @@
   {:else}
     <ul>
       {#each citations as c (c.id)}
-        <li>
+        <li data-citation-id={c.id}>
           <div class="t">
             <span>{label(c)}</span>
             {#if c.media?.some((l) => l.clip)}<VoiceSamples items={c.media} />{/if}

@@ -458,7 +458,7 @@
     <div class="card">
     <IndexCard as="section" ribbon={isHome}>
       <div class="head">
-        <h1 tabindex="-1" bind:this={title}><bdi dir="auto">{detail.ref.name}</bdi>{#if agentChanges.unreviewed.has(id)} <AgentBadge />{/if}</h1>
+        <h1 tabindex="-1" bind:this={title} data-person-id={id}><bdi dir="auto">{detail.ref.name}</bdi>{#if agentChanges.unreviewed.has(id)} <AgentBadge />{/if}</h1>
         {#if maiden}<p class="maiden">{maiden}</p>{/if}
         <p class="life">{detail.ref.lifespan || t('person.noDates')}</p>
         <div class="head-actions" role="group" aria-label={t('person.quickEdit')}>
@@ -545,7 +545,7 @@
       </div>
       <ul class="rows">
         {#each detail.names as n (n.id)}
-          <li>
+          <li data-name-id={n.id}>
             <span class="grow"><bdi dir="auto">{n.display}</bdi></span>
             <span class="meta">{n.preferred ? t('person.preferredSuffix', { kind: nameKind(n.kind) }) : nameKind(n.kind)}</span>
             <Button onclick={() => (dialog = { kind: 'name', name: n })} aria-label={t('person.editNameNamed', { name: n.display })}>{t('common.edit')}</Button>
@@ -609,7 +609,7 @@
       {:else}
         <ul class="rows events">
           {#each detail.events as e (e.id)}
-            <li>
+            <li data-event-id={e.id}>
               <span class="kind">{eventKindLabel(e.kind, e.label)}</span>
               <EventSummary event={e} />
               <Button onclick={() => (dialog = { kind: 'event', event: e })} aria-label={t('person.editNamed', { label: eventKindLabel(e.kind, e.label) })}>{t('common.edit')}</Button>

@@ -24,10 +24,13 @@ import { observeApi } from '../state/observe';
 import { project } from '../state/project.svelte';
 import { settings } from '../state/settings.svelte';
 import { toasts } from '../state/toast.svelte';
+import { revealRecord } from '../state/reveal';
 import { setLanguage } from '../i18n';
 import { KEYLESS_AGENT_ID, KEYLESS_AGENT_NAME } from '../i18n/backend';
 import { en } from '../i18n/en';
 import { uk } from '../i18n/uk';
+
+vi.mock('../state/reveal', async (original) => ({ ...(await original<typeof import('../state/reveal')>()), revealRecord: vi.fn() }));
 
 const ALL: PersonQuery = { sort: 'surname', desc: false, text: '', living: 'any', noSource: false, noBirthDate: false, privateOnly: false };
 const fixture = fixtureTree(60);
@@ -676,6 +679,20 @@ describe('Open buttons', () => {
     const open = await within(rowsOnScreen()[0]).findByRole('button', { name: /^Open Note: .*Told at the kitchen table/ });
     await user.click(open);
     expect(nav.route).toEqual({ name: 'person', id: people[0].id });
+    expect(revealRecord).toHaveBeenCalledWith('note', expect.any(String));
+  });
+
+  it('a_family_open_reveals_the_family_heading_of_its_page', async () => {
+    const { raw, platform, people } = await logScreen();
+    const family = [...(raw as unknown as { db: { families: Map<string, unknown> } }).db.families.keys()][0];
+    platform.simulateAgentBatch(raw, {
+      agent: 'Transcript reader',
+      changes: [{ person: people[0].id, note: 'a', kind: 'family', record: family, fact: { kind: 'family', partners: ['A', 'B'] } }],
+    });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(1));
+    await userEvent.setup().click(await within(rowsOnScreen()[0]).findByRole('button', { name: /^Open Family/ }));
+    expect(nav.route).toEqual({ name: 'familyPage', id: family });
+    expect(revealRecord).toHaveBeenCalledWith('family', family);
   });
 
   it('a_family_opens_its_page_and_a_place_or_a_record_that_is_gone_gets_no_button', async () => {

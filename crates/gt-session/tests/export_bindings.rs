@@ -168,6 +168,7 @@ fn export_all(dir: &Path) {
         RecordRefDto,
         LocationPage,
         LocationDto,
+        RevealTarget,
         LogFilterDto,
         ReviewScopeDto,
         MergePreviewDto,

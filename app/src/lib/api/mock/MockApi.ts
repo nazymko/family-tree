@@ -888,13 +888,20 @@ export class MockApi implements Api {
 
   async locateRecords(refs: RecordRefDto[]): Promise<(LocationDto | null)[]> {
     const { persons, families, sources } = this.db;
-    /** Holder of each note, citation and picture, by id. */
+    /** Holder of each note, citation and picture, by id; the first holder wins, as in the backend. */
     const holders = new Map<Id, OwnerRef>();
+    /** Recordings a holder links as a stretch (a clip). */
+    const clipped = new Set<Id>();
     const hold = (owner: OwnerRef, bag: OwnerBag) => {
       for (const x of [...(bag.notes ?? []), ...(bag.citations ?? [])]) if (!holders.has(x.id)) holders.set(x.id, owner);
-      for (const m of bag.media ?? []) if (!holders.has(m.media.id)) holders.set(m.media.id, owner);
+      for (const m of bag.media ?? []) {
+        if (!holders.has(m.media.id)) {
+          holders.set(m.media.id, owner);
+          if (m.clip) clipped.add(m.media.id);
+        }
+      }
     };
-    const events = new Map<Id, LocationDto>();
+    const events = new Map<Id, { page: LocationDto['page']; id: Id }>();
     const citations = new Map<Id, Id | null>();
     for (const p of persons.values()) {
       hold({ kind: 'person', id: p.id }, p);
@@ -916,7 +923,8 @@ export class MockApi implements Api {
     }
     const nameOwner = new Map<Id, Id>();
     for (const p of persons.values()) for (const n of p.names) nameOwner.set(n.id, p.id);
-    const pageOf = (o: OwnerRef): LocationDto | null => {
+    type Page = { page: LocationDto['page']; id: Id };
+    const pageOf = (o: OwnerRef): Page | null => {
       switch (o.kind) {
         case 'person':
           return persons.has(o.id) && !persons.get(o.id)!.siblingMarker ? { page: 'person', id: o.id } : null;
@@ -936,14 +944,42 @@ export class MockApi implements Api {
           return null;
       }
     };
-    const climb = (start: OwnerRef): LocationDto | null => {
+    /** Up through the holders to a record with a page: the page and the records walked through. */
+    const climb = (start: OwnerRef): { page: Page; chain: OwnerRef[] } | null => {
       let here: OwnerRef | undefined = start;
+      const chain: OwnerRef[] = [];
       for (let i = 0; here && i < 16; i++) {
-        const found = pageOf(here);
-        if (found) return found;
+        chain.push(here);
+        const page = pageOf(here);
+        if (page) return { page, chain };
         here = holders.get(here.id);
       }
       return null;
+    };
+    /** Whether the page draws chain[i] as a row or item of its own. */
+    const drawn = (page: Page, chain: OwnerRef[], i: number): boolean => {
+      const node = chain[i];
+      const next = chain[i + 1];
+      const heldByPage = !!next && next.id === page.id;
+      const clip = clipped.has(node.id) && !!next && next.kind !== 'name';
+      if (node.kind === 'event') return true;
+      if (page.page === 'person') {
+        if (node.kind === 'name') return true;
+        if (node.kind === 'note' || node.kind === 'citation') return heldByPage;
+        if (node.kind === 'media') return heldByPage || clip;
+      } else if (page.page === 'family') {
+        if (node.kind === 'note') return heldByPage;
+        if (node.kind === 'media') return heldByPage && clip;
+      } else if (node.kind === 'media') return heldByPage;
+      return false;
+    };
+    const located = (start: OwnerRef): LocationDto | null => {
+      const found = climb(start);
+      if (!found) return null;
+      const { page, chain } = found;
+      const at = chain.findIndex((_, i) => drawn(page, chain, i));
+      const target = at >= 0 ? { kind: chain[at].kind, id: chain[at].id } : { kind: page.page as string, id: page.id };
+      return { page: page.page, id: page.id, target };
     };
     const noteIds = new Set<Id>();
     for (const bag of [...persons.values(), ...families.values()]) for (const n of bag.notes) noteIds.add(n.id);
@@ -955,15 +991,13 @@ export class MockApi implements Api {
         case 'family':
         case 'source':
         case 'event':
-          return pageOf({ kind: r.kind, id: r.id });
+          return located({ kind: r.kind, id: r.id });
         case 'citation':
-          return citations.has(r.id) ? climb({ kind: 'citation', id: r.id }) : null;
+          return citations.has(r.id) ? located({ kind: 'citation', id: r.id }) : null;
         case 'media':
-          return this.db.media.has(r.id) ? climb({ kind: 'media', id: r.id }) : null;
-        case 'note': {
-          const found = noteIds.has(r.id) ? climb({ kind: 'note', id: r.id }) : null;
-          return found ? { ...found, note: r.id } : null;
-        }
+          return this.db.media.has(r.id) ? located({ kind: 'media', id: r.id }) : null;
+        case 'note':
+          return noteIds.has(r.id) ? located({ kind: 'note', id: r.id }) : null;
         default:
           return null;
       }

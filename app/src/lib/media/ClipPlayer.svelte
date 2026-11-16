@@ -76,7 +76,7 @@
   }
 </script>
 
-<li class="clip" data-testid="clip-player">
+<li class="clip" data-testid="clip-player" data-media-id={link.media.id}>
   <div class="row">
     {#if link.media.resolved && !failed}
       <IconButton

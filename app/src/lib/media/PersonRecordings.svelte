@@ -46,7 +46,7 @@
   <ul class="recordings">
     {#each recordings as r (r.media.id)}
       {@const name = r.media.title || r.media.originalName || t('voice.untitled')}
-      <li class="recording" data-testid="person-recording">
+      <li class="recording" data-testid="person-recording" data-media-id={r.media.id}>
         <div class="head">
           <Icon name="audio" />
           <div class="text">

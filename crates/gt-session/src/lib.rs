@@ -48,7 +48,8 @@ pub use error::{ApiError, ErrorCode};
 pub use field_diff::{FieldChangeDto, person_field_changes, record_field_changes};
 pub use log::{
     ActorDto, BatchDto, BatchRef, LocationDto, LocationPage, LogAgentDto, LogChangeDto, LogFactDto,
-    LogFilterDto, LogPersonDto, LogRowDto, RecordHomeDto, RecordRefDto, ReviewScopeDto,
+    LogFilterDto, LogPersonDto, LogRowDto, RecordHomeDto, RecordRefDto, RevealTarget,
+    ReviewScopeDto,
 };
 pub use names::{display_name, lifespan};
 pub use session::{Session, SessionClock};

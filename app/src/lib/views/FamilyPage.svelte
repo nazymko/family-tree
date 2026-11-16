@@ -67,7 +67,7 @@
     {#if nav.canBack}
       <Button onclick={() => nav.back()}>{t('chart.back')}</Button>
     {/if}
-    <h1 id="family-page-title"><bdi dir="auto">{title}</bdi></h1>
+    <h1 id="family-page-title" tabindex="-1" data-family-id={id}><bdi dir="auto">{title}</bdi></h1>
     {#if family && partners.length > 0}
       <Button variant="quiet" onclick={() => (editing = true)}>{t('family.editFamily')}</Button>
     {/if}
@@ -99,7 +99,7 @@
       {:else}
         <ul class="events">
           {#each family.events as e (e.id)}
-            <li>
+            <li data-event-id={e.id}>
               <span class="kind">{eventKindLabel(e.kind, e.label)}</span>
               <EventSummary event={e} />
             </li>

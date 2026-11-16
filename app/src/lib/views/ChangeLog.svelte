@@ -6,7 +6,7 @@
   import { agentChanges } from '../state/agentChanges.svelte';
   import { nav } from '../state/nav.svelte';
   import { project } from '../state/project.svelte';
-  import { revealNote } from '../state/reveal';
+  import { revealRecord } from '../state/reveal';
   import { toasts } from '../state/toast.svelte';
   import Banner from '../ui/Banner.svelte';
   import Badge from '../ui/Badge.svelte';
@@ -190,7 +190,7 @@
       nav.go({ name: 'person', id: at.id });
     } else if (at.page === 'family') nav.go({ name: 'familyPage', id: at.id });
     else nav.go({ name: 'sources', id: at.id });
-    if (at.note) revealNote(at.note);
+    revealRecord(at.target.kind, at.target.id);
   }
 
   /** One Open button for a change whose record is still there and shown on a page. */

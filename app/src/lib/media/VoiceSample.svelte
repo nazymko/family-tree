@@ -45,7 +45,7 @@
   const known = $derived(Number.isFinite(duration) && duration > 0);
 </script>
 
-<li class="sample" data-testid="voice-sample">
+<li class="sample" data-testid="voice-sample" data-media-id={media.id}>
   <div class="head">
     <Icon name="audio" />
     <span class="label"><bdi dir="auto">{label}</bdi></span>
