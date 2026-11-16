@@ -1095,6 +1095,20 @@
     gap: var(--s-3);
     padding-bottom: var(--s-3);
   }
+  /* A phone: one row of tools to swipe sideways, so the chart keeps the screen. */
+  @media (max-width: 940px) {
+    .toolbar {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .toolbar > :global(*) {
+      flex: none;
+    }
+    .find {
+      min-width: 11rem;
+    }
+  }
   .find {
     min-width: 16rem;
   }

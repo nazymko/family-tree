@@ -138,6 +138,16 @@ pub fn run() {
             // Close the project cleanly: dropping it checkpoints the WAL into tree.db, so a
             // user who copies only that file loses nothing, and the lock file is released.
             // The server goes first, so no request meets a tree on its way out.
+            // A phone may end the process while it is in the background, with no exit event: empty the
+            // write-ahead log into tree.db whenever the app is sent away.
+            #[cfg(mobile)]
+            if let tauri::RunEvent::WindowEvent {
+                event: tauri::WindowEvent::Suspended,
+                ..
+            } = &event
+            {
+                mobile::checkpoint_open_tree(&app.state::<AppState>());
+            }
             if let tauri::RunEvent::Exit = event {
                 let state = app.state::<AppState>();
                 agent_access::shutdown(&state);

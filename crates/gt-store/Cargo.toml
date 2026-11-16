@@ -15,6 +15,10 @@ indexmap.workspace = true
 icu_collator.workspace = true
 sha2.workspace = true
 
+# Android's std has no file locks; flock(2) itself works there, and rustix wraps it without `unsafe`.
+[target.'cfg(target_os = "android")'.dependencies]
+rustix = { version = "1", features = ["fs"] }
+
 [dev-dependencies]
 tempfile.workspace = true
 gt-gedcom = { path = "../gt-gedcom" }

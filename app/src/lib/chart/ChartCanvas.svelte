@@ -1171,6 +1171,17 @@
     gap: var(--s-3);
     padding-bottom: var(--s-3);
   }
+  /* A phone: one row of tools to swipe sideways, so the chart keeps the screen. */
+  @media (max-width: 940px) {
+    .toolbar {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .toolbar > :global(*) {
+      flex: none;
+    }
+  }
   /* The toolbar rests on the bottom line so the labelled Select lines up with the buttons; an item shorter than a
      button (a checkbox, the radio group) would then sit low. Give it a button's height and centre it in that. */
   .tool {

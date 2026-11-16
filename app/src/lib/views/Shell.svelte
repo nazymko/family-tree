@@ -426,7 +426,7 @@
       <button type="button" class="find" onclick={() => (searchOpen = true)}>
         <Icon name="search" />
         <span>{t('ui.searchTheTree')}</span>
-        <Kbd>{modLabel}</Kbd>
+        {#if !mobile}<Kbd>{modLabel}</Kbd>{/if}
       </button>
       <div class="hist">
         <IconButton
@@ -815,6 +815,11 @@
   .shell.narrow .top {
     padding-inline: var(--s-3);
     gap: var(--s-2);
+  }
+  .shell.narrow .find span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .shell.narrow .find {
     min-width: 0;

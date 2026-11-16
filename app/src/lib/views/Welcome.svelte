@@ -91,7 +91,7 @@
       <Ribbon title="Family Tree" size="2rem" />
       <h1>Family Tree</h1>
       <p class="byline">{t('about.byline')}</p>
-      <p class="lede">{t('welcome.lede')}</p>
+      <p class="lede">{platform.isMobile ? t('mobile.lede') : t('welcome.lede')}</p>
     </header>
 
     {#if error}<Banner kind="error">{error}</Banner>{/if}
@@ -134,6 +134,7 @@
                         <a
                           href="#/open"
                           class="row"
+                          class:mob={platform.isMobile}
                           onclick={(e) => {
                             e.preventDefault();
                             void open(r.dir);
@@ -273,15 +274,6 @@
   .actions :global(.btn.quiet) {
     border-color: var(--ink-2);
   }
-  @media (max-width: 700px) {
-    .row {
-      grid-template-columns: minmax(0, 1fr) auto !important;
-      gap: var(--s-3) !important;
-    }
-    .row :global(.rdir) {
-      display: none;
-    }
-  }
   .row {
     display: grid;
     grid-template-columns: minmax(10rem, 1fr) 2fr auto;
@@ -290,6 +282,12 @@
     min-height: 56px;
     color: inherit;
     text-decoration: none;
+  }
+  /* No folder column on a phone: the date goes under the name. */
+  .row.mob {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-1);
+    padding-block: var(--s-3);
   }
   .row:hover .rname {
     text-decoration: underline;

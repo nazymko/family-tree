@@ -75,6 +75,8 @@ foreach ($abi in $Abis) {
 # Tauri's own Gradle tasks would call Tauri again (and fail on the link); the libraries are in place already.
 $cap = $profileName.Substring(0, 1).ToUpper() + $profileName.Substring(1)
 $skip = @('Universal', 'Arm64', 'Arm', 'X86', 'X86_64') | ForEach-Object { '-x'; "rustBuild$_$cap" }
+# An APK rewritten in place keeps growing (it reached 797 MB): start from none. Libraries of ABIs not asked for would be packed too.
+Get-ChildItem (Join-Path $android "app/build/outputs/apk/universal/$profileName") -Filter *.apk -ErrorAction SilentlyContinue | Remove-Item -Force
 Push-Location $android
 try {
   & .\gradlew.bat "assembleUniversal$cap" @skip --no-daemon

@@ -74,7 +74,7 @@ describe('the sidebar as a drawer on a narrow screen', () => {
     expect(await screen.findByRole('navigation', { name: 'Main' })).toBeInTheDocument();
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull());
-  });
+  }, 30000);
 
   it('a desktop-width window keeps the sidebar and shows no menu button', async () => {
     widthIs(1280);

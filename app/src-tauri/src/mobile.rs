@@ -195,6 +195,13 @@ pub fn mobile_deliver<R: Runtime>(
     Ok(n)
 }
 
+/// Called when the app is sent to the background: the open tree's write-ahead log goes into `tree.db`.
+pub fn checkpoint_open_tree(state: &crate::state::AppState) {
+    if let Some(session) = crate::state::AppState::lock(&state.session).as_ref() {
+        let _ = session.project().checkpoint();
+    }
+}
+
 /// Handler for the three commands above.
 pub fn handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![mobile_info, mobile_stage_pick, mobile_deliver]

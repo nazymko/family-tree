@@ -306,6 +306,7 @@ export const en = {
   mobile: {
     menu: 'Menu',
     closeMenu: 'Close menu',
+    lede: 'Your family history, kept on your own device.',
     storedHere: "On this device your trees are kept in the app's own storage. To move one to another device, use Export or Send a copy.",
     noFolders: "A phone or tablet app cannot browse folders, so this is not offered here. Trees are kept in the app's own storage.",
     noAgents: 'Connecting AI agents works only in the desktop app.',
