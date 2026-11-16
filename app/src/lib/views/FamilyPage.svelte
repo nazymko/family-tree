@@ -130,7 +130,7 @@
         <p class="none">{t('familyPage.noNotes')}</p>
       {:else}
         {#each family.notes as n (n.id)}
-          <div class="note">
+          <div class="note" data-note-id={n.id}>
             <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
             <p class="note-text">{n.text}</p>
             <VoiceSamples items={n.media} />

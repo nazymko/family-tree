@@ -2052,6 +2052,8 @@ export const en = {
     panelTotal: { one: '{n} change', other: '{n} changes' },
     edit: 'Edit',
     editWhat: 'Edit {what}',
+    open: 'Open',
+    openWhat: 'Open {what}',
     undoWhat: 'Undo {what}',
     editName: 'Name',
     panelEmpty: 'Nothing to show.',

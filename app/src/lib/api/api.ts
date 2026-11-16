@@ -9,6 +9,8 @@ import type {
   LogRowDto,
   MediaDto,
   RecordHomeDto,
+  RecordRefDto,
+  LocationDto,
   RecordingDto,
   ReviewScopeDto,
   UndoReport,
@@ -162,6 +164,11 @@ export interface Api {
   hasUntrackedChanges(): Promise<boolean>;
   /** The record holding a note or citation, with the note or citation itself; null when it is gone. */
   recordHome(kind: 'note' | 'citation', id: Id): Promise<RecordHomeDto | null>;
+  /**
+   * Where each record is shown, in the same order: the page to open (and the note to bring into view). null when the
+   * record is gone or has no page (a place). One call for a whole list; a note or picture is found through its holder.
+   */
+  locateRecords(refs: RecordRefDto[]): Promise<(LocationDto | null)[]>;
   /** Every change group that reached this person, by anyone, newest first; values in full. */
   personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>>;
   /** Undoes one agent change; a fact someone changed since stays and is named in the report. */

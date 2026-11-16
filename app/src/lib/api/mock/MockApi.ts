@@ -15,6 +15,8 @@ import type {
   LogFilterDto,
   LogRowDto,
   RecordHomeDto,
+  RecordRefDto,
+  LocationDto,
   RecordingDto,
   ReviewScopeDto,
   UndoReport,
@@ -882,6 +884,90 @@ export class MockApi implements Api {
     }
     const found = bags.find(([, bag]) => holds(bag));
     return found ? home(found[0], found[1]) : null;
+  }
+
+  async locateRecords(refs: RecordRefDto[]): Promise<(LocationDto | null)[]> {
+    const { persons, families, sources } = this.db;
+    /** Holder of each note, citation and picture, by id. */
+    const holders = new Map<Id, OwnerRef>();
+    const hold = (owner: OwnerRef, bag: OwnerBag) => {
+      for (const x of [...(bag.notes ?? []), ...(bag.citations ?? [])]) if (!holders.has(x.id)) holders.set(x.id, owner);
+      for (const m of bag.media ?? []) if (!holders.has(m.media.id)) holders.set(m.media.id, owner);
+    };
+    const events = new Map<Id, LocationDto>();
+    const citations = new Map<Id, Id | null>();
+    for (const p of persons.values()) {
+      hold({ kind: 'person', id: p.id }, p);
+      for (const n of p.names) hold({ kind: 'name', id: n.id }, n);
+      for (const e of p.events) {
+        hold({ kind: 'event', id: e.id }, e);
+        if (!p.siblingMarker) events.set(e.id, { page: 'person', id: p.id });
+      }
+    }
+    for (const f of families.values()) {
+      hold({ kind: 'family', id: f.id }, f);
+      for (const e of f.events) {
+        hold({ kind: 'event', id: e.id }, e);
+        events.set(e.id, { page: 'family', id: f.id });
+      }
+    }
+    for (const bag of [...persons.values(), ...families.values()]) {
+      for (const c of [...bag.citations, ...('events' in bag ? bag.events.flatMap((e) => e.citations) : [])]) citations.set(c.id, c.source?.id ?? null);
+    }
+    const nameOwner = new Map<Id, Id>();
+    for (const p of persons.values()) for (const n of p.names) nameOwner.set(n.id, p.id);
+    const pageOf = (o: OwnerRef): LocationDto | null => {
+      switch (o.kind) {
+        case 'person':
+          return persons.has(o.id) && !persons.get(o.id)!.siblingMarker ? { page: 'person', id: o.id } : null;
+        case 'name':
+          return nameOwner.has(o.id) ? { page: 'person', id: nameOwner.get(o.id)! } : null;
+        case 'family':
+          return families.has(o.id) ? { page: 'family', id: o.id } : null;
+        case 'source':
+          return sources.has(o.id) ? { page: 'source', id: o.id } : null;
+        case 'event':
+          return events.get(o.id) ?? null;
+        case 'citation': {
+          const s = citations.get(o.id);
+          return s && sources.has(s) ? { page: 'source', id: s } : null;
+        }
+        default:
+          return null;
+      }
+    };
+    const climb = (start: OwnerRef): LocationDto | null => {
+      let here: OwnerRef | undefined = start;
+      for (let i = 0; here && i < 16; i++) {
+        const found = pageOf(here);
+        if (found) return found;
+        here = holders.get(here.id);
+      }
+      return null;
+    };
+    const noteIds = new Set<Id>();
+    for (const bag of [...persons.values(), ...families.values()]) for (const n of bag.notes) noteIds.add(n.id);
+    for (const p of persons.values()) for (const e of p.events) for (const n of e.notes) noteIds.add(n.id);
+    for (const f of families.values()) for (const e of f.events) for (const n of e.notes) noteIds.add(n.id);
+    return refs.map((r) => {
+      switch (r.kind) {
+        case 'person':
+        case 'family':
+        case 'source':
+        case 'event':
+          return pageOf({ kind: r.kind, id: r.id });
+        case 'citation':
+          return citations.has(r.id) ? climb({ kind: 'citation', id: r.id }) : null;
+        case 'media':
+          return this.db.media.has(r.id) ? climb({ kind: 'media', id: r.id }) : null;
+        case 'note': {
+          const found = noteIds.has(r.id) ? climb({ kind: 'note', id: r.id }) : null;
+          return found ? { ...found, note: r.id } : null;
+        }
+        default:
+          return null;
+      }
+    });
   }
 
   async personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {

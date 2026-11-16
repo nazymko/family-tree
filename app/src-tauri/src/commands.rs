@@ -8,12 +8,12 @@ use gt_session::{
     ApiError, AttachResult, BatchDto, ChartLocation, ChartMeta, ChartRequest, ChartWindow,
     CitationDto, CopySizeDto, CopyZipDto, DatePreview, DayOrder, EditCommand, EditResult,
     ErrorCode, ExifSuggestion, ExportOptions, FamilyDto, FamilyViewDto, HistoryEntry,
-    ImportProgress, ImportReportDto, ImportRequest, LocationKind, LocationWarningDto, LogAgentDto,
-    LogFilterDto, LogRowDto, MediaDto, MergePreviewDto, MergeResultDto, OutlineItem, OwnerRef,
-    Page, PersonDetail, PersonQuery, PersonRow, PlaceOption, PrivacyPreview, ProjectInfo,
-    RecentProject, RecordHomeDto, Rect, RelinkResult, ReviewScopeDto, SearchHitDto, Session,
-    Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport, UndoState,
-    WholeMeta,
+    ImportProgress, ImportReportDto, ImportRequest, LocationDto, LocationKind, LocationWarningDto,
+    LogAgentDto, LogFilterDto, LogRowDto, MediaDto, MergePreviewDto, MergeResultDto, OutlineItem,
+    OwnerRef, Page, PersonDetail, PersonQuery, PersonRow, PlaceOption, PrivacyPreview, ProjectInfo,
+    RecentProject, RecordHomeDto, RecordRefDto, Rect, RelinkResult, ReviewScopeDto, SearchHitDto,
+    Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport,
+    UndoState, WholeMeta,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -77,6 +77,7 @@ command_list!(
     person_history,
     has_untracked_changes,
     record_home,
+    locate_records,
     undo_change_group,
     undo_change_batch,
     history,
@@ -535,6 +536,14 @@ pub fn record_home(
     id: Uuid,
 ) -> ApiResult<Option<RecordHomeDto>> {
     state.with_session(|s| s.record_home(&kind, id))
+}
+
+#[tauri::command(async)]
+pub fn locate_records(
+    state: State<'_, AppState>,
+    refs: Vec<RecordRefDto>,
+) -> ApiResult<Vec<Option<LocationDto>>> {
+    state.with_session(|s| s.locate_records(&refs))
 }
 
 #[tauri::command(async)]

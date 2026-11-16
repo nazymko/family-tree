@@ -288,6 +288,12 @@ export function runApiContract(make: () => Promise<Api>): void {
       expect((await api.personAgentChanges(r.focus!, 0, 20)).items).toEqual([]);
       expect(await api.hasUntrackedChanges()).toBe(false);
       expect(await api.recordHome('note', r.focus!)).toBeNull();
+      const where = await api.locateRecords([
+        { kind: 'person', id: r.focus! },
+        { kind: 'note', id: r.focus! },
+        { kind: 'place', id: r.focus! },
+      ]);
+      expect(where).toEqual([{ page: 'person', id: r.focus! }, null, null]);
       const history = await api.personHistory(r.focus!, 0, 20);
       expect(history.total).toBe(1);
       expect(history.items[0].group).toBe(page.items[0].group);

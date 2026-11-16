@@ -673,7 +673,7 @@
         <Button onclick={() => (dialog = { kind: 'note' })}>{t('editor.addNote')}</Button>
       </div>
       {#each detail.notes as n (n.id)}
-        <article class="note">
+        <article class="note" data-note-id={n.id}>
           <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
           <p class="note-text">{n.text}</p>
           <VoiceSamples items={n.media} />
@@ -696,7 +696,7 @@
           <Button onclick={() => (dialog = { kind: 'family', family: fam.familyId })}>{t('person.openFamily')}</Button>
         </div>
         {#each fam.notes as n (n.id)}
-          <article class="note">
+          <article class="note" data-note-id={n.id}>
             <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
             <p class="note-text">{n.text}</p>
             <VoiceSamples items={n.media} />

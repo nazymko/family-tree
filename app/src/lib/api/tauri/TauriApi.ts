@@ -14,6 +14,8 @@ import type {
   MediaDto,
   RecordingDto,
   RecordHomeDto,
+  RecordRefDto,
+  LocationDto,
   ReviewScopeDto,
   UndoReport,
   AttachResult,
@@ -287,6 +289,10 @@ export class TauriApi implements Api {
   }
   recordHome(kind: 'note' | 'citation', id: Id): Promise<RecordHomeDto | null> {
     return call('record_home', { kind, id });
+  }
+
+  locateRecords(refs: RecordRefDto[]): Promise<(LocationDto | null)[]> {
+    return call('locate_records', { refs });
   }
   personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
     return call('person_history', { id, offset, limit });

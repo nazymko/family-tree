@@ -72,6 +72,7 @@ describe('TauriApi', () => {
     await api.personAgentChanges('p1', 0, 20);
     await api.hasUntrackedChanges();
     await api.recordHome('note', 'n1');
+    await api.locateRecords([{ kind: 'note', id: 'n1' }]);
     await api.personHistory('p1', 20, 20);
     await api.undoChangeGroup('g1');
     await api.undoChangeBatch('b1');
@@ -83,6 +84,7 @@ describe('TauriApi', () => {
       { cmd: 'person_agent_changes', args: { id: 'p1', offset: 0, limit: 20 } },
       { cmd: 'has_untracked_changes', args: {} },
       { cmd: 'record_home', args: { kind: 'note', id: 'n1' } },
+      { cmd: 'locate_records', args: { refs: [{ kind: 'note', id: 'n1' }] } },
       { cmd: 'person_history', args: { id: 'p1', offset: 20, limit: 20 } },
       { cmd: 'undo_change_group', args: { group: 'g1' } },
       { cmd: 'undo_change_batch', args: { batch: 'b1' } },

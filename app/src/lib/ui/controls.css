@@ -39,6 +39,12 @@
   border-radius: var(--r-1);
   transition: background var(--dur-fast) var(--ease);
 }
+/* A note the change log sent the person to: marked for a moment. */
+[data-note-id].revealed {
+  outline: 3px solid var(--foxing);
+  outline-offset: 4px;
+  background: var(--foxing-wash);
+}
 @media (prefers-reduced-motion: no-preference) {
   [data-required][data-missing] {
     animation: need-pulse 1.6s var(--ease) 1;

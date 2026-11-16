@@ -668,6 +668,63 @@ describe('an editor no page can reopen', () => {
   });
 });
 
+describe('Open buttons', () => {
+  it('a_note_opens_the_page_of_the_person_holding_it_and_a_gone_record_has_no_button', async () => {
+    const { raw, platform, people, user } = await logScreen();
+    platform.simulateAgentBatch(raw, { agent: 'Transcript reader', changes: [{ person: people[0].id, note: 'Told at the kitchen table' }] });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(1));
+    const open = await within(rowsOnScreen()[0]).findByRole('button', { name: /^Open Note: .*Told at the kitchen table/ });
+    await user.click(open);
+    expect(nav.route).toEqual({ name: 'person', id: people[0].id });
+  });
+
+  it('a_family_opens_its_page_and_a_place_or_a_record_that_is_gone_gets_no_button', async () => {
+    const { raw, platform, people, api } = await logScreen();
+    const family = (await api.getPerson(people[0].id).catch(() => null))?.partnerships[0]?.familyId ?? [...(raw as unknown as { db: { families: Map<string, unknown> } }).db.families.keys()][0];
+    platform.simulateAgentBatch(raw, {
+      agent: 'Transcript reader',
+      changes: [
+        { person: people[0].id, note: 'a', kind: 'family', record: family, fact: { kind: 'family', partners: ['A', 'B'] } },
+        { person: people[0].id, note: 'b', kind: 'place', record: 'x' },
+        { person: people[0].id, note: 'c', kind: 'family', record: 'no-such-family' },
+      ],
+    });
+    await waitFor(() => expect(rowsOnScreen()).toHaveLength(3));
+    // Rows are newest first: the missing family, the place, the real family.
+    const [gone, place, real] = rowsOnScreen();
+    await within(real).findByRole('button', { name: /^Open Family/ });
+    expect(within(gone).queryByRole('button', { name: /^Open/ })).toBeNull();
+    expect(within(place).queryByRole('button', { name: /^Open/ })).toBeNull();
+  });
+
+  it('a_whole_page_of_rows_is_located_with_one_call', async () => {
+    const { raw, platform, people } = await logScreen();
+    const spy = vi.spyOn(raw, 'locateRecords');
+    platform.simulateAgentBatch(raw, {
+      agent: 'Transcript reader',
+      title: 'Recording 1',
+      changes: [
+        { person: people[0].id, note: 'one' },
+        { person: people[1].id, note: 'two' },
+        { person: people[2].id, note: 'three' },
+      ],
+    });
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^Open Note/ })).toHaveLength(3));
+    expect(spy.mock.calls.every(([refs]) => refs.length === 3 || refs.length === 0)).toBe(true);
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+
+  it('the_open_button_has_ukrainian_text', async () => {
+    const { raw, platform, people } = await world();
+    setLanguage('uk');
+    platform.simulateAgentBatch(raw, { agent: 'Transcript reader', changes: [{ person: people[0].id, note: 'Told' }] });
+    render(ChangeLog, { context: apiContext(observeApi(raw), platform) });
+    const b = await screen.findByRole('button', { name: /^Відкрити: / });
+    expect(b).toHaveTextContent('Відкрити');
+    setLanguage('en');
+  });
+});
+
 describe('in Ukrainian', () => {
   type Tree = { [k: string]: string | Tree };
   const leaves = (n: Tree): string[] => Object.values(n).flatMap((v) => (typeof v === 'string' ? [v] : leaves(v)));

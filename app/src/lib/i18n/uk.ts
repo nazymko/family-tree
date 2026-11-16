@@ -2051,6 +2051,8 @@ export const uk: Messages = {
     panelTotal: { one: '{n} зміна', few: '{n} зміни', many: '{n} змін', other: '{n} зміни' },
     edit: 'Редагувати',
     editWhat: 'Редагувати: {what}',
+    open: 'Відкрити',
+    openWhat: 'Відкрити: {what}',
     undoWhat: 'Скасувати: {what}',
     editName: 'Ім’я',
     panelEmpty: 'Нічого показувати.',
