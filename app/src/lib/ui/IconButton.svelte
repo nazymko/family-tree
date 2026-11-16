@@ -43,6 +43,12 @@
       background-color var(--dur-fast) var(--ease),
       color var(--dur-fast) var(--ease);
   }
+  @media (pointer: coarse) {
+    .ib {
+      width: 2.75rem;
+      height: 2.75rem;
+    }
+  }
   .ib:hover:not(:disabled) {
     background: var(--paper-2);
     color: var(--ink-0);

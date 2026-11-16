@@ -13,6 +13,7 @@
   import { enterProject } from '../state/openTree';
   import { t } from '../i18n';
   import type { MessageKey } from '../i18n';
+  import { folderNameFor } from '../ui/mobile';
 
   let { mode, oncancel, thenTrace = false }: { mode: 'import' | 'create'; oncancel: () => void; thenTrace?: boolean } = $props();
 
@@ -53,6 +54,15 @@
   );
   const progress = $derived(Math.round(fraction * 100));
 
+  // A phone or tablet has no folder picker: the tree goes into the app's own storage, with no sync-folder check.
+  const mobile = !!platform.isMobile;
+  if (mobile && platform.treesDir) {
+    void platform.treesDir().then(
+      (d) => (folder = d),
+      (e) => (error = (e as Error).message),
+    );
+  }
+
   function baseName(p: string): string {
     const last = p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
     return last.replace(/\.[^.]+$/, '');
@@ -89,7 +99,7 @@
     busy = true;
     error = '';
     try {
-      const dir = `${folder!.replace(/[\\/]+$/, '')}/${name.trim()}`;
+      const dir = `${folder!.replace(/[\\/]+$/, '')}/${mobile ? folderNameFor(name) : name.trim()}`;
       if (mode === 'create') {
         const info = await api.createProject(dir, name.trim());
         await enterProject(api, info);
@@ -132,11 +142,15 @@
 
   <TextField label={t('imp.treeName')} bind:value={name} autocomplete="off" disabled={busy} required missing={needName} />
 
-  <div class="pick" data-required data-missing={needFolder || undefined}>
-    <span class="k" id="folder-k">{t('imp.keepFolder')}<span class="req" aria-hidden="true">*</span></span>
-    <Button onclick={chooseFolder} disabled={busy} aria-describedby="folder-k">{t('imp.chooseFolder')}</Button>
-    <bdi dir="auto" class="v">{folder ?? t('imp.noFolder')}</bdi>
-  </div>
+  {#if mobile}
+    <p class="hint" data-testid="mobile-storage-note">{t('mobile.storedHere')}</p>
+  {:else}
+    <div class="pick" data-required data-missing={needFolder || undefined}>
+      <span class="k" id="folder-k">{t('imp.keepFolder')}<span class="req" aria-hidden="true">*</span></span>
+      <Button onclick={chooseFolder} disabled={busy} aria-describedby="folder-k">{t('imp.chooseFolder')}</Button>
+      <bdi dir="auto" class="v">{folder ?? t('imp.noFolder')}</bdi>
+    </div>
+  {/if}
 
   {#if warning}
     <Banner kind="warning">
@@ -157,6 +171,7 @@
       <p class="hint">{t('imp.dateOrderHint')}</p>
     </div>
 
+    {#if !mobile}
     <div class="media">
       <span class="k">{t('imp.photosOptional')}</span>
       {#if mediaRoots.length > 0}
@@ -175,6 +190,7 @@
       {/if}
       <div><Button onclick={addMedia} disabled={busy}>{t('imp.addMediaFolder')}</Button></div>
     </div>
+    {/if}
   {/if}
 
   {#if busy && mode === 'import'}

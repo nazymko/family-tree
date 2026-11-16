@@ -8,6 +8,7 @@
   import { plural, t } from '../i18n';
   import { errMessage } from '../editors/errors';
   import { fileOf, sizeText } from './mergeText';
+  import { handOver, revealAction } from '../ui/mobile';
 
   let { onClose }: { onClose: () => void } = $props();
 
@@ -53,10 +54,11 @@
     making = true;
     try {
       const r = await api.sendCopyZip(dest);
+      // On a phone the zip was made in the app's cache: the system save / share sheet takes it from there.
+      if (!(await handOver(platform, r.path))) return;
       notices.show({
         message: t('merge.sendDone', { file: fileOf(r.path), size: sizeText(r.bytes) }),
-        actionLabel: t('merge.reveal'),
-        onaction: () => void platform.reveal(r.path),
+        ...revealAction(platform, r.path, t('merge.reveal')),
       });
       onClose();
     } catch (e) {

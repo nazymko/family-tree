@@ -19,6 +19,7 @@
   import { WindowCache } from './window';
   import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
+  import { createDoubleTap, createLongPress, isTouchPointer } from '../ui/longPress';
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
   import { t, plural, localeStore } from '../i18n';
@@ -794,9 +795,15 @@
   const pointers = new Map<number, { x: number; y: number }>();
   let drag: { x: number; y: number; moved: boolean } | null = null;
   let pinch = 0;
+  // A finger held on a box opens the same menu as a right-click; two quick taps recentre like a double-click.
+  const press = createLongPress({ onLongPress: (p) => openMenuAt(p.x, p.y) });
+  const taps = createDoubleTap();
+  let lastPointerType = '';
 
   function onpointerdown(e: PointerEvent): void {
     if (e.button === 2) return; // the context menu handles the right button
+    lastPointerType = e.pointerType;
+    press.pointerdown(e);
     canvas?.focus();
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try {
@@ -813,6 +820,7 @@
   }
 
   function onpointermove(e: PointerEvent): void {
+    press.pointermove(e);
     const p = pointers.get(e.pointerId);
     if (!p) return;
     const dx = e.clientX - p.x;
@@ -837,7 +845,8 @@
   }
 
   function onpointerup(e: PointerEvent): void {
-    const wasClick = drag !== null && !drag.moved && pointers.size === 1;
+    const heldOpen = press.pointerup(e);
+    const wasClick = !heldOpen && drag !== null && !drag.moved && pointers.size === 1;
     pointers.delete(e.pointerId);
     if (pointers.size < 2) pinch = 0;
     drag = null;
@@ -845,6 +854,11 @@
     const cur = cache?.current();
     if (!cur) return;
     const w = toWorld(e);
+    if (isTouchPointer(e) && taps.tap(e.clientX, e.clientY)) {
+      const n = hitTest(cur.win, w.x, w.y);
+      if (n && n.dupOf === null) recentre(n);
+      return;
+    }
     // Shift+click marks people, to build the next chart around all of them.
     if (e.shiftKey && onBuildAround) {
       const hit = hitTest(cur.win, w.x, w.y);
@@ -894,6 +908,8 @@
   }
 
   function ondblclick(e: MouseEvent): void {
+    // A finger's double tap is handled in onpointerup; the browser's own double-click would recentre twice.
+    if (lastPointerType === 'touch' || lastPointerType === 'pen') return;
     const cur = cache?.current();
     if (!cur) return;
     const w = toWorld(e);
@@ -958,19 +974,27 @@
   function oncontextmenu(e: MouseEvent): void {
     e.preventDefault();
     canvas?.focus();
+    // The browser's own menu event for a finger press: the long-press helper has opened (or opens) the menu.
+    if (press.isNativeTouchMenu(e)) return;
     if (isKeyboardMenu(e as PointerEvent)) return pictureMenuAtSelection();
+    openMenuAt(e.clientX, e.clientY);
+  }
+
+  /** The picture/chart menu at a screen position; a box there is selected first. */
+  function openMenuAt(clientX: number, clientY: number): void {
+    canvas?.focus();
     const cur = cache?.current();
     let person: Id | null = null;
     if (cur) {
       // A right-click on a box selects that person first; a box shown elsewhere selects the original.
-      const hit = hitTest(cur.win, toWorld(e).x, toWorld(e).y);
+      const hit = hitTest(cur.win, toWorld({ clientX, clientY }).x, toWorld({ clientX, clientY }).y);
       const n = hit && hit.dupOf !== null ? (cur.win.nodes.find((x) => x.id === hit.dupOf) ?? hit) : hit;
       if (n) {
         select(n);
         person = realPerson(n)?.id ?? null;
       }
     }
-    void pictureMenu?.openAt(e.clientX, e.clientY, person);
+    void pictureMenu?.openAt(clientX, clientY, person);
   }
 
   // ------------------------------------------------------------ keyboard
@@ -1189,6 +1213,9 @@
     width: 100%;
     height: 100%;
     touch-action: none;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
     cursor: grab;
   }
   canvas:focus-visible {

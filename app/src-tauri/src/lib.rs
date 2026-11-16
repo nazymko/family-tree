@@ -6,6 +6,7 @@ pub mod ai;
 pub mod commands;
 #[cfg(debug_assertions)]
 pub mod e2e_hooks;
+pub mod mobile;
 pub mod protocol;
 pub mod settings_file;
 pub mod state;
@@ -36,15 +37,18 @@ mod spike {
     }
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // The single-instance plugin must be registered first (its docs require it): a second launch
     // brings the running window forward instead of opening a second writer on the same tree.
     let builder = tauri::Builder::default();
     // A test copy (GT_E2E=1 in a debug build) must start next to the owner's running app instead of handing off to it.
-    #[cfg(debug_assertions)]
+    #[cfg(all(desktop, debug_assertions))]
     let single = !e2e_hooks::enabled();
-    #[cfg(not(debug_assertions))]
+    #[cfg(all(desktop, not(debug_assertions)))]
     let single = true;
+    // A phone or tablet runs one copy of an app by itself; the plugin does not exist there.
+    #[cfg(desktop)]
     let builder = if single {
         builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
@@ -56,6 +60,10 @@ pub fn run() {
     } else {
         builder
     };
+    // Android hands out documents as content:// addresses and the fs plugin opens them.
+    // Only Rust uses it (see mobile.rs); the capability file gives the page no fs permission.
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_fs::init());
     let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -90,12 +98,21 @@ pub fn run() {
                     gt_session::merge::remove_stale_scratch_now();
                 });
             }
-            let handle = app.handle().clone();
-            std::thread::spawn(move || agent_access::resume(&handle));
+            // The local agent server (MCP) is a desktop feature: no other program can reach a phone's app.
+            #[cfg(desktop)]
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || agent_access::resume(&handle));
+            }
             Ok(())
         });
     let builder = protocol::register(builder);
-    let main = commands::handler();
+    let commands_main = commands::handler();
+    let mobile_cmds = mobile::handler();
+    let main = move |inv: tauri::ipc::Invoke<tauri::Wry>| match inv.message.command() {
+        "mobile_info" | "mobile_stage_pick" | "mobile_deliver" => mobile_cmds(inv),
+        _ => commands_main(inv),
+    };
     #[cfg(any(debug_assertions, feature = "spike"))]
     let builder = {
         let spike = spike::handler();

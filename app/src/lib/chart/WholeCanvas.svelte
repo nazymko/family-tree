@@ -12,6 +12,7 @@
   import { arrowStep, isHorizontal, type ChartDirection } from './direction';
   import IconButton from '../ui/IconButton.svelte';
   import { centerOn, fit, fitZoom, panBy, tween, viewRect, ZOOM_MIN, zoomAt, type Camera } from './camera';
+  import { createDoubleTap, createLongPress, isTouchPointer } from '../ui/longPress';
   import { hitTest, neighbor, type Dir } from './hit';
   import Minimap from './Minimap.svelte';
   import { WindowCache } from './window';
@@ -660,9 +661,15 @@
   const pointers = new Map<number, { x: number; y: number }>();
   let drag: { x: number; y: number; moved: boolean } | null = null;
   let pinch = 0;
+  // A finger held on a card opens the same menu as a right-click; two quick taps open the person like a double-click.
+  const press = createLongPress({ onLongPress: (p) => openMenuAt(p.x, p.y) });
+  const taps = createDoubleTap();
+  let lastPointerType = '';
 
   function onpointerdown(e: PointerEvent): void {
     if (e.button === 2) return; // the context menu handles the right button
+    lastPointerType = e.pointerType;
+    press.pointerdown(e);
     canvas?.focus();
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try {
@@ -679,6 +686,7 @@
   }
 
   function onpointermove(e: PointerEvent): void {
+    press.pointermove(e);
     const p = pointers.get(e.pointerId);
     if (!p) return;
     const dx = e.clientX - p.x;
@@ -703,7 +711,8 @@
   }
 
   function onpointerup(e: PointerEvent): void {
-    const wasClick = drag !== null && !drag.moved && pointers.size === 1;
+    const heldOpen = press.pointerup(e);
+    const wasClick = !heldOpen && drag !== null && !drag.moved && pointers.size === 1;
     pointers.delete(e.pointerId);
     if (pointers.size < 2) pinch = 0;
     drag = null;
@@ -712,6 +721,10 @@
     if (!cur) return;
     const w = toWorld(e);
     const n = hitTest(cur.win, w.x, w.y);
+    if (isTouchPointer(e) && taps.tap(e.clientX, e.clientY)) {
+      if (realPerson(n ?? null)) onOpenPerson(realPerson(n ?? null)!.id);
+      return;
+    }
     if (e.shiftKey) {
       if (n) toggleMark(n);
       return;
@@ -782,6 +795,8 @@
   }
 
   function ondblclick(e: MouseEvent): void {
+    // A finger's double tap is handled in onpointerup.
+    if (lastPointerType === 'touch' || lastPointerType === 'pen') return;
     const cur = cache?.current();
     if (!cur) return;
     const w = toWorld(e);
@@ -862,19 +877,27 @@
   function oncontextmenu(e: MouseEvent): void {
     e.preventDefault();
     canvas?.focus();
+    // The browser's own menu event for a finger press: the long-press helper has opened (or opens) the menu.
+    if (press.isNativeTouchMenu(e)) return;
     if (isKeyboardMenu(e as PointerEvent)) return pictureMenuAtSelection();
+    openMenuAt(e.clientX, e.clientY);
+  }
+
+  /** The picture/chart menu at a screen position; a card there is selected first. */
+  function openMenuAt(clientX: number, clientY: number): void {
+    canvas?.focus();
     const cur = cache?.current();
     let person: Id | null = null;
     if (cur) {
       // A right-click on a card selects that person first.
-      const w = toWorld(e);
+      const w = toWorld({ clientX, clientY });
       const n = hitTest(cur.win, w.x, w.y);
       if (n) {
         select(n);
         person = realPerson(n)?.id ?? null;
       }
     }
-    void pictureMenu?.openAt(e.clientX, e.clientY, person);
+    void pictureMenu?.openAt(clientX, clientY, person);
   }
 
   // ------------------------------------------------------------ keyboard
@@ -1130,6 +1153,9 @@
     width: 100%;
     height: 100%;
     touch-action: none;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
     cursor: grab;
   }
   canvas:focus-visible {

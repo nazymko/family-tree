@@ -101,9 +101,11 @@
         <Button variant="primary" onclick={() => (mode = 'import')}>{t('welcome.importFile')}</Button>
         <Button onclick={() => (mode = 'create')}>{t('welcome.createTree')}</Button>
         <Button onclick={() => (mode = 'trace')}>{t('welcome.traceTree')}</Button>
-        <Button onclick={openFolder}>{t('welcome.openTree')}</Button>
+        {#if !platform.isMobile}<Button onclick={openFolder}>{t('welcome.openTree')}</Button>{/if}
         <Button onclick={openReceived}>{t('merge.openReceived')}</Button>
       </div>
+
+      {#if platform.isMobile}<p class="mobile-note" data-testid="mobile-storage-note">{t('mobile.storedHere')}</p>{/if}
 
       <section aria-labelledby="recent-h">
         <div class="ledger">
@@ -138,7 +140,7 @@
                           }}
                         >
                           <span class="rname">{r.name}</span>
-                          <bdi dir="auto" class="rdir">{r.dir}</bdi>
+                          {#if !platform.isMobile}<bdi dir="auto" class="rdir">{r.dir}</bdi>{/if}
                           <span class="rwhen tnum">{#if recent(r.openedAt)}{t('welcome.opened', { date: when(r.openedAt) })}{/if}</span>
                         </a>
                         <Button variant="quiet" onclick={() => setHidden(r.dir, true)} aria-label={t('welcome.hideNamed', { name: r.name })}>
@@ -173,7 +175,7 @@
                             }}
                           >
                             <span class="rname">{r.name}</span>
-                            <bdi dir="auto" class="rdir">{r.dir}</bdi>
+                            {#if !platform.isMobile}<bdi dir="auto" class="rdir">{r.dir}</bdi>{/if}
                             <span class="rwhen tnum">{#if recent(r.openedAt)}{t('welcome.opened', { date: when(r.openedAt) })}{/if}</span>
                           </a>
                         {/if}
@@ -197,6 +199,11 @@
 </main>
 
 <style>
+  .mobile-note {
+    color: var(--ink-1);
+    font-size: var(--t-sm);
+    margin: 0;
+  }
   .welcome {
     min-height: 100vh;
     padding: var(--s-9) var(--s-7);
@@ -265,6 +272,15 @@
   }
   .actions :global(.btn.quiet) {
     border-color: var(--ink-2);
+  }
+  @media (max-width: 700px) {
+    .row {
+      grid-template-columns: minmax(0, 1fr) auto !important;
+      gap: var(--s-3) !important;
+    }
+    .row :global(.rdir) {
+      display: none;
+    }
   }
   .row {
     display: grid;

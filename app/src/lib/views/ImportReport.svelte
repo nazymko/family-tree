@@ -75,6 +75,7 @@
     });
     if (!dest) return;
     await api.saveImportReport(dest);
+    if (platform.isMobile && platform.deliver && !(await platform.deliver(dest))) return;
     toasts.push({ text: t('imp.reportSaved') });
   }
 

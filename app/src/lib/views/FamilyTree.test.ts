@@ -539,6 +539,62 @@ describe('FamilyTree detaching a wrong link', () => {
     expect(screen.queryByRole('menu')).toBeNull();
     expect(document.activeElement).toBe(b);
   });
+
+  const touch = (el: Element, type: string, extra: Record<string, unknown> = {}) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: 30, clientY: 40 });
+    for (const [k, v] of Object.entries({ pointerType: 'touch', pointerId: 1, ...extra })) Object.defineProperty(e, k, { value: v });
+    el.dispatchEvent(e);
+    return e;
+  };
+
+  it('a finger held on a box opens its menu once, the follow-up native menu event does not open another', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = family();
+      setup([f.v], { apply: f.apply, getFamily: f.getFamily });
+      await tree();
+      const b = await screen.findByRole('button', { name: /^Taras Koval/ });
+      touch(b, 'pointerdown');
+      await vi.advanceTimersByTimeAsync(600);
+      expect(await screen.findByRole('menu', { name: 'Actions for Taras Koval' })).toBeInTheDocument();
+      const native = touch(b, 'contextmenu');
+      expect(native.defaultPrevented).toBe(true);
+      touch(b, 'pointerup');
+      expect(screen.getAllByRole('menu')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('moving the finger before the hold is up opens no menu', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = family();
+      setup([f.v], { apply: f.apply, getFamily: f.getFamily });
+      await tree();
+      const b = await screen.findByRole('button', { name: /^Taras Koval/ });
+      touch(b, 'pointerdown');
+      touch(b, 'pointermove', { clientX: 80, clientY: 90 });
+      await vi.advanceTimersByTimeAsync(700);
+      expect(screen.queryByRole('menu')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a touch screen shows a visible More actions button on a box with actions, opening the same menu', async () => {
+    const f = family();
+    const { user } = setup([f.v], { apply: f.apply, getFamily: f.getFamily });
+    const group = await tree();
+    // A mouse user never sees it.
+    expect(screen.queryByRole('button', { name: 'More actions for Taras Koval' })).toBeNull();
+    touch(group, 'pointerdown');
+    const more = await screen.findByRole('button', { name: 'More actions for Taras Koval' });
+    await user.click(more);
+    expect(await screen.findByRole('menu', { name: 'Actions for Taras Koval' })).toBeInTheDocument();
+    // The focus person has no actions, so no button.
+    expect(screen.queryByRole('button', { name: 'More actions for Ivan Koval' })).toBeNull();
+  });
 });
 
 describe('FamilyTree couple end marks', () => {
