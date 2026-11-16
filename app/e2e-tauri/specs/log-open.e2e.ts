@@ -71,6 +71,7 @@ describe('Change log: Open', () => {
     const note = await $(`//*[@data-note-id][.//*[normalize-space(.)="${NOTE}"]]`);
     await note.waitForDisplayed({ timeout: 20000 });
     await expect(note).toHaveElementClass('revealed');
+    await browser.pause(700);
     await shot('log-open-note-en.png');
   });
 
@@ -97,6 +98,7 @@ describe('Change log: Open', () => {
     const { el, focused } = await revealed('data-event-id');
     expect(await el.getText()).toContain('Death');
     expect(focused).toBe(true);
+    await browser.pause(700); // the smooth scroll has landed, the glow is still on
     await shot('log-open-event-en.png');
   });
 
@@ -119,6 +121,7 @@ describe('Change log: Open', () => {
     await $('h1=Sources').waitForDisplayed({ timeout: 20000 });
     const { focused } = await revealed('data-media-id');
     expect(focused).toBe(true);
+    await browser.pause(700);
     await shot('log-open-media-en.png');
   });
 });
