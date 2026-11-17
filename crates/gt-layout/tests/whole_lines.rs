@@ -338,6 +338,52 @@ fn two_thousand_people_in_one_chain_of_clusters_stay_fast() {
     assert_eq!(q.box_overlaps, 0);
 }
 
+/// Writes the chart as an SVG when `WL_SVG` names a file (for screenshots; does nothing otherwise).
+#[test]
+fn draw_svg_when_asked() {
+    let Ok(path) = std::env::var("WL_SVG") else {
+        return;
+    };
+    let i = nine_clusters();
+    let (l, _) = measure(&i);
+    let (mut w, mut h) = (0f32, 0f32);
+    for n in &l.layout.nodes {
+        w = w.max(n.rect.x + n.rect.w);
+        h = h.max(n.rect.y + n.rect.h);
+    }
+    let mut s = format!(
+        "<svg xmlns='http://www.w3.org/2000/svg' width='{}' height='{}' viewBox='-20 -20 {} {}'><rect x='-20' y='-20' width='100%' height='100%' fill='white'/>",
+        w + 40.0,
+        h + 40.0,
+        w + 40.0,
+        h + 40.0
+    );
+    for e in &l.layout.edges {
+        let pts: Vec<String> = e
+            .pts
+            .chunks_exact(2)
+            .map(|p| format!("{},{}", p[0], p[1]))
+            .collect();
+        let color = if matches!(e.kind, gt_layout::EdgeKind::Partner) {
+            "#c0392b"
+        } else {
+            "#2c6fb7"
+        };
+        s += &format!(
+            "<polyline points='{}' fill='none' stroke='{color}' stroke-width='2' opacity='0.8'/>",
+            pts.join(" ")
+        );
+    }
+    for n in &l.layout.nodes {
+        s += &format!(
+            "<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='#fff8e1' stroke='#555'/>",
+            n.rect.x, n.rect.y, n.rect.w, n.rect.h
+        );
+    }
+    s += "</svg>";
+    std::fs::write(path, s).unwrap();
+}
+
 #[test]
 fn fixture_is_about_160_people() {
     let i = nine_clusters();
