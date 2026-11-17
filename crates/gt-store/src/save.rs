@@ -714,10 +714,13 @@ pub(crate) fn insert_source(tx: &Transaction, src: &Source, seq: i64) -> Result<
     let id = &c.id;
     tx.prepare_cached(
         "INSERT INTO source(id, seq, private, changed, unknown_json, title, author, publication, \
-         abbreviation, text) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) \
+         abbreviation, text, kind, issuer, doc_number, doc_date_json) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14) \
          ON CONFLICT(id) DO UPDATE SET private=excluded.private, changed=excluded.changed, \
          unknown_json=excluded.unknown_json, title=excluded.title, author=excluded.author, \
-         publication=excluded.publication, abbreviation=excluded.abbreviation, text=excluded.text",
+         publication=excluded.publication, abbreviation=excluded.abbreviation, text=excluded.text, \
+         kind=excluded.kind, issuer=excluded.issuer, doc_number=excluded.doc_number, \
+         doc_date_json=excluded.doc_date_json",
     )?
     .execute(params![
         s(id),
@@ -730,6 +733,10 @@ pub(crate) fn insert_source(tx: &Transaction, src: &Source, seq: i64) -> Result<
         src.publication,
         src.abbreviation,
         src.text,
+        src.kind.as_ref().map(|k| k.id()),
+        src.issuer,
+        src.doc_number,
+        date_cols(&src.doc_date)?.json,
     ])?;
     save_common(tx, "source", c)?;
     for (pos, r) in src.repositories.iter().enumerate() {

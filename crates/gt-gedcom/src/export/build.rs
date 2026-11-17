@@ -628,6 +628,23 @@ pub(crate) fn build(t: &Tree, version: GedcomVersion) -> Vec<GedNode> {
                 n.children.push(b.kv(tag, v));
             }
         }
+        if let Some(k) = &s.kind {
+            n.children.push(b.kv("_TYPE", &k.id()));
+        }
+        if let Some(v) = &s.issuer {
+            n.children.push(b.kv("_ISSUER", v));
+        }
+        if let Some(v) = &s.doc_number {
+            n.children.push(b.kv("_DOCNUM", v));
+        }
+        if let Some(d) = &s.doc_date {
+            let mut dn = b.date_node(d, None);
+            dn.tag = "_DOCDATE".to_string();
+            if b.v70 {
+                b.ext.insert("_DOCDATE".to_string());
+            }
+            n.children.push(dn);
+        }
         for r in &s.repositories {
             if let Some(x) = b.rx.get(&r.repository).cloned() {
                 let mut rn = b.ptr("REPO", x);

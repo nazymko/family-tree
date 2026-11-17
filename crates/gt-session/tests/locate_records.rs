@@ -234,6 +234,7 @@ fn the_target_is_the_nearest_record_the_page_draws() {
                 publication: None,
                 abbreviation: None,
                 text: None,
+                ..Default::default()
             },
         })
         .unwrap()
@@ -275,6 +276,7 @@ fn the_target_is_the_nearest_record_the_page_draws() {
                 publication: None,
                 abbreviation: None,
                 text: None,
+                ..Default::default()
             },
         })
         .unwrap()

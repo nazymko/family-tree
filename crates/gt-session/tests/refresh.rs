@@ -359,6 +359,7 @@ fn extended_command(s: &Session, rng: &mut Rng, n: usize) -> Option<EditCommand>
                 publication: None,
                 abbreviation: None,
                 text: None,
+                ..Default::default()
             },
         },
         6 | 7 => EditCommand::AddCitation {

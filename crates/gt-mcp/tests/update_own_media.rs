@@ -88,6 +88,7 @@ fn setup() -> Setup {
                     publication: None,
                     abbreviation: None,
                     text: None,
+                    ..Default::default()
                 },
             })
             .unwrap()

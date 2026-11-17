@@ -1391,6 +1391,7 @@ fn only_the_tools_named_here_can_write() {
             "add_event",
             "add_note",
             "add_source",
+            "update_own_source",
             "add_citation",
             "add_sibling_marker",
             "set_number",

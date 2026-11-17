@@ -139,6 +139,7 @@ fn a_picture_on_a_source_and_a_dozen_people_is_one_picture_and_unlinks_from_one_
                 publication: None,
                 abbreviation: None,
                 text: None,
+                ..Default::default()
             },
         })
         .unwrap()

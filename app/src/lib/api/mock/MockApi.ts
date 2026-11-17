@@ -2359,7 +2359,7 @@ export class MockApi implements Api {
       source =
         existing ??
         (() => {
-          const s: SourceDto = { id: this.ids.next(), title, author: null, publication: null, abbreviation: null, text: null, citationCount: 0, media: [] };
+          const s: SourceDto = { id: this.ids.next(), title, author: null, publication: null, abbreviation: null, text: null, kind: null, issuer: null, docNumber: null, docDate: null, archive: null, callNumber: null, citationCount: 0, media: [] };
           this.db.sources.set(s.id, s);
           return s;
         })();
@@ -2584,7 +2584,12 @@ export class MockApi implements Api {
         if (input.id) {
           const s = this.db.sources.get(input.id);
           if (!s) throw missing('source', input.id);
-          for (const k of ['title', 'author', 'publication', 'abbreviation', 'text'] as const) if (input[k] !== undefined) s[k] = input[k] || null;
+          for (const k of ['title', 'author', 'publication', 'abbreviation', 'text', 'issuer'] as const) if (input[k] !== undefined) s[k] = input[k] || null;
+          if (input.kind !== undefined) s.kind = input.kind.trim() || null;
+          if (input.docNumber !== undefined) s.docNumber = input.docNumber || null;
+          if (input.docDateRaw !== undefined) s.docDate = toDateDto(input.docDateRaw, this.settings.dayOrder);
+          if (input.archive !== undefined) s.archive = input.archive.trim() || null;
+          if (input.callNumber !== undefined) s.callNumber = input.callNumber.trim() || null;
           return { focus: null, touched: [s.id] };
         }
         if (!input.title?.trim()) throw invalid('Enter a source title.');
@@ -2595,6 +2600,12 @@ export class MockApi implements Api {
           publication: input.publication ?? null,
           abbreviation: input.abbreviation ?? null,
           text: input.text ?? null,
+          kind: input.kind?.trim() || null,
+          issuer: input.issuer || null,
+          docNumber: input.docNumber || null,
+          docDate: input.docDateRaw ? toDateDto(input.docDateRaw, this.settings.dayOrder) : null,
+          archive: input.archive?.trim() || null,
+          callNumber: input.callNumber?.trim() || null,
           citationCount: 0,
           media: [],
         };
@@ -2913,6 +2924,12 @@ export class MockApi implements Api {
         publication: null,
         abbreviation: null,
         text: `File: ${picture.originalName}`,
+        kind: 'photo',
+        issuer: null,
+        docNumber: null,
+        docDate: null,
+        archive: null,
+        callNumber: null,
         citationCount: 0,
         media: [],
       });

@@ -5,6 +5,10 @@
   import Dialog from '../ui/Dialog.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
   import Banner from '../ui/Banner.svelte';
+  import Badge from '../ui/Badge.svelte';
+  import Select from '../ui/Select.svelte';
+  import { SOURCE_KIND_IDS, kindLabel } from '../sources/sourceKind';
+  import type { MessageKey } from '../i18n';
   import SourceForm, { type SourceValues } from './SourceForm.svelte';
   import Dropzone from '../media/Dropzone.svelte';
   import MediaGrid from '../media/MediaGrid.svelte';
@@ -24,6 +28,8 @@
   let { selectedId = null }: { selectedId?: Id | null } = $props();
   const api = getApi();
   let filter = $state('');
+  /** A kind id, `none` for sources without one, or empty for all. */
+  let kindFilter = $state('');
   let list = $state<SourceDto[]>([]);
   let selected = $state<Id | null>(null);
   let creating = $state(false);
@@ -34,6 +40,16 @@
   let listAt = $state(0);
   let formEpoch = $state(0);
 
+  const shown = $derived(
+    kindFilter === ''
+      ? list
+      : list.filter((s) => (kindFilter === 'none' ? !s.kind : kindFilter === 'other' ? (s.kind ?? '').startsWith('other') || (!!s.kind && !SOURCE_KIND_IDS.includes(s.kind as never)) : s.kind === kindFilter)),
+  );
+  const kindFilterOptions = $derived([
+    { value: '', label: t('sources.allKinds') },
+    { value: 'none', label: t('sources.kindNone') },
+    ...SOURCE_KIND_IDS.map((id) => ({ value: id, label: t(`sourceKind.${id}` as MessageKey) })),
+  ]);
   const current = $derived(list.find((s) => s.id === selected) ?? null);
   /** Photographed pages of the source: a letter, a register entry. */
   const pictures = $derived((current?.media ?? []).filter((l) => !isSound(l.media)));
@@ -93,6 +109,12 @@
     publication: v.publication,
     abbreviation: v.abbreviation,
     text: v.text,
+    kind: v.kind,
+    issuer: v.issuer,
+    docNumber: v.docNumber,
+    docDateRaw: v.docDateRaw,
+    archive: v.archive,
+    callNumber: v.callNumber,
   });
 
   async function save(v: SourceValues) {
@@ -136,13 +158,14 @@
   <div class="cols">
     <div class="left">
       <TextField label={t('sources.filter')} type="search" bind:value={filter} autocomplete="off" />
-      {#if loaded && list.length === 0}
-        <EmptyState title={filter ? t('sources.noMatching') : t('sources.noneYet')}>
-          {filter ? t('sources.tryDifferent') : t('sources.listedHere')}
+      <Select label={t('sources.filterKind')} options={kindFilterOptions} bind:value={kindFilter} />
+      {#if loaded && shown.length === 0}
+        <EmptyState title={filter || kindFilter ? t('sources.noMatching') : t('sources.noneYet')}>
+          {filter || kindFilter ? t('sources.tryDifferent') : t('sources.listedHere')}
         </EmptyState>
       {:else}
         <ul aria-label={t('sources.title')}>
-          {#each list as s (s.id)}
+          {#each shown as s (s.id)}
             <li>
               <button
                 type="button"
@@ -154,6 +177,7 @@
                 }}
               >
                 <span class="title">{s.title ?? t('sources.untitled')}</span>
+                {#if s.kind}<span class="kind"><Badge>{kindLabel(s.kind)}</Badge></span>{/if}
                 <span class="n">{count(s.citationCount)}</span>
               </button>
             </li>
@@ -165,7 +189,10 @@
       {#if current}
         {#key current.id}
           <h2 tabindex="-1" data-source-id={current.id}>{current.title ?? t('sources.untitled')}</h2>
-          <p class="n">{count(current.citationCount)}</p>
+          <p class="n">
+            {#if current.kind}<span class="kind" data-source-kind={current.kind}><Badge>{kindLabel(current.kind)}</Badge></span>{/if}
+            {count(current.citationCount)}
+          </p>
           {#if error}<Banner kind="error">{error}</Banner>{/if}
           {#key formEpoch}
             <SourceForm source={current} submitLabel={t('sources.saveSource')} onSubmit={save} loadedAt={listAt} onreload={reloadForm} />
@@ -272,6 +299,9 @@
   li button.cur {
     background: var(--ribbon-wash);
     border-inline-start-color: var(--ribbon);
+  }
+  .kind {
+    margin-block: var(--s-1);
   }
   .n {
     font-size: var(--t-sm);

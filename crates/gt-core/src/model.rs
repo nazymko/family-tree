@@ -263,6 +263,113 @@ pub struct Source {
     pub abbreviation: Option<String>,
     pub text: Option<String>,
     pub repositories: Vec<RepoRef>,
+    /// What kind of material the source is (a registry extract, a metric book, a photo...).
+    pub kind: Option<SourceKind>,
+    /// The office that issued the document (a particular registry or service centre).
+    pub issuer: Option<String>,
+    /// The number the issuing office gave the document.
+    pub doc_number: Option<String>,
+    /// The date on the document.
+    pub doc_date: Option<GenDate>,
+}
+
+/// The kind of a source. The ids are stable (stored, exported to GEDCOM, used by the agent API);
+/// `Other` carries a free label.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SourceKind {
+    CivilRegistryExtract,
+    CivilCertificate,
+    MetricBook,
+    Census,
+    HouseholdBook,
+    MilitaryRecord,
+    ArchiveDocument,
+    PersonalDocument,
+    Photo,
+    Gravestone,
+    OralTestimony,
+    BookOrArticle,
+    WebsiteOrDatabase,
+    GenealogyTree,
+    ResearchAnalysis,
+    /// Anything else; the text is a label, empty for plain "other".
+    Other(String),
+}
+
+impl SourceKind {
+    /// The ids of the fixed kinds, in display order, `other` last.
+    pub const IDS: [&'static str; 16] = [
+        "civil_registry_extract",
+        "civil_certificate",
+        "metric_book",
+        "census",
+        "household_book",
+        "military_record",
+        "archive_document",
+        "personal_document",
+        "photo",
+        "gravestone",
+        "oral_testimony",
+        "book_or_article",
+        "website_or_database",
+        "genealogy_tree",
+        "research_analysis",
+        "other",
+    ];
+
+    /// The stable id; `other` with a label is `other:<label>`.
+    pub fn id(&self) -> String {
+        use SourceKind::*;
+        let s = match self {
+            CivilRegistryExtract => "civil_registry_extract",
+            CivilCertificate => "civil_certificate",
+            MetricBook => "metric_book",
+            Census => "census",
+            HouseholdBook => "household_book",
+            MilitaryRecord => "military_record",
+            ArchiveDocument => "archive_document",
+            PersonalDocument => "personal_document",
+            Photo => "photo",
+            Gravestone => "gravestone",
+            OralTestimony => "oral_testimony",
+            BookOrArticle => "book_or_article",
+            WebsiteOrDatabase => "website_or_database",
+            GenealogyTree => "genealogy_tree",
+            ResearchAnalysis => "research_analysis",
+            Other(l) if l.trim().is_empty() => "other",
+            Other(l) => return format!("other:{}", l.trim()),
+        };
+        s.to_string()
+    }
+
+    /// Reads an id. An unknown id becomes `Other(text)`; an empty text is none.
+    pub fn parse(s: &str) -> Option<SourceKind> {
+        use SourceKind::*;
+        let t = s.trim();
+        Some(match t {
+            "" => return None,
+            "civil_registry_extract" => CivilRegistryExtract,
+            "civil_certificate" => CivilCertificate,
+            "metric_book" => MetricBook,
+            "census" => Census,
+            "household_book" => HouseholdBook,
+            "military_record" => MilitaryRecord,
+            "archive_document" => ArchiveDocument,
+            "personal_document" => PersonalDocument,
+            "photo" => Photo,
+            "gravestone" => Gravestone,
+            "oral_testimony" => OralTestimony,
+            "book_or_article" => BookOrArticle,
+            "website_or_database" => WebsiteOrDatabase,
+            "genealogy_tree" => GenealogyTree,
+            "research_analysis" => ResearchAnalysis,
+            "other" => Other(String::new()),
+            _ => match t.strip_prefix("other:") {
+                Some(l) => Other(l.trim().to_string()),
+                None => Other(t.to_string()),
+            },
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -457,4 +564,34 @@ pub enum NoteKind {
     Transcription,
     Conclusion,
     Other(String),
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod source_kind_tests {
+    use super::SourceKind;
+
+    #[test]
+    fn every_id_reads_back_to_the_same_id() {
+        for id in SourceKind::IDS {
+            assert_eq!(SourceKind::parse(id).unwrap().id(), id);
+        }
+    }
+
+    #[test]
+    fn a_label_and_an_unknown_id_become_other() {
+        assert_eq!(
+            SourceKind::parse("other:Family letter"),
+            Some(SourceKind::Other("Family letter".into()))
+        );
+        assert_eq!(
+            SourceKind::parse("mystery"),
+            Some(SourceKind::Other("mystery".into()))
+        );
+        assert_eq!(
+            SourceKind::Other("Family letter".into()).id(),
+            "other:Family letter"
+        );
+        assert_eq!(SourceKind::parse("  "), None);
+    }
 }

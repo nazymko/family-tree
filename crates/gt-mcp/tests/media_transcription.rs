@@ -43,6 +43,7 @@ fn owners_source(host: &TestHost) -> Uuid {
                     publication: None,
                     abbreviation: None,
                     text: None,
+                    ..Default::default()
                 },
             })
             .unwrap();

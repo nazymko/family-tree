@@ -44,6 +44,7 @@ fn source(host: &TestHost, title: &str) -> Uuid {
                 publication: None,
                 abbreviation: None,
                 text: None,
+                ..Default::default()
             },
         })
         .unwrap()

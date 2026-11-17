@@ -140,7 +140,7 @@ fn schema_6_project_gains_the_rotation_column_and_its_pictures_stay_unturned() {
 }
 
 /// Takes a project back from schema 8: no place on media, no clip columns on media links.
-const DROP_CLIPS: &str = "ALTER TABLE media DROP COLUMN place_id; \
+const DROP_CLIPS: &str = "ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; \
     ALTER TABLE media_link DROP COLUMN clip_id; \
     ALTER TABLE media_link DROP COLUMN clip_start_ms; ALTER TABLE media_link DROP COLUMN clip_end_ms; \
     ALTER TABLE media_link DROP COLUMN clip_label;";
@@ -194,7 +194,7 @@ fn schema_8_project_gains_the_media_place_column_and_its_media_have_no_place() {
         // What a schema 8 app left behind: a recording, no place column.
         let c = Connection::open(dir.join("tree.db")).unwrap();
         c.execute_batch(
-            "ALTER TABLE media DROP COLUMN place_id; PRAGMA user_version = 8; \
+            "ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; PRAGMA user_version = 8; \
              INSERT INTO media(id, seq, private, path, mime) \
              VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.ogg', 'audio/ogg');",
         )
@@ -202,7 +202,7 @@ fn schema_8_project_gains_the_media_place_column_and_its_media_have_no_place() {
     }
     let p = Project::open(&dir).unwrap();
     assert_eq!(p.schema_version(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 9);
+    assert_eq!(SCHEMA_VERSION, 10);
     let has: i64 = p
         .conn()
         .query_row(
@@ -304,4 +304,31 @@ fn second_open_is_locked_until_the_first_is_dropped() {
     );
     drop(first);
     drop(Project::open(&dir).unwrap());
+}
+
+#[test]
+fn schema_9_project_gains_the_source_kind_columns_and_its_sources_have_no_kind() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            "ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; \
+             ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; \
+             PRAGMA user_version = 9; \
+             INSERT INTO source(id, seq, private, title) \
+             VALUES ('00000000-0000-0000-0000-0000000000b1', 0, 0, 'Parish book');",
+        )
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
+    let tree = p.load_tree().unwrap();
+    let s = tree.sources.values().next().unwrap();
+    assert_eq!(s.title.as_deref(), Some("Parish book"));
+    assert_eq!(
+        (&s.kind, &s.issuer, &s.doc_number, &s.doc_date),
+        (&None, &None, &None, &None)
+    );
 }

@@ -29,6 +29,8 @@ const LINKS: &str = "birth, adopted, step, foster, guardian, sealed, unknown, ot
 const UNIONS: &str = "married, civil_union, unmarried, unknown, other";
 const NAME_KINDS: &str = "birth, married, aka, religious, nickname, immigrant, professional, other";
 const NOTE_KINDS: &str = "general, story, research, transcription, conclusion, other";
+/// What `kind` of a source may be. `other:<label>` takes a free label.
+const SOURCE_KINDS: &str = "civil_registry_extract (an extract from a civil registry, such as from a CNAP or a RACS), civil_certificate (a birth, marriage or death certificate), metric_book (a parish or metric book record), census (a census, revision list or confession list), household_book (a household book), military_record (a military record or archive, awards, notices), archive_document (another archive document), personal_document (a passport, work book, diploma or letter), photo, gravestone (a gravestone or cemetery), oral_testimony (a family story, interview or recording), book_or_article (a book, article or newspaper), website_or_database, genealogy_tree (a chart or tree made by someone else, or a GEDCOM), research_analysis, other, or other:<label> for your own label";
 const TARGET_KINDS: &str = "person, family, name, event, media, citation";
 const SOURCE_DATE: &str = "Only as the source gives it, like 12 MAR 1901, ABT 1880 or BET 1880 AND 1890. Words of the source go in brackets, like (after the war). A date like 03/04/1901 can be read two ways and is refused: write the month as a word.";
 /// Bytes of a note, an event's description or a citation's text.
@@ -50,6 +52,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         );
         json!({"type": "string", "description": what})
     };
+    let source_kind_schema = || json!({"type": "string", "description": format!("What kind of material it is. One of: {SOURCE_KINDS}.")});
     let surnames =
         || json!({"type": "array", "items": {"type": "string", "maxLength": TEXT_ARG_MAX}});
     let one_of = |list: &str| -> Value {
@@ -239,9 +242,32 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
                     "publication": short("Where and when it was published."),
                     "abbreviation": short("A short name for it."),
                     "text": {"type": "string", "description": "The source's text, up to 1 MiB."},
+                    "kind": source_kind_schema(),
+                    "issuer": short("The office that issued the document, such as a registry office or a service centre."),
+                    "doc_number": short("The number the issuing office gave the document."),
+                    "doc_date": date(),
                 }),
             ),
             call: add_source::<H>,
+        },
+        Tool {
+            name: "update_own_source",
+            description: "Changes your own source: its kind and the document details (issuer, number, date), or its title, author, publication and short name. What you leave out stays as it is. On a source the owner wrote or someone changed you can only fill a field that is empty; the rest stays as it is: add a note instead. Saying again what it says answers alreadyThere.",
+            schema: with_batch(
+                &["source"],
+                json!({
+                    "source": id("The source's id."),
+                    "title": short("The source's title."),
+                    "author": short("Its author."),
+                    "publication": short("Where and when it was published."),
+                    "abbreviation": short("A short name for it."),
+                    "kind": source_kind_schema(),
+                    "issuer": short("The office that issued the document, such as a registry office or a service centre."),
+                    "doc_number": short("The number the issuing office gave the document."),
+                    "doc_date": date(),
+                }),
+            ),
+            call: update_own_source::<H>,
         },
         Tool {
             name: "add_citation",
@@ -1446,31 +1472,94 @@ fn rewrite_note<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     )
 }
 
+/// A source kind id the agent gave: a fixed id or `other:<label>`.
+fn source_kind_arg(args: &Value) -> Result<Option<String>, ApiError> {
+    let Some(k) = optional_str(args, "kind")?.map(str::trim) else {
+        return Ok(None);
+    };
+    let known = gt_core::model::SourceKind::IDS.contains(&k)
+        || k.strip_prefix("other:")
+            .is_some_and(|l| !l.trim().is_empty());
+    if k.is_empty() || !known {
+        return Err(invalid(format!("kind must be one of: {SOURCE_KINDS}")));
+    }
+    Ok(Some(k.to_string()))
+}
+
 fn add_source<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let batch = batch_arg(args)?;
-    let source = SourceInput {
-        id: None,
-        title: short(args, "title")?,
-        author: short(args, "author")?,
-        publication: short(args, "publication")?,
-        abbreviation: short(args, "abbreviation")?,
-        text: writing(
-            args,
-            "text",
-            SOURCE_TEXT_MAX,
-            "a source holds up to 1 MiB. Split it across several sources.",
-        )?,
-    };
+    let kind = source_kind_arg(args)?;
+    let issuer = short(args, "issuer")?;
+    let doc_number = short(args, "doc_number")?;
+    let title = short(args, "title")?;
+    let author = short(args, "author")?;
+    let publication = short(args, "publication")?;
+    let abbreviation = short(args, "abbreviation")?;
+    let text = writing(
+        args,
+        "text",
+        SOURCE_TEXT_MAX,
+        "a source holds up to 1 MiB. Split it across several sources.",
+    )?;
     write(
         host,
         ctx,
         batch,
-        |_, _| {
+        |s, warnings| {
             Ok(EditCommand::SaveSource {
-                source: source.clone(),
+                source: SourceInput {
+                    id: None,
+                    title: title.clone(),
+                    author: author.clone(),
+                    publication: publication.clone(),
+                    abbreviation: abbreviation.clone(),
+                    text: text.clone(),
+                    kind: kind.clone(),
+                    issuer: issuer.clone(),
+                    doc_number: doc_number.clone(),
+                    doc_date_raw: date_arg(s, args, "doc_date", warnings)?,
+                    archive: None,
+                    call_number: None,
+                },
             })
         },
         |s, result| written(result, |id| s.tree().sources.contains_key(id)),
+    )
+}
+
+fn update_own_source<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let id = uuid_arg(args, "source")?;
+    let kind = source_kind_arg(args)?;
+    let title = short(args, "title")?;
+    let author = short(args, "author")?;
+    let publication = short(args, "publication")?;
+    let abbreviation = short(args, "abbreviation")?;
+    let issuer = short(args, "issuer")?;
+    let doc_number = short(args, "doc_number")?;
+    write(
+        host,
+        ctx,
+        batch,
+        |s, warnings| {
+            Ok(EditCommand::SaveSource {
+                source: SourceInput {
+                    id: Some(id),
+                    title: title.clone(),
+                    author: author.clone(),
+                    publication: publication.clone(),
+                    abbreviation: abbreviation.clone(),
+                    text: None,
+                    kind: kind.clone(),
+                    issuer: issuer.clone(),
+                    doc_number: doc_number.clone(),
+                    doc_date_raw: date_arg(s, args, "doc_date", warnings)?,
+                    archive: None,
+                    call_number: None,
+                },
+            })
+        },
+        |_, _| Some(id),
     )
 }
 

@@ -371,7 +371,7 @@ impl Project {
         }
         let mut st = conn.prepare(
             "SELECT id, private, changed, unknown_json, title, author, publication, abbreviation, \
-             text FROM source ORDER BY seq",
+             text, kind, issuer, doc_number, doc_date_json FROM source ORDER BY seq",
         )?;
         let mut rows = st.query([])?;
         while let Some(r) = rows.next()? {
@@ -383,6 +383,12 @@ impl Project {
                 publication: r.get(6)?,
                 abbreviation: r.get(7)?,
                 text: r.get(8)?,
+                kind: r
+                    .get::<_, Option<String>>(9)?
+                    .and_then(|k| SourceKind::parse(&k)),
+                issuer: r.get(10)?,
+                doc_number: r.get(11)?,
+                doc_date: date_parse(r.get(12)?)?,
                 repositories: repo_refs.remove(&id.to_string()).unwrap_or_default(),
                 common,
             };

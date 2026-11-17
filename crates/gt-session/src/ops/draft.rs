@@ -189,6 +189,10 @@ pub(super) fn import_draft(
             author: None,
             publication: None,
             abbreviation: None,
+            kind: None,
+            issuer: None,
+            doc_number: None,
+            doc_date: None,
             text: m.original_name.clone().map(|n| format!("File: {n}")),
             repositories: Vec::new(),
         };

@@ -84,6 +84,12 @@ export function fixtureTree(n: number, seed = 1): Fixture {
     publication: null,
     abbreviation: null,
     text: null,
+    kind: null,
+    issuer: null,
+    docNumber: null,
+    docDate: null,
+    archive: null,
+    callNumber: null,
     citationCount: 0,
     media: [],
   }));

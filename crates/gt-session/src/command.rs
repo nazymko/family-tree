@@ -276,7 +276,7 @@ pub struct NoteInput {
     pub text: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -297,6 +297,29 @@ pub struct SourceInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub text: Option<String>,
+    /// A kind id (`metric_book`, `other:<label>`); an empty text clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub issuer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub doc_number: Option<String>,
+    /// The date on the document, as typed; an empty text clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub doc_date_raw: Option<String>,
+    /// The archive or office that keeps it (reused when a repository has this name, else created);
+    /// it becomes the first repository of the source. An empty text removes that repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub archive: Option<String>,
+    /// The call number (case, file) in that archive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub call_number: Option<String>,
 }
 
 /// Where a piece of transcribed text is written: fractions 0..1 of the picture as displayed
