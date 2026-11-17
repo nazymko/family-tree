@@ -1479,6 +1479,8 @@ export const uk: Messages = {
     editText: 'Редагувати текст',
     fullText: 'Повний текст',
     noText: 'На цьому зображенні ще нічого не розшифровано.',
+    copyAllText: 'Копіювати весь текст',
+    copiedText: 'Скопійовано',
     drawPiece: 'Позначити текст',
     kindPhoto: 'Фото',
     kindScan: 'Скан документа',

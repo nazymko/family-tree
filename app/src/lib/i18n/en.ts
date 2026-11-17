@@ -1480,6 +1480,8 @@ export const en = {
     editText: 'Edit text',
     fullText: 'Full text',
     noText: 'Nothing is transcribed on this picture yet.',
+    copyAllText: 'Copy all text',
+    copiedText: 'Copied',
     drawPiece: 'Mark text',
     kindPhoto: 'Photo',
     kindScan: 'Scan of a document',

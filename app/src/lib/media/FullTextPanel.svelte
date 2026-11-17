@@ -27,6 +27,23 @@
   } = $props();
 
   let panel = $state<HTMLElement>();
+  let copied = $state(false);
+
+  /** A drag that selected words is a selection, not a click on the paragraph. */
+  function hasSelection(): boolean {
+    return (window.getSelection?.()?.toString() ?? '').length > 0;
+  }
+
+  async function copyAll() {
+    const text = shown.map((r) => r.text.trim()).join('\n\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+      setTimeout(() => (copied = false), 2000);
+    } catch {
+      copied = false;
+    }
+  }
   const shown = $derived(editing ? regions : regions.filter((r) => r.text.trim()));
 
   // A piece picked on the picture comes into view here.
@@ -94,7 +111,12 @@
 </script>
 
 <section bind:this={panel} class="full" aria-labelledby="full-text-title">
-  <h3 id="full-text-title">{t('media.fullText')}</h3>
+  <div class="head">
+    <h3 id="full-text-title">{t('media.fullText')}</h3>
+    {#if !editing && shown.length > 0}
+      <Button data-act="copy-all" onclick={copyAll}>{copied ? t('media.copiedText') : t('media.copyAllText')}</Button>
+    {/if}
+  </div>
   {#if shown.length === 0}
     <p class="empty">{t('media.noText')}</p>
   {/if}
@@ -129,7 +151,23 @@
             </div>
           {/if}
         {:else}
-          <button type="button" class="para" dir="auto" aria-pressed={selected === r.id} onclick={() => onselect(selected === r.id ? null : r.id)}>{r.text.trim()}</button>
+          <!-- A <div>, not a <button>: the words must be selectable and copyable. A click that ends a selection does not toggle. -->
+          <div
+            class="para"
+            dir="auto"
+            role="button"
+            tabindex="0"
+            aria-pressed={selected === r.id}
+            onclick={() => {
+              if (hasSelection()) return;
+              onselect(selected === r.id ? null : r.id);
+            }}
+            onkeydown={(e) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return;
+              e.preventDefault();
+              onselect(selected === r.id ? null : r.id);
+            }}
+          >{r.text.trim()}</div>
         {/if}
       </li>
     {/each}
@@ -181,11 +219,20 @@
     resize: vertical;
     min-height: 3rem;
   }
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+    flex-wrap: wrap;
+  }
   .para {
     all: unset;
     display: block;
     white-space: pre-wrap;
-    cursor: pointer;
+    cursor: text;
+    -webkit-user-select: text;
+    user-select: text;
     border-radius: var(--r-1);
     padding: var(--s-1) var(--s-2);
   }

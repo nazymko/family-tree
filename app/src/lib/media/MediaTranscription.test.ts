@@ -121,11 +121,36 @@ describe('transcription overlay', () => {
     expect(screen.getByRole('tooltip').textContent).toContain('Turned 90°');
   });
 
+  it('the transcribed text is selectable and can be copied whole', async () => {
+    const user = userEvent.setup();
+    setup();
+    const panel = screen.getByRole('region', { name: 'Full text' });
+    const para = within(panel).getAllByRole('button').find((b) => b.classList.contains('para'))!;
+    // Text, not a <button>, so the words can be selected and copied.
+    expect(para.tagName).not.toBe('BUTTON');
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    await user.click(within(panel).getByRole('button', { name: 'Copy all text' }));
+    expect(writeText).toHaveBeenCalledWith('Dear Marta,\n\nthe orchard is in bloom.\n\nLviv, May');
+    await waitFor(() => expect(within(panel).getByRole('button', { name: 'Copied' })).toBeTruthy());
+  });
+
+  it('a click that ends a text selection does not toggle the paragraph', async () => {
+    const user = userEvent.setup();
+    setup();
+    const panel = screen.getByRole('region', { name: 'Full text' });
+    const para = within(panel).getAllByRole('button').find((b) => b.classList.contains('para'))!;
+    const spy = vi.spyOn(window, 'getSelection').mockReturnValue({ toString: () => 'Marta' } as Selection);
+    await user.click(para);
+    expect(para).toHaveAttribute('aria-pressed', 'false');
+    spy.mockRestore();
+  });
+
   it('a box and its paragraph light up together', async () => {
     const user = userEvent.setup();
     setup();
     const panel = screen.getByRole('region', { name: 'Full text' });
-    const paras = within(panel).getAllByRole('button');
+    const paras = within(panel).getAllByRole('button').filter((b) => b.classList.contains('para'));
     expect(paras.map((p) => p.textContent)).toEqual(['Dear Marta,', 'the orchard is in bloom.', 'Lviv, May']);
     await user.click(paras[1]);
     expect(box(2)).toHaveAttribute('aria-pressed', 'true');
