@@ -252,6 +252,7 @@ fn an_audio_clip_on_the_note_survives() {
                     publication: None,
                     abbreviation: None,
                     text: None,
+                    ..Default::default()
                 },
             })
             .unwrap()

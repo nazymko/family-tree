@@ -233,6 +233,14 @@ pub struct SourceDto {
     pub publication: Option<String>,
     pub abbreviation: Option<String>,
     pub text: Option<String>,
+    /// The kind id (`metric_book`, `other:<label>`).
+    pub kind: Option<String>,
+    pub issuer: Option<String>,
+    pub doc_number: Option<String>,
+    pub doc_date: Option<DateDto>,
+    /// The first repository of the source (an archive or office) and the call number in it.
+    pub archive: Option<String>,
+    pub call_number: Option<String>,
     pub citation_count: u32,
     /// Pictures of the source itself, such as a photographed document.
     pub media: Vec<MediaLinkDto>,

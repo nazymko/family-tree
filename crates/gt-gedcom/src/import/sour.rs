@@ -27,6 +27,10 @@ fn blank_source(id: Uuid) -> Source {
         abbreviation: None,
         text: None,
         repositories: vec![],
+        kind: None,
+        issuer: None,
+        doc_number: None,
+        doc_date: None,
     }
 }
 
@@ -118,6 +122,10 @@ pub(crate) fn read_source(ctx: &mut Ctx, node: &GedNode, id: Uuid) {
             ("PUBL", Some(v)) => s.publication = Some(v),
             ("ABBR", Some(v)) => s.abbreviation = Some(v),
             ("TEXT", Some(v)) => s.text = Some(v),
+            ("_TYPE", Some(v)) => s.kind = SourceKind::parse(&v),
+            ("_ISSUER", Some(v)) => s.issuer = Some(v),
+            ("_DOCNUM", Some(v)) => s.doc_number = Some(v),
+            ("_DOCDATE", _) => s.doc_date = read_date(ctx, c),
             ("REPO", Some(_)) if c.ptr => {
                 if let Some(r) = resolve(ctx, c, Rec::Repo) {
                     s.repositories.push(RepoRef {

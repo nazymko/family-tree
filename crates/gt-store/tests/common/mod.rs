@@ -159,6 +159,10 @@ pub fn rich_tree() -> Tree {
             repository: t.repositories.keys().next().copied().unwrap(),
             call_number: Some("A/1".into()),
         }],
+        kind: Some(SourceKind::Other("Family letter".into())),
+        issuer: Some("Test registry office".into()),
+        doc_number: Some("No 12/34".into()),
+        doc_date: date("5 MAR 1901"),
     };
     src.common.unknown = vec![raw("_UNK", "u", vec![])];
     t.sources.insert(source_id, src);

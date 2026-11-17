@@ -208,6 +208,7 @@ fn records_can_be_read_by_id() {
                     publication: None,
                     abbreviation: None,
                     text: Some("The whole transcript".into()),
+                    ..Default::default()
                 },
             })
             .unwrap()
@@ -613,6 +614,7 @@ fn sources_and_places_page_and_filter() {
                     publication: None,
                     abbreviation: None,
                     text: None,
+                    ..Default::default()
                 },
             })
             .unwrap();
@@ -985,6 +987,7 @@ fn heavy_person(host: &TestHost) -> (Uuid, Vec<Uuid>) {
                     publication: None,
                     abbreviation: None,
                     text: Some("T".repeat(200_000)),
+                    ..Default::default()
                 },
             })
             .unwrap()
@@ -1371,6 +1374,7 @@ fn a_cited_transcript_does_not_come_back_with_every_citation() {
                     publication: None,
                     abbreviation: None,
                     text: Some(transcript.clone()),
+                    ..Default::default()
                 },
             })
             .unwrap()
@@ -1425,6 +1429,7 @@ fn long_text_can_be_read_in_pieces() {
                     publication: None,
                     abbreviation: None,
                     text: Some(text.clone()),
+                    ..Default::default()
                 },
             })
             .unwrap()
@@ -1822,6 +1827,10 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
                 repository: ids.repository,
                 call_number: Some(mark("source-call-number")),
             }],
+            kind: Some(SourceKind::Other(mark("source-kind"))),
+            issuer: Some(mark("source-issuer")),
+            doc_number: Some(mark("source-doc-number")),
+            doc_date: None,
         },
     );
     tree.repositories.insert(

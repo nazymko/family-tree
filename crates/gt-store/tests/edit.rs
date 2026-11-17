@@ -196,7 +196,7 @@ fn v1_project_upgrades_to_2() {
     }
     let p = Project::open(&dir).unwrap();
     assert_eq!(p.schema_version(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 9);
+    assert_eq!(SCHEMA_VERSION, 10);
     let cols: Vec<String> = p
         .conn()
         .prepare("SELECT name FROM pragma_table_info('change_log')")
@@ -924,6 +924,10 @@ fn gen_cs(r: &mut Rng, t: &Tree) -> Option<ChangeSet> {
             abbreviation: None,
             text: None,
             repositories: vec![],
+            kind: None,
+            issuer: None,
+            doc_number: None,
+            doc_date: None,
         }))],
         15 => {
             let (sid, _) = r.pick(&t.sources)?;

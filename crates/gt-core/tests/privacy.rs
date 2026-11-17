@@ -380,6 +380,10 @@ fn include_all_with_private_is_identity() {
         abbreviation: None,
         text: None,
         repositories: vec![],
+        kind: None,
+        issuer: None,
+        doc_number: None,
+        doc_date: None,
     };
     t.sources.insert(src.common.id, src);
     let repo = Repository {

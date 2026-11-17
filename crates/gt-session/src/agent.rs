@@ -558,7 +558,7 @@ impl Compare<'_> {
             (Value::Array(ba), Value::Array(aa)) => self.array(path, ba, aa, in_item),
             // A date is one fact: its parts mean nothing apart.
             (Value::Object(bo), Value::Object(ao))
-                if path.last().is_none_or(|k| k != "date")
+                if path.last().is_none_or(|k| k != "date" && k != "doc_date")
                     && bo.len() == ao.len()
                     && bo.keys().all(|k| ao.contains_key(k)) =>
             {

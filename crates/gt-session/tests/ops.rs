@@ -914,6 +914,7 @@ fn notes_sources_and_media() {
                 publication: None,
                 abbreviation: Some("PB".into()),
                 text: None,
+                ..Default::default()
             },
         },
     );

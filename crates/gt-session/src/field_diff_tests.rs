@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 
 use super::*;
-use gt_core::model::{EventKind, NoteKind, ParentRel, Role, UnionKind};
+use gt_core::date::{DayOrder, GenDate};
+use gt_core::model::{EventKind, NoteKind, ParentRel, Role, SourceKind, UnionKind};
 
 /// Words that name an id after its number.
 struct Stub;
@@ -254,11 +255,19 @@ fn citation_source_place_repository_and_media_have_their_fields() {
             repository: u(8),
             call_number: Some("A-1".into()),
         }],
+        kind: Some(SourceKind::MetricBook),
+        issuer: Some("Office".into()),
+        doc_number: Some("N 5".into()),
+        doc_date: Some(GenDate::parse("1 MAR 1901", DayOrder::Dmy)),
     };
     assert_eq!(
         diff(Some(Record::Source(source)), None),
         vec![
             row("title", Some("Parish book"), None),
+            row("kind", Some("metric_book"), None),
+            row("issuer", Some("Office"), None),
+            row("docNumber", Some("N 5"), None),
+            row("docDate", Some("1 Mar 1901"), None),
             row("repository", Some("Repository 8, A-1"), None),
         ]
     );

@@ -731,6 +731,10 @@ impl<'a> Ctx<'a> {
                 abbreviation: child_text(node, "sabbrev"),
                 text: None,
                 repositories,
+                kind: None,
+                issuer: None,
+                doc_number: None,
+                doc_date: None,
             },
         );
     }

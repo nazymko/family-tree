@@ -202,7 +202,7 @@ fn schema_8_project_gains_the_media_place_column_and_its_media_have_no_place() {
     }
     let p = Project::open(&dir).unwrap();
     assert_eq!(p.schema_version(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 9);
+    assert_eq!(SCHEMA_VERSION, 10);
     let has: i64 = p
         .conn()
         .query_row(

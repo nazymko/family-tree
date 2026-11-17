@@ -151,6 +151,7 @@ fn source_field(id: Uuid, author: &str) -> EditCommand {
             publication: None,
             abbreviation: None,
             text: None,
+            ..Default::default()
         },
     }
 }
@@ -257,6 +258,7 @@ fn owner_source(s: &mut Session, title: &str) -> Uuid {
                 publication: None,
                 abbreviation: None,
                 text: None,
+                ..Default::default()
             },
         })
         .unwrap();
@@ -295,6 +297,7 @@ fn overwrite_refused_tree_unchanged() {
                 publication: None,
                 abbreviation: None,
                 text: None,
+                ..Default::default()
             },
         },
         &me(),
@@ -1791,6 +1794,7 @@ fn identical_source_is_folded_and_any_difference_stored() {
             publication: None,
             abbreviation: None,
             text: None,
+            ..Default::default()
         },
     };
     let first = done(s.apply_as_agent(source(None), &me(), b)).touched[0];

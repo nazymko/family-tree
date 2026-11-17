@@ -159,6 +159,16 @@ impl Session {
             publication: s.publication.clone(),
             abbreviation: s.abbreviation.clone(),
             text: s.text.clone(),
+            kind: s.kind.as_ref().map(|k| k.id()),
+            issuer: s.issuer.clone(),
+            doc_number: s.doc_number.clone(),
+            doc_date: s.doc_date.as_ref().map(date_dto),
+            archive: s
+                .repositories
+                .first()
+                .and_then(|r| self.tree.repositories.get(&r.repository))
+                .map(|r| r.name.clone()),
+            call_number: s.repositories.first().and_then(|r| r.call_number.clone()),
             citation_count: self
                 .links
                 .citations_of_source

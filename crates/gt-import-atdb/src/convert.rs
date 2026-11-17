@@ -926,6 +926,10 @@ fn sources_and_media(
                 abbreviation: None,
                 text: (!text.is_empty()).then(|| text.join("\n")),
                 repositories: vec![],
+                kind: None,
+                issuer: None,
+                doc_number: None,
+                doc_date: None,
             },
         );
     }

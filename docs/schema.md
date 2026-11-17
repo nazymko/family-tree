@@ -1,4 +1,4 @@
-# Project database schema (version 9)
+# Project database schema (version 10)
 
 A gene-tree project is a folder:
 
@@ -137,6 +137,8 @@ The names a place has had, in several languages and periods.
 A book, record set or other source.
 - `title`, `author`, `publication`, `abbreviation`: bibliographic data.
 - `text`: transcribed or descriptive text.
+- `kind`: what kind of material it is (schema 10): a stable id (`civil_registry_extract`, `civil_certificate`, `metric_book`, `census`, `household_book`, `military_record`, `archive_document`, `personal_document`, `photo`, `gravestone`, `oral_testimony`, `book_or_article`, `website_or_database`, `genealogy_tree`, `research_analysis`, `other`), or `other:<label>` for a free label; null when nobody has said, as on every older row. An unknown id is read as a label.
+- `issuer`, `doc_number`, `doc_date_json` (schema 10): the office that issued the document, the number it gave and the date on it (a serialised date, as `date_json` elsewhere). Null on older rows. Which archive and which case the source is kept in stays in `repo_ref` (repository and call number).
 
 ### `repository`
 An archive or library.

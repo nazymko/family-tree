@@ -295,6 +295,10 @@ fn source_fields(s: &Session, source: &Source) -> Fields {
         abbreviation,
         text,
         repositories,
+        kind,
+        issuer,
+        doc_number,
+        doc_date,
     } = source;
     let refs: Vec<Value> = repositories
         .iter()
@@ -315,6 +319,10 @@ fn source_fields(s: &Session, source: &Source) -> Fields {
         "publication": publication,
         "abbreviation": abbreviation,
         "textLength": text.as_ref().map(|t| t.chars().count()),
+        "kind": kind.as_ref().map(|k| k.id()),
+        "issuer": issuer,
+        "docNumber": doc_number,
+        "docDate": doc_date.as_ref().map(|d| d.display()),
         "repositories": refs,
         "citationCount": citation_count,
     }))

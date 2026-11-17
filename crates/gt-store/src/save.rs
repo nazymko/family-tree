@@ -730,6 +730,10 @@ pub(crate) fn insert_source(tx: &Transaction, src: &Source, seq: i64) -> Result<
         src.publication,
         src.abbreviation,
         src.text,
+        src.kind.as_ref().map(|k| k.id()),
+        src.issuer,
+        src.doc_number,
+        date_cols(&src.doc_date)?.json,
     ])?;
     save_common(tx, "source", c)?;
     for (pos, r) in src.repositories.iter().enumerate() {
