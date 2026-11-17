@@ -1497,6 +1497,7 @@ export const en = {
     pedigreeTools: 'Pedigree chart tools',
     descendantTools: 'Descendant chart tools',
     zoomIn: 'Zoom in',
+    moreTools: 'More chart tools',
     zoomOut: 'Zoom out',
     fit: 'Fit',
     goHome: 'Go to home person',

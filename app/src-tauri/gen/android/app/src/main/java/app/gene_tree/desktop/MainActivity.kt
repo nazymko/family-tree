@@ -1,8 +1,12 @@
 package app.gene_tree.desktop
 
+import android.graphics.Color
 import android.os.Bundle
 import android.view.View
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
@@ -19,6 +23,30 @@ class MainActivity : TauriActivity() {
       )
       view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       insets
+    }
+  }
+
+  // The strips behind the status and navigation bars show the window's background: the page tells us its colour
+  // (see `syncSystemBars` in mobile.ts) so they match the theme, light or dark, whatever the system theme is.
+  override fun onWebViewCreate(webView: WebView) {
+    webView.addJavascriptInterface(Bars(), "GeneTreeBars")
+  }
+
+  inner class Bars {
+    @JavascriptInterface
+    fun set(color: String, darkIcons: Boolean) {
+      val c = try { Color.parseColor(color) } catch (_: IllegalArgumentException) { return }
+      runOnUiThread {
+        window.decorView.setBackgroundColor(c)
+        findViewById<View>(android.R.id.content).setBackgroundColor(c)
+        @Suppress("DEPRECATION")
+        window.statusBarColor = c
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = c
+        val ctl = WindowCompat.getInsetsController(window, window.decorView)
+        ctl.isAppearanceLightStatusBars = darkIcons
+        ctl.isAppearanceLightNavigationBars = darkIcons
+      }
     }
   }
 

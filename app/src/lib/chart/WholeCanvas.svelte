@@ -11,6 +11,8 @@
   import DirectionControl from '../ui/DirectionControl.svelte';
   import { arrowStep, isHorizontal, type ChartDirection } from './direction';
   import IconButton from '../ui/IconButton.svelte';
+  import Menu, { type MenuItem } from '../ui/Menu.svelte';
+  import { compact } from '../ui/compact.svelte';
   import { centerOn, fit, fitZoom, panBy, tween, viewRect, ZOOM_MIN, zoomAt, type Camera } from './camera';
   import { createDoubleTap, createLongPress, isTouchPointer } from '../ui/longPress';
   import { hitTest, neighbor, type Dir } from './hit';
@@ -1004,9 +1006,42 @@
     activeTween?.cancel();
     setCam({ zoom: cam.zoom, x: x - size.w / cam.zoom / 2, y: y - size.h / cam.zoom / 2 });
   }
+  // A phone: a row of icons and a "more" menu instead of the long row of text buttons.
+  let findOpen = $state(false);
+  const overflow = $derived<MenuItem[]>([
+    { label: t('chartCanvas.zoomIn'), onselect: () => zoomBy(1.25) },
+    { label: t('chartCanvas.zoomOut'), onselect: () => zoomBy(0.8) },
+    { label: t('whole.actualSize'), disabled: selected === null, onselect: actualSize },
+    { label: (lineageOn ? '✓ ' : '') + t('whole.lineage'), onselect: () => (lineageOn = !lineageOn) },
+    {
+      label: markedIds.length >= 2 ? t('whole.buildAroundMany', { n: markedIds.length }) : t('whole.buildAround'),
+      disabled: !realPerson(selNode) && markedIds.length < 2,
+      onselect: buildAround,
+    },
+    { label: t('whole.openPerson'), disabled: !realPerson(selNode), onselect: () => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id) },
+    { label: t('whole.showInPedigree'), disabled: !canShow, onselect: showInPedigree },
+    ...(markedIds.length > 0 ? [{ label: t('whole.clearMarked'), onselect: clearMarked }] : []),
+  ]);
 </script>
 
 <div class="chart">
+  {#if compact.value}
+    <div class="toolbar compact" role="toolbar" aria-label={t('whole.tools')}>
+      <IconButton label={t('whole.find')} icon="search" aria-expanded={findOpen} onclick={() => (findOpen = !findOpen)} />
+      <IconButton label={t('whole.fitAll')} icon="whole" onclick={fitAll} />
+      <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={homeNode === null} onclick={goHome} />
+      <DirectionControl chart="whole" />
+      <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
+      <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
+      <Menu label={t('chartCanvas.moreTools')} items={overflow} />
+      {#if markedIds.length > 0}<span class="marked" data-testid="marked-count">{plural('whole.nMarked', markedIds.length)}</span>{/if}
+    </div>
+    {#if findOpen}
+      <div class="find findrow">
+        <Combobox label={t('whole.find')} items={hits} value={null} text={searchText} onText={onFind} onPick={(h) => { findOpen = false; pickHit(h); }} render={(h) => h.label} detail={(h) => h.snippet ?? undefined} />
+      </div>
+    {/if}
+  {:else}
   <div class="toolbar" role="toolbar" aria-label={t('whole.tools')}>
     <div class="find">
       <Combobox
@@ -1038,6 +1073,7 @@
     <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
     <span class="zoom" aria-live="off">{zoomPct}%</span>
   </div>
+  {/if}
   <div class="stage" bind:this={box}>
     <!-- svelte-ignore a11y_no_interactive_element_to_noninteractive_role -->
     <canvas
@@ -1066,7 +1102,7 @@
     {#if savingPicture}
       <p class="hint saving" role="status">{t('picture.saving')}</p>
     {/if}
-    {#if meta}
+    {#if meta && !compact.value}
       <div class="mini">
         <Minimap bounds={meta.meta.bounds} win={miniWin} view={seen} onJump={fromMinimap} />
       </div>
@@ -1088,6 +1124,9 @@
     min-height: 0;
     height: 100%;
   }
+  .findrow {
+    padding-bottom: var(--s-3);
+  }
   .toolbar {
     display: flex;
     flex-wrap: wrap;
@@ -1099,6 +1138,8 @@
   @media (max-width: 940px) {
     .toolbar {
       flex-wrap: nowrap;
+      /* Never squeezed away by the chart below it (a phone in landscape has little height): the row keeps its height and swipes sideways. */
+      flex: none;
       overflow-x: auto;
       scrollbar-width: none;
     }

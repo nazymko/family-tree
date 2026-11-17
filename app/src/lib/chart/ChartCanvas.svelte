@@ -11,6 +11,8 @@
   import DirectionControl from '../ui/DirectionControl.svelte';
   import { DEFAULT_DIRECTIONS, arrowStep, camAtSide, edgeStrip, isHorizontal, opposite, rootSide, type ChartDirection } from './direction';
   import IconButton from '../ui/IconButton.svelte';
+  import Menu, { type MenuItem } from '../ui/Menu.svelte';
+  import { compact } from '../ui/compact.svelte';
   import Segmented from '../ui/Segmented.svelte';
   import Select from '../ui/Select.svelte';
   import { centerOn, fit, panBy, tween, viewRect, zoomAt, type Camera } from './camera';
@@ -1070,10 +1072,33 @@
   let genValue = $derived(
     String(canShowAll && generations >= ALL_GENERATIONS ? ALL_GENERATIONS : Math.min(genRange.max, Math.max(genRange.min, generations))),
   );
+
+  // A phone: icons and a "more" menu instead of the long row of text buttons.
+  const overflow = $derived<MenuItem[]>([
+    { label: t('chartCanvas.zoomIn'), onselect: () => zoomBy(1.25) },
+    { label: t('chartCanvas.zoomOut'), onselect: () => zoomBy(0.8) },
+    ...(onBuildAround
+      ? [
+          {
+            label: markedIds.length >= 2 ? t('whole.buildAroundMany', { n: markedIds.length }) : t('whole.buildAround'),
+            disabled: markedIds.length < 2 && !realPerson(selNode),
+            onselect: buildAround,
+          },
+          { label: t('whole.openPerson'), disabled: !realPerson(selNode), onselect: () => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id) },
+        ]
+      : []),
+    ...(kind === 'relatives' ? [{ label: t('chartCanvas.centreOnMe'), disabled: !homeId, onselect: () => homeId && onRecentre(homeId) }] : []),
+    ...(markedIds.length > 0 ? [{ label: t('whole.clearMarked'), onselect: clearMarked }] : []),
+  ]);
 </script>
 
 <div class="chart" {hidden}>
   <div class="toolbar" role="toolbar" aria-label={toolsLabel}>
+    {#if compact.value}
+      <IconButton label={t('chartCanvas.fit')} icon="whole" onclick={fitAll} />
+      <DirectionControl chart={kind} />
+      <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={!homeId} onclick={() => homeId && onRecentre(homeId)} />
+    {:else}
     <Button onclick={() => zoomBy(1.25)}>{t('chartCanvas.zoomIn')}</Button>
     <Button onclick={() => zoomBy(0.8)}>{t('chartCanvas.zoomOut')}</Button>
     <Button onclick={fitAll}>{t('chartCanvas.fit')}</Button>
@@ -1087,9 +1112,10 @@
     {:else}
       <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={!homeId} onclick={() => homeId && onRecentre(homeId)} />
     {/if}
+    {/if}
     {#if markedIds.length > 0}
       <div class="tool"><span class="marked" data-testid="marked-count">{plural('whole.nMarked', markedIds.length)}</span></div>
-      <Button onclick={clearMarked}>{t('whole.clearMarked')}</Button>
+      {#if !compact.value}<Button onclick={clearMarked}>{t('whole.clearMarked')}</Button>{/if}
     {/if}
     {#if onAunts}
       <div class="tool"><Checkbox label={t('chartCanvas.showAunts')} checked={auntsUncles} onchange={onAunts} /></div>
@@ -1108,6 +1134,7 @@
         />
       </div>
     {/if}
+    {#if compact.value}<Menu label={t('chartCanvas.moreTools')} items={overflow} />{/if}
     <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
     <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
     {#if onGenerations}
@@ -1175,6 +1202,8 @@
   @media (max-width: 940px) {
     .toolbar {
       flex-wrap: nowrap;
+      /* Never squeezed away by the chart below it (a phone in landscape has little height): the row keeps its height and swipes sideways. */
+      flex: none;
       overflow-x: auto;
       scrollbar-width: none;
     }
