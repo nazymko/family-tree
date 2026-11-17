@@ -1224,6 +1224,16 @@
   }
   /* A phone: narrower boxes (names wrap) so a row of three fits the screen instead of scrolling sideways. */
   @media (max-width: 700px) {
+    .tree {
+      zoom: 0.8;
+    }
+    /* The pane-fit width is in unscaled pixels; on a phone the tree simply takes the pane (and scrolls only if wider). */
+    .tree.fitted,
+    .treebar.fitted {
+      width: auto !important;
+      margin-inline-start: 0 !important;
+      max-width: 100%;
+    }
     .box {
       min-width: 6.5rem;
       max-width: 8.5rem;
