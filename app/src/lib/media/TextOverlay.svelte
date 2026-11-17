@@ -25,6 +25,7 @@
     turn = 0,
     editing = false,
     drawing = false,
+    outlines = true,
     selected = null,
     onselect,
     onchange,
@@ -41,6 +42,8 @@
     editing?: boolean;
     /** A drag across the picture marks a new piece. */
     drawing?: boolean;
+    /** Every piece's outline is drawn. Off, the pieces are invisible but still answer to hover, focus and a tap. */
+    outlines?: boolean;
     selected?: Id | null;
     onselect: (id: Id | null) => void;
     /** The whole new list; the viewer saves it as one change. */
@@ -55,7 +58,24 @@
 
   let layer = $state<HTMLElement>();
   let tipFor = $state<Id | null>(null);
-  let tipAt = $state({ left: 0, top: 0 });
+  /** Where the tip is, in window pixels: at the pointer, or under the box for the keyboard. */
+  let tipAt = $state({ x: 0, y: 0 });
+  let tipBox = $state<HTMLElement>();
+  /** A finger tapped it: the tip stays until the next tap elsewhere, as there is no pointer to leave. */
+  let tapped = $state(false);
+  let lastType = 'mouse';
+  /** The tip moved to the end of the page: the stage clips what it holds, and the tip must not be clipped. */
+  function toBody(node: HTMLElement) {
+    document.body.appendChild(node);
+    return { destroy: () => node.remove() };
+  }
+  const tipStyle = $derived.by(() => {
+    const w = tipBox?.offsetWidth ?? 0;
+    const h = tipBox?.offsetHeight ?? 0;
+    const left = Math.max(8, Math.min(tipAt.x + 14, window.innerWidth - w - 8));
+    const top = tipAt.y + 20 + h > window.innerHeight - 8 ? Math.max(8, tipAt.y - h - 12) : tipAt.y + 20;
+    return `left: ${left}px; top: ${top}px`;
+  });
   /** The area of the piece being dragged, shown before it is saved on release. */
   let live = $state<{ id: Id; area: TextAreaInput } | null>(null);
   let drag = $state<{
@@ -87,14 +107,32 @@
   /** The corner of a box that shows at the top right of the screen, where its turn badge goes. */
   const badgeAt = $derived(cornerShownAt(turn, 'ne'));
 
-  function showTip(id: Id, el: HTMLElement) {
+  function showTip(id: Id, el: HTMLElement, e?: PointerEvent) {
     tipFor = id;
-    const frame = layer?.parentElement?.getBoundingClientRect();
-    const box = el.getBoundingClientRect();
-    tipAt = { left: Math.max(0, box.left - (frame?.left ?? 0)), top: box.bottom - (frame?.top ?? 0) + 4 };
+    if (e) tipAt = { x: e.clientX, y: e.clientY };
+    else {
+      const box = el.getBoundingClientRect();
+      tipAt = { x: box.left, y: box.bottom - 20 };
+    }
   }
-  function hideTip(id: Id) {
+  function hideTip(id: Id, e?: PointerEvent) {
+    // A finger leaves as soon as it lifts: the tapped tip stays.
+    if (e?.pointerType === 'touch' && tapped) return;
     if (tipFor === id) tipFor = null;
+  }
+  function moveTip(e: PointerEvent) {
+    if (tipFor && e.pointerType !== 'touch') tipAt = { x: e.clientX, y: e.clientY };
+  }
+  /** A tap on a piece shows its tip (and a second tap on it, or a tap elsewhere, hides it). */
+  function tap(id: Id, el: HTMLElement) {
+    if (lastType !== 'touch') return;
+    if (tapped && tipFor === id) {
+      tapped = false;
+      tipFor = null;
+    } else {
+      tapped = true;
+      showTip(id, el);
+    }
   }
 
   function replaceArea(id: Id, area: TextAreaInput) {
@@ -206,6 +244,7 @@
   class="layer"
   class:drawing={editing && drawing}
   class:across={turn % 180 !== 0}
+  class:quiet={!outlines}
   dir="ltr"
   style="{place} transform: {transform}"
   onpointerdown={onlayerdown}
@@ -225,15 +264,26 @@
       aria-pressed={selected === r.id}
       aria-describedby={[tipFor === r.id ? `tip-${r.id}` : '', editing ? 'box-help' : ''].filter(Boolean).join(' ') || undefined}
       style="left: {pct(a.x)}; top: {pct(a.y)}; width: {pct(a.w)}; height: {pct(a.h)}"
-      onclick={() => {
+      onclick={(e) => {
+        tap(r.id, e.currentTarget);
         focusBox(r.id);
         onselect(r.id);
       }}
-      onpointerenter={(e) => showTip(r.id, e.currentTarget)}
-      onpointerleave={() => hideTip(r.id)}
-      onfocus={(e) => showTip(r.id, e.currentTarget)}
-      onblur={() => hideTip(r.id)}
-      onpointerdown={(e) => start(e, 'move', r)}
+      onpointerenter={(e) => e.pointerType !== 'touch' && showTip(r.id, e.currentTarget, e)}
+      onpointermove={moveTip}
+      onpointerleave={(e) => hideTip(r.id, e)}
+      onfocus={(e) => {
+        if (!tapped) showTip(r.id, e.currentTarget);
+      }}
+      onblur={() => {
+        tapped = false;
+        hideTip(r.id);
+      }}
+      onpointerdown={(e) => {
+        lastType = e.pointerType;
+        if (e.pointerType !== 'touch') tapped = false;
+        start(e, 'move', r);
+      }}
       onkeydown={(e) => onboxkey(e, r)}
     >
       {#if shown}<span class="turn {badgeAt}" style="transform: rotate({-turn}deg) translateX(-100%)" aria-hidden="true">↻{shown}°</span>{/if}
@@ -250,7 +300,7 @@
 </div>
 {#if editing}<p id="box-help" class="sr-only">{t('media.boxHelp')}</p>{/if}
 {#if tip && !live}
-  <div id="tip-{tip.id}" class="tip" role="tooltip" dir="auto" style="left: {tipAt.left}px; top: {tipAt.top}px">
+  <div id="tip-{tip.id}" bind:this={tipBox} use:toBody class="tip" role="tooltip" dir="auto" style={tipStyle}>
     {tip.text.trim() || t('media.pieceEmpty')}
     {#if shownTurn(tip.rotation, turn)}<small>{t('media.turned', { deg: shownTurn(tip.rotation, turn) })}</small>{/if}
   </div>
@@ -274,6 +324,16 @@
     cursor: pointer;
     min-width: 0;
     min-height: 0;
+  }
+  /* Outlines off: the piece is still there to hover and tap, and only shows itself while it is pointed at. */
+  .layer.quiet .box:not(.selected) {
+    border-color: transparent;
+    background: transparent;
+  }
+  .layer.quiet .box:not(.selected):hover,
+  .layer.quiet .box:not(.selected):focus-visible {
+    border-color: var(--focus);
+    background: color-mix(in srgb, var(--focus) 18%, transparent);
   }
   .box:hover,
   .box:focus-visible {
@@ -360,9 +420,9 @@
     cursor: nwse-resize;
   }
   .tip {
-    position: absolute;
-    z-index: 2;
-    max-width: min(28rem, 90%);
+    position: fixed;
+    z-index: 300;
+    max-width: min(28rem, calc(100vw - 16px));
     padding: var(--s-2) var(--s-3);
     white-space: pre-wrap;
     font-size: var(--t-sm);

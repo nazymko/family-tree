@@ -11,6 +11,7 @@
     footer,
     dismissOnScrim = true,
     width = '40rem',
+    fill = false,
   }: {
     open: boolean;
     title: string;
@@ -21,6 +22,8 @@
     dismissOnScrim?: boolean;
     /** The widest the dialog grows on a wide window. */
     width?: string;
+    /** The dialog takes the whole height it may have and its body does not scroll: the content lays itself out and scrolls its own list. */
+    fill?: boolean;
   } = $props();
 
   const uid = $props.id();
@@ -72,6 +75,7 @@
     <div
       bind:this={panel}
       class="dialog"
+      class:fill
       role="dialog"
       aria-modal="true"
       aria-labelledby="{uid}-title"
@@ -125,6 +129,16 @@
     overflow: auto;
     display: grid;
     gap: var(--s-5);
+  }
+  .dialog.fill {
+    height: calc(100dvh - 2 * var(--s-6));
+  }
+  .dialog.fill .body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
   footer {
     display: flex;

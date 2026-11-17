@@ -60,7 +60,8 @@
   const primary = $derived(!!link?.primary || (m ? primaryIds.has(m.id) : false));
 
   // The transcription: boxes on the picture and the full text beside it.
-  let showText = $state(true);
+  /** Outlines of every piece are drawn; off, the pieces are still there to hover and tap, but not drawn. */
+  let showText = $state(false);
   let editing = $state(false);
   let drawing = $state(false);
   let selected = $state<Id | null>(null);
@@ -358,7 +359,7 @@
                 if (i.naturalWidth && i.naturalHeight) naturalRatio = i.naturalWidth / i.naturalHeight;
               }}
             />
-            {#if showText && (placedAny || (editing && drawing))}
+            {#if placedAny || (editing && drawing)}
               <TextOverlay
                 {regions}
                 {transform}
@@ -366,6 +367,7 @@
                 {turn}
                 {editing}
                 {drawing}
+                outlines={showText || editing}
                 {selected}
                 onselect={(id) => (selected = id)}
                 onchange={saveRegions}
@@ -385,12 +387,12 @@
             <Button aria-pressed={showText} onclick={() => (showText = !showText)}>{t('media.showText')}</Button>
           {/if}
           <Button aria-pressed={editing} onclick={toggleEditing}>{t('media.editText')}</Button>
-          {#if editing && picture}
+          {#if picture}
             <Button
               aria-pressed={drawing}
               onclick={() => {
                 drawing = !drawing;
-                if (drawing) showText = true;
+                if (drawing) editing = true;
               }}>{t('media.drawPiece')}</Button
             >
             {#if drawing}<span>{t('media.drawHelp')}</span>{/if}
