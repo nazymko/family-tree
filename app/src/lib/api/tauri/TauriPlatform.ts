@@ -34,7 +34,7 @@ export class TauriPlatform implements Platform {
   /** Android hands out documents as content:// addresses; copy each into the app's cache so every command reads a plain path. */
   private stage(uri: string): Promise<string> {
     // The document's real name (Android's picker addresses often end in an id, not the name): asked from the shell.
-    let name: string | null = null;
+    let name: string | null;
     try {
       name = (window as unknown as { GeneTreeBars?: { displayName?: (u: string) => string } }).GeneTreeBars?.displayName?.(uri) ?? null;
     } catch {
