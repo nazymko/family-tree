@@ -567,6 +567,7 @@ pub enum NoteKind {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod source_kind_tests {
     use super::SourceKind;
 
