@@ -713,14 +713,23 @@ fn place_units(units: &mut [Unit], rows_n: usize, sh: &Shared, sc: &mut Scratch)
     // families get few.
     let roots = root_candidates(units, sh, sc);
     let big = units.len() > MAX_UNITS_TO_TRY;
-    let n_roots = if big { 1 } else { roots.len().min(MAX_ROOTS) };
+    let n_roots = if big || units.len() > 3 * SMALL_COMPONENT {
+        1
+    } else {
+        roots.len().min(MAX_ROOTS)
+    };
     let tries = if big {
         0
     } else if units.len() <= SMALL_COMPONENT {
         MAX_TRIES
     } else {
         (MAX_TRIES / n_roots).max(4)
-    };
+    }
+    .min(if units.len() > 3 * SMALL_COMPONENT {
+        8
+    } else {
+        MAX_TRIES
+    });
     let mut best: Option<(f64, bool, usize, Forced)> = None;
     for (deep, &root) in [false, true]
         .into_iter()

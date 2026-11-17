@@ -287,6 +287,57 @@ fn a_root_couple_stands_beside_the_family_their_married_son_joined() {
     );
 }
 
+/// What the layout drew before the clusters were ordered by their marriages (measured on this fixture).
+const BEFORE_TOTAL_H: f32 = 34758.0;
+const BEFORE_LONGEST_H: f32 = 5198.0;
+const BEFORE_CROSSINGS: usize = 30;
+
+#[test]
+fn marriages_between_clusters_no_longer_stretch_the_lines_across_the_chart() {
+    let i = nine_clusters();
+    let (_, q) = measure(&i);
+    eprintln!(
+        "before: total_h {BEFORE_TOTAL_H} longest_h {BEFORE_LONGEST_H} crossings {BEFORE_CROSSINGS}; after: total_h {:.0} longest_h {:.0} crossings {} width {:.0}",
+        q.horizontal_connectors, q.longest_horizontal_connector, q.line_crossings, q.width
+    );
+    assert!(q.horizontal_connectors < BEFORE_TOTAL_H * 0.85);
+    assert!(q.longest_horizontal_connector < BEFORE_LONGEST_H * 0.6);
+    assert!(q.line_crossings < BEFORE_CROSSINGS);
+    assert_eq!(q.box_overlaps, 0);
+}
+
+/// The owner's report in the fixture: a root couple (cluster R2) whose children married into families that stand on
+/// both sides of it must stand among its children, not at one end of the chart with the others across it.
+#[test]
+fn a_root_couple_stays_above_its_children_when_they_married_into_far_families() {
+    let i = nine_clusters();
+    let (l, _) = measure(&i);
+    // Cluster 1 (R2): keys 19 and 20 are the founders, 21..23 their children.
+    let x = |k: u32| {
+        let id = l.extras.node_of(k).unwrap();
+        l.layout.nodes[id as usize].rect.x
+    };
+    for kid in 21..=23 {
+        assert!(
+            (x(19) - x(kid)).abs() < 2000.0,
+            "founders {} and child {kid} at {}",
+            x(19),
+            x(kid)
+        );
+    }
+}
+
+#[test]
+fn two_thousand_people_in_one_chain_of_clusters_stay_fast() {
+    let cross: Vec<_> = (0..119).map(|c| ((c, "k0"), (c + 1, "k2"))).collect();
+    let i = clusters(120, &cross);
+    assert!(i.count > 1500, "{}", i.count);
+    let t = Instant::now();
+    let (_, q) = measure(&i);
+    eprintln!("{} people: {} ms", i.count, t.elapsed().as_millis());
+    assert_eq!(q.box_overlaps, 0);
+}
+
 #[test]
 fn fixture_is_about_160_people() {
     let i = nine_clusters();
