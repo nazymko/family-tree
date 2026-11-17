@@ -56,6 +56,25 @@ describe('WholeCanvas', () => {
     expect(texts.some((t) => /family \(\d+ people\)|Unconnected people \(\d+\)/.test(t))).toBe(true);
   });
 
+  it('the_tree_name_is_set_from_the_toolbar_and_heads_the_main_family', async () => {
+    const s = await setup();
+    await fireEvent.click(screen.getByRole('button', { name: 'Name this tree' }));
+    const input = await screen.findByLabelText('Tree name');
+    await fireEvent.input(input, { target: { value: 'Hill House' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(s.openSpy.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect((await s.api.getSettings()).treeName).toBe('Hill House');
+    await waitFor(() => expect(screen.queryByTestId('tree-name-form')).toBeNull());
+    await settle(s);
+    const texts = s.ctx.calls.filter((c) => c.op === 'fillText').map((c) => String(c.args[0]));
+    expect(texts.some((t) => /^Hill House \(\d+ people\)$/.test(t))).toBe(true);
+    // The automatic heading comes back when the name is cleared.
+    await fireEvent.click(screen.getByRole('button', { name: 'Name this tree' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Use the surname' }));
+    await waitFor(() => expect(screen.queryByTestId('tree-name-form')).toBeNull());
+    expect((await s.api.getSettings()).treeName).toBe('');
+  });
+
   it('selection_says_when_an_agent_changed_the_person', async () => {
     const s = await setup();
     const target = s.fx.persons[7];

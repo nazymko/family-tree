@@ -13,6 +13,7 @@ const DEFAULTS: Settings = {
   chartDirections: { ...DEFAULT_DIRECTIONS },
   livingMaxAge: 100,
   homePerson: null,
+  treeName: '',
 };
 
 class SettingsStore {

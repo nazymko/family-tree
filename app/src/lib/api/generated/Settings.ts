@@ -21,4 +21,9 @@ livingMaxAge: number,
 /**
  * Project setting.
  */
-homePerson: string | null, };
+homePerson: string | null, 
+/**
+ * Project setting: the name the user gave the tree. It heads the main (largest) family
+ * block of the whole-tree chart. Empty means automatic (the block's surname).
+ */
+treeName: string, };

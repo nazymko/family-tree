@@ -307,6 +307,12 @@ impl Session {
             rebuild |= living_rule_changed;
             self.settings.living_max_age = v;
         }
+        if let Some(name) = patch.tree_name {
+            let name = name.trim().to_string();
+            self.project.meta_set(settings::KEY_TREE_NAME, &name)?;
+            rebuild |= name != self.settings.tree_name;
+            self.settings.tree_name = name;
+        }
         if let Some(home) = patch.home_person {
             self.project.meta_set(
                 settings::KEY_HOME_PERSON,

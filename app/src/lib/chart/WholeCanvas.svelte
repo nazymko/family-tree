@@ -5,6 +5,8 @@
   import type { ChartNode, ChartWindow, Id, Rect, SearchHitDto, WholeMeta } from '../api/types';
   import { added } from '../state/added.svelte';
   import { project } from '../state/project.svelte';
+  import { settings } from '../state/settings.svelte';
+  import TextField from '../ui/TextField.svelte';
   import { undoState as undo } from '../state/undo.svelte';
   import Button from '../ui/Button.svelte';
   import Combobox from '../ui/Combobox.svelte';
@@ -18,7 +20,7 @@
   import { hitTest, neighbor, type Dir } from './hit';
   import Minimap from './Minimap.svelte';
   import { WindowCache } from './window';
-  import { drawWhole, wholeThemeFromCss, type WholeTheme } from './wholeRenderer';
+  import { drawWhole, headingIsOverlay, headingSize, wholeThemeFromCss, type WholeTheme } from './wholeRenderer';
   import { nodeLabel } from '../i18n/relation';
   import { plural, t, localeStore } from '../i18n';
   import { founderOf } from './wholeStart';
@@ -796,6 +798,43 @@
     if (id) onOpenInPedigree(id);
   }
 
+  // ------------------------------------------------------------ the tree's name
+
+  let naming = $state(false);
+  let nameDraft = $state('');
+  let nameError = $state('');
+
+  function startNaming(): void {
+    nameDraft = settings.value.treeName;
+    nameError = '';
+    naming = true;
+  }
+
+  async function saveName(value: string): Promise<void> {
+    try {
+      await settings.update(api, { treeName: value.trim() });
+      naming = false;
+      await open(true);
+    } catch (e) {
+      nameError = errMessage(e, t('edit.wentWrong'));
+    }
+  }
+
+  /** The heading of the main (largest) family: the one that carries the tree's name. */
+  function mainBlock(): WholeMeta['blocks'][number] | null {
+    const fams = (meta?.blocks ?? []).filter((b) => !b.unconnected);
+    return fams.reduce<(typeof fams)[number] | null>((best, b) => (best === null || b.people > best.people ? b : best), null);
+  }
+
+  /** Double-click on the main family's heading (its strip, or the plate drawn above it when zoomed out). */
+  function onMainHeading(w: { x: number; y: number }): boolean {
+    const b = mainBlock();
+    if (!b || people.length > 0) return false;
+    const r = b.rect;
+    const lift = headingIsOverlay(cam.zoom) ? headingSize(cam.zoom) * 2 : 0;
+    return w.x >= r.x && w.x <= r.x + r.w && w.y >= r.y - lift && w.y <= r.y + r.h;
+  }
+
   function ondblclick(e: MouseEvent): void {
     // A finger's double tap is handled in onpointerup.
     if (lastPointerType === 'touch' || lastPointerType === 'pen') return;
@@ -803,6 +842,10 @@
     if (!cur) return;
     const w = toWorld(e);
     const n = hitTest(cur.win, w.x, w.y);
+    if (!n && onMainHeading(w)) {
+      startNaming();
+      return;
+    }
     if (realPerson(n ?? null)) onOpenPerson(realPerson(n ?? null)!.id);
   }
 
@@ -1030,6 +1073,7 @@
       <IconButton label={t('whole.find')} icon="search" aria-expanded={findOpen} onclick={() => (findOpen = !findOpen)} />
       <IconButton label={t('whole.fitAll')} icon="whole" onclick={fitAll} />
       <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={homeNode === null} onclick={goHome} />
+      <IconButton label={t('whole.nameTree')} icon="edit" disabled={meta === null || people.length > 0} onclick={startNaming} />
       <Menu label={t('chartCanvas.moreTools')} items={overflow} />
       <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
       <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
@@ -1065,6 +1109,7 @@
     <Button disabled={!realPerson(selNode) && markedIds.length < 2} onclick={buildAround}>{markedIds.length >= 2 ? t('whole.buildAroundMany', { n: markedIds.length }) : t('whole.buildAround')}</Button>
     <Button disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id)}>{t('whole.openPerson')}</Button>
     <IconButton label={t('whole.showInPedigree')} icon="pedigree" disabled={!canShow} onclick={showInPedigree} />
+    <IconButton label={t('whole.nameTree')} icon="edit" disabled={meta === null || people.length > 0} onclick={startNaming} />
     {#if markedIds.length > 0}
       <span class="marked" data-testid="marked-count">{plural('whole.nMarked', markedIds.length)}</span>
       <Button onclick={clearMarked}>{t('whole.clearMarked')}</Button>
@@ -1073,6 +1118,14 @@
     <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
     <span class="zoom" aria-live="off">{zoomPct}%</span>
   </div>
+  {/if}
+  {#if naming}
+    <form class="namebar" data-testid="tree-name-form" onsubmit={(e) => { e.preventDefault(); void saveName(nameDraft); }}>
+      <TextField label={t('whole.treeName')} hint={t('whole.treeNameHint')} error={nameError} bind:value={nameDraft} maxlength={80} onkeydown={(e) => { if (e.key === 'Escape') naming = false; }} />
+      <Button type="submit" variant="primary">{t('common.save')}</Button>
+      <Button onclick={() => void saveName('')}>{t('whole.treeNameAuto')}</Button>
+      <Button onclick={() => (naming = false)}>{t('common.cancel')}</Button>
+    </form>
   {/if}
   <div class="stage" bind:this={box}>
     <!-- svelte-ignore a11y_no_interactive_element_to_noninteractive_role -->
@@ -1118,6 +1171,14 @@
 </div>
 
 <style>
+  .namebar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: var(--s-3);
+    padding: var(--s-3) var(--s-4);
+    border-bottom: 1px solid var(--rule);
+  }
   .chart {
     display: flex;
     flex-direction: column;

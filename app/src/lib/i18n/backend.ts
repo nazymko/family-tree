@@ -339,9 +339,10 @@ export function recordKindLabel(kind: string): string {
 }
 
 /** The heading of a group on the whole-tree chart, in the app's language. */
-export function wholeBlockTitle(b: Pick<WholeBlockDto, 'surname' | 'people' | 'unconnected'>): string {
+export function wholeBlockTitle(b: Pick<WholeBlockDto, 'surname' | 'people' | 'unconnected'> & { customName?: string }): string {
   if (b.unconnected) return t('whole.blockUnconnected', { n: b.people });
   const people = plural('common.people', b.people);
+  if (b.customName) return t('whole.blockNamed', { name: b.customName, people });
   return b.surname ? t('whole.blockFamily', { surname: b.surname, people }) : t('whole.blockNoSurname', { people });
 }
 

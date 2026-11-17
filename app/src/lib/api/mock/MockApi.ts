@@ -1,5 +1,5 @@
 import type { Api } from '../api';
-import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus } from '../types';
+import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus, WholeBlockDto } from '../types';
 import type {
   ActorDto,
   BatchDto,
@@ -320,6 +320,7 @@ export class MockApi implements Api {
       chartDirections: { ...DEFAULT_DIRECTIONS },
       livingMaxAge: 100,
       homePerson: fixture.homePerson,
+      treeName: '',
     };
   }
 
@@ -1426,10 +1427,14 @@ export class MockApi implements Api {
     }
     // The markers are drawn like people but are not counted as people.
     const markerAt = result.nodes.filter((n) => n.person?.siblingMarker).map((n) => ({ x: n.x + n.w / 2, y: n.y + n.h / 2 }));
-    const blocks = result.blocks.map((b) => {
+    // The main (largest, first) family block carries the name the user gave the tree.
+    const mainAt = result.blocks.findIndex((b) => !b.unconnected);
+    const blocks = result.blocks.map((b0, i) => {
+      const b: WholeBlockDto = i === mainAt && this.settings.treeName ? { ...b0, customName: this.settings.treeName } : b0;
       const inside = markerAt.filter((m) => m.x >= b.rect.x && m.x <= b.rect.x + b.rect.w && m.y >= b.rect.y && m.y <= b.rect.y + b.rect.h + b.bodyH).length;
       const people = b.people - inside;
-      return inside === 0 ? b : { ...b, people, title: b.title.replace(/\(\d+/, `(${people}`) };
+      const titled = b.customName ? { ...b, title: `${b.customName} (${b0.people} people)` } : b;
+      return inside === 0 ? titled : { ...titled, people, title: titled.title.replace(/\(\d+/, `(${people}`) };
     });
     const chartId = this.nextChart++;
     const meta: WholeMeta = {
@@ -1720,6 +1725,7 @@ export class MockApi implements Api {
     if (patch.homePerson && !this.db.persons.has(patch.homePerson)) throw missing('person', patch.homePerson);
     next.backupsToKeep = Math.max(1, Math.min(100, Math.round(next.backupsToKeep)));
     next.livingMaxAge = Math.max(1, Math.min(150, Math.round(next.livingMaxAge)));
+    next.treeName = next.treeName.trim();
     this.settings = next;
     this.touch();
     return { ...this.settings };

@@ -855,6 +855,41 @@ fn whole_tree_has_everyone_once_headings_and_an_unconnected_block() {
 }
 
 #[test]
+fn a_chosen_tree_name_heads_the_main_block_only_and_clearing_it_goes_back() {
+    let (dir, mut s) = open_ged(&whole_ged());
+    let auto = s.chart_open_whole().unwrap();
+    assert!(auto.blocks.iter().all(|b| b.custom_name.is_empty()));
+    s.set_settings(SettingsPatch {
+        tree_name: Some("  Hill House ".into()),
+        ..SettingsPatch::default()
+    })
+    .unwrap();
+    assert_eq!(s.settings().tree_name, "Hill House");
+    let w = s.chart_open_whole().unwrap();
+    assert_eq!(w.blocks[0].title, "Hill House (7 people)");
+    assert_eq!(w.blocks[0].custom_name, "Hill House");
+    assert_eq!(w.blocks[0].surname, "X");
+    assert_eq!(w.blocks[1].title, "Unconnected people (1)");
+    assert!(w.blocks[1].custom_name.is_empty());
+    // It is stored in the project.
+    s.close();
+    let mut s = Session::open(
+        &dir.path().join("project"),
+        SessionClock::fixed(today(), NOW_MS),
+    )
+    .unwrap();
+    assert_eq!(s.settings().tree_name, "Hill House");
+    s.set_settings(SettingsPatch {
+        tree_name: Some(String::new()),
+        ..SettingsPatch::default()
+    })
+    .unwrap();
+    let w = s.chart_open_whole().unwrap();
+    assert_eq!(w.blocks[0].title, "X family (7 people)");
+    assert!(w.blocks[0].custom_name.is_empty());
+}
+
+#[test]
 fn whole_tree_is_cached_per_revision() {
     let (_d, mut s) = open_ged(&whole_ged());
     let a = s.chart_open_whole().unwrap();
