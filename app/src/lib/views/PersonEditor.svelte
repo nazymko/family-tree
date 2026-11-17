@@ -825,6 +825,13 @@
     gap: var(--s-6);
     padding: var(--s-6);
   }
+  /* A narrow window: the shell already pads the page; a second gutter wastes a third of a phone's width. */
+  @media (max-width: 940px) {
+    .page {
+      padding: 0;
+      gap: var(--s-5);
+    }
+  }
   /* The text sections keep a readable width; the family tree may use the whole page. */
   .page > :not(.tree-sec) {
     max-width: 70rem;

@@ -273,6 +273,13 @@
     min-height: 2.75rem;
     padding-inline: var(--s-6);
   }
+  /* A phone: the actions are one even column of full-width buttons, not a ragged stack. */
+  @media (max-width: 640px) {
+    .actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  }
   .ledger {
     border: 1px solid var(--rule);
     border-radius: var(--r-1);

@@ -655,6 +655,18 @@
       .item {
         min-height: 2.25rem;
       }
+      /* Sideways the drawer is short: the tree's name, size and save state share one line, so the list keeps the room. */
+      .foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0 var(--s-3);
+        padding-block: var(--s-2);
+      }
+      .pname {
+        width: auto;
+        max-width: 100%;
+      }
     }
   }
   .item:hover {

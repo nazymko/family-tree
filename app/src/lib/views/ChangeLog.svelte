@@ -320,6 +320,11 @@
     padding: var(--s-6);
     max-width: 70rem;
   }
+  @media (max-width: 940px) {
+    .page {
+      padding: 0;
+    }
+  }
   h1 {
     margin: 0;
     outline: none;

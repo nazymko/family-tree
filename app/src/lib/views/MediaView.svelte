@@ -1,5 +1,6 @@
 <script lang="ts">
   import EmptyState from '../ui/EmptyState.svelte';
+  import { compact } from '../ui/compact.svelte';
   import Dropzone from '../media/Dropzone.svelte';
   import MediaGrid from '../media/MediaGrid.svelte';
   import MediaViewer from '../media/MediaViewer.svelte';
@@ -67,7 +68,7 @@
     <Dropzone {target} targetName={name} onAttached={() => load()} onUndone={() => load()} {onSuggestEvent} />
     {#if all.length === 0}
       <EmptyState title={t('mediaView.nothingAttached')}>
-        {t('mediaView.noneBefore')}<bdi dir="auto">{name}</bdi>{t('mediaView.noneAfter')}
+        {t('mediaView.noneBefore')}<bdi dir="auto">{name}</bdi>{t(compact.value ? 'mediaView.noneAfterTouch' : 'mediaView.noneAfter')}
       </EmptyState>
     {:else}
       {#if items.length > 0}<MediaGrid {items} {target} onOpen={(i) => (open = i)} />{/if}
