@@ -17,6 +17,8 @@
 //!
 //! Everything is a function of the input order, so the same data gives the same picture.
 
+mod family;
+
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
@@ -149,6 +151,8 @@ const SECOND_LINE: f64 = 14.0;
 /// Horizontal gaps as parts of `Metrics::gap_x`: brothers and sisters closer than separate families.
 const GAP_SIBLINGS: f64 = 0.6;
 const GAP_GROUPS: f64 = 1.2;
+/// The placement by families replaces the walk only when its lines are this much shorter (it must be a clear gain).
+const FAMILY_GAIN: f64 = 0.85;
 
 struct Fam {
     partners: Vec<usize>,
@@ -767,7 +771,23 @@ fn place_units(units: &mut [Unit], rows_n: usize, sh: &Shared, sc: &mut Scratch)
     let (_, deep, root, forced) = best.unwrap_or((0.0, false, 0, Forced::new()));
     sh.deep.set(deep);
     restore(units, sc);
-    place_once(units, rows_n, root, &forced, sh, sc).0
+    let walked_xs = place_once(units, rows_n, root, &forced, sh, sc).0;
+    // The same units by families: kept when its lines are shorter.
+    let walked_score = spread(&walked_xs, units, sh, sc);
+    let walked_members: Vec<Vec<usize>> = units.iter().map(|u| u.members.clone()).collect();
+    if units.len() > 1 {
+        let (xs, score) = family::place_families(units, rows_n, sh, sc);
+        if score < walked_score * FAMILY_GAIN {
+            return xs;
+        }
+    }
+    for (u, m) in units.iter_mut().zip(walked_members) {
+        for (k, &p) in m.iter().enumerate() {
+            sc.pos_in_unit[p] = k;
+        }
+        u.members = m;
+    }
+    walked_xs
 }
 
 fn place_once(
