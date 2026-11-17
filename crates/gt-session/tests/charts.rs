@@ -1138,3 +1138,25 @@ fn person_count_counts_a_person_drawn_twice_once() {
     assert_eq!(m.person_count as usize, distinct.len());
     assert!(m.person_count < m.node_count);
 }
+
+/// A parent family left with no parents (the owner deleted the only parent) still lists the child, listed first.
+/// The pedigree passes over it and draws the real parents.
+#[test]
+fn pedigree_skips_a_parent_family_with_no_parents() {
+    let mut records = vec!["0 @F9@ FAM\n1 CHIL @I1@\n".to_string()];
+    let base = pedigree_ged();
+    let body = base.trim_start_matches(HEAD).trim_end_matches("0 TRLR\n");
+    records.push(body.to_string());
+    let (_d, mut s) = open_ged(&ged(&records));
+    let me = id_of(&s, "Me X");
+    assert_eq!(
+        s.tree()
+            .families
+            .values()
+            .filter(|f| f.children.iter().any(|c| c.person == me))
+            .count(),
+        2
+    );
+    let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    assert_eq!(m.node_count, 7);
+}

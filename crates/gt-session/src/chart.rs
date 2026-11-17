@@ -91,7 +91,8 @@ impl TreeSource<'_> {
 }
 
 impl ChartSource for TreeSource<'_> {
-    /// Preferred parent family (a child link marked preferred, else the first); the male parent
+    /// Preferred parent family (a child link marked preferred, else the first), among families that still have a
+    /// parent; the male parent
     /// goes first when exactly one is male, a lone mother takes the second slot.
     fn parents(&self, p: Key) -> [Option<Key>; 2] {
         let Some(s) = self.index.summaries.get(p as usize) else {
@@ -100,8 +101,16 @@ impl ChartSource for TreeSource<'_> {
         let Some(links) = self.links.child_in.get(&s.id) else {
             return [None, None];
         };
+        // A family whose parents were all deleted names nobody: it is passed over, even when marked preferred.
+        let parented = |f: &Uuid| {
+            self.tree
+                .families
+                .get(f)
+                .is_some_and(|f| f.partner1.is_some() || f.partner2.is_some())
+        };
         let pick = links
             .iter()
+            .filter(|(f, _)| parented(f))
             .find(|(f, i)| {
                 self.tree
                     .families
@@ -109,7 +118,7 @@ impl ChartSource for TreeSource<'_> {
                     .and_then(|f| f.children.get(*i))
                     .is_some_and(|c| c.preferred)
             })
-            .or_else(|| links.first());
+            .or_else(|| links.iter().find(|(f, _)| parented(f)));
         let Some(fam) = pick.and_then(|(f, _)| self.tree.families.get(f)) else {
             return [None, None];
         };
