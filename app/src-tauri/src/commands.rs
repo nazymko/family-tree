@@ -1005,6 +1005,7 @@ pub struct SettingsPatchWire {
     pub living_max_age: Option<u32>,
     #[serde(deserialize_with = "some_or_null")]
     pub home_person: Option<Option<Uuid>>,
+    pub tree_name: Option<String>,
 }
 
 fn some_or_null<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<Uuid>>, D::Error> {
@@ -1029,7 +1030,9 @@ pub fn get_settings_impl(state: &AppState) -> Settings {
 
 pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResult<Settings> {
     let has_session = AppState::lock(&state.session).is_some();
-    if !has_session && (patch.living_max_age.is_some() || patch.home_person.is_some()) {
+    if !has_session && (patch.living_max_age.is_some()
+            || patch.home_person.is_some()
+            || patch.tree_name.is_some()) {
         return Err(no_project());
     }
     if patch.backups_to_keep == Some(0) {
@@ -1049,6 +1052,7 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
             chart_directions: patch.chart_directions,
             living_max_age: patch.living_max_age,
             home_person: patch.home_person,
+            tree_name: patch.tree_name,
         };
         state.with_session(|s| s.set_settings(p).map(|_| ()))?;
     }

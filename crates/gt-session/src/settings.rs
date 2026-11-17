@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 pub const KEY_LIVING_MAX_AGE: &str = "living_max_age";
 pub const KEY_HOME_PERSON: &str = "home_person";
+pub const KEY_TREE_NAME: &str = "tree_title";
 
 /// Reads the project-level values; the rest start at their defaults (the app layer owns them).
 pub fn load(project: &Project) -> Result<Settings, ApiError> {
@@ -20,6 +21,10 @@ pub fn load(project: &Project) -> Result<Settings, ApiError> {
     s.home_person = project
         .meta_get(KEY_HOME_PERSON)?
         .and_then(|v| Uuid::parse_str(v.trim()).ok());
+    s.tree_name = project
+        .meta_get(KEY_TREE_NAME)?
+        .map(|v| v.trim().to_string())
+        .unwrap_or_default();
     Ok(s)
 }
 
@@ -34,4 +39,6 @@ pub struct SettingsPatch {
     pub chart_directions: Option<ChartDirections>,
     pub living_max_age: Option<u32>,
     pub home_person: Option<Option<Uuid>>,
+    /// The tree's name; empty clears it (automatic heading).
+    pub tree_name: Option<String>,
 }

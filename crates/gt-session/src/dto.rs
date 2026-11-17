@@ -474,6 +474,9 @@ pub struct Settings {
     pub living_max_age: u32,
     /// Project setting.
     pub home_person: Option<Uuid>,
+    /// Project setting: the name the user gave the tree. It heads the main (largest) family
+    /// block of the whole-tree chart. Empty means automatic (the block's surname).
+    pub tree_name: String,
 }
 
 impl Default for Settings {
@@ -487,6 +490,7 @@ impl Default for Settings {
             chart_directions: ChartDirections::default(),
             living_max_age: 100,
             home_person: None,
+            tree_name: String::new(),
         }
     }
 }
@@ -758,6 +762,9 @@ pub struct WholeBlockDto {
     pub title: String,
     /// The family's surname; empty when it has none and for the unconnected people.
     pub surname: String,
+    /// The tree name the user chose, when this is the main (largest) family block and a name
+    /// is set; empty otherwise. The app words the heading from it instead of `surname`.
+    pub custom_name: String,
     pub people: u32,
     /// The block of people who have no family link at all.
     pub unconnected: bool,

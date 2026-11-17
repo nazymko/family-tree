@@ -519,7 +519,7 @@ fn tree_summary<H: Host>(host: &H, _: &AgentCtx, _: &Value) -> ToolResult {
         let info = s.info();
         let tree = s.tree();
         Ok(json!({
-            "name": info.name,
+            "name": if s.settings().tree_name.is_empty() { info.name.clone() } else { s.settings().tree_name.clone() },
             "counts": {
                 "people": tree.persons.values().filter(|p| !p.sibling_marker).count(),
                 "families": tree.families.len(),

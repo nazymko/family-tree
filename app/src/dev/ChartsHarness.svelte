@@ -1,6 +1,6 @@
 <script lang="ts">
   // Dev-only page (charts.html): the pedigree and descendant views on MockApi, no shell.
-  // Query: ?view=pedigree|descendants &mode=chart|outline &theme=dark &root=cycle|many
+  // Query: ?view=pedigree|descendants|whole &lang=uk|en &mode=chart|outline &theme=dark &root=cycle|many
   import { setApi } from '../lib/api/context';
   import { MockApi } from '../lib/api/mock/MockApi';
   import { MockPlatform } from '../lib/api/mock/MockPlatform';
@@ -9,12 +9,15 @@
   import { nav } from '../lib/state/nav.svelte';
   import Pedigree from '../lib/views/Pedigree.svelte';
   import Descendants from '../lib/views/Descendants.svelte';
+  import WholeCanvas from '../lib/chart/WholeCanvas.svelte';
+  import { setLanguage } from '../lib/i18n';
 
   const q = new URLSearchParams(location.search);
   const fx = fixtureTree(500);
   const api = new MockApi(fx);
   setApi(api, new MockPlatform());
   document.documentElement.lang = 'en';
+  if (q.get('lang') === 'uk' || q.get('lang') === 'en') { setLanguage(q.get('lang') as 'uk' | 'en'); void api.setSettings({ language: q.get('lang') as 'uk' | 'en' }); }
   if (q.get('theme') === 'dark' || q.get('theme') === 'light') applyTheme(q.get('theme') as 'dark' | 'light');
   try {
     localStorage.setItem('gt.chartView', q.get('mode') ?? 'chart');
@@ -49,7 +52,7 @@
 
 <main>
   {#if ready}
-    {#if view === 'descendants'}<Descendants />{:else}<Pedigree />{/if}
+    {#if view === 'whole'}<WholeCanvas onOpenPerson={() => {}} onOpenInPedigree={() => {}} />{:else if view === 'descendants'}<Descendants />{:else}<Pedigree />{/if}
   {/if}
 </main>
 

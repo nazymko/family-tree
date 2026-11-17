@@ -541,8 +541,9 @@ fn not_whole() -> ApiError {
     )
 }
 
-fn block_title(kind: BlockKind, surname: &str, people: u32) -> String {
+fn block_title(kind: BlockKind, surname: &str, custom: &str, people: u32) -> String {
     match kind {
+        BlockKind::Family if !custom.is_empty() => format!("{custom} ({people} people)"),
         BlockKind::Unconnected => format!("Unconnected people ({people})"),
         BlockKind::Family if surname.is_empty() => format!("Family ({people} people)"),
         BlockKind::Family => format!("{surname} family ({people} people)"),
@@ -1200,7 +1201,7 @@ impl Session {
             .collect();
         let markers = u32::try_from(marker_at.len()).unwrap_or(u32::MAX);
         let people = distinct_people(&self.index, &layout);
-        let blocks = extras
+        let counted: Vec<_> = extras
             .blocks
             .iter()
             .map(|b| {
@@ -1218,9 +1219,32 @@ impl Session {
                     .saturating_sub(u32::try_from(inside).unwrap_or(u32::MAX));
                 (b, people)
             })
-            .map(|(b, people)| WholeBlockDto {
-                title: block_title(b.kind, &b.surname, people),
+            .collect();
+        // The main block is the largest family (the first of equals).
+        let main_block = counted
+            .iter()
+            .enumerate()
+            .filter(|(_, (b, _))| b.kind == BlockKind::Family)
+            .fold(None::<(usize, u32)>, |best, (i, (_, n))| match best {
+                Some((_, m)) if m >= *n => best,
+                _ => Some((i, *n)),
+            })
+            .map(|(i, _)| i);
+        let blocks = counted
+            .into_iter()
+            .enumerate()
+            .map(|(i, (b, people))| {
+                let custom = if Some(i) == main_block {
+                    self.settings.tree_name.clone()
+                } else {
+                    String::new()
+                };
+                (b, people, custom)
+            })
+            .map(|(b, people, custom_name)| WholeBlockDto {
+                title: block_title(b.kind, &b.surname, &custom_name, people),
                 surname: b.surname.clone(),
+                custom_name,
                 people,
                 unconnected: b.kind == BlockKind::Unconnected,
                 rect: Rect {
