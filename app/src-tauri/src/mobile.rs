@@ -106,12 +106,21 @@ fn open_uri<R: Runtime>(_app: &AppHandle<R>, _uri: &str, _write: bool) -> io::Re
 
 /// Copies a picked document into `dir` and returns the local path. A plain path is copied too, so the caller
 /// never holds a handle to a file another app may change.
-pub fn stage_into<R: Runtime>(app: &AppHandle<R>, src: &str, dir: &Path) -> io::Result<PathBuf> {
+pub fn stage_into<R: Runtime>(
+    app: &AppHandle<R>,
+    src: &str,
+    dir: &Path,
+    name: Option<&str>,
+) -> io::Result<PathBuf> {
     if !is_content_uri(src) {
         return copy_plain(src, dir);
     }
     fs::create_dir_all(dir)?;
-    let dest = dir.join(name_from_uri(src));
+    // The document's own name when the shell could ask Android for it; the picker's address often ends in an id (`msf:20`).
+    let dest = dir.join(match name.filter(|n| !n.trim().is_empty()) {
+        Some(n) => safe_file_name(n),
+        None => name_from_uri(src),
+    });
     let mut from = open_uri(app, src, false)?;
     let mut to = fs::File::create(&dest)?;
     io::copy(&mut from, &mut to)?;
@@ -162,10 +171,14 @@ pub fn mobile_info<R: Runtime>(app: AppHandle<R>) -> Result<MobileInfo, String> 
 /// Copies a picked file (a `content://` address on Android) into the cache folder; the answer is a path every
 /// other command can read.
 #[tauri::command(async)]
-pub fn mobile_stage_pick<R: Runtime>(app: AppHandle<R>, uri: String) -> Result<String, String> {
+pub fn mobile_stage_pick<R: Runtime>(
+    app: AppHandle<R>,
+    uri: String,
+    name: Option<String>,
+) -> Result<String, String> {
     let info = dirs(&app)?;
     let dir = PathBuf::from(info.cache_dir).join("picked");
-    stage_into(&app, &uri, &dir)
+    stage_into(&app, &uri, &dir, name.as_deref())
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| format!("Could not read the chosen file: {e}"))
 }

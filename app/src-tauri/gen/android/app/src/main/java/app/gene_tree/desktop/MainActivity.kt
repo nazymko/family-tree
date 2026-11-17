@@ -33,6 +33,18 @@ class MainActivity : TauriActivity() {
   }
 
   inner class Bars {
+    /** The name of a picked document (what the person sees in the file picker), or "" when Android will not say. */
+    @JavascriptInterface
+    fun displayName(uri: String): String {
+      return try {
+        contentResolver.query(android.net.Uri.parse(uri), arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+          if (c.moveToFirst()) c.getString(0) ?: "" else ""
+        } ?: ""
+      } catch (_: Exception) {
+        ""
+      }
+    }
+
     @JavascriptInterface
     fun set(color: String, darkIcons: Boolean) {
       val c = try { Color.parseColor(color) } catch (_: IllegalArgumentException) { return }

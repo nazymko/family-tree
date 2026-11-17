@@ -33,7 +33,14 @@ export class TauriPlatform implements Platform {
 
   /** Android hands out documents as content:// addresses; copy each into the app's cache so every command reads a plain path. */
   private stage(uri: string): Promise<string> {
-    return invoke<string>('mobile_stage_pick', { uri });
+    // The document's real name (Android's picker addresses often end in an id, not the name): asked from the shell.
+    let name: string | null = null;
+    try {
+      name = (window as unknown as { GeneTreeBars?: { displayName?: (u: string) => string } }).GeneTreeBars?.displayName?.(uri) ?? null;
+    } catch {
+      name = null;
+    }
+    return invoke<string>('mobile_stage_pick', { uri, name: name || null });
   }
 
   async treesDir(): Promise<string> {
