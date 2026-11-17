@@ -46,7 +46,7 @@
           <div class="tipbox" data-testid="media-tip">
             <b>{mediaLabel(m)}</b>
             <span>{mediaKind(m)}</span>
-            {#if m.date?.display || m.place}<span>{[m.date?.display, m.place?.full].filter(Boolean).join(' · ')}</span>{/if}
+            {#if m.date?.display || m.place}<span>{[m.date?.display, m.place?.full].filter(Boolean).join(' Â· ')}</span>{/if}
             {#if m.description?.trim()}<span class="desc">{m.description.trim()}</span>{/if}
             {#if hasTranscript(m)}<span class="has"><Icon name="file" size="0.9rem" /> {t('media.hasTranscript')}</span>{/if}
           </div>
