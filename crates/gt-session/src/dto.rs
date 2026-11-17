@@ -312,6 +312,11 @@ pub struct MediaDto {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "number")]
     pub duration_ms: Option<u64>,
+    /// Web pages the picture came from: addresses in its description and in the sources that hold it
+    /// (at most three, http or https only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub web_links: Vec<String>,
 }
 
 /// One piece of a picture's transcription.

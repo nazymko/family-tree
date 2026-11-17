@@ -31,6 +31,7 @@ pub mod session;
 pub mod settings;
 mod touched;
 pub mod undo;
+mod web_links;
 
 pub use agent::{
     AGENT_AUDIO_MAX, AGENT_FILE_MAX, AGENT_PDF_MAX, AgentCtx, AgentFile, AgentWrite,

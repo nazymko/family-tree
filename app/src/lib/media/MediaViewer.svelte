@@ -8,7 +8,7 @@
   import TextField from '../ui/TextField.svelte';
   import TextArea from '../ui/TextArea.svelte';
   import PlacePicker from '../editors/PlacePicker.svelte';
-  import { getApi } from '../api/context';
+  import { getApi, getPlatform } from '../api/context';
   import { notices } from '../ui/notices.svelte';
   import { isPdf, mediaLabel, openOriginal } from './MediaGrid.svelte';
   import TextOverlay from './TextOverlay.svelte';
@@ -33,6 +33,7 @@
   } = $props();
 
   const api = getApi();
+  const platform = getPlatform();
   const MAX_ZOOM = 8;
 
   // svelte-ignore state_referenced_locally
@@ -57,6 +58,24 @@
   const m = $derived(link?.media);
   const title = $derived(m ? (edits[m.id]?.title ?? m.title ?? '') : '');
   const description = $derived(m ? (edits[m.id]?.description ?? m.description ?? '') : '');
+  /** Web pages this picture came from (http and https only), each with the host its button names. */
+  const webPages = $derived(
+    (m?.webLinks ?? []).flatMap((url) => {
+      if (!/^https?:\/\//i.test(url)) return [];
+      try {
+        return [{ url, host: new URL(url).hostname.replace(/^www\./i, '') }];
+      } catch {
+        return [];
+      }
+    }),
+  );
+  async function openWebPage(url: string) {
+    try {
+      await platform.openUrl?.(url);
+    } catch (e) {
+      error = errMessage(e, t('edit.wentWrong'));
+    }
+  }
   const primary = $derived(!!link?.primary || (m ? primaryIds.has(m.id) : false));
 
   // The transcription: boxes on the picture and the full text beside it.
@@ -413,6 +432,11 @@
           <Button onclick={setPrimary}>{t('media.setPrimary')}</Button>
         {/if}
         <Button onclick={() => openOriginal(api, m.id)}>{t('media.openOriginal')}</Button>
+        {#if platform.openUrl}
+          {#each webPages as page (page.url)}
+            <Button title={page.url} onclick={() => openWebPage(page.url)}><Icon name="external-link" /> {t('media.openWebPage', { host: page.host })}</Button>
+          {/each}
+        {/if}
         {#if target}
           <Button disabled={busy} onclick={() => target && remove({ type: 'detachMedia', target, media: m.id })}>{t(target.kind === 'source' ? 'media.unlinkSource' : 'media.unlink')}</Button>
         {/if}

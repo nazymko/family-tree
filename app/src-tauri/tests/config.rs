@@ -60,7 +60,11 @@ fn capabilities_are_exact() {
         .as_array()
         .expect("perms")
         .iter()
-        .map(|v| v.as_str().expect("str"))
+        .map(|v| {
+            v.as_str()
+                .or_else(|| v["identifier"].as_str())
+                .expect("permission")
+        })
         .collect();
     assert_eq!(
         perms,
@@ -68,9 +72,24 @@ fn capabilities_are_exact() {
             "core:default",
             "dialog:allow-open",
             "dialog:allow-save",
-            "opener:allow-reveal-item-in-dir"
+            "opener:allow-reveal-item-in-dir",
+            "opener:allow-open-url"
         ]
     );
+    // Opening a web page is scoped to http and https addresses only.
+    let open_url = cap["permissions"]
+        .as_array()
+        .expect("perms")
+        .iter()
+        .find(|v| v["identifier"] == "opener:allow-open-url")
+        .expect("open-url permission");
+    let scope: Vec<&str> = open_url["allow"]
+        .as_array()
+        .expect("allow")
+        .iter()
+        .map(|v| v["url"].as_str().expect("url"))
+        .collect();
+    assert_eq!(scope, ["https://*", "http://*"]);
     assert!(
         perms
             .iter()

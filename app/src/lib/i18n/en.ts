@@ -1467,6 +1467,7 @@ export const en = {
     next: 'Next',
     setPrimary: 'Set as primary photo',
     openOriginal: 'Open original',
+    openWebPage: 'Open on {host}',
     unlink: 'Remove from this person',
     unlinkSource: 'Remove from this source',
     deleteFromTree: 'Delete from the tree',

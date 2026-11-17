@@ -225,6 +225,7 @@ impl Session {
     }
 
     pub fn media_dtos(&self, links: &[MediaLink]) -> Vec<MediaLinkDto> {
+        let from_sources = self.source_texts_of(links);
         links
             .iter()
             .filter_map(|l| {
@@ -251,12 +252,55 @@ impl Session {
                             .then(|| self.media_length(l.media))
                             .flatten()
                             .map(|len| len.ms),
+                        web_links: crate::web_links::collect(
+                            md.description.iter().map(String::as_str).chain(
+                                from_sources
+                                    .get(&l.media)
+                                    .into_iter()
+                                    .flatten()
+                                    .map(String::as_str),
+                            ),
+                        ),
                     },
                     primary: l.primary,
                     clip: l.clip.as_ref().map(clip_dto),
                 })
             })
             .collect()
+    }
+
+    /// The texts of every source that holds one of these media (title, publication, text, call
+    /// numbers), by media id, in source-id order. One pass over the sources per call, and none
+    /// when nothing is linked; sources with no media of these are skipped without reading their text.
+    fn source_texts_of(&self, links: &[MediaLink]) -> std::collections::HashMap<Uuid, Vec<String>> {
+        let mut out: std::collections::HashMap<Uuid, Vec<String>> = Default::default();
+        if links.is_empty() {
+            return out;
+        }
+        let wanted: std::collections::HashSet<Uuid> = links.iter().map(|l| l.media).collect();
+        let mut sources: Vec<_> = self
+            .tree
+            .sources
+            .iter()
+            .filter(|(_, s)| s.common.media.iter().any(|l| wanted.contains(&l.media)))
+            .collect();
+        sources.sort_by_key(|(id, _)| **id);
+        for (_, s) in sources {
+            let texts: Vec<String> = [&s.title, &s.publication, &s.text]
+                .into_iter()
+                .flatten()
+                .cloned()
+                .chain(s.repositories.iter().filter_map(|r| r.call_number.clone()))
+                .collect();
+            for l in &s.common.media {
+                if wanted.contains(&l.media) {
+                    out.entry(l.media)
+                        .or_default()
+                        .extend(texts.iter().cloned());
+                }
+            }
+        }
+        out
     }
 
     /// Whether a stored media path names a file inside `<project>/media`. The path is checked

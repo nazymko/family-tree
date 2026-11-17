@@ -214,6 +214,8 @@ export interface Platform {
   onFilesDropped(cb: (paths: string[]) => void, onHover?: (over: boolean) => void): () => void;
   onTreeChangedByAgent(cb: (e: AgentChangeEvent) => void): () => void;
   reveal(path: string): Promise<void>;
+  /** Opens a web page in the system browser. Only http and https addresses; anything else is refused. */
+  openUrl?(url: string): Promise<void>;
   /**
    * True on a phone or tablet. There a tree lives in the app's own storage (`treesDir`), there is no folder picker,
    * and a file made for the person (`pickSavePath`) is handed over with `deliver` once it is written.
