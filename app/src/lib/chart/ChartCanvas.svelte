@@ -1096,8 +1096,9 @@
   <div class="toolbar" role="toolbar" aria-label={toolsLabel}>
     {#if compact.value}
       <IconButton label={t('chartCanvas.fit')} icon="whole" onclick={fitAll} />
-      <DirectionControl chart={kind} />
       <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={!homeId} onclick={() => homeId && onRecentre(homeId)} />
+      <Menu label={t('chartCanvas.moreTools')} items={overflow} />
+      <DirectionControl chart={kind} />
     {:else}
     <Button onclick={() => zoomBy(1.25)}>{t('chartCanvas.zoomIn')}</Button>
     <Button onclick={() => zoomBy(0.8)}>{t('chartCanvas.zoomOut')}</Button>
@@ -1134,7 +1135,6 @@
         />
       </div>
     {/if}
-    {#if compact.value}<Menu label={t('chartCanvas.moreTools')} items={overflow} />{/if}
     <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
     <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
     {#if onGenerations}

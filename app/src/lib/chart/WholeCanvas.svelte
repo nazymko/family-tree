@@ -1030,10 +1030,10 @@
       <IconButton label={t('whole.find')} icon="search" aria-expanded={findOpen} onclick={() => (findOpen = !findOpen)} />
       <IconButton label={t('whole.fitAll')} icon="whole" onclick={fitAll} />
       <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={homeNode === null} onclick={goHome} />
-      <DirectionControl chart="whole" />
+      <Menu label={t('chartCanvas.moreTools')} items={overflow} />
       <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
       <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
-      <Menu label={t('chartCanvas.moreTools')} items={overflow} />
+      <DirectionControl chart="whole" />
       {#if markedIds.length > 0}<span class="marked" data-testid="marked-count">{plural('whole.nMarked', markedIds.length)}</span>{/if}
     </div>
     {#if findOpen}

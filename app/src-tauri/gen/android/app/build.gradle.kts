@@ -14,6 +14,16 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// Release signing: the keystore path and passwords come from GT_KEYSTORE / GT_KEYSTORE_PASSWORD / GT_KEY_ALIAS /
+// GT_KEY_PASSWORD or from a gitignored keystore.properties (storeFile, storePassword, keyAlias, keyPassword) beside
+// this project's settings.gradle. Without them the release build is left unsigned.
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun signingValue(env: String, prop: String): String? = System.getenv(env)?.takeIf { it.isNotBlank() } ?: keystoreProps.getProperty(prop)
+val releaseStore = signingValue("GT_KEYSTORE", "storeFile")
+
 android {
     compileSdk = 37
     namespace = "app.gene_tree.desktop"
@@ -24,6 +34,16 @@ android {
         targetSdk = 37
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        if (releaseStore != null) {
+            create("release") {
+                storeFile = file(releaseStore)
+                storePassword = signingValue("GT_KEYSTORE_PASSWORD", "storePassword")
+                keyAlias = signingValue("GT_KEY_ALIAS", "keyAlias")
+                keyPassword = signingValue("GT_KEY_PASSWORD", "keyPassword") ?: signingValue("GT_KEYSTORE_PASSWORD", "storePassword")
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -39,6 +59,7 @@ android {
             }
         }
         getByName("release") {
+            if (releaseStore != null) signingConfig = signingConfigs.getByName("release")
             optimization {
                enable = true
             }

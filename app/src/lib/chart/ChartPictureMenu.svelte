@@ -1,6 +1,8 @@
 <script lang="ts">
   import Button from '../ui/Button.svelte';
   import ContextMenu from '../ui/ContextMenu.svelte';
+  import IconButton from '../ui/IconButton.svelte';
+  import { compact } from '../ui/compact.svelte';
   import type { MenuItem } from '../ui/Menu.svelte';
   import { getApi } from '../api/context';
   import type { Id } from '../api/types';
@@ -92,7 +94,11 @@
 <!-- A press on the button must not count as a press outside the open menu, or the button could never close it. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <span class="wrap" bind:this={wrap} onmousedown={(e) => e.stopPropagation()}>
-  <Button disabled={busy} aria-haspopup="menu" aria-expanded={at !== null} onclick={fromButton}>{t('picture.save')}</Button>
+  {#if compact.value}
+    <IconButton label={t('picture.save')} icon="download" disabled={busy} aria-haspopup="menu" aria-expanded={at !== null} onclick={fromButton} />
+  {:else}
+    <Button disabled={busy} aria-haspopup="menu" aria-expanded={at !== null} onclick={fromButton}>{t('picture.save')}</Button>
+  {/if}
 </span>
 {#if at}
   <ContextMenu label={personItems.length ? t('chartAdd.menuLabel') : t('picture.menuLabel')} {items} x={at.x} y={at.y} onclose={close} />
