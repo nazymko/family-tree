@@ -56,11 +56,11 @@ pub fn clusters(n: usize, cross: &[(Slot, Slot)]) -> WholeInput {
         b.person(c, "a", 1800);
         b.person(c, "b", 1802);
         for i in 0..3 {
-            b.person(c, &format!("k{i}"), 1825 + i as i32);
+            b.person(c, &format!("k{i}"), 1825 + i);
         }
         for i in 0..3 {
             for j in 0..2 {
-                b.person(c, &format!("g{i}{j}"), 1850 + (i * 2 + j) as i32);
+                b.person(c, &format!("g{i}{j}"), 1850 + i * 2 + j);
             }
         }
         for i in 0..3 {
@@ -109,6 +109,7 @@ pub fn clusters(n: usize, cross: &[(Slot, Slot)]) -> WholeInput {
 }
 
 /// Drops the people who ended up with no family of any size (the spouse's own slots that were replaced).
+#[allow(clippy::needless_range_loop)]
 fn prune(b: Builder, fams: Vec<WholeFamily>) -> WholeInput {
     let n = b.count;
     let mut dsu: Vec<usize> = (0..n).collect();
