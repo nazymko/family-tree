@@ -1420,3 +1420,40 @@ fn only_the_tools_named_here_can_write() {
         ]
     );
 }
+
+#[test]
+fn a_family_left_with_no_parents_does_not_hold_a_child_back() {
+    let host = empty_host();
+    // The owner adds a father and later deletes him: the family stays, with the child and no parents.
+    let child = owners_person(&host, "Ivan", None);
+    with(&host, |s| {
+        let father = add_relative(
+            s,
+            child,
+            Relation::Father,
+            draft("Pavlo", "Koval", None, None),
+        );
+        s.apply(EditCommand::DeletePerson { id: father }).unwrap();
+    });
+    let batch = begin(&host);
+    let real = add(&host, &batch, "Pavlo");
+    let family = call(
+        &host,
+        "add_family",
+        json!({"batch": batch, "partner1": real}),
+    )["id"]
+        .clone();
+    call(
+        &host,
+        "link_people",
+        json!({"batch": batch, "person": child.to_string(), "relation": {"as": "child", "family": family}}),
+    );
+    let linked = with(&host, |s| {
+        let id: Uuid = family.as_str().unwrap().parse().unwrap();
+        s.tree().families[&id]
+            .children
+            .iter()
+            .any(|l| l.person == child)
+    });
+    assert!(linked);
+}

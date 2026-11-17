@@ -395,6 +395,12 @@ fn has_birth_link(f: &Family, child: Uuid) -> bool {
         .any(|l| l.person == child && is_birth_link(f, l))
 }
 
+/// A birth link in a family that still has a parent. A family whose parents were all deleted holds its children
+/// to nobody, and the owner cannot see it, so it does not stop a child going into its real family.
+fn has_parented_birth_link(f: &Family, child: Uuid) -> bool {
+    (f.partner1.is_some() || f.partner2.is_some()) && has_birth_link(f, child)
+}
+
 /// Whether a link says what was asked for: the same kind, with birth and unknown counted as one.
 fn says_link(have: &ParentRel, asked: Option<ParentRelId>) -> bool {
     match asked.map(|rel| rel_of(rel, None)) {
@@ -1731,7 +1737,7 @@ impl Session {
                     .tree
                     .families
                     .values()
-                    .any(|f| f.common.id != *family && has_birth_link(f, *child));
+                    .any(|f| f.common.id != *family && has_parented_birth_link(f, *child));
                 if elsewhere {
                     return Err(refused(format!(
                         "{} already has a birth family. Add a note giving both versions and the \
@@ -2016,7 +2022,7 @@ impl Session {
                     .filter(|o| !changed.contains_key(&o.common.id));
                 let elsewhere = untouched
                     .chain(changed.values().copied().flatten())
-                    .any(|o| o.common.id != f.common.id && has_birth_link(o, link.person));
+                    .any(|o| o.common.id != f.common.id && has_parented_birth_link(o, link.person));
                 if elsewhere {
                     return Err(refused(format!(
                         "{} already has a birth family. Add a note giving both versions and the \
