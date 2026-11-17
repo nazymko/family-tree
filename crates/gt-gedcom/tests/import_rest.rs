@@ -208,3 +208,32 @@ fn relative_file_resolves_and_rejects_parent_dirs() {
     );
     assert_eq!(o.report.missing_media.len(), 1);
 }
+
+#[test]
+fn source_kind_and_document_details_import_and_round_trip() {
+    use gt_core::date::GedcomVersion;
+    use gt_gedcom::{ExportOptions, export};
+    let o = imp(
+        "0 HEAD\n0 @S1@ SOUR\n1 TITL Extract\n1 _TYPE civil_registry_extract\n1 _ISSUER CNAP of Lviv\n1 _DOCNUM No 12/34\n1 _DOCDATE 5 MAR 2021\n0 @S2@ SOUR\n1 TITL Odd\n1 _TYPE mystery box\n0 TRLR\n",
+    );
+    let mut it = o.tree.sources.values();
+    let a = it.next().unwrap();
+    assert_eq!(a.kind, Some(SourceKind::CivilRegistryExtract));
+    assert_eq!(a.issuer.as_deref(), Some("CNAP of Lviv"));
+    assert_eq!(a.doc_number.as_deref(), Some("No 12/34"));
+    assert_eq!(a.doc_date.as_ref().unwrap().raw, "5 MAR 2021");
+    assert_eq!(a.common.unknown.len(), 0);
+    let b = it.next().unwrap();
+    assert_eq!(b.kind, Some(SourceKind::Other("mystery box".into())));
+    for v in [GedcomVersion::V551, GedcomVersion::V70] {
+        let out = export(&o.tree, &ExportOptions { version: v });
+        let back = imp(&String::from_utf8(out).unwrap());
+        let mut it = back.tree.sources.values();
+        let a2 = it.next().unwrap();
+        assert_eq!(a2.kind, a.kind);
+        assert_eq!(a2.issuer, a.issuer);
+        assert_eq!(a2.doc_number, a.doc_number);
+        assert_eq!(a2.doc_date.as_ref().unwrap().raw, "5 MAR 2021");
+        assert_eq!(it.next().unwrap().kind, b.kind);
+    }
+}

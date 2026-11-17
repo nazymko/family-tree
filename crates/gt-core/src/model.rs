@@ -565,3 +565,32 @@ pub enum NoteKind {
     Conclusion,
     Other(String),
 }
+
+#[cfg(test)]
+mod source_kind_tests {
+    use super::SourceKind;
+
+    #[test]
+    fn every_id_reads_back_to_the_same_id() {
+        for id in SourceKind::IDS {
+            assert_eq!(SourceKind::parse(id).unwrap().id(), id);
+        }
+    }
+
+    #[test]
+    fn a_label_and_an_unknown_id_become_other() {
+        assert_eq!(
+            SourceKind::parse("other:Family letter"),
+            Some(SourceKind::Other("Family letter".into()))
+        );
+        assert_eq!(
+            SourceKind::parse("mystery"),
+            Some(SourceKind::Other("mystery".into()))
+        );
+        assert_eq!(
+            SourceKind::Other("Family letter".into()).id(),
+            "other:Family letter"
+        );
+        assert_eq!(SourceKind::parse("  "), None);
+    }
+}
