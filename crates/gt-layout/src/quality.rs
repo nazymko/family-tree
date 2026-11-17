@@ -44,6 +44,10 @@ pub struct Quality {
     pub line_length: f32,
     /// The longest straight piece of a line.
     pub longest_segment: f32,
+    /// Total length of the horizontal pieces of parent-to-child connectors (buses and detours).
+    pub horizontal_connectors: f32,
+    /// The longest single horizontal piece of a parent-to-child connector.
+    pub longest_horizontal_connector: f32,
     pub width: f32,
     pub height: f32,
 }
@@ -139,6 +143,10 @@ pub fn quality(l: &Layout) -> Quality {
             let (dx, dy) = ((p[2] - p[0]).abs(), (p[3] - p[1]).abs());
             q.line_length += dx + dy;
             q.longest_segment = q.longest_segment.max(dx.max(dy));
+            if family && dy < 0.01 {
+                q.horizontal_connectors += dx;
+                q.longest_horizontal_connector = q.longest_horizontal_connector.max(dx);
+            }
             let seg = |a: f32, s: f32, t: f32| Seg {
                 a,
                 lo: s.min(t),

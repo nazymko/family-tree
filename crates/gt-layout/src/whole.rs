@@ -17,6 +17,7 @@
 //!
 //! Everything is a function of the input order, so the same data gives the same picture.
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
 use crate::types::{Direction, Edge, EdgeKind, Key, Layout, Metrics, Node, Rect, new_node};
@@ -139,6 +140,10 @@ const LANE_PASSES: usize = 8;
 /// How many placements are tried per family block, and up to which size.
 const MAX_TRIES: usize = 48;
 const MAX_UNITS_TO_TRY: usize = 1500;
+/// How many starting units are tried per component.
+const MAX_ROOTS: usize = 10;
+/// Components up to this many units get every try for every starting unit.
+const SMALL_COMPONENT: usize = 120;
 /// Lines to a child with two sets of parents arrive this far apart.
 const SECOND_LINE: f64 = 14.0;
 /// Horizontal gaps as parts of `Metrics::gap_x`: brothers and sisters closer than separate families.
@@ -204,6 +209,8 @@ struct Shared<'a> {
     partner_in: &'a [Vec<usize>],
     child_in: &'a [Vec<usize>],
     m: &'a Metrics,
+    /// Children whose descendants marry into another family also go to an end of their row (see `arrange`).
+    deep: Cell<bool>,
 }
 
 #[derive(Clone)]
@@ -347,6 +354,28 @@ fn rising(unit: &Unit, fam_seen: &[bool], sh: &Shared) -> Option<usize> {
         .find(|&m| sh.child_in[m].iter().any(|&f| !fam_seen[f]))
 }
 
+/// Whether somebody who descends from the unit marries a person whose parents are on record outside that line
+/// (not counting the family `fam` the unit is a child in): the part of the chart hanging from the unit then reaches
+/// out to another family, and the unit belongs on the side that faces it.
+fn reaches_out(unit: &Unit, fam: usize, sh: &Shared) -> bool {
+    let mut in_line: HashSet<usize> = unit.members.iter().copied().collect();
+    let mut stack: Vec<usize> = unit.members.clone();
+    while let Some(p) = stack.pop() {
+        for &f in &sh.partner_in[p] {
+            for &q in sh.fams[f].partners.iter().chain(&sh.fams[f].kids) {
+                if in_line.insert(q) {
+                    stack.push(q);
+                }
+            }
+        }
+    }
+    in_line.iter().any(|&p| {
+        sh.child_in[p]
+            .iter()
+            .any(|&f| f != fam && sh.fams[f].partners.iter().any(|q| !in_line.contains(q)))
+    })
+}
+
 /// Children with parents-in-law go to the end of the row, the side their partner's family hangs from, because a
 /// line to them from outside would otherwise cross every line to the brothers and sisters on that side. The others
 /// keep their birth order. With `only` every such child goes to that side. `forced` holds the sides chosen to bring
@@ -365,17 +394,25 @@ fn arrange(
         .iter()
         .map(|&(u, _)| rising(&units[u], fam_seen, sh))
         .collect();
+    let reaching: Vec<bool> = kids
+        .iter()
+        .zip(&rises)
+        .map(|(&(u, _), r)| {
+            r.is_none() && only.is_none() && sh.deep.get() && reaches_out(&units[u], fam, sh)
+        })
+        .collect();
     let pinned = |unit: usize| forced.get(&(fam, unit)).filter(|_| only.is_none());
     let count = kids
         .iter()
         .zip(&rises)
-        .filter(|((u, _), r)| r.is_some() && pinned(*u).is_none())
+        .zip(&reaching)
+        .filter(|(((u, _), r), far)| (r.is_some() || **far) && pinned(*u).is_none())
         .count();
     let (mut left, mut middle, mut right) = (Vec::new(), Vec::new(), Vec::new());
     let mut nth = 0;
     for (i, &(unit, person)) in kids.iter().enumerate() {
         let pin = pinned(unit).copied();
-        if rises[i].is_none() && pin.is_none() {
+        if rises[i].is_none() && !reaching[i] && pin.is_none() {
             middle.push(Kid {
                 unit,
                 person,
@@ -426,8 +463,10 @@ fn arrange(
     left
 }
 
-/// The unit to start from: on the top row, with the most people below it.
-fn pick_root(units: &[Unit], sh: &Shared, sc: &Scratch) -> usize {
+/// The units to start from, best first: on the top row, the most people below it first. The first one is the plain
+/// choice; the others are tried too, because where the walk starts decides which of the families that are tied
+/// together by marriages end up beside each other.
+fn root_candidates(units: &[Unit], sh: &Shared, sc: &Scratch) -> Vec<usize> {
     let mut by_row: Vec<usize> = (0..units.len()).collect();
     by_row.sort_by_key(|&u| std::cmp::Reverse(units[u].row));
     let mut below = vec![0.0f64; units.len()];
@@ -446,15 +485,10 @@ fn pick_root(units: &[Unit], sh: &Shared, sc: &Scratch) -> usize {
         }
     }
     let top = units.iter().map(|u| u.row).min().unwrap_or(0);
-    let mut root = 0;
-    let mut best = f64::NEG_INFINITY;
-    for (u, unit) in units.iter().enumerate() {
-        if unit.row == top && below[u] > best {
-            best = below[u];
-            root = u;
-        }
-    }
-    root
+    let mut roots: Vec<usize> = (0..units.len()).filter(|&u| units[u].row == top).collect();
+    // Stable: equal weights keep their order, the first of the best wins as before.
+    roots.sort_by(|&a, &b| below[b].total_cmp(&below[a]));
+    roots
 }
 
 /// Walks the families from the root. Each unit and family is reached once, so the walk is a tree, and links that
@@ -674,43 +708,72 @@ fn place_units(units: &mut [Unit], rows_n: usize, sh: &Shared, sc: &mut Scratch)
             }
         }
     };
-    // The plain walk, then the loops bent together, then each child at the end of a row tried on the other end;
-    // whatever makes the lines shorter stays. Every try is a full placement, so big families get few.
-    let mut forced = Forced::new();
-    let (first, walked) = place_once(units, rows_n, &forced, sh, sc);
-    let mut score = spread(&first, units, sh, sc);
-    let mut ends = walked.ends.clone();
-    if !walked.loops.is_empty() {
-        let bent = bend_loops(&walked, &first);
-        restore(units, sc);
-        let (xs, w) = place_once(units, rows_n, &bent, sh, sc);
-        let s = spread(&xs, units, sh, sc);
-        if s < score {
-            (score, forced, ends) = (s, bent, w.ends);
-        }
-    }
-    let tries = if units.len() > MAX_UNITS_TO_TRY {
+    // From each candidate root: the plain walk, then the loops bent together, then each child at the end of a row
+    // tried on the other end; whatever makes the lines shorter stays. Every try is a full placement, so big
+    // families get few.
+    let roots = root_candidates(units, sh, sc);
+    let big = units.len() > MAX_UNITS_TO_TRY;
+    let n_roots = if big || units.len() > 3 * SMALL_COMPONENT {
+        1
+    } else {
+        roots.len().min(MAX_ROOTS)
+    };
+    let tries = if big {
         0
+    } else if units.len() <= SMALL_COMPONENT {
+        MAX_TRIES
+    } else {
+        (MAX_TRIES / n_roots).max(4)
+    }
+    .min(if units.len() > 3 * SMALL_COMPONENT {
+        8
     } else {
         MAX_TRIES
-    };
-    for &(fam, unit, side) in ends.iter().take(tries) {
-        let mut trial = forced.clone();
-        trial.insert((fam, unit), (!side, 0));
+    });
+    let mut best: Option<(f64, bool, usize, Forced)> = None;
+    for (deep, &root) in [false, true]
+        .into_iter()
+        .flat_map(|d| roots.iter().take(n_roots).map(move |r| (d, r)))
+    {
+        sh.deep.set(deep);
+        let mut forced = Forced::new();
         restore(units, sc);
-        let (xs, _) = place_once(units, rows_n, &trial, sh, sc);
-        let s = spread(&xs, units, sh, sc);
-        if s < score {
-            (score, forced) = (s, trial);
+        let (first, walked) = place_once(units, rows_n, root, &forced, sh, sc);
+        let mut score = spread(&first, units, sh, sc);
+        let mut ends = walked.ends.clone();
+        if !walked.loops.is_empty() {
+            let bent = bend_loops(&walked, &first);
+            restore(units, sc);
+            let (xs, w) = place_once(units, rows_n, root, &bent, sh, sc);
+            let s = spread(&xs, units, sh, sc);
+            if s < score {
+                (score, forced, ends) = (s, bent, w.ends);
+            }
+        }
+        for &(fam, unit, side) in ends.iter().take(tries) {
+            let mut trial = forced.clone();
+            trial.insert((fam, unit), (!side, 0));
+            restore(units, sc);
+            let (xs, _) = place_once(units, rows_n, root, &trial, sh, sc);
+            let s = spread(&xs, units, sh, sc);
+            if s < score {
+                (score, forced) = (s, trial);
+            }
+        }
+        if best.as_ref().is_none_or(|b| score < b.0) {
+            best = Some((score, deep, root, forced));
         }
     }
+    let (_, deep, root, forced) = best.unwrap_or((0.0, false, 0, Forced::new()));
+    sh.deep.set(deep);
     restore(units, sc);
-    place_once(units, rows_n, &forced, sh, sc).0
+    place_once(units, rows_n, root, &forced, sh, sc).0
 }
 
 fn place_once(
     units: &mut [Unit],
     rows_n: usize,
+    root: usize,
     forced: &Forced,
     sh: &Shared,
     sc: &mut Scratch,
@@ -720,7 +783,6 @@ fn place_once(
     let step = node_w + f64::from(m.couple_gap);
     let gap_sibling = f64::from(m.gap_x) * GAP_SIBLINGS;
     let gap_group = f64::from(m.gap_x) * GAP_GROUPS;
-    let root = pick_root(units, sh, sc);
     let mut branches: Vec<Branches> = (0..units.len()).map(|_| Branches::default()).collect();
     let walked = walk(units, root, forced, sh, sc, &mut branches);
     let order = &walked.order;
@@ -1437,6 +1499,7 @@ pub fn whole_directed(input: &WholeInput, m: &Metrics, dir: Direction) -> WholeL
         partner_in: &partner_in,
         child_in: &child_in,
         m: &turned,
+        deep: Cell::new(false),
     };
 
     let mut comp_of_root = vec![NONE; n];
