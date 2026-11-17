@@ -1213,6 +1213,15 @@
     .toolbar.compact {
       flex-wrap: wrap;
       overflow: visible;
+      align-items: center;
+    }
+    /* The generations picker keeps its (screen-reader) label but not the line above it: that line made the toolbar one row taller. */
+    .toolbar.compact .gens :global(label) {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
     }
   }
   /* The toolbar rests on the bottom line so the labelled Select lines up with the buttons; an item shorter than a
