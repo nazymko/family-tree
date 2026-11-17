@@ -586,6 +586,19 @@
     grid-template-columns: 1fr 1fr;
     gap: var(--s-4);
   }
+  /* A phone: one column, and the children's cards use the whole width. */
+  @media (max-width: 700px) {
+    .rels {
+      grid-template-columns: minmax(0, 1fr);
+      grid-column: 1;
+    }
+    .children li {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .foot {
+      grid-column: 1;
+    }
+  }
   .foot {
     grid-column: 1 / 3;
     display: flex;

@@ -1222,6 +1222,14 @@
     cursor: pointer;
     font: inherit;
   }
+  /* A phone: narrower boxes (names wrap) so a row of three fits the screen instead of scrolling sideways. */
+  @media (max-width: 700px) {
+    .box {
+      min-width: 6.5rem;
+      max-width: 8.5rem;
+      padding-inline: var(--s-3);
+    }
+  }
   /* A finger holds a box to open its menu: no browser callout or text selection on the boxes. */
   .box {
     -webkit-touch-callout: none;

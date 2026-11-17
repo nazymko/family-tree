@@ -1093,7 +1093,7 @@
 </script>
 
 <div class="chart" {hidden}>
-  <div class="toolbar" role="toolbar" aria-label={toolsLabel}>
+  <div class="toolbar" class:compact={compact.value} role="toolbar" aria-label={toolsLabel}>
     {#if compact.value}
       <IconButton label={t('chartCanvas.fit')} icon="whole" onclick={fitAll} />
       <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={!homeId} onclick={() => homeId && onRecentre(homeId)} />
@@ -1209,6 +1209,10 @@
     }
     .toolbar > :global(*) {
       flex: none;
+    }
+    .toolbar.compact {
+      flex-wrap: wrap;
+      overflow: visible;
     }
   }
   /* The toolbar rests on the bottom line so the labelled Select lines up with the buttons; an item shorter than a

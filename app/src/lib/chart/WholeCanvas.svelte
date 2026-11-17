@@ -1146,6 +1146,10 @@
     .toolbar > :global(*) {
       flex: none;
     }
+    .toolbar.compact {
+      flex-wrap: wrap;
+      overflow: visible;
+    }
     .find {
       min-width: 11rem;
     }
