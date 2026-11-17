@@ -4,6 +4,7 @@
   import { dateText, eventKindLabel } from '../i18n/backend';
   import { withSexIcon } from './sex';
   import type { SexKind } from '../api/types';
+  import { SOURCE_KIND_IDS } from '../sources/sourceKind';
   import { collapse, diffText, sideOf, type TextDiff, type ViewSeg } from './textDiff';
 
   /** A table of a person's changed fields: the field, its value before and its value after. */
@@ -37,7 +38,7 @@
   const OWN = new Set([
     'noteKind', 'text', 'shared', 'eventKind', 'when', 'place', 'description', 'age', 'cause', 'negative', 'participant',
     'partner1', 'partner2', 'unionKind', 'child', 'childRel1', 'childRel2', 'childPreferred', 'childCitations', 'childUnknown',
-    'source', 'page', 'quality', 'original', 'primaryInfo', 'direct', 'title', 'author', 'publication', 'abbreviation',
+    'source', 'page', 'quality', 'original', 'primaryInfo', 'direct', 'title', 'author', 'publication', 'abbreviation', 'sourceKind', 'issuer', 'docNumber', 'docDate',
     'repository', 'placeNames', 'parent', 'placeKind', 'lat', 'lon', 'placeRaw', 'repoName', 'address', 'urls', 'path',
     'originalName', 'mime', 'sha256', 'media', 'extIds', 'mediaPrimary', 'mediaRegion',
     'transcription', 'mediaRotation', 'mediaClip',
@@ -69,6 +70,7 @@
   };
   const ROLES = ['principal', 'witness', 'godparent', 'clergy', 'officiator', 'informant', 'parent', 'father', 'mother', 'child', 'spouse', 'husband', 'wife', 'friend', 'neighbor', 'multiple'];
 
+  const SOURCE_KINDS = Object.fromEntries(SOURCE_KIND_IDS.map((k) => [k, true]));
   const KINDS = ['birth', 'married', 'aka', 'religious', 'nickname', 'immigrant', 'professional'];
   const SEXES = ['male', 'female', 'intersex', 'unknown'];
 
@@ -105,6 +107,7 @@
       if (field === 'kind' && KINDS.includes(v)) return t(`nameKind.${v}` as MessageKey);
       if (field === 'sex' && SEXES.includes(v)) return withSexIcon(v as SexKind, t(`sex.${v}` as MessageKey));
     }
+    if (field === 'sourceKind') return v.startsWith('other:') ? v.slice(6) || t('sourceKind.other') : v in SOURCE_KINDS ? t(`sourceKind.${v}` as MessageKey) : v;
     if (field === 'eventKind') return eventKindLabel(v);
     if (field === 'when') return dateText(v);
     if (PEOPLE.has(field)) return v === 'Unknown' ? t('changeLog.unknownPerson') : v;

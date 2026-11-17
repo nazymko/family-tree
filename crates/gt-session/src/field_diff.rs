@@ -550,7 +550,7 @@ fn source_rows(s: &Source, w: &dyn Words) -> Vec<Row> {
         text("publication", publication),
         text("abbreviation", abbreviation),
         text("text", body),
-        row("kind", kind.as_ref().map(|k| k.id())),
+        row("sourceKind", kind.as_ref().map(|k| k.id())),
         text("issuer", issuer),
         text("docNumber", doc_number),
         row("docDate", doc_date.as_ref().map(|d| d.display())),

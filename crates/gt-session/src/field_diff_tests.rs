@@ -264,7 +264,7 @@ fn citation_source_place_repository_and_media_have_their_fields() {
         diff(Some(Record::Source(source)), None),
         vec![
             row("title", Some("Parish book"), None),
-            row("kind", Some("metric_book"), None),
+            row("sourceKind", Some("metric_book"), None),
             row("issuer", Some("Office"), None),
             row("docNumber", Some("N 5"), None),
             row("docDate", Some("1 Mar 1901"), None),
