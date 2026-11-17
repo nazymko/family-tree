@@ -403,6 +403,12 @@
     gap: var(--s-5);
     min-height: 0;
   }
+  /* A phone: the cards above, the side panel below. */
+  @media (max-width: 760px) {
+    .work {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
   .side {
     display: flex;
     flex-direction: column;

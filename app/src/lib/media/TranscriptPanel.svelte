@@ -505,6 +505,11 @@
     grid-template-columns: 1fr 1fr;
     gap: var(--s-2);
   }
+  @media (max-width: 400px) {
+    .when {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
   @media (max-width: 760px) {
     .row {
       grid-template-columns: 1fr;
