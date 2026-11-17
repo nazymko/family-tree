@@ -210,6 +210,30 @@
     padding: var(--s-9) var(--s-7);
     background: var(--paper-0);
   }
+  /* A phone: less air around the title (and none of the desktop's tall top margin) so the buttons and the list show. */
+  @media (pointer: coarse) and (max-width: 940px) {
+    .welcome {
+      padding: var(--s-6) var(--s-5);
+    }
+    .col {
+      gap: var(--s-5);
+    }
+  }
+  @media (pointer: coarse) and (max-height: 500px) {
+    .welcome {
+      padding: var(--s-3) var(--s-5);
+    }
+    .col {
+      gap: var(--s-4);
+    }
+    h1 {
+      font-size: var(--t-xl);
+      line-height: var(--t-xl-lh);
+    }
+    .hero {
+      gap: var(--s-1);
+    }
+  }
   .col {
     display: grid;
     gap: var(--s-7);

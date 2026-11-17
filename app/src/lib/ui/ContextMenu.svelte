@@ -14,14 +14,27 @@
   let left = $state<number | null>(null);
   let top = $state<number | null>(null);
 
+  const EDGE = 8;
+  /** Keep the whole menu inside the visible part of the window (above the keyboard, inside the system bars). */
+  function place(): void {
+    const vv = window.visualViewport;
+    const vw = vv?.width ?? window.innerWidth;
+    const vh = vv?.height ?? window.innerHeight;
+    const ox = vv?.offsetLeft ?? 0;
+    const oy = vv?.offsetTop ?? 0;
+    const w = menu?.offsetWidth ?? 0;
+    const h = menu?.offsetHeight ?? 0;
+    left = Math.max(ox + EDGE, Math.min(x, ox + vw - w - EDGE));
+    let t = y;
+    // Not enough room below the finger: open upward when it fits there, else slide up as far as needed (the menu scrolls when taller than the screen).
+    if (t + h > oy + vh - EDGE) t = y - h >= oy + EDGE ? y - h : oy + vh - h - EDGE;
+    top = Math.max(oy + EDGE, t);
+  }
+
   const buttons = (): HTMLElement[] => (menu ? Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]')) : []);
 
   onMount(() => {
-    // Keep the whole menu inside the window.
-    const w = menu?.offsetWidth ?? 0;
-    const h = menu?.offsetHeight ?? 0;
-    left = Math.max(4, Math.min(x, window.innerWidth - w - 4));
-    top = Math.max(4, Math.min(y, window.innerHeight - h - 4));
+    place();
     const first = buttons().find((b) => b.getAttribute('aria-disabled') !== 'true') ?? buttons()[0];
     first?.focus();
   });
@@ -67,8 +80,9 @@
   role="menu"
   aria-label={label}
   tabindex="-1"
-  style:left={left === null ? `${x}px` : `${left}px`}
-  style:top={top === null ? `${y}px` : `${top}px`}
+  style:left={left === null ? '0px' : `${left}px`}
+  style:top={top === null ? '0px' : `${top}px`}
+  style:opacity={left === null ? '0' : undefined}
   {onkeydown}
   oncontextmenu={(e) => e.preventDefault()}
 >
@@ -98,7 +112,10 @@
     position: fixed;
     z-index: 60;
     min-width: 14rem;
-    max-width: min(24rem, calc(100vw - 8px));
+    max-width: min(24rem, calc(100vw - 16px));
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: var(--s-2);
     display: grid;
     background: var(--paper-1);

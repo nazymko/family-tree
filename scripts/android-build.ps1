@@ -9,7 +9,12 @@
 
     pwsh scripts/android-build.ps1                    # universal debug APK: arm64-v8a (phones, tablets) + x86_64 (emulator)
     pwsh scripts/android-build.ps1 -Abis arm64-v8a    # one ABI, smaller and faster
-    pwsh scripts/android-build.ps1 -Release           # release profile (unsigned unless a keystore is configured)
+    pwsh scripts/android-build.ps1 -Release           # signed release APK when a keystore is configured; otherwise a debug build
+
+  Release signing reads, in this order, the environment variables GT_KEYSTORE (path to the .jks / .keystore),
+  GT_KEYSTORE_PASSWORD, GT_KEY_ALIAS, GT_KEY_PASSWORD (defaults to the keystore password), then the gitignored file
+  app/src-tauri/gen/android/keystore.properties (storeFile=, storePassword=, keyAlias=, keyPassword=). The key is never
+  stored in the repository. With -Release and no keystore this script warns and builds the debug APK instead.
 
   The APK lands in app/src-tauri/gen/android/app/build/outputs/apk/universal/<profile>/.
   Needs: rustup targets for the ABIs, the Android SDK + NDK 27, JDK 21 (ANDROID_HOME / NDK_HOME / JAVA_HOME are
@@ -41,6 +46,15 @@ $map = @{
   'armeabi-v7a' = @{ tauri = 'armv7'; triple = 'armv7-linux-androideabi' }
   'x86'         = @{ tauri = 'i686'; triple = 'i686-linux-android' }
   'x86_64'      = @{ tauri = 'x86_64'; triple = 'x86_64-linux-android' }
+}
+if ($Release) {
+  $props = Join-Path $android 'keystore.properties'
+  if (-not $env:GT_KEYSTORE -and -not (Test-Path $props)) {
+    Write-Warning 'No release keystore (GT_KEYSTORE or keystore.properties): building the debug APK instead.'
+    $Release = $false
+  } elseif ($env:GT_KEYSTORE -and -not (Test-Path $env:GT_KEYSTORE)) {
+    throw "GT_KEYSTORE points to a missing file: $($env:GT_KEYSTORE)"
+  }
 }
 $profileName = if ($Release) { 'release' } else { 'debug' }
 

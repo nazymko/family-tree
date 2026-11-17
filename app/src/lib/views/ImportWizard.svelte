@@ -63,6 +63,11 @@
     );
   }
 
+  /** On a phone the picked file sits in the app's cache: show only its name, not that folder. */
+  function shownFile(p: string): string {
+    return platform.isMobile ? (p.split(/[\\/]/).pop() ?? p) : p;
+  }
+
   function baseName(p: string): string {
     const last = p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
     return last.replace(/\.[^.]+$/, '');
@@ -135,7 +140,7 @@
     <div class="pick" data-required data-missing={needFile || undefined}>
       <span class="k" id="file-k">{t('imp.treeFile')}<span class="req" aria-hidden="true">*</span></span>
       <Button onclick={chooseFile} disabled={busy} aria-describedby="file-k">{t('imp.chooseFile')}</Button>
-      <bdi dir="auto" class="v">{file ?? t('imp.noFile')}</bdi>
+      <bdi dir="auto" class="v">{file ? shownFile(file) : t('imp.noFile')}</bdi>
       <p class="hint">{t('imp.formats')}</p>
     </div>
   {/if}

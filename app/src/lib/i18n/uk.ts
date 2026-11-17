@@ -1496,6 +1496,7 @@ export const uk: Messages = {
     pedigreeTools: 'Інструменти діаграми предків',
     descendantTools: 'Інструменти діаграми нащадків',
     zoomIn: 'Збільшити',
+    moreTools: 'Інші дії діаграми',
     zoomOut: 'Зменшити',
     fit: 'Вписати',
     goHome: 'Перейти до основної особи дослідження',

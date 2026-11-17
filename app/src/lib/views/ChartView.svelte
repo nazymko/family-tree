@@ -322,6 +322,14 @@
     font-weight: 600;
     color: var(--ink-0);
   }
+  @media (pointer: coarse) and (max-height: 500px) {
+    .view {
+      gap: var(--s-2);
+    }
+    header {
+      gap: var(--s-4);
+    }
+  }
   .outline {
     flex: 1;
     min-height: 0;

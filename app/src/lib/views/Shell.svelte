@@ -634,6 +634,28 @@
     .item {
       min-height: 2.75rem;
     }
+    /* A tablet in landscape is short: the list scrolls (a shadow at the edge shows there is more), the footer stays
+       whole, and the last item can be scrolled clear of the footer. */
+    .shell {
+      height: 100dvh;
+    }
+    nav {
+      padding-block-end: var(--s-5);
+      background:
+        linear-gradient(var(--paper-2) 30%, transparent) 0 0 / 100% 2rem no-repeat local,
+        linear-gradient(transparent, var(--paper-2) 70%) 0 100% / 100% 2rem no-repeat local,
+        radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.2), transparent) 0 0 / 100% 0.5rem no-repeat scroll,
+        radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.2), transparent) 0 100% / 100% 0.5rem no-repeat scroll;
+      overscroll-behavior: contain;
+    }
+    .foot {
+      flex: none;
+    }
+    @media (max-height: 520px) {
+      .item {
+        min-height: 2.25rem;
+      }
+    }
   }
   .item:hover {
     background: var(--rule);
@@ -827,6 +849,20 @@
   }
   .shell.narrow .page {
     padding: var(--s-4) var(--s-4) calc(var(--s-6) + env(safe-area-inset-bottom));
+  }
+  /* A phone held sideways: every row counts. One slim header, a smaller page title, less padding. */
+  @media (pointer: coarse) and (max-height: 500px) {
+    .shell.narrow .top {
+      padding-block: 2px;
+      padding-block-start: 2px;
+    }
+    .shell.narrow .page {
+      padding: var(--s-2) var(--s-4) var(--s-3);
+    }
+    .shell.narrow .page :global(h1) {
+      font-size: var(--t-lg);
+      line-height: 1.2;
+    }
   }
   .pname.static {
     cursor: default;

@@ -135,6 +135,34 @@
     background: var(--paper-0);
     border-radius: 0 0 var(--r-2) var(--r-2);
   }
+  /* A phone (either way up): the dialog is a full-screen sheet, its footer buttons wrap instead of running off. */
+  @media (pointer: coarse) and ((max-width: 940px) or (max-height: 500px)) {
+    .scrim {
+      padding: 0;
+      place-items: stretch;
+    }
+    .dialog {
+      width: 100%;
+      height: 100%;
+      max-height: 100dvh;
+      border: 0;
+      border-radius: 0;
+    }
+    .body {
+      flex: 1;
+      min-height: 0;
+      align-content: start;
+      padding: var(--s-4);
+    }
+    header {
+      padding-inline-start: var(--s-4);
+    }
+    footer {
+      flex-wrap: wrap;
+      padding: var(--s-3) var(--s-4);
+      border-radius: 0;
+    }
+  }
   @keyframes pop {
     from {
       opacity: 0;

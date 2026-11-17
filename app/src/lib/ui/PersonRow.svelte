@@ -88,6 +88,18 @@
     display: flex;
     gap: var(--s-3);
   }
+  /* A phone: name, life years, a dot for a living person and the home ribbon; the rest wait on the person's page. */
+  @media (max-width: 700px) {
+    .pr {
+      grid-template-columns: minmax(0, 1fr) auto auto 1.5rem;
+      gap: var(--s-3);
+    }
+    .src,
+    .living span:not(.dot),
+    .priv {
+      display: none;
+    }
+  }
   .rb {
     color: var(--ribbon);
     line-height: 0;

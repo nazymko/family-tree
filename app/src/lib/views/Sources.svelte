@@ -227,6 +227,17 @@
     gap: var(--s-7);
     align-items: start;
   }
+  /* A phone: the list above, the chosen source below. */
+  @media (max-width: 700px) {
+    .cols {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--s-5);
+    }
+    header {
+      flex-wrap: wrap;
+      gap: var(--s-3);
+    }
+  }
   .left {
     display: grid;
     gap: var(--s-4);
