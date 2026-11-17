@@ -1030,9 +1030,11 @@ pub fn get_settings_impl(state: &AppState) -> Settings {
 
 pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResult<Settings> {
     let has_session = AppState::lock(&state.session).is_some();
-    if !has_session && (patch.living_max_age.is_some()
+    if !has_session
+        && (patch.living_max_age.is_some()
             || patch.home_person.is_some()
-            || patch.tree_name.is_some()) {
+            || patch.tree_name.is_some())
+    {
         return Err(no_project());
     }
     if patch.backups_to_keep == Some(0) {
