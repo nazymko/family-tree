@@ -281,13 +281,15 @@
   const pct = (ms: number) => `${(Math.min(ms, span) / span) * 100}%`;
 </script>
 
-<Dialog open {title} {onclose} width="64rem" dismissOnScrim={false}>
+<Dialog open {title} {onclose} width="64rem" dismissOnScrim={false} fill>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="player" {onkeydown} data-testid="recording-player">
     {#if error}<Banner kind="error">{error}</Banner>{/if}
     {#if !rec}
       {#if !error}<p class="muted">{t('rec.loading')}</p>{/if}
     {:else}
+     <div class="cols">
+      <div class="main" data-testid="recording-main">
       {#if rec.media.date?.display || rec.media.place}
         <p class="muted">
           {#if rec.media.date?.display}<span data-testid="recording-date">{rec.media.date.display}</span>{/if}
@@ -401,7 +403,6 @@
       {/if}
       <p class="hint">{t('rec.keys')}</p>
 
-      <div class="cols">
         <section class="clips" aria-labelledby="{uid}-clips">
           <div class="head">
             <h3 id="{uid}-clips">{t('rec.clips')}</h3>
@@ -448,8 +449,9 @@
             </ol>
           {/if}
         </section>
-        <TranscriptPanel media={rec.media} {now} onSeek={seek} onSaved={() => void load(media, startClip, false)} />
       </div>
+        <TranscriptPanel media={rec.media} {now} onSeek={seek} onSaved={() => void load(media, startClip, false)} />
+     </div>
     {/if}
   </div>
 </Dialog>
@@ -460,10 +462,22 @@
     gap: var(--s-2);
     justify-items: start;
   }
+  /* The dialog is a fixed height: the player fills it, the transcript list is the one thing that scrolls. */
   .player {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: var(--s-4);
     min-width: 0;
+    flex: 1;
+    min-height: 0;
+  }
+  .main {
+    display: grid;
+    gap: var(--s-4);
+    align-content: start;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
   }
   .limit {
     margin: 0;
@@ -565,11 +579,22 @@
     display: grid;
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
     gap: var(--s-6);
-    align-items: start;
+    align-items: stretch;
+    flex: 1;
+    min-height: 0;
   }
+  /* Stacked (a narrow window, a phone): the whole player scrolls as one and the transcript list does not scroll alone. */
   @media (max-width: 900px) {
+    .player {
+      overflow-y: auto;
+    }
     .cols {
       grid-template-columns: minmax(0, 1fr);
+      flex: none;
+      min-height: auto;
+    }
+    .main {
+      overflow: visible;
     }
   }
   .clips {

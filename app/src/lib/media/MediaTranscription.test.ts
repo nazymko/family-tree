@@ -92,15 +92,17 @@ describe('transcription overlay', () => {
     expect(layer().getAttribute('style')).toBe(img.getAttribute('style'));
   });
 
-  it('show text hides and brings back the boxes', async () => {
+  it('text on image draws and hides the outlines of the boxes', async () => {
     const user = userEvent.setup();
     setup();
-    const toggle = screen.getByRole('button', { name: 'Show text' });
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    await user.click(toggle);
-    expect(screen.queryByRole('button', { name: 'Text piece 1' })).toBeNull();
+    const toggle = screen.getByRole('button', { name: 'Text on image' });
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
     await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(layer().classList.contains('quiet')).toBe(false);
+    await user.click(toggle);
+    expect(layer().classList.contains('quiet')).toBe(true);
+    // Not drawn, but still there to hover and tap.
     expect(box(1)).toBeInTheDocument();
   });
 
@@ -135,7 +137,7 @@ describe('transcription overlay', () => {
 
   it('a picture with no transcription has no text controls but edit', () => {
     setup({ transcription: [] });
-    expect(screen.queryByRole('button', { name: 'Show text' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Text on image' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Full text' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Edit text' })).toBeInTheDocument();
   });
@@ -185,7 +187,7 @@ describe('editing the transcription', () => {
     const user = userEvent.setup();
     const { spy } = setup();
     await user.click(screen.getByRole('button', { name: 'Edit text' }));
-    await user.click(screen.getByRole('button', { name: 'Mark a piece' }));
+    await user.click(screen.getByRole('button', { name: 'Mark text' }));
     expect(screen.getByText('Drag across the picture where the text is written.')).toBeInTheDocument();
     fakeSize(layer());
     pointer(layer(), 'pointerdown', 20, 80);
@@ -196,7 +198,7 @@ describe('editing the transcription', () => {
     expect(sent).toHaveLength(4);
     expect(sent[3]).toMatchObject({ area: { x: 0.1, y: 0.8, w: 0.5, h: 0.15 }, rotation: 0, text: '' });
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: /Text of piece 4/ })));
-    expect(screen.getByRole('button', { name: 'Mark a piece' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Mark text' })).toHaveAttribute('aria-pressed', 'false');
     await user.type(document.activeElement as HTMLElement, 'Your loving sister');
     await user.tab();
     await waitFor(() => expect(lastRegions(spy)[3]).toMatchObject({ id: sent[3].id, text: 'Your loving sister' }));
@@ -229,9 +231,9 @@ describe('editing the transcription', () => {
   it('adds text with no place, and a PDF gets only that', async () => {
     const user = userEvent.setup();
     const { spy } = setup({ mime: 'application/pdf', transcription: [] });
-    expect(screen.queryByRole('button', { name: 'Show text' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Text on image' })).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Edit text' }));
-    expect(screen.queryByRole('button', { name: 'Mark a piece' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mark text' })).toBeNull();
     expect(screen.getByText('Nothing is transcribed on this picture yet.')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Add text without a place' }));
     const ta = screen.getByRole('textbox', { name: /Text of piece 1/ });

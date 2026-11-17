@@ -13,6 +13,14 @@
       notices.show({ message: errMessage(e, t('edit.wentWrong')) });
     }
   }
+  /** What the file is, for its tip: a picture that carries written text reads as a scan of a document. */
+  export function mediaKind(m: MediaDto): string {
+    if (isPdf(m)) return t('media.kindPdf');
+    if (isSound(m)) return t('media.kindRecording');
+    if (!(m.mime ?? '').startsWith('image/') && !m.width) return t('media.kindFile');
+    return hasTranscript(m) ? t('media.kindScan') : t('media.kindPhoto');
+  }
+  export const hasTranscript = (m: MediaDto) => m.transcription.some((r) => r.text.trim());
   export const mediaLabel = (m: MediaDto) => m.title || m.originalName || t('media.untitledFile');
 </script>
 
@@ -20,6 +28,7 @@
   import Icon from '../ui/Icon.svelte';
   import Ribbon from '../ui/Ribbon.svelte';
   import Button from '../ui/Button.svelte';
+  import Tooltip from '../ui/Tooltip.svelte';
   import { getApi } from '../api/context';
   import type { MediaLinkDto, OwnerRef } from '../api/api';
   import { t } from '../i18n';
@@ -32,6 +41,16 @@
   {#each items as link, i (link.media.id)}
     {@const m = link.media}
     <li class="tile" data-media-id={m.id}>
+      <Tooltip>
+        {#snippet tip()}
+          <div class="tipbox" data-testid="media-tip">
+            <b>{mediaLabel(m)}</b>
+            <span>{mediaKind(m)}</span>
+            {#if m.date?.display || m.place}<span>{[m.date?.display, m.place?.full].filter(Boolean).join(' · ')}</span>{/if}
+            {#if m.description?.trim()}<span class="desc">{m.description.trim()}</span>{/if}
+            {#if hasTranscript(m)}<span class="has"><Icon name="file" size="0.9rem" /> {t('media.hasTranscript')}</span>{/if}
+          </div>
+        {/snippet}
       {#if !m.resolved}
         <div class="face missing">
           <Icon name="file" size="2rem" />
@@ -49,6 +68,10 @@
           <!-- Turned as the owner saved it; the tile is square, so a turned picture fills it the same. -->
           <img loading="lazy" alt={mediaLabel(m)} src={api.mediaUrl(m.id, 'thumb')} style={m.rotation ? `transform: rotate(${m.rotation}deg)` : undefined} />
         </button>
+      {/if}
+      </Tooltip>
+      {#if hasTranscript(m)}
+        <span class="txt" title={t('media.hasTranscript')} role="img" aria-label={t('media.hasTranscript')} data-testid="has-transcript">T</span>
       {/if}
       {#if link.primary}
         <span class="rib"><Ribbon title={t('media.primaryPhoto')} size="1.5rem" /></span>
@@ -110,6 +133,42 @@
   }
   .missing {
     border-style: dashed;
+  }
+  .txt {
+    position: absolute;
+    inset-block-end: var(--s-2);
+    inset-inline-start: var(--s-2);
+    min-width: 1.2rem;
+    padding: 0 var(--s-1);
+    text-align: center;
+    font-size: var(--t-sm);
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--paper-0);
+    background: var(--focus);
+    border-radius: var(--r-1);
+    pointer-events: none;
+  }
+  .tipbox {
+    display: grid;
+    gap: 2px;
+    text-align: start;
+  }
+  .tipbox span {
+    color: var(--ink-1);
+  }
+  .tipbox .desc {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    color: var(--ink-0);
+  }
+  .has {
+    display: flex;
+    align-items: center;
+    gap: var(--s-1);
   }
   .rib {
     position: absolute;

@@ -196,7 +196,7 @@ describe('editing boxes on a turned picture', () => {
       const user = userEvent.setup();
       const { spy } = setup({ rotation: turn });
       await user.click(screen.getByRole('button', { name: 'Edit text' }));
-      await user.click(screen.getByRole('button', { name: 'Mark a piece' }));
+      await user.click(screen.getByRole('button', { name: 'Mark text' }));
       fakeSize(turn);
       // From where the picture's own top left corner shows, to the middle.
       const from: Record<Rotation, [number, number]> = { 0: [0, 0], 90: [100, 0], 180: [200, 100], 270: [0, 200] };

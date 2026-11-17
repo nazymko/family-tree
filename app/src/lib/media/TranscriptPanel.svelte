@@ -68,12 +68,30 @@
     }
   }
 
-  // The piece being said stays in view while the recording plays. A piece the search or the speaker choice
-  // hides has no row: then the list stays where the reader put it.
+  /**
+   * The piece being said stays in view while the recording plays: the list scrolls itself (never the dialog around it),
+   * and only when the line left the visible part. After the reader scrolls by hand it waits a few seconds before it
+   * follows again, so it never fights the reader. A piece the search or the speaker choice hides has no row.
+   */
+  const FOLLOW_PAUSE_MS = 4000;
+  let handUntil = 0;
+  function byHand() {
+    handUntil = Date.now() + FOLLOW_PAUSE_MS;
+  }
   $effect(() => {
     const id = current;
-    if (!id || !list) return;
-    list.querySelector<HTMLElement>(`[data-piece="${CSS.escape(id)}"]`)?.scrollIntoView?.({ block: 'nearest' });
+    if (!id || !list || Date.now() < handUntil) return;
+    const row = list.querySelector<HTMLElement>(`[data-piece="${CSS.escape(id)}"]`);
+    if (!row) return;
+    // Stacked under the player the list does not scroll itself: the player around it does.
+    if (list.scrollHeight <= list.clientHeight + 1 && getComputedStyle(list).overflowY === 'visible') {
+      row.scrollIntoView?.({ block: 'nearest' });
+      return;
+    }
+    const l = list.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    if (r.top < l.top) list.scrollTop += r.top - l.top;
+    else if (r.bottom > l.bottom) list.scrollTop += r.bottom - l.bottom;
   });
 
   let error = $state('');
@@ -307,7 +325,8 @@
       {#each speakers.filter((s) => s.speaker !== NO_SPEAKER) as s (s.speaker)}<option value={s.speaker}></option>{/each}
     </datalist>
     {#if shown.length === 0}<p class="empty">{t('rec.noneFound')}</p>{/if}
-    <ol class="pieces" bind:this={list}>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <ol class="pieces" bind:this={list} data-testid="transcript-list" onwheel={byHand} ontouchstart={byHand} onpointerdown={byHand} onkeydown={byHand}>
       {#each shown as p (p.id)}
         <li data-piece={p.id} class:now={p.id === current} aria-current={p.id === current ? 'true' : undefined}>
           {#if p.startMs != null}
@@ -368,10 +387,13 @@
 </Dialog>
 
 <style>
+  /* The panel is as tall as its column; the head and the tools stay, the list below them is the one scroller. */
   .transcript {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: var(--s-3);
     min-width: 0;
+    min-height: 0;
   }
   .head {
     display: flex;
@@ -410,9 +432,11 @@
   .pieces {
     margin: 0;
     padding: 0;
-    max-block-size: 22rem;
+    flex: 1;
+    min-height: 6rem;
     overflow: auto;
     display: grid;
+    align-content: start;
     gap: var(--s-1);
   }
   .pieces li {
@@ -492,7 +516,19 @@
   }
   .rows {
     display: grid;
+    align-content: start;
     gap: var(--s-3);
+    flex: 1;
+    min-height: 6rem;
+    overflow: auto;
+  }
+  /* Stacked under the player: the whole player scrolls once, so the list does not scroll by itself. */
+  @media (max-width: 900px) {
+    .pieces,
+    .rows {
+      overflow: visible;
+      flex: none;
+    }
   }
   .row {
     display: grid;
