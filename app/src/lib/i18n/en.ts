@@ -408,7 +408,7 @@ export const en = {
     formDocDate: 'Date on the document',
     formArchive: 'Archive or office that keeps it',
     formCallNumber: 'Case or call number',
-    filterKind: 'Type of source',
+    filterKind: 'Filter by type',
     allKinds: 'All types',
     details: 'Document details',
   },

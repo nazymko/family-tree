@@ -407,7 +407,7 @@ export const uk: Messages = {
     formDocDate: 'Дата на документі',
     formArchive: 'Архів або установа, де зберігається',
     formCallNumber: 'Справа або шифр',
-    filterKind: 'Тип джерела',
+    filterKind: 'Фільтр за типом',
     allKinds: 'Усі типи',
     details: 'Дані документа',
   },
