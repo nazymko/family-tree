@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { listen } from '@tauri-apps/api/event';
 import type { AgentChangeEvent, Platform } from '../api';
@@ -146,5 +146,10 @@ export class TauriPlatform implements Platform {
     // There is no file manager to show a folder in on a phone; callers leave the action out when `isMobile`.
     if (this.isMobile) return Promise.resolve();
     return revealItemInDir(path);
+  }
+
+  openUrl(url: string): Promise<void> {
+    if (!/^https?:\/\//i.test(url)) return Promise.reject(new Error('Only http and https addresses can be opened'));
+    return openUrl(url);
   }
 }

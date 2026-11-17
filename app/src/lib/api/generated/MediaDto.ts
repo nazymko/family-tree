@@ -24,4 +24,9 @@ rotation: 0 | 90 | 180 | 270,
 /**
  * A sound recording's length in milliseconds, when its headers tell it (absent otherwise).
  */
-durationMs?: number, };
+durationMs?: number, 
+/**
+ * Web pages the picture came from: addresses in its description and in the sources that hold it
+ * (at most three, http or https only).
+ */
+webLinks?: Array<string>, };

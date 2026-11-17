@@ -1466,6 +1466,7 @@ export const uk: Messages = {
     next: 'Далі',
     setPrimary: 'Зробити основним фото',
     openOriginal: 'Відкрити оригінал',
+    openWebPage: 'Відкрити на {host}',
     unlink: 'Відкріпити від цієї особи',
     unlinkSource: 'Відкріпити від цього джерела',
     deleteFromTree: 'Видалити з родоводу',

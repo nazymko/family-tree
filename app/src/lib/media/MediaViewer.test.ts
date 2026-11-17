@@ -189,3 +189,35 @@ describe('MediaViewer', () => {
     expect(screen.getByText('3 of 3')).toBeInTheDocument();
   });
 });
+
+describe('MediaViewer web page button', () => {
+  async function withLinks(webLinks?: string[]) {
+    const api = new MockApi(fixtureTree(30));
+    const platform = new MockPlatform();
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const items: MediaLinkDto[] = [{ media: { ...media('w0'), webLinks }, primary: false }];
+    renderWith(MediaViewer, { items, index: 0, onClose: vi.fn() }, { api, platform });
+    return { platform, open };
+  }
+
+  it('shows one button per address, named by the host without www, and opens it', async () => {
+    const user = userEvent.setup();
+    const { platform, open } = await withLinks(['https://www.familysearch.org/ark:/61903/1:1:AAAA-BBB1']);
+    const button = screen.getByRole('button', { name: /Open on familysearch\.org/ });
+    expect(button).toHaveAttribute('title', 'https://www.familysearch.org/ark:/61903/1:1:AAAA-BBB1');
+    await user.click(button);
+    expect(platform.calls).toContainEqual({ method: 'openUrl', args: ['https://www.familysearch.org/ark:/61903/1:1:AAAA-BBB1'] });
+    expect(open).toHaveBeenCalledWith('https://www.familysearch.org/ark:/61903/1:1:AAAA-BBB1', '_blank', 'noopener');
+  });
+
+  it('has no button when there are no addresses', async () => {
+    await withLinks(undefined);
+    expect(screen.queryByRole('button', { name: /^Open on / })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Open original' })).toBeInTheDocument();
+  });
+
+  it('never shows or opens an address that is not http or https', async () => {
+    await withLinks(['javascript:alert(1)', 'file:///C:/secret.txt', 'ftp://a.example/x']);
+    expect(screen.queryByRole('button', { name: /^Open on / })).toBeNull();
+  });
+});

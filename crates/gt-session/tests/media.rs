@@ -749,3 +749,59 @@ fn heavy_big_file_with_bogus_tiff_header_is_cheap() {
     assert!(s.media_bytes(id, MediaSize::Thumb).is_err());
     assert!(t.elapsed().as_secs() < 5, "took {:?}", t.elapsed());
 }
+
+// ---- web links ----
+
+#[test]
+fn web_links_come_from_the_description_and_from_a_source_holding_the_picture() {
+    let (_d, mut s, eva, src) = setup();
+    let a = write(&src, "a.jpg", &jpeg(30, 20, [5, 5, 5]));
+    let id = s
+        .attach_files(person(eva), std::slice::from_ref(&a))
+        .unwrap()
+        .attached[0]
+        .id;
+    assert!(
+        s.get_person(eva).unwrap().media[0]
+            .media
+            .web_links
+            .is_empty()
+    );
+
+    s.apply(EditCommand::UpdateMedia {
+        id,
+        title: None,
+        description: Some("From https://scans.example.org/rec/1, page 2.".into()),
+        date_raw: None,
+        place_text: None,
+        place_id: None,
+    })
+    .unwrap();
+    let made = s
+        .apply(EditCommand::SaveSource {
+            source: SourceInput {
+                title: Some("Parish book".into()),
+                publication: Some("Online (https://archive.example.org/book/7).".into()),
+                ..Default::default()
+            },
+        })
+        .unwrap();
+    let source = made.touched[0];
+    s.attach_files(
+        OwnerRef {
+            kind: OwnerKind::Source,
+            id: source,
+        },
+        &[a],
+    )
+    .unwrap();
+
+    let links = &s.get_person(eva).unwrap().media[0].media.web_links;
+    assert_eq!(
+        links,
+        &[
+            "https://scans.example.org/rec/1",
+            "https://archive.example.org/book/7"
+        ]
+    );
+}

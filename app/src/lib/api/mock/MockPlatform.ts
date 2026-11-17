@@ -70,6 +70,12 @@ export class MockPlatform implements Platform {
     this.calls.push({ method: 'reveal', args: [path] });
   }
 
+  async openUrl(url: string): Promise<void> {
+    this.calls.push({ method: 'openUrl', args: [url] });
+    if (!/^https?:\/\//i.test(url)) return;
+    if (typeof window !== 'undefined') window.open(url, '_blank', 'noopener');
+  }
+
   simulateHover(over: boolean): void {
     for (const d of this.dropCallbacks) d.onHover?.(over);
   }
