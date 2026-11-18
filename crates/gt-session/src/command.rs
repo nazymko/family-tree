@@ -361,6 +361,41 @@ pub struct TextAreaInput {
 // Coordinates are checked to be finite before anything stores them, so equality is total.
 impl Eq for TextAreaInput {}
 
+/// A point on the Earth in millionths of a degree (lat -90..90, lon -180..180, times 1,000,000).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct MapCorner {
+    pub lat_e6: i32,
+    pub lon_e6: i32,
+}
+
+/// How an old map lies on the Map. The order in the stack is kept by the tree (a new layer goes
+/// on top); `ReorderMapLayers` changes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct MapLayerInput {
+    /// The series or atlas, such as "Schubert's two-verst map".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub series: Option<String>,
+    /// The year or years it shows, as written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub year: Option<String>,
+    /// Where the scan came from: a web address or an archive reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source: Option<String>,
+    /// The picture's corners: top left, top right, bottom right, bottom left. Absent while it is
+    /// not placed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub corners: Option<Vec<MapCorner>>,
+    /// 0 to 100.
+    pub opacity: u8,
+    pub visible: bool,
+}
+
 /// One piece of a picture's transcription, in reading order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -726,6 +761,22 @@ pub enum EditCommand {
         #[ts(optional)]
         lon_e6: Option<i32>,
     },
+    /// Lays a picture (an old scanned map) on the Map, changes how it lies, or takes it off the
+    /// Map (`layer` absent). The picture itself stays in the tree either way. `title`, when
+    /// given, is the picture's title; empty takes it away.
+    SetMapLayer {
+        media: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        layer: Option<MapLayerInput>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        title: Option<String>,
+    },
+    /// The order the old maps are drawn in, the lowest first. Every layer of the tree, once.
+    ReorderMapLayers {
+        order: Vec<Uuid>,
+    },
     /// An agent's own number for a person, unique within one named source file. Never exported.
     AddNumber {
         person: Uuid,
@@ -794,6 +845,9 @@ impl EditCommand {
                     "Set place coordinates".into()
                 }
             }
+            EditCommand::SetMapLayer { layer: None, .. } => "Take map off the Map".into(),
+            EditCommand::SetMapLayer { .. } => "Change map layer".into(),
+            EditCommand::ReorderMapLayers { .. } => "Reorder map layers".into(),
             EditCommand::AddNumber { .. } => "Record number".into(),
         }
     }

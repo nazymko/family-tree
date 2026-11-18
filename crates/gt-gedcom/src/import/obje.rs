@@ -59,6 +59,7 @@ fn read_media_node(ctx: &mut Ctx, node: &GedNode, id: Uuid, inline: bool) -> Opt
     let path = normalize(val(file)?);
     let mut m = Media {
         version_of: None,
+        map_layer: None,
         common: new_common(id),
         path: path.clone(),
         original_name: None,

@@ -659,6 +659,7 @@ fn media_rows(m: &Media, w: &dyn Words) -> Vec<Row> {
         rotation,
         place,
         version_of,
+        map_layer,
     } = m;
     let written = gt_core::model::transcription_text(transcription);
     let mut out = vec![
@@ -676,6 +677,26 @@ fn media_rows(m: &Media, w: &dyn Words) -> Vec<Row> {
         // Another file of the same page: the one shown first.
         row("versionOf", version_of.map(|v| w.media(v))),
     ];
+    // An old map on the Map: what it is, where its corners lie, and how it is drawn.
+    if let Some(l) = map_layer {
+        let deg = |v: i32| format!("{:.5}", f64::from(v) / 1e6);
+        out.extend([
+            text("mapSeries", &l.series),
+            text("mapYear", &l.year),
+            text("mapSource", &l.source),
+            row(
+                "mapCorners",
+                l.corners.map(|c| {
+                    c.iter()
+                        .map(|p| format!("{} {}", deg(p.lat_e6), deg(p.lon_e6)))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                }),
+            ),
+            row("mapOpacity", Some(format!("{}%", l.opacity))),
+            row("mapShown", Some(yes(l.visible))),
+        ]);
+    }
     out.extend(common_rows(common, w));
     out
 }

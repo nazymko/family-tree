@@ -928,6 +928,7 @@ fn notes_sources_and_media() {
     let mut m = |name: &str| {
         let media = Media {
             version_of: None,
+            map_layer: None,
             place: None,
             common: gt_core::model::Common {
                 id: Uuid::now_v7(),
@@ -995,6 +996,7 @@ fn delete_media_leaves_no_link_anywhere_and_undo_restores_it() {
     let family = *t.families.keys().next().unwrap();
     let make = |name: &str| Media {
         version_of: None,
+        map_layer: None,
         place: None,
         common: gt_core::model::Common {
             id: Uuid::now_v7(),

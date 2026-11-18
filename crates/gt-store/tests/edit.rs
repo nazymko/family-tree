@@ -196,7 +196,7 @@ fn v1_project_upgrades_to_2() {
     }
     let p = Project::open(&dir).unwrap();
     assert_eq!(p.schema_version(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 12);
+    assert_eq!(SCHEMA_VERSION, 13);
     let cols: Vec<String> = p
         .conn()
         .prepare("SELECT name FROM pragma_table_info('change_log')")
@@ -993,6 +993,7 @@ fn gen_cs(r: &mut Rng, t: &Tree) -> Option<ChangeSet> {
             let mid = Uuid::now_v7();
             let m = Media {
                 version_of: None,
+                map_layer: None,
                 place: None,
                 common: common(mid),
                 path: format!("media/xx/{mid}.jpg"),

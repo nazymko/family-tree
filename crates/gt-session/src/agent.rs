@@ -111,6 +111,12 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         C::UngroupMediaVersion { .. } => Err(refused(
             "Only the owner takes a file out of a group of versions. Say in your report which              file you think is no version of the others.",
         )),
+        // An old map on the Map: an agent lays a picture on it, and changes or takes off only a
+        // layer it laid itself that nobody has changed since (`check_map_layer`).
+        C::SetMapLayer { .. } => Ok(()),
+        C::ReorderMapLayers { .. } => Err(refused(
+            "Only the owner orders the maps on the Map. Say in your report which map should lie over which.",
+        )),
         C::SetPlaceCoordinates { .. } => Err(refused(
             "Only the owner sets where a place is. Add a note with the coordinates and the              source instead.",
         )),
@@ -530,6 +536,25 @@ fn record_is_own(rows: &[Written], me: Uuid) -> bool {
         })
 }
 
+/// Whether this connection laid the picture on the Map (its layer went from none to some under
+/// it, the last time that happened) and nobody else has changed the layer since.
+fn layer_is_own(rows: &[Written], me: Uuid) -> bool {
+    let layer = |r: Option<&Record>| match r {
+        Some(Record::Media(m)) => m.map_layer.clone(),
+        _ => None,
+    };
+    let Some(start) = rows.iter().rposition(|(_, c)| {
+        layer(c.before.as_ref()).is_none() && layer(c.after.as_ref()).is_some()
+    }) else {
+        return false;
+    };
+    let mut after = rows.iter().skip(start);
+    after.next().is_some_and(|(by, _)| *by == Some(me))
+        && after.all(|(by, c)| {
+            *by == Some(me) || layer(c.before.as_ref()) == layer(c.after.as_ref())
+        })
+}
+
 fn at_path<'a>(mut v: &'a Value, path: &[String]) -> Option<&'a Value> {
     for key in path {
         v = v.get(key)?;
@@ -891,6 +916,7 @@ impl Session {
     ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
         check_allowed(&cmd)?;
         check_named(&cmd)?;
+        self.check_map_layer(&cmd, ctx.id)?;
         self.check_clip(&cmd)?;
         if let Some(record) = self.clip_repeat(&cmd) {
             return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
@@ -1086,6 +1112,7 @@ impl Session {
         };
         let media = Media {
             version_of: None,
+            map_layer: None,
             place: place.as_ref().map(|(id, _)| *id),
             common: crate::ops::new_common(now),
             path: rel.clone(),
@@ -1127,6 +1154,76 @@ impl Session {
         let (write, reached) = self.pass_and_store(&cmd, cs, focus, ctx, batch)?;
         // Recorded: the copy stays. A file already in the tree under another name is left to
         // the record that has it, and this copy goes.
+        if self.tree.media.values().any(|m| m.path == rel) {
+            file.made = None;
+        }
+        Ok((write, reached, id))
+    }
+
+    /// Records a picture an agent's tool copied in with [`prepare_agent_file`] as an old map laid
+    /// on the Map, through the same checks and log as any write. The same file already in the
+    /// tree is laid on the Map when it is not yet (its title stays unless it has none), and is a
+    /// repeat when it is. Returns, besides the write, the media record's id.
+    pub fn add_map_layer_as_agent(
+        &mut self,
+        mut file: AgentFile,
+        title: Option<String>,
+        layer: &crate::command::MapLayerInput,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>, Uuid), ApiError> {
+        self.check_batch(ctx, batch)?;
+        if file.prepared.dir != self.project.dir {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                "The tree changed while the file was being copied; nothing was added.",
+            ));
+        }
+        let [prepared] = file.prepared.files.as_slice() else {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "Add one file at a time.",
+            ));
+        };
+        if !prepared.mime.starts_with("image/") {
+            return Err(refused(
+                "Only a picture (JPEG, PNG, WebP, GIF or TIFF) can be laid on the Map.",
+            ));
+        }
+        let (rel, sha) = (prepared.rel.clone(), prepared.sha.clone());
+        let (_, now) = (self.clock.0)();
+        let media = Media {
+            version_of: None,
+            map_layer: None,
+            place: None,
+            common: crate::ops::new_common(now),
+            path: rel.clone(),
+            original_name: prepared.original_name.clone(),
+            mime: Some(prepared.mime.into()),
+            title: crate::ops::text(title.as_deref()),
+            date: None,
+            description: None,
+            sha256: Some(sha),
+            transcription: Vec::new(),
+            rotation: None,
+        };
+        let (cs, id) = crate::ops::map_layers::plan_new_layer(
+            &self.tree,
+            media,
+            layer,
+            now,
+            self.day_order(),
+        )?;
+        if cs.changes.is_empty() {
+            return Ok((AgentWrite::AlreadyThere { record: id }, Vec::new(), id));
+        }
+        let cmd = EditCommand::SetMapLayer {
+            media: id,
+            layer: Some(layer.clone()),
+            title: None,
+        };
+        self.check_map_layer(&cmd, ctx.id)?;
+        let (write, reached) = self.pass_and_store(&cmd, cs, None, ctx, batch)?;
         if self.tree.media.values().any(|m| m.path == rel) {
             file.made = None;
         }
@@ -1857,6 +1954,35 @@ impl Session {
             },
             _ => Ok(()),
         }
+    }
+
+    /// An agent lays a picture on the Map, and changes or takes off only a layer it laid itself
+    /// that nobody has changed since.
+    fn check_map_layer(&self, cmd: &EditCommand, me: Uuid) -> Result<(), ApiError> {
+        let EditCommand::SetMapLayer { media, .. } = cmd else {
+            return Ok(());
+        };
+        // A record new with this write, or one not on the Map yet: the agent lays it there.
+        if self.tree.media.get(media).is_none_or(|m| m.map_layer.is_none()) {
+            return Ok(());
+        }
+        if self.map_layer_is_own(*media, me)? {
+            return Ok(());
+        }
+        Err(refused(
+            "This map was laid on the Map by the owner or someone else, or changed since, so it stays as it is. Say in your report where you think it lies.",
+        ))
+    }
+
+    /// Whether this connection laid this picture on the Map and nobody has changed its layer since.
+    pub fn map_layer_is_own(&self, media: Uuid, me: Uuid) -> Result<bool, ApiError> {
+        let writers = self.project.last_writers(media)?;
+        let rows: Vec<Written> = writers
+            .into_iter()
+            .map(|(by, _)| by)
+            .zip(self.project.rows_of(media)?)
+            .collect();
+        Ok(layer_is_own(&rows, me))
     }
 
     /// Whether this connection wrote the record in the first place.

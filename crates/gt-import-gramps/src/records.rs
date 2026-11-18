@@ -821,6 +821,7 @@ impl<'a> Ctx<'a> {
             id,
             Media {
                 version_of: None,
+                map_layer: None,
                 place: None,
                 common: c,
                 path,

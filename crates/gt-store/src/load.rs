@@ -458,7 +458,8 @@ impl Project {
 
         let mut st = conn.prepare(
             "SELECT id, private, changed, unknown_json, path, original_name, mime, title, \
-             date_json, description, sha256, transcription_json, rotation, place_id,              version_of FROM media ORDER BY seq",
+             date_json, description, sha256, transcription_json, rotation, place_id, \
+             version_of, map_layer_json FROM media ORDER BY seq",
         )?;
         let mut rows = st.query([])?;
         while let Some(r) = rows.next()? {
@@ -482,6 +483,10 @@ impl Project {
                     Some(t) => Some(parse_uuid(&t)?),
                     None => None,
                 },
+                // A layer this app cannot read is no layer: the picture stays, off the map.
+                map_layer: r
+                    .get::<_, Option<String>>(15)?
+                    .and_then(|j| serde_json::from_str(&j).ok()),
                 path: r.get(4)?,
                 original_name: r.get(5)?,
                 mime: r.get(6)?,

@@ -213,6 +213,7 @@ impl Session {
         Ok(StagedPicture {
             media: Media {
                 version_of: None,
+                map_layer: None,
                 place: None,
                 common: crate::ops::new_common(now),
                 path: rel,

@@ -483,7 +483,56 @@ pub struct Media {
     /// Old change-log rows have no such field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version_of: Option<Uuid>,
+    /// When the picture is an old map shown on the app's Map, under the places: what it is and
+    /// where it lies. `None` on every other file. Old change-log rows have no such field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_layer: Option<MapLayer>,
 }
+
+/// A scanned map (a two-verst sheet, a square of an old atlas) laid on the Map. The title is the
+/// media record's own.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MapLayer {
+    /// The series or atlas it belongs to, such as "Schubert's two-verst map".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub series: Option<String>,
+    /// The year or years it shows, as written ("1846", "1846-1863").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub year: Option<String>,
+    /// Where the scan came from: a web address or an archive reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Where the picture's corners lie: top left, top right, bottom right, bottom left of the
+    /// picture upright by its EXIF orientation (not turned by the media's rotation). `None` while
+    /// nobody has placed it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corners: Option<[GeoPoint; 4]>,
+    /// How opaque it is drawn, 0 to 100.
+    pub opacity: u8,
+    /// Whether it is drawn at all.
+    pub visible: bool,
+    /// Its place in the stack: a higher one is drawn over a lower one.
+    pub pos: i32,
+}
+
+/// A point on the Earth in millionths of a degree (lat -90..90, lon -180..180, times 1,000,000),
+/// as a place's coordinates are given to the app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GeoPoint {
+    pub lat_e6: i32,
+    pub lon_e6: i32,
+}
+
+impl GeoPoint {
+    /// Whether it is a point on the Earth.
+    pub fn is_valid(&self) -> bool {
+        (-90_000_000..=90_000_000).contains(&self.lat_e6)
+            && (-180_000_000..=180_000_000).contains(&self.lon_e6)
+    }
+}
+
+/// The largest length of a map layer's series, year or source text.
+pub const MAP_LAYER_TEXT_MAX: usize = 1000;
 
 impl Media {
     /// The turn the picture is shown with: 0 when nobody has set one.

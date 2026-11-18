@@ -8,6 +8,7 @@ mod event;
 mod family;
 pub mod godparent;
 mod media;
+pub mod map_layers;
 pub(crate) use event::plan_date_correction;
 pub(crate) use family::plan_child_link_removal;
 pub use media::VERSION_GROUP_MAX;
@@ -490,6 +491,12 @@ pub fn plan_with(
             lon_e6,
         } => places::set_coordinates(&mut p, *place, *lat_e6, *lon_e6)?,
         C::SetMediaRotation { id, rotation } => media::set_rotation(&mut p, *id, *rotation)?,
+        C::SetMapLayer {
+            media,
+            layer,
+            title,
+        } => map_layers::set_layer(&mut p, *media, layer.as_ref(), title.as_deref())?,
+        C::ReorderMapLayers { order } => map_layers::reorder(&mut p, order)?,
         C::GroupMediaVersions { primary, others } => {
             media::group_versions(&mut p, *primary, others)?
         }

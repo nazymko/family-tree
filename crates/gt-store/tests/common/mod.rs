@@ -198,6 +198,7 @@ pub fn rich_tree() -> Tree {
         media_id,
         Media {
             version_of: None,
+            map_layer: None,
             place: Some(place_b),
             common: common(media_id),
             path: "media/ab/abcdef.jpg".into(),

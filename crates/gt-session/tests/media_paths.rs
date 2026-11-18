@@ -29,6 +29,7 @@ fn resolved_for(paths: &[String], make_files: impl Fn(&std::path::Path)) -> Vec<
             id,
             Media {
                 version_of: None,
+                map_layer: None,
                 place: None,
                 common: common(id),
                 path: p.clone(),

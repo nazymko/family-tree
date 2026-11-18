@@ -744,6 +744,11 @@ pub(crate) fn build(t: &Tree, version: GedcomVersion) -> Vec<GedNode> {
                 n.children.push(b.kv("TITL", t));
             }
         }
+        // An old map laid on the Map: GEDCOM has no place for that, so a note says what it is
+        // and where it lies, for a person reading the file.
+        if let Some(layer) = &m.map_layer {
+            n.children.push(b.kv("NOTE", &map_layer_note(layer)));
+        }
         let mut rest = Vec::new();
         b.common_children(&m.common, &mut rest);
         rest.extend(b.gtid(*oid, None));
@@ -858,4 +863,35 @@ fn famc_children(b: &mut Bld, l: &ChildLink, person: Uuid, fam: Uuid, fc: &mut G
     }
     fc.children.append(&mut kids);
     insert_unknown(&mut fc.children, &l.unknown);
+}
+
+/// What a note on an OBJE record says of an old map laid on the Map.
+pub(crate) fn map_layer_note(l: &MapLayer) -> String {
+    let mut lines = vec!["Historical map layer".to_string()];
+    if let Some(s) = &l.series {
+        lines.push(format!("Series: {s}"));
+    }
+    if let Some(y) = &l.year {
+        lines.push(format!("Year: {y}"));
+    }
+    if let Some(s) = &l.source {
+        lines.push(format!("Source: {s}"));
+    }
+    match &l.corners {
+        Some(c) => {
+            let deg = |v: i32| format!("{:.6}", f64::from(v) / 1e6);
+            let names = ["top left", "top right", "bottom right", "bottom left"];
+            let parts: Vec<String> = names
+                .iter()
+                .zip(c)
+                .map(|(n, p)| format!("{n} {}, {}", deg(p.lat_e6), deg(p.lon_e6)))
+                .collect();
+            lines.push(format!(
+                "Corners (latitude, longitude): {}",
+                parts.join("; ")
+            ));
+        }
+        None => lines.push("Not placed on the map yet".to_string()),
+    }
+    lines.join("\n")
 }
