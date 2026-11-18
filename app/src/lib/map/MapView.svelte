@@ -508,8 +508,9 @@
     display: flex;
     flex-direction: column;
     gap: var(--s-3);
-    height: 100%;
-    min-height: 0;
+    /* The shell's page scrolls, so the view sizes itself to the window instead of to its parent. */
+    height: calc(100dvh - 7rem);
+    min-height: 32rem;
   }
   .bar {
     display: flex;

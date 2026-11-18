@@ -21,7 +21,7 @@ async function mode(name: string) {
 }
 
 async function choose(label: string, option: string) {
-  const sel = await $(`//select[@id=//label[starts-with(normalize-space(.),"${label}")]/@for]`);
+  const sel = await $(`//label[starts-with(normalize-space(.),"${label}")]//select`);
   await sel.selectByVisibleText(option);
   await browser.pause(800);
 }
