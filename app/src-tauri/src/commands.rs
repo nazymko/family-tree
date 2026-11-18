@@ -103,6 +103,7 @@ command_list!(
     exif_suggestion,
     attach_files,
     unlinked_media,
+    all_pictures,
     get_recording,
     stage_trace_image,
     save_trace_draft,
@@ -801,6 +802,12 @@ pub async fn attach_files<R: Runtime>(
 #[tauri::command(async)]
 pub fn unlinked_media(state: State<'_, AppState>) -> ApiResult<Vec<MediaDto>> {
     state.with_session(|s| Ok(s.unlinked_media()))
+}
+
+/// Every picture and document, one per version group, to pick another version of a page from.
+#[tauri::command(async)]
+pub fn all_pictures(state: State<'_, AppState>) -> ApiResult<Vec<MediaDto>> {
+    state.with_session(|s| Ok(s.all_pictures()))
 }
 
 /// A recording with its sources and every clip of it, for the full player.

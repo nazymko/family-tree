@@ -35,6 +35,8 @@ const EDIT_KEYS: Record<string, [label: MessageKey, done: MessageKey]> = {
   'Edit media': ['edit.editMedia', 'edit.doneMediaSaved'],
   'Edit transcription': ['edit.editTranscription', 'edit.doneTranscriptionSaved'],
   'Turn picture': ['edit.turnPicture', 'edit.donePictureTurned'],
+  'Group versions': ['edit.groupVersions', 'edit.doneVersionsGrouped'],
+  'Ungroup version': ['edit.ungroupVersion', 'edit.doneVersionUngrouped'],
   'Add clip': ['edit.addClip', 'edit.doneClipAdded'],
   'Edit clip': ['edit.editClip', 'edit.doneClipSaved'],
   'Delete clip': ['edit.deleteClip', 'edit.doneClipDeleted'],

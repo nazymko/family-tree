@@ -58,6 +58,7 @@ pub use map::{
     MapDataDto, MapEventDto, MapLinkDto, MapPersonDto, MapPlaceDto, MapScope, MapScopeKind,
 };
 pub use names::{display_name, lifespan};
+pub use ops::VERSION_GROUP_MAX;
 pub use session::{Session, SessionClock};
 pub use settings::SettingsPatch;
 pub use touched::people_reached;

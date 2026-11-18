@@ -29,4 +29,10 @@ durationMs?: number,
  * Web pages the picture came from: addresses in its description and in the sources that hold it
  * (at most three, http or https only).
  */
-webLinks?: Array<string>, };
+webLinks?: Array<string>, 
+/**
+ * When the same page is kept in several files (copies in other quality): every version, the
+ * group's primary first and this file among them. The versions carry no list of their own.
+ * Absent for a file with no other versions.
+ */
+versions?: Array<MediaDto>, };

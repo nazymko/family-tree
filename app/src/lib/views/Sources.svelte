@@ -14,6 +14,7 @@
   import MediaGrid from '../media/MediaGrid.svelte';
   import MediaViewer from '../media/MediaViewer.svelte';
   import { isSound } from '../media/sound';
+  import { collapseVersions } from '../media/versions';
   import VoiceSamples from '../media/VoiceSamples.svelte';
   import { wholeSounds } from '../media/clips';
   import type { MediaDto } from '../api/api';
@@ -52,7 +53,7 @@
   ]);
   const current = $derived(list.find((s) => s.id === selected) ?? null);
   /** Photographed pages of the source: a letter, a register entry. */
-  const pictures = $derived((current?.media ?? []).filter((l) => !isSound(l.media)));
+  const pictures = $derived(collapseVersions((current?.media ?? []).filter((l) => !isSound(l.media))));
   /** The recordings the source is: an interview on tape, a voice message. */
   const sounds = $derived(wholeSounds(current?.media));
 

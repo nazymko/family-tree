@@ -233,6 +233,8 @@
     ]
   },
   { "type": "setMediaRotation", "id": "018f3a6e-0000-7000-8000-000000000009", "rotation": 270 },
+  { "type": "groupMediaVersions", "primary": "018f3a6e-0000-7000-8000-000000000009", "others": ["018f3a6e-0000-7000-8000-000000000008"] },
+  { "type": "ungroupMediaVersion", "media": "018f3a6e-0000-7000-8000-000000000008", "newPrimary": "018f3a6e-0000-7000-8000-000000000007" },
   {
     "type": "addAudioClip",
     "target": { "kind": "note", "id": "018f3a6e-0000-7000-8000-000000000005" },

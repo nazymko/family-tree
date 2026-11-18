@@ -126,6 +126,8 @@ export interface Api {
   exifSuggestion(media: Id): Promise<ExifSuggestion | null>;
   /** Media that no record links to (left by a deleted note or person), so it can still be removed. */
   unlinkedMedia(): Promise<MediaDto[]>;
+  /** Every picture and document, one per version group (its primary, with the group in `versions`), without transcriptions: to pick another version of a page from. */
+  allPictures(): Promise<MediaDto[]>;
   /** A sound recording with the sources it is on and every clip of it, each with the record it is linked to. */
   getRecording(media: Id): Promise<RecordingDto>;
   /** add_media_file + Media record + link, one undo step. */

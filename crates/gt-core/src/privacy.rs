@@ -121,6 +121,10 @@ fn scrub_dangling(t: &mut Tree, orig: &Tree) {
         if r.place.is_some_and(|p| places.contains(&p)) {
             r.place = None;
         }
+        // A version whose primary was left out is a file of its own in the copy.
+        if r.version_of.is_some_and(|p| media.contains(&p)) {
+            r.version_of = None;
+        }
     });
     t.notes.values_mut().for_each(|r| fix(&mut r.common));
 }

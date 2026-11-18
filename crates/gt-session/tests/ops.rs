@@ -926,6 +926,7 @@ fn notes_sources_and_media() {
     // Media: attach (first is primary), set primary, detach.
     let mut m = |name: &str| {
         let media = Media {
+            version_of: None,
             place: None,
             common: gt_core::model::Common {
                 id: Uuid::now_v7(),
@@ -992,6 +993,7 @@ fn delete_media_leaves_no_link_anywhere_and_undo_restores_it() {
     let (anna, hans) = (find(&t, "Anna"), find(&t, "Hans"));
     let family = *t.families.keys().next().unwrap();
     let make = |name: &str| Media {
+        version_of: None,
         place: None,
         common: gt_core::model::Common {
             id: Uuid::now_v7(),
@@ -1088,7 +1090,7 @@ fn plan_does_not_mutate() {
 fn edit_command_json_matches_ts_fixtures() {
     let json = include_str!("../../../app/src/lib/api/__fixtures__/commands.json");
     let cmds: Vec<EditCommand> = serde_json::from_str(json).unwrap();
-    assert_eq!(cmds.len(), 35);
+    assert_eq!(cmds.len(), 37);
     // Absent and null differ for livingOverride.
     let EditCommand::UpdatePerson {
         living_override, ..
