@@ -500,12 +500,12 @@
       </div>
       {#snippet body()}
         {#each cardLines as l (l.label)}
-          <p class="card-line"><span class="card-label" class:wide={surnameLines.length > 0}>{l.label}</span> {l.text}{#if 'extra' in l && l.extra}<span class="bap" data-baptism> · {l.extra}</span>{/if}</p>
+          <p class="card-line"><span class="card-label" class:wide={surnameLines.length > 0}>{l.label}</span> {l.text}{#if 'extra' in l && l.extra}<span class="bap" data-baptism>{` · ${l.extra}`}</span>{/if}</p>
         {/each}
         {#if godparents.length > 0}
           <p class="card-line" data-godparents title={godparentsTitle}>
             <span class="card-label" class:wide={surnameLines.length > 0}>{t('person.godparents')}</span>
-            {#each godparents as g, i (g.id)}{#if i > 0}, {/if}{#if g.person}<button
+            {#each godparents as g, i (g.id)}{#if i > 0}{', '}{/if}{#if g.person}<button
                   type="button"
                   class="godlink"
                   onclick={() => open(g.person!)}><bdi dir="auto">{g.person.name}</bdi></button

@@ -53,7 +53,7 @@ describe('baptism on the card', () => {
     await baptize([], 'Ivanivka');
     await openPerson(child.ref.id);
     const bap = await screen.findByText((_, el) => el?.hasAttribute('data-baptism') ?? false);
-    expect(bap.textContent).toMatch(/^· bap. .*1906, Ivanivka$/);
+    expect(bap.textContent).toMatch(/^ · bap. .*1906, Ivanivka$/);
     expect(bap.closest('p')!.textContent).toContain('Born');
   });
 
@@ -154,8 +154,8 @@ describe('godparents in the event editor', () => {
     expect(box).toBeTruthy();
     await user.click(within(box).getByRole('button', { name: 'Add a godparent by name' }));
     await user.type(within(box).getByRole('textbox', { name: 'Name of godparent 1' }), WIDOW);
-    await user.selectOptions(within(box).getByRole('combobox', { name: `Role of ${WIDOW}` }), 'godmother');
-    await user.type(within(box).getByRole('textbox', { name: `Note on ${WIDOW}` }), 'could not sign');
+    await user.selectOptions(within(box).getByRole('combobox', { name: 'Role of Hanna Bondar' }), 'godmother');
+    await user.type(within(box).getByRole('textbox', { name: 'Note on Hanna Bondar' }), 'could not sign');
     await user.click(screen.getByRole('button', { name: 'Save event' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(sent(spy)).toEqual([{ name: WIDOW, role: 'godmother', note: 'could not sign' }]);
@@ -173,7 +173,7 @@ describe('godparents in the event editor', () => {
     const onSaved = show(bap);
     const box = document.querySelector('fieldset[data-godparents]') as HTMLElement;
     expect(within(box).getByText(godfather.ref.name)).toBeTruthy();
-    await user.click(within(box).getByRole('button', { name: `Remove ${WIDOW}` }));
+    await user.click(within(box).getByRole('button', { name: 'Remove Hanna Bondar' }));
     await user.click(screen.getByRole('button', { name: 'Save event' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(sent(spy)).toEqual([{ id: bap.godparents![0].id, person: godfather.ref.id, role: 'godfather' }]);

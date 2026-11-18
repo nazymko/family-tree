@@ -15,7 +15,7 @@
   import { errMessage, opt } from './errors';
   import { t, type MessageKey } from '../i18n';
   import { eventKindLabel } from '../i18n/backend';
-  import { takesGodparents } from '../ui/godparents';
+  import { shortGodparentName, takesGodparents } from '../ui/godparents';
 
   let {
     owner,
@@ -153,7 +153,7 @@
     f.godparents.push({ key: `new-${++newGodKey}`, id: undefined, person: null, name: '', role: nextRole(), note: '' });
   }
   const godLabel = (g: { person: PersonRef | null; name: string }, i: number) =>
-    g.person?.name ?? (g.name.trim() || t('editor.godparentNameOf', { n: i + 1 }));
+    g.person?.name ?? (shortGodparentName(g.name) || t('editor.godparentNameOf', { n: i + 1 }));
 
   function addParticipant(p: PersonRef | null) {
     if (!p) return;
