@@ -72,7 +72,7 @@ afterEach(() => {
 });
 
 describe('picture menu on a chart', () => {
-  it('right_click_on_empty_space_opens_a_menu_with_only_the_three_save_items', async () => {
+  it('right_click_on_empty_space_opens_a_menu_with_only_the_save_items', async () => {
     const s = await setupChart();
     expect(screen.queryByRole('menu')).toBeNull();
     await rightClick(s.canvas, { clientX: 5, clientY: 5 });
@@ -81,6 +81,10 @@ describe('picture menu on a chart', () => {
       'Save the whole chart as a picture…',
       "Save the selected person's branch as a picture…",
       'Save what is on the screen as a picture…',
+      'Save for A3 print…',
+      'Save for A3 print, landscape…',
+      'Save for A3 print, portrait…',
+      'Print on A3…',
     ]);
     expect(items.every((i) => i.getAttribute('aria-disabled') !== 'true')).toBe(true);
   });
@@ -102,7 +106,7 @@ describe('picture menu on a chart', () => {
     const s = await setupChart();
     const button = screen.getByRole('button', { name: 'Save as picture' });
     await fireEvent.click(button);
-    expect(within(menu()).getAllByRole('menuitem')).toHaveLength(3);
+    expect(within(menu()).getAllByRole('menuitem')).toHaveLength(7);
     // The button also closes it.
     await fireEvent.mouseDown(button);
     await fireEvent.click(button);

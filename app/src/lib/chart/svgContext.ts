@@ -169,12 +169,12 @@ export class SvgContext {
   }
 
   /** The finished document: a paper-coloured page, the chart clipped to its own area, then `after` (the caption). */
-  toSvg(paper: string, chart: { w: number; h: number }, after = ''): string {
+  toSvg(paper: string, chart: { w: number; h: number }, after = '', physical?: { w: string; h: string }): string {
     const w = num(this.width);
     const h = num(this.height);
     return [
       '<?xml version="1.0" encoding="UTF-8"?>',
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`,
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${physical?.w ?? w}" height="${physical?.h ?? h}" viewBox="0 0 ${w} ${h}">`,
       `<rect width="${w}" height="${h}" fill="${escapeXml(paper)}"/>`,
       `<svg x="0" y="0" width="${num(chart.w)}" height="${num(chart.h)}" viewBox="0 0 ${num(chart.w)} ${num(chart.h)}" overflow="hidden">`,
       ...this.body,

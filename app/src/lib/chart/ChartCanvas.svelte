@@ -23,8 +23,11 @@
   import ChartPictureMenu from './ChartPictureMenu.svelte';
   import { createDoubleTap, createLongPress, isTouchPointer } from '../ui/longPress';
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
-  import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
-  import { t, plural, localeStore } from '../i18n';
+  import { captionText, chartTitle, later, printPicture, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
+  import { layoutA3, type A3Choice } from './a3';
+  import { sceneBounds, pictureFileName } from './picture';
+  import { settings } from '../state/settings.svelte';
+  import { t, plural, localeStore, currentTag } from '../i18n';
   import { nodeLabel, relationText } from '../i18n/relation';
   import { agentChanges } from '../state/agentChanges.svelte';
 
@@ -955,6 +958,68 @@
     };
   }
 
+  /** The whole chart laid out on one A3 page: title block on top, the chart scaled to fill the rest. */
+  async function buildA3(choice: A3Choice, format: PictureFormat): Promise<BuiltPicture | null> {
+    if (!meta || !cache?.current()) return null;
+    theme ??= themeFromCss();
+    const th = theme;
+    const scene = await wholeScene();
+    if (scene.nodes.length === 0) return null;
+    const lay = layoutA3(sceneBounds(scene), choice);
+    const pxScale = format === 'svg' ? 1 : lay.pngScale;
+    const title = chartTitle(kind, rootName);
+    const treeName = settings.value.treeName.trim();
+    const date = new Date().toLocaleDateString(currentTag(), { year: 'numeric', month: 'long', day: 'numeric' });
+    const sub = treeName ? `${treeName} · ${date}` : date;
+    const plan = {
+      cam: lay.cam,
+      view: { ...lay.px },
+      scale: pxScale,
+      width: format === 'svg' ? lay.px.w : lay.png.w,
+      height: format === 'svg' ? lay.px.h : lay.png.h,
+      reduced: false,
+      percent: 100,
+    };
+    return {
+      plan,
+      theme: { paper: th.paper, ink2: th.ink2, font: th.font },
+      caption: '',
+      pageMm: { ...lay.mm, orientation: lay.orientation },
+      warning: lay.tooSmall ? t('picture.a3Small', { pt: Math.round(lay.namePt * 10) / 10 }) : undefined,
+      paint: (ctx, p) => {
+        draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: rootNodeId, focusMore: chosenMore, theme: th, kind, dir: dirNow, handles: false, lod: 'full' });
+        // Title block: the chart name on the left, the tree name and date on the right, a rule under both.
+        const left = lay.area.x;
+        const right = lay.px.w - lay.area.x;
+        const top = lay.area.y;
+        ctx.setTransform(p.scale, 0, 0, p.scale, 0, 0);
+        ctx.textBaseline = 'alphabetic';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = th.ink;
+        ctx.font = `600 22px ${th.serif}`;
+        ctx.fillText(title, left, top - 24);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = th.ink2;
+        ctx.font = `13px ${th.font}`;
+        ctx.fillText(sub, right, top - 24);
+        ctx.beginPath();
+        ctx.moveTo(left, top - 14);
+        ctx.lineTo(right, top - 14);
+        ctx.strokeStyle = th.rule;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      },
+    };
+  }
+
+  function pictureA3(choice: A3Choice, print: boolean): void {
+    if (savingPicture) return;
+    const setBusy = (b: boolean) => (savingPicture = b);
+    if (print) return void printPicture({ build: (f) => buildA3(choice, f), setBusy });
+    const name = pictureFileName(`${chartTitle(kind, rootName)} (A3)`);
+    void savePicture({ api, platform }, { fileName: name, build: (f) => buildA3(choice, f), setBusy });
+  }
+
   function savePictureAs(scope: PictureScope): void {
     if (savingPicture) return;
     const name = suggestedName(scope, kind, rootName, selNode?.person?.name ?? '');
@@ -1135,7 +1200,7 @@
         />
       </div>
     {/if}
-    <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
+    <ChartPictureMenu bind:this={pictureMenu} ona3={pictureA3} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
     <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
     {#if onGenerations}
       <div class="gens">

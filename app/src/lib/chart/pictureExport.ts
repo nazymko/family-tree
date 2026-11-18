@@ -3,6 +3,7 @@ import type { ChartKind } from '../api/types';
 import { currentTag, t, type MessageKey } from '../i18n';
 import { notices } from '../ui/notices.svelte';
 import { CAPTION_H, MARGIN, formatOf, pictureFileName, scalePlan, type PictureFormat, type PicturePlan, type PictureScope } from './picture';
+import { printDocument, printHtml, type A3Orientation } from './a3';
 import { SvgContext, escapeXml, parseFont } from './svgContext';
 
 /** Everything needed to paint one picture. */
@@ -14,6 +15,10 @@ export interface BuiltPicture {
   caption: string;
   /** Draws the chart area: a chart draw function called with `plan.cam`, `plan.view` and `plan.scale` as its dpr. */
   paint: (ctx: CanvasRenderingContext2D, plan: PicturePlan) => void;
+  /** A paper page: the SVG gets this size in millimetres (and a matching viewBox), and the PNG has no caption strip. */
+  pageMm?: { w: number; h: number; orientation: A3Orientation };
+  /** Shown after the picture is saved (for example, that the names are small). */
+  warning?: string;
 }
 
 const KIND_WORD: Record<ChartKind, MessageKey> = {
@@ -70,7 +75,8 @@ export async function renderPng(b: BuiltPicture): Promise<Uint8Array> {
   ctx.fillRect(0, 0, plan.width, plan.height);
   ctx.restore();
 
-  // The caption.
+  // The caption (a paper page has its title block inside the chart instead).
+  if (b.pageMm || !b.caption) return toPng(canvas);
   ctx.setTransform(plan.scale, 0, 0, plan.scale, 0, 0);
   ctx.font = `12px ${b.theme.font}`;
   ctx.fillStyle = b.theme.ink2;
@@ -82,6 +88,10 @@ export async function renderPng(b: BuiltPicture): Promise<Uint8Array> {
   while (text.length > 1 && ctx.measureText(text).width > room) text = text.slice(0, -2).trimEnd() + '…';
   ctx.fillText(text, left, plan.view.h + CAPTION_H / 2);
 
+  return toPng(canvas);
+}
+
+async function toPng(canvas: HTMLCanvasElement): Promise<Uint8Array> {
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
   if (!blob) throw new Error(t('picture.failed'));
   return new Uint8Array(await blob.arrayBuffer());
@@ -140,9 +150,12 @@ export function renderSvg(b: BuiltPicture): Uint8Array {
   const left = plan.view.w > 2 * MARGIN ? MARGIN : 12;
   const f = parseFont(`12px ${b.theme.font}`);
   const caption =
-    `<text x="${left}" y="${plan.view.h + CAPTION_H / 2}" font-family="${escapeXml(f.family)}" font-size="${f.size}" dominant-baseline="central" ` +
+    b.pageMm || !b.caption
+      ? ''
+      : `<text x="${left}" y="${plan.view.h + CAPTION_H / 2}" font-family="${escapeXml(f.family)}" font-size="${f.size}" dominant-baseline="central" ` +
     `fill="${escapeXml(b.theme.ink2)}">${escapeXml(b.caption)}</text>\n`;
-  return new TextEncoder().encode(ctx.toSvg(b.theme.paper, plan.view, caption));
+  const physical = b.pageMm ? { w: `${b.pageMm.w}mm`, h: `${b.pageMm.h}mm` } : undefined;
+  return new TextEncoder().encode(ctx.toSvg(b.theme.paper, plan.view, caption, physical));
 }
 
 /**
@@ -183,10 +196,32 @@ export async function savePicture(
     await deps.api.savePicture(dest, bytes);
     if (deps.platform.isMobile && deps.platform.deliver && !(await deps.platform.deliver(dest))) return;
     const scaled = format === 'png' && plan.reduced;
-    const message = scaled
+    const base = scaled
       ? t('picture.savedScaled', { percent: plan.percent }) + (plan.percent < 50 ? ` ${t('picture.svgHint')}` : '')
       : t('picture.saved');
+    const message = built.warning ? `${base} ${built.warning}` : base;
     notices.show({ message, ...(deps.platform.isMobile ? {} : { actionLabel: t('exp.reveal'), onaction: () => void deps.platform.reveal(dest) }) });
+  } catch (e) {
+    notices.show({ message: messageOf(e) });
+  } finally {
+    args.setBusy(false);
+  }
+}
+
+/** Builds the A3 picture as SVG and sends it to the system print dialog. */
+export async function printPicture(args: { build: (format: PictureFormat) => Promise<BuiltPicture | null>; setBusy: (busy: boolean) => void }): Promise<void> {
+  args.setBusy(true);
+  try {
+    await yieldFrame();
+    const built = await args.build('svg');
+    if (!built || !built.pageMm) {
+      notices.show({ message: t('picture.nothing') });
+      return;
+    }
+    await later();
+    const svg = new TextDecoder().decode(renderSvg(built));
+    await printHtml(printDocument(svg, built.pageMm.orientation));
+    if (built.warning) notices.show({ message: built.warning });
   } catch (e) {
     notices.show({ message: messageOf(e) });
   } finally {

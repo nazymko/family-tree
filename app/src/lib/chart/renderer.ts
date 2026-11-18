@@ -44,6 +44,8 @@ export interface DrawOpts {
   focusMore?: ReadonlySet<number>;
   /** People marked with Shift+click (to build the next chart around them): a check badge and a frame. */
   marked?: ReadonlySet<string>;
+  /** Forces the level of detail (a print draws full text at any scale). */
+  lod?: Lod;
 }
 
 /** The check-mark badge and frame of the boxes marked with Shift+click. */
@@ -278,7 +280,7 @@ export function draw(
   const { theme, selected, focus } = opts;
   const kind = opts.kind ?? 'pedigree';
   const z = cam.zoom;
-  const lod = lodFor(z);
+  const lod = opts.lod ?? lodFor(z);
 
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   ctx.clearRect(0, 0, view.w, view.h);
