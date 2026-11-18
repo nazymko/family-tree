@@ -57,7 +57,9 @@ It can add:
   [Photographed documents](#photographed-documents));
 - the **transcription** of a picture: what is written on it, piece by piece, with where each piece is;
 - how a picture is **turned** in the app, so that sideways writing reads upright (on its own pictures, or on one nobody has
-  turned yet).
+  turned yet);
+- **versions** of one page: files that show the same page in other quality, grouped so the app shows them as one picture
+  (never a group you made).
 
 It works in **batches**. A batch has a title, such as the name of the file the agent is working from, and ends with the
 agent's own report: what it added, what it left unsettled, and questions for the family.
@@ -167,6 +169,14 @@ An agent can attach a picture of a document and write down what is on it.
   how the picture is shown changes: the places of the transcription stay measured on the picture upright by its EXIF
   orientation, before this turn, and `get_media` sends the agent that same unturned picture, with the turn as a number
   beside it, so the places and the picture always match.
+- `group_media_versions` groups files that show the very same page or document in other quality, such as a new scan and
+  an older small copy (inputs: the batch, `primary`, and `others`, a list of media ids). The app then shows one picture for
+  the group, the primary, with a «2 versions» badge, and the viewer switches between them. The primary is usually the one
+  with the most pixels; `get_media` and `list_media` give the width and height, and show a group as `versionPrimary` and
+  `versions`. Nothing is deleted or moved: each file keeps its transcription, its links and its history. A file already in
+  a group someone else made stays there and the call is refused; the agent may only add files to a group whose primary is
+  the one it names. It never takes a file out of a group. The same group again answers `alreadyThere`; **Undo** takes it
+  back with the batch.
 - `update_own_media` corrects the title, description, date and place of a picture, document or recording (inputs: the
   batch, the media, and any of `title`, `description`, `date`, `place`; at least one). What is left out stays; an empty
   title, description or place takes it away. The date is read like the date of `add_media`, and a date that cannot be

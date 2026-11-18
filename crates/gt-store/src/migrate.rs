@@ -34,8 +34,12 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
         include_str!("migrations/0010_source_kind.sql"),
     ),
     (
-        "0011_godparents",
-        include_str!("migrations/0011_godparents.sql"),
+        "0011_media_versions",
+        include_str!("migrations/0011_media_versions.sql"),
+    ),
+    (
+        "0012_godparents",
+        include_str!("migrations/0012_godparents.sql"),
     ),
 ];
 

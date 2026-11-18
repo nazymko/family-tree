@@ -212,6 +212,7 @@ impl Session {
             .filter(|n| !n.is_empty());
         Ok(StagedPicture {
             media: Media {
+                version_of: None,
                 place: None,
                 common: crate::ops::new_common(now),
                 path: rel,

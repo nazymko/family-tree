@@ -338,3 +338,28 @@ fn a_file_without_patr_keeps_the_whole_given_text() {
     assert_eq!(n.patronymic, None);
     assert!(!ex(&b.tree, GedcomVersion::V551).contains("_PATR"));
 }
+
+#[test]
+fn every_version_of_a_page_is_exported_as_its_own_object() {
+    let src = "0 HEAD\n0 @I1@ INDI\n1 NAME Marta /Hrytsenko/\n1 OBJE @O2@\n\
+               0 @O1@ OBJE\n1 FILE register-scan.jpg\n2 FORM jpg\n\
+               0 @O2@ OBJE\n1 FILE register-copy.jpg\n2 FORM jpg\n0 TRLR\n";
+    let mut t = import(src.as_bytes(), &opts()).tree;
+    let ids: Vec<_> = t.media.keys().copied().collect();
+    let scan = *ids
+        .iter()
+        .find(|id| t.media[*id].path.contains("scan"))
+        .unwrap();
+    let copy = *ids.iter().find(|id| **id != scan).unwrap();
+    t.media.get_mut(&copy).unwrap().version_of = Some(scan);
+    for v in [GedcomVersion::V551, GedcomVersion::V70] {
+        let out = ex(&t, v);
+        assert!(out.contains("register-scan.jpg"), "{out}");
+        assert!(out.contains("register-copy.jpg"), "{out}");
+        assert_eq!(
+            out.matches(" OBJE\r\n").count() + out.matches(" OBJE\n").count(),
+            2,
+            "{out}"
+        );
+    }
+}

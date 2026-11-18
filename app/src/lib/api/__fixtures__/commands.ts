@@ -51,6 +51,8 @@ export const commandFixtureMap = {
     regions: [{ id: `${ID}a`, area: { x: 0.1, y: 0.2, w: 0.5, h: 0.1 }, rotation: 90, text: 'Dear Olha,' }, { text: 'Signed below' }],
   },
   setMediaRotation: { type: 'setMediaRotation', id: `${ID}9`, rotation: 270 },
+  groupMediaVersions: { type: 'groupMediaVersions', primary: `${ID}9`, others: [`${ID}8`] },
+  ungroupMediaVersion: { type: 'ungroupMediaVersion', media: `${ID}8`, newPrimary: `${ID}7` },
   addAudioClip: { type: 'addAudioClip', target: { kind: 'note', id: `${ID}5` }, media: `${ID}9`, startMs: 65000, endMs: 102500, label: 'How the house was built' },
   updateAudioClip: {
     type: 'updateAudioClip',

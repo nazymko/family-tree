@@ -121,6 +121,10 @@ fn write_needs_batch() {
             json!({"media": id, "region": id, "text": "x"}),
         ),
         ("set_media_rotation", json!({"media": id, "rotation": 90})),
+        (
+            "group_media_versions",
+            json!({"primary": id, "others": [id]}),
+        ),
         ("update_own_media", json!({"media": id, "title": "x"})),
     ];
     for (tool, args) in writes {
@@ -1415,6 +1419,8 @@ fn only_the_tools_named_here_can_write() {
             "update_own_audio_clip",
             // How a picture is shown: on the agent's own, or one nobody has turned.
             "set_media_rotation",
+            // Files of one page in other quality, shown as one: never a group someone else made.
+            "group_media_versions",
             // Title, description, date and place of a media record: its own, or what is empty.
             "update_own_media",
             // Godparents of a baptism: added as items of the event; taken off only the agent's own.

@@ -13,8 +13,10 @@
   import { isPdf, mediaLabel, openOriginal } from './MediaGrid.svelte';
   import TextOverlay from './TextOverlay.svelte';
   import FullTextPanel from './FullTextPanel.svelte';
+  import VersionPicker from './VersionPicker.svelte';
+  import { bestPrimary, groupCommand, linkedMember, sizeText, versionsOf, type ShownLink } from './versions';
   import { toInput, turnedBy, type Rotation } from './transcription';
-  import type { EditCommand, Id, MediaLinkDto, OwnerRef, TextRegionDto } from '../api/api';
+  import type { EditCommand, Id, MediaDto, MediaLinkDto, OwnerRef, TextRegionDto } from '../api/api';
   import { t } from '../i18n';
 
   let {
@@ -24,6 +26,7 @@
     onClose,
     onChanged,
   }: {
+    /** One link per version group (see `collapseVersions`): the group's primary, with its versions. */
     items: MediaLinkDto[];
     index: number;
     /** When it is a person, P sets the shown photo as that person's primary photo. */
@@ -54,8 +57,62 @@
     if (at >= items.length) at = Math.max(items.length - 1, 0);
   });
 
-  const link = $derived(items[at]);
-  const m = $derived(link?.media);
+  const link = $derived(items[at] as ShownLink | undefined);
+  /** The page as listed: the group's primary, with every version of it. */
+  const head = $derived(link?.media);
+  /** Every file of the page, primary first; empty when it is kept in one file. */
+  const versions = $derived(head ? versionsOf(head) : []);
+  /** Which version of each page is on screen, by the id of the page's primary; the primary until another is chosen. */
+  let viewing = $state<Record<Id, Id>>({});
+  /** The file on screen: the primary, or the version chosen in the switcher. Text, turn and fields are this file's. */
+  const m = $derived(head ? (versions.find((v) => v.id === viewing[head.id]) ?? head) : undefined);
+  /** The file this record links to, for Remove and primary photo: the one on screen when it is linked. */
+  const linkedId = $derived(link && m ? linkedMember(link, m.id) : undefined);
+  /** Another version has a transcription while the one on screen has none. */
+  const textElsewhere = $derived(
+    m && !m.transcription.some((r) => r.text.trim()) ? versions.find((v) => v.id !== m.id && v.transcription.some((r) => r.text.trim())) : undefined,
+  );
+  let picking = $state(false);
+
+  function showVersion(id: Id) {
+    if (!head || m?.id === id) return;
+    panel?.flush();
+    viewing = { ...viewing, [head.id]: id };
+    selected = null;
+    drawing = false;
+    fit();
+  }
+
+  /** Saves a change to the group and tells the parent; the viewer stays on the same page. */
+  async function applyGroup(cmd: EditCommand) {
+    error = '';
+    try {
+      await api.apply(cmd);
+      onChanged?.();
+    } catch (e) {
+      error = errMessage(e, t('edit.wentWrong'));
+    }
+  }
+
+  async function groupWith(picked: MediaDto) {
+    picking = false;
+    void keepFocusInside();
+    if (!head) return;
+    const cmd = groupCommand(head, picked);
+    if (cmd) await applyGroup(cmd);
+  }
+
+  function makePrimary() {
+    if (m && head && m.id !== head.id) void applyGroup({ type: 'groupMediaVersions', primary: m.id, others: [] });
+  }
+
+  function ungroupShown() {
+    if (!m || !head) return;
+    // The primary leaves: the largest of the rest is shown first from now on.
+    const rest = versions.filter((v) => v.id !== m.id);
+    const next = m.id === head.id ? bestPrimary(rest)?.id : undefined;
+    void applyGroup({ type: 'ungroupMediaVersion', media: m.id, ...(next ? { newPrimary: next } : {}) });
+  }
   const title = $derived(m ? (edits[m.id]?.title ?? m.title ?? '') : '');
   const description = $derived(m ? (edits[m.id]?.description ?? m.description ?? '') : '');
   /** Web pages this picture came from (http and https only), each with the host its button names. */
@@ -76,7 +133,7 @@
       error = errMessage(e, t('edit.wentWrong'));
     }
   }
-  const primary = $derived(!!link?.primary || (m ? primaryIds.has(m.id) : false));
+  const primary = $derived(!!link?.primary || (linkedId ? primaryIds.has(linkedId) : false));
 
   // The transcription: boxes on the picture and the full text beside it.
   /** Outlines of every piece are drawn; off, the pieces are still there to hover and tap, but not drawn. */
@@ -209,11 +266,11 @@
   }
 
   async function setPrimary() {
-    if (!m || !m.resolved || isPdf(m) || target?.kind !== 'person') return;
+    if (!m || !linkedId || !m.resolved || isPdf(m) || target?.kind !== 'person') return;
     error = '';
     try {
-      await api.apply({ type: 'setPrimaryMedia', person: target.id, media: m.id }, { silent: true });
-      primaryIds = new Set([...primaryIds, m.id]);
+      await api.apply({ type: 'setPrimaryMedia', person: target.id, media: linkedId }, { silent: true });
+      primaryIds = new Set([...primaryIds, linkedId]);
       notices.show({ message: t('media.primarySet') });
       onChanged?.();
     } catch (e) {
@@ -288,6 +345,7 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
+    if (picking) return;
     const t = e.target as HTMLElement;
     if (t.matches('input, textarea, select') || e.ctrlKey || e.metaKey || e.altKey) return;
     switch (e.key) {
@@ -400,6 +458,23 @@
           </div>
         {/if}
       </div>
+      {#if versions.length > 1}
+        <div class="bar versions" role="group" aria-label={t('media.quality')} data-testid="version-switcher">
+          <span>{t('media.quality')}</span>
+          {#each versions as v, i (v.id)}
+            {@const size = sizeText(v) ?? t('media.versionUnknownSize')}
+            <Button aria-pressed={v.id === m.id} title={mediaLabel(v)} onclick={() => showVersion(v.id)}
+              >{t(i === 0 ? 'media.versionPrimary' : 'media.versionOther', { size })}</Button
+            >
+          {/each}
+        </div>
+      {/if}
+      {#if textElsewhere}
+        <p class="hint" data-testid="version-text-hint">
+          {t('media.versionOtherHasText')}
+          <Button onclick={() => textElsewhere && showVersion(textElsewhere.id)}>{t('media.versionShowIt')}</Button>
+        </p>
+      {/if}
       {#if m.resolved && !(m.mime ?? '').startsWith('audio/')}
         <div class="bar" role="group" aria-label={t('media.fullText')}>
           {#if picture && placedAny}
@@ -437,8 +512,15 @@
             <Button title={page.url} onclick={() => openWebPage(page.url)}><Icon name="external-link" /> {t('media.openWebPage', { host: page.host })}</Button>
           {/each}
         {/if}
+        <Button onclick={() => (picking = true)}>{t('media.groupVersions')}</Button>
+        {#if versions.length > 1 && head && m.id !== head.id}
+          <Button onclick={makePrimary}>{t('media.makePrimaryVersion')}</Button>
+        {/if}
+        {#if versions.length > 1}
+          <Button onclick={ungroupShown}>{t('media.ungroupVersion')}</Button>
+        {/if}
         {#if target}
-          <Button disabled={busy} onclick={() => target && remove({ type: 'detachMedia', target, media: m.id })}>{t(target.kind === 'source' ? 'media.unlinkSource' : 'media.unlink')}</Button>
+          <Button disabled={busy} onclick={() => target && remove({ type: 'detachMedia', target, media: linkedId ?? m.id })}>{t(target.kind === 'source' ? 'media.unlinkSource' : 'media.unlink')}</Button>
         {/if}
         <Button variant="danger" disabled={busy} onclick={() => (confirming = true)}>{t('media.deleteFromTree')}</Button>
       </div>
@@ -461,6 +543,16 @@
           onselect={(id) => (selected = id)}
           onchange={saveRegions}
           onleave={() => stage?.focus()}
+        />
+      {/if}
+      {#if picking}
+        <VersionPicker
+          exclude={versions.length > 1 ? versions.map((v) => v.id) : [m.id]}
+          onpick={groupWith}
+          onclose={() => {
+            picking = false;
+            void keepFocusInside();
+          }}
         />
       {/if}
       {#key m.id}
@@ -535,6 +627,15 @@
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: var(--s-3);
+  }
+  .hint {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-3);
+    margin: 0;
+    font-size: var(--t-sm);
+    color: var(--ink-1);
   }
   .bar {
     display: flex;

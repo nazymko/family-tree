@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
-//! Godparents in the project file: saved and read back in order, and the schema 11 migration
+//! Godparents in the project file: saved and read back in order, and the schema 12 migration
 //! that turns an older project's godparent participants into godparents.
 
 mod common;
@@ -82,7 +82,7 @@ fn an_older_project_s_godparent_participants_become_godparents() {
     }
     {
         let c = Connection::open(dir.join("tree.db")).unwrap();
-        c.execute_batch("DROP TABLE godparent; PRAGMA user_version = 10;")
+        c.execute_batch("DROP TABLE godparent; PRAGMA user_version = 11;")
             .unwrap();
     }
     let p = Project::open(&dir).unwrap();

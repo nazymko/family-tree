@@ -276,6 +276,8 @@ const LABELS: Record<EditCommand['type'], string> = {
   updateMedia: 'Edit media',
   setMediaTranscription: 'Edit transcription',
   setMediaRotation: 'Turn picture',
+  groupMediaVersions: 'Group versions',
+  ungroupMediaVersion: 'Ungroup version',
   addAudioClip: 'Add clip',
   updateAudioClip: 'Edit clip',
   deleteAudioClip: 'Delete clip',
@@ -610,7 +612,7 @@ export class MockApi implements Api {
       partnerships: this.partnerships(id),
       notes: p.notes,
       // The person holds copies; edits (title, transcription) land on the media store.
-      media: p.media.map((l) => ({ ...l, media: this.db.media.get(l.media.id) ?? l.media })),
+      media: p.media.map((l) => ({ ...l, media: this.shownMedia(l.media.id) ?? l.media })),
       citations: p.citations,
       ...this.godchildrenField(id),
       changed: p.changed,
@@ -829,7 +831,7 @@ export class MockApi implements Api {
     const q = fold(prefix.trim());
     const out: SourceDto[] = [];
     for (const s of this.db.sources.values()) {
-      if (!q || fold(s.title ?? '').includes(q)) out.push(s);
+      if (!q || fold(s.title ?? '').includes(q)) out.push({ ...s, media: s.media?.map((l) => ({ ...l, media: this.shownMedia(l.media.id) ?? l.media })) });
       if (out.length >= Math.min(limit, MAX_SEARCH)) break;
     }
     return structuredClone(out);
@@ -1721,6 +1723,45 @@ export class MockApi implements Api {
       throw new Error('Family Tree will only open photos and PDF documents. This file is some other kind of file, so it was not opened.');
     }
     this.openedMedia.push(id);
+  }
+
+  /** The primary of a media item's version group: the item itself when it is in none. */
+  private versionHead(id: Id): Id {
+    const p = this.db.versionOf?.get(id);
+    return p && this.db.media.has(p) ? p : id;
+  }
+
+  /** The whole version group of a media item, primary first, then the most pixels first; one item when it has none. */
+  private versionGroup(id: Id): Id[] {
+    const head = this.versionHead(id);
+    const px = (m: Id) => {
+      const d = this.db.media.get(m);
+      return (d?.width ?? 0) * (d?.height ?? 0);
+    };
+    const rest = [...(this.db.versionOf ?? new Map<Id, Id>()).entries()].filter(([m, p]) => p === head && m !== head && this.db.media.has(m)).map(([m]) => m);
+    rest.sort((a, b) => px(b) - px(a));
+    return [head, ...rest];
+  }
+
+  /** A media item as the backend sends it: the stored record, with its version group when it has one. */
+  private shownMedia(id: Id): MediaDto | undefined {
+    const m = this.db.media.get(id);
+    if (!m) return undefined;
+    const group = this.versionGroup(id);
+    if (group.length < 2) return { ...m, versions: undefined };
+    return { ...m, versions: group.map((g) => ({ ...this.db.media.get(g)!, versions: undefined })) };
+  }
+
+  async allPictures(): Promise<MediaDto[]> {
+    const out = [...this.db.media.values()]
+      .filter((m) => !(m.mime ?? '').startsWith('audio/') && this.versionHead(m.id) === m.id)
+      .map((m) => {
+        const shown = this.shownMedia(m.id)!;
+        return { ...shown, transcription: [], versions: shown.versions?.map((v) => ({ ...v, transcription: [] })) };
+      });
+    const key = (m: MediaDto) => (m.title ?? m.originalName ?? '').toLowerCase();
+    out.sort((a, b) => key(a).localeCompare(key(b)) || a.id.localeCompare(b.id));
+    return structuredClone(out);
   }
 
   /** Media no record links to: left by a deleted note or person, kept so that Undo can bring the record back. */
@@ -2905,6 +2946,16 @@ export class MockApi implements Api {
           if (wasPrimary && links[0] && !links.some((l) => l.primary)) links[0].primary = true;
           touched.push(owner.id);
         }
+        // The other versions of a deleted primary stay a group, under the largest of them.
+        const versions = this.db.versionOf;
+        if (versions && this.versionHead(cmd.id) === cmd.id) {
+          const [next, ...more] = this.versionGroup(cmd.id).slice(1);
+          if (next) {
+            versions.delete(next);
+            for (const v of more) versions.set(v, next);
+          }
+        }
+        versions?.delete(cmd.id);
         this.db.media.delete(cmd.id);
         return { focus: null, touched };
       }
@@ -3026,6 +3077,43 @@ export class MockApi implements Api {
         if (!links || i < 0) throw missing('clip', cmd.clip);
         links.splice(i, 1);
         return { focus: null, touched: [cmd.target.id, cmd.clip] };
+      }
+
+      case 'groupMediaVersions': {
+        const versions = (this.db.versionOf ??= new Map());
+        const head = this.db.media.get(cmd.primary);
+        if (!head) throw missing('media item', cmd.primary);
+        const members = new Set<Id>();
+        for (const o of [cmd.primary, ...cmd.others]) {
+          const m = this.db.media.get(o);
+          if (!m) throw missing('media item', o);
+          if ((m.mime ?? '').startsWith('audio/') !== (head.mime ?? '').startsWith('audio/')) {
+            throw invalid('A sound recording and a picture cannot be versions of one another.');
+          }
+          for (const g of this.versionGroup(o)) members.add(g);
+        }
+        members.delete(cmd.primary);
+        if (members.size === 0) throw invalid('Choose another file of the same page.');
+        versions.delete(cmd.primary);
+        for (const m of members) versions.set(m, cmd.primary);
+        return { focus: null, touched: [cmd.primary, ...members] };
+      }
+
+      case 'ungroupMediaVersion': {
+        const versions = (this.db.versionOf ??= new Map());
+        if (!this.db.media.has(cmd.media)) throw missing('media item', cmd.media);
+        const group = this.versionGroup(cmd.media);
+        if (group.length < 2) throw invalid('This file has no other versions.');
+        if (group[0] !== cmd.media) {
+          versions.delete(cmd.media);
+          return { focus: null, touched: [cmd.media] };
+        }
+        const rest = group.slice(1);
+        const next = cmd.newPrimary ?? rest[0];
+        if (!rest.includes(next)) throw invalid('The new primary must be one of the other versions.');
+        versions.delete(next);
+        for (const v of rest) if (v !== next) versions.set(v, next);
+        return { focus: null, touched: group };
       }
 
       case 'setMediaRotation': {

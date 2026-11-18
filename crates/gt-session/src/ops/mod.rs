@@ -10,6 +10,7 @@ pub mod godparent;
 mod media;
 pub(crate) use event::plan_date_correction;
 pub(crate) use family::plan_child_link_removal;
+pub use media::VERSION_GROUP_MAX;
 pub(crate) use media::{can_turn, plan_attach};
 mod person;
 pub(crate) use person::agent_number;
@@ -489,6 +490,12 @@ pub fn plan_with(
             lon_e6,
         } => places::set_coordinates(&mut p, *place, *lat_e6, *lon_e6)?,
         C::SetMediaRotation { id, rotation } => media::set_rotation(&mut p, *id, *rotation)?,
+        C::GroupMediaVersions { primary, others } => {
+            media::group_versions(&mut p, *primary, others)?
+        }
+        C::UngroupMediaVersion { media, new_primary } => {
+            media::ungroup_version(&mut p, *media, *new_primary)?
+        }
         C::AddAudioClip {
             target,
             media,

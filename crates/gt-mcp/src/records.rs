@@ -404,8 +404,12 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         transcription,
         rotation: _,
         place,
+        version_of: _,
     } = media;
     let rotation = media.shown_rotation();
+    // The same page in other files: the group's primary first. Absent with no other versions.
+    let group = s.tree().version_group(common.id);
+    let versions = (group.len() > 1).then_some(&group);
     let link = MediaLink {
         media: common.id,
         region: None,
@@ -431,6 +435,8 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         "transcriptionParts": transcription.len(),
         // How the app shows the picture, clockwise on top of EXIF; the areas are before it.
         "rotation": rotation,
+        "versionPrimary": versions.map(|g| g[0]),
+        "versions": versions,
     }))
 }
 

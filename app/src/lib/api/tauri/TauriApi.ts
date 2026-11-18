@@ -218,6 +218,9 @@ export class TauriApi implements Api {
   unlinkedMedia(): Promise<MediaDto[]> {
     return call('unlinked_media');
   }
+  allPictures(): Promise<MediaDto[]> {
+    return call('all_pictures');
+  }
   getRecording(media: Id): Promise<RecordingDto> {
     return call('get_recording', { media });
   }

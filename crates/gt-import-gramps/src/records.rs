@@ -820,6 +820,7 @@ impl<'a> Ctx<'a> {
         self.tree.media.insert(
             id,
             Media {
+                version_of: None,
                 place: None,
                 common: c,
                 path,

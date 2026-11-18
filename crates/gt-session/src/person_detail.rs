@@ -226,47 +226,100 @@ impl Session {
 
     pub fn media_dtos(&self, links: &[MediaLink]) -> Vec<MediaLinkDto> {
         let from_sources = self.source_texts_of(links);
+        let groups = self.tree.version_index();
         links
             .iter()
             .filter_map(|l| {
-                let md = self.tree.media.get(&l.media)?;
+                let mut media = self.media_dto(l.media, &from_sources)?;
+                media.versions = self.version_dtos_in(&groups, l.media);
                 Some(MediaLinkDto {
-                    media: MediaDto {
-                        id: l.media,
-                        title: md.title.clone(),
-                        mime: md.mime.clone(),
-                        original_name: md.original_name.clone(),
-                        date: md.date.as_ref().map(date_dto),
-                        description: md.description.clone(),
-                        place: md.place.and_then(|p| self.place_option(p)),
-                        resolved: self.media_file_exists(&md.path),
-                        width: self.media_dims(l.media, &md.path).0,
-                        height: self.media_dims(l.media, &md.path).1,
-                        sha256: md.sha256.clone(),
-                        transcription: md.transcription.iter().map(text_region_dto).collect(),
-                        rotation: md.shown_rotation(),
-                        duration_ms: md
-                            .mime
-                            .as_deref()
-                            .is_some_and(|t| t.starts_with("audio/"))
-                            .then(|| self.media_length(l.media))
-                            .flatten()
-                            .map(|len| len.ms),
-                        web_links: crate::web_links::collect(
-                            md.description.iter().map(String::as_str).chain(
-                                from_sources
-                                    .get(&l.media)
-                                    .into_iter()
-                                    .flatten()
-                                    .map(String::as_str),
-                            ),
-                        ),
-                    },
+                    media,
                     primary: l.primary,
                     clip: l.clip.as_ref().map(clip_dto),
                 })
             })
             .collect()
+    }
+
+    /// Every file of the version group of `media`, the primary first, then by pixel count, largest
+    /// first; empty for a file with no other versions.
+    pub fn version_dtos(&self, media: Uuid) -> Vec<MediaDto> {
+        self.version_dtos_in(&self.tree.version_index(), media)
+    }
+
+    fn version_dtos_in(
+        &self,
+        groups: &std::collections::HashMap<Uuid, Vec<Uuid>>,
+        media: Uuid,
+    ) -> Vec<MediaDto> {
+        let primary = self.tree.version_primary(media);
+        let Some(rest) = groups.get(&primary) else {
+            return Vec::new();
+        };
+        let group: Vec<Uuid> = std::iter::once(primary)
+            .chain(rest.iter().copied())
+            .collect();
+        let links: Vec<MediaLink> = group
+            .iter()
+            .map(|id| MediaLink {
+                media: *id,
+                region: None,
+                primary: false,
+                clip: None,
+            })
+            .collect();
+        let from_sources = self.source_texts_of(&links);
+        let mut out: Vec<MediaDto> = group
+            .iter()
+            .filter_map(|id| self.media_dto(*id, &from_sources))
+            .collect();
+        let pixels =
+            |m: &MediaDto| u64::from(m.width.unwrap_or(0)) * u64::from(m.height.unwrap_or(0));
+        if let Some(rest) = out.get_mut(1..) {
+            rest.sort_by_key(|m| std::cmp::Reverse(pixels(m)));
+        }
+        out
+    }
+
+    /// One media record as the app shows it, without its versions.
+    fn media_dto(
+        &self,
+        id: Uuid,
+        from_sources: &std::collections::HashMap<Uuid, Vec<String>>,
+    ) -> Option<MediaDto> {
+        let md = self.tree.media.get(&id)?;
+        Some(MediaDto {
+            id,
+            title: md.title.clone(),
+            mime: md.mime.clone(),
+            original_name: md.original_name.clone(),
+            date: md.date.as_ref().map(date_dto),
+            description: md.description.clone(),
+            place: md.place.and_then(|p| self.place_option(p)),
+            resolved: self.media_file_exists(&md.path),
+            width: self.media_dims(id, &md.path).0,
+            height: self.media_dims(id, &md.path).1,
+            sha256: md.sha256.clone(),
+            transcription: md.transcription.iter().map(text_region_dto).collect(),
+            rotation: md.shown_rotation(),
+            duration_ms: md
+                .mime
+                .as_deref()
+                .is_some_and(|t| t.starts_with("audio/"))
+                .then(|| self.media_length(id))
+                .flatten()
+                .map(|len| len.ms),
+            web_links: crate::web_links::collect(
+                md.description.iter().map(String::as_str).chain(
+                    from_sources
+                        .get(&id)
+                        .into_iter()
+                        .flatten()
+                        .map(String::as_str),
+                ),
+            ),
+            versions: Vec::new(),
+        })
     }
 
     /// The texts of every source that holds one of these media (title, publication, text, call

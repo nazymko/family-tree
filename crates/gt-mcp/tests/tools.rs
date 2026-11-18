@@ -444,6 +444,7 @@ fn host_with_imported_media(mime: Option<&str>, bytes: &[u8]) -> (TestHost, Uuid
     tree.media.insert(
         id,
         Media {
+            version_of: None,
             place: None,
             common: Common {
                 id,
@@ -1880,6 +1881,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
     tree.media.insert(
         ids.media,
         Media {
+            version_of: None,
             place: None,
             common: common(ids.media, "media", &second),
             path: mark("media-path"),
@@ -1894,6 +1896,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
         },
     );
     let plain_media = |id: Uuid, title: &str| Media {
+        version_of: None,
         place: None,
         common: plain(id),
         path: mark("plain-path"),

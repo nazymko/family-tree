@@ -658,6 +658,7 @@ fn media_rows(m: &Media, w: &dyn Words) -> Vec<Row> {
         transcription,
         rotation,
         place,
+        version_of,
     } = m;
     let written = gt_core::model::transcription_text(transcription);
     let mut out = vec![
@@ -672,6 +673,8 @@ fn media_rows(m: &Media, w: &dyn Words) -> Vec<Row> {
         row("transcription", Some(written).filter(|s| !s.is_empty())),
         // How the picture is shown: "90°" clockwise; "0°" once someone set it back upright.
         row("mediaRotation", rotation.map(|r| format!("{r}°"))),
+        // Another file of the same page: the one shown first.
+        row("versionOf", version_of.map(|v| w.media(v))),
     ];
     out.extend(common_rows(common, w));
     out

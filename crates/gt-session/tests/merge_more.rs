@@ -403,7 +403,7 @@ fn a_copy_saved_by_the_previous_schema_is_read_in_a_scratch_copy_only() {
     drop(rel);
     let db = rel_dir.join("tree.db");
     let c = rusqlite::Connection::open(&db).unwrap();
-    c.execute_batch("DROP TABLE godparent; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; ALTER TABLE media_link DROP COLUMN clip_id; ALTER TABLE media_link DROP COLUMN clip_start_ms; ALTER TABLE media_link DROP COLUMN clip_end_ms; ALTER TABLE media_link DROP COLUMN clip_label; ALTER TABLE media DROP COLUMN rotation; ALTER TABLE media DROP COLUMN transcription_json; DROP TABLE merged_group; DROP TABLE merge_alias; PRAGMA user_version = 4;")
+    c.execute_batch("DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; ALTER TABLE media_link DROP COLUMN clip_id; ALTER TABLE media_link DROP COLUMN clip_start_ms; ALTER TABLE media_link DROP COLUMN clip_end_ms; ALTER TABLE media_link DROP COLUMN clip_label; ALTER TABLE media DROP COLUMN rotation; ALTER TABLE media DROP COLUMN transcription_json; DROP TABLE merged_group; DROP TABLE merge_alias; PRAGMA user_version = 4;")
         .unwrap();
     drop(c);
     let before = std::fs::read(&db).unwrap();

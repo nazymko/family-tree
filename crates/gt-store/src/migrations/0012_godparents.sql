@@ -1,4 +1,4 @@
--- Schema v11: who stood godparent at a baptism or christening. A godparent is a person in the
+-- Schema v12: who stood godparent at a baptism or christening. A godparent is a person in the
 -- tree (person_id) or only a name as the record writes it (name); exactly one of the two is set.
 -- role is `godfather`, `godmother` or `godparent` (not said which). The rows belong to their event.
 CREATE TABLE godparent (
