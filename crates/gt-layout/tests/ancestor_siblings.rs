@@ -233,12 +233,22 @@ fn a_couple_and_a_sibling_of_one_of_them_in_every_order() {
 
 #[test]
 #[ignore = "heavy tier"]
-fn heavy_two_deep_pedigrees_with_all_kin_lay_out_fast_without_overlaps() {
+fn heavy_two_deep_pedigrees_with_all_kin_lay_out_without_overlaps() {
+    // No clock here: in the gate this runs beside the other heavy tests and other builds, and a debug-build time
+    // budget failed under that load (21 s) while the test alone took 9 s. The time is checked by the release budget below.
     let s = MapSource::ahnen_tree(1 << 13);
-    let t = std::time::Instant::now();
     let l = around_many_kin(&s, &[4, 5], 255, ManyKin::All, &Metrics::default(), 100_000);
     let q = quality(&l);
     assert_eq!(q.box_overlaps, 0, "{q:?}");
     assert!(l.nodes.len() > 1000);
-    assert!(t.elapsed().as_secs() < 20, "{:?}", t.elapsed());
+}
+
+#[test]
+#[ignore = "release-only budget check"]
+fn budget_two_deep_pedigrees_with_all_kin() {
+    let s = MapSource::ahnen_tree(1 << 13);
+    let t = std::time::Instant::now();
+    let l = around_many_kin(&s, &[4, 5], 255, ManyKin::All, &Metrics::default(), 100_000);
+    assert!(l.nodes.len() > 1000);
+    assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
 }
