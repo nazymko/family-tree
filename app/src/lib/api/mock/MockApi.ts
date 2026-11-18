@@ -36,6 +36,9 @@ import type {
   EditResult,
   EventDto,
   EventInput,
+  GodchildDto,
+  GodparentDto,
+  GodparentInput,
   ExifSuggestion,
   ExportOptions,
   FamilyDto,
@@ -249,6 +252,8 @@ const LABELS: Record<EditCommand['type'], string> = {
   deleteName: 'Delete name',
   saveEvent: 'Save event',
   deleteEvent: 'Delete event',
+  addGodparent: 'Add godparent',
+  removeGodparent: 'Remove godparent',
   quickAdd: 'Add person',
   linkExisting: 'Add person',
   saveFamily: 'Save family',
@@ -607,8 +612,46 @@ export class MockApi implements Api {
       // The person holds copies; edits (title, transcription) land on the media store.
       media: p.media.map((l) => ({ ...l, media: this.db.media.get(l.media.id) ?? l.media })),
       citations: p.citations,
+      ...(this.godchildrenOf(id).length > 0 ? { godchildren: this.godchildrenOf(id) } : {}),
       changed: p.changed,
     });
+  }
+
+  /** Everyone `id` stood godparent for (linked godparents only), oldest first. */
+  private godchildrenOf(id: Id): GodchildDto[] {
+    const out: { sort: number; row: GodchildDto }[] = [];
+    for (const child of this.db.persons.values()) {
+      for (const e of child.events) {
+        for (const g of e.godparents ?? []) {
+          if (g.person?.id !== id) continue;
+          out.push({ sort: e.date?.sortMin ?? Infinity, row: { event: e.id, kind: e.kind, date: e.date, person: this.ref(child), role: g.role } });
+        }
+      }
+    }
+    return out.sort((a, b) => a.sort - b.sort).map((x) => x.row);
+  }
+
+  /** One godparent from the input, checked as the Rust planner checks it. */
+  private godparentFrom(input: GodparentInput, old: GodparentDto[], principal: Id | null): GodparentDto {
+    const name = input.name?.trim() || null;
+    if ((input.person ? 1 : 0) + (name ? 1 : 0) !== 1)
+      throw invalid('A godparent is either a person in the tree or a name as the record writes it: give one of the two.');
+    if (!['godfather', 'godmother', 'godparent'].includes(input.role)) throw invalid(`"${input.role}" is not a godparent's role. Use godfather or godmother.`);
+    if (input.person && input.person === principal) throw invalid('Nobody is their own godparent.');
+    const keep = input.id && old.some((g) => g.id === input.id) ? input.id : this.ids.next();
+    return {
+      id: keep,
+      role: input.role,
+      person: input.person ? this.ref(this.person(input.person)) : null,
+      name,
+      note: input.note?.trim() || null,
+    };
+  }
+
+  private static sameGodparent(a: GodparentDto, b: GodparentDto): boolean {
+    if (a.person || b.person) return !!a.person && !!b.person && a.person.id === b.person.id;
+    const fold = (s: string | null) => (s ?? '').split(/\s+/).filter(Boolean).join(' ').toLowerCase();
+    return fold(a.name) === fold(b.name);
   }
 
   async getFamilyView(id: Id): Promise<FamilyViewDto> {
@@ -2535,6 +2578,13 @@ export class MockApi implements Api {
       order: this.settings.dayOrder,
     });
     ev.participants = (input.participants ?? []).map((x) => ({ person: this.ref(this.person(x.person)), role: x.role }));
+    const had = existing?.godparents ?? [];
+    const principal = ev.participants.find((x) => x.role === 'principal')?.person.id ?? null;
+    const gods = input.godparents ? input.godparents.map((g) => this.godparentFrom(g, had, principal)) : had;
+    gods.forEach((g, i) => {
+      if (gods.slice(0, i).some((o) => MockApi.sameGodparent(o, g))) throw invalid('The same godparent is in the list twice.');
+    });
+    if (gods.length > 0) ev.godparents = gods;
     if (existing) {
       ev.citations = existing.citations;
       ev.notes = existing.notes;
@@ -2619,6 +2669,31 @@ export class MockApi implements Api {
         if (i < 0) throw missing('event', cmd.event);
         holder.events.splice(i, 1);
         return { focus: cmd.owner.kind === 'person' ? cmd.owner.id : null, touched: [cmd.owner.id, cmd.event] };
+      }
+
+      case 'addGodparent': {
+        const hit = this.findEvent(cmd.event);
+        if (!hit) throw missing('event', cmd.event);
+        if (hit.ev.kind !== 'baptism' && hit.ev.kind !== 'christening')
+          throw invalid('Godparents go on a baptism or christening. Add that event first, then the godparents to it.');
+        const principal = hit.owner.kind === 'person' ? hit.owner.rec.id : null;
+        const g = this.godparentFrom({ ...cmd.godparent, id: undefined }, [], principal);
+        const list = hit.ev.godparents ?? [];
+        if (list.some((o) => MockApi.sameGodparent(o, g))) throw invalid('This godparent is on the event already.');
+        hit.ev.godparents = [...list, g];
+        return { focus: principal, touched: [hit.ev.id, ...(principal ? [principal] : [])] };
+      }
+
+      case 'removeGodparent': {
+        const hit = this.findEvent(cmd.event);
+        if (!hit) throw missing('event', cmd.event);
+        const list = hit.ev.godparents ?? [];
+        if (!list.some((g) => g.id === cmd.godparent)) throw missing('godparent', cmd.godparent);
+        const rest = list.filter((g) => g.id !== cmd.godparent);
+        if (rest.length > 0) hit.ev.godparents = rest;
+        else delete hit.ev.godparents;
+        const principal = hit.owner.kind === 'person' ? hit.owner.rec.id : null;
+        return { focus: principal, touched: [hit.ev.id, ...(principal ? [principal] : [])] };
       }
 
       case 'quickAdd':

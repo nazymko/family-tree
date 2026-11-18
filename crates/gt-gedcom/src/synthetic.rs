@@ -101,6 +101,7 @@ fn add_event(
             cause: None,
             negative: false,
             assertion: assertion(),
+            godparents: Vec::new(),
             participants: vec![Participant {
                 target: owner,
                 role: Role::Principal,

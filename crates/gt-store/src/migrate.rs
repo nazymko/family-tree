@@ -33,6 +33,10 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
         "0010_source_kind",
         include_str!("migrations/0010_source_kind.sql"),
     ),
+    (
+        "0011_godparents",
+        include_str!("migrations/0011_godparents.sql"),
+    ),
 ];
 
 pub(crate) fn user_version(conn: &Connection) -> Result<i32, StoreError> {

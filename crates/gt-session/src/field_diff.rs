@@ -423,6 +423,7 @@ fn event_rows(e: &Event, w: &dyn Words) -> Vec<Row> {
         negative,
         assertion,
         participants,
+        godparents,
     } = e;
     let mut out = vec![
         row("eventKind", Some(enum_id(kind))),
@@ -444,6 +445,23 @@ fn event_rows(e: &Event, w: &dyn Words) -> Vec<Row> {
             of: Some(who),
             key: Some(id),
             value: Some(enum_id(role)),
+        });
+    }
+    for g in godparents {
+        let who = match (g.person, &g.name) {
+            (Some(p), _) => w.person(p),
+            (None, Some(n)) => n.clone(),
+            (None, None) => String::new(),
+        };
+        let value = match &g.note {
+            Some(n) if !n.trim().is_empty() => format!("{} ({})", g.role.id(), n.trim()),
+            _ => g.role.id().to_string(),
+        };
+        out.push(Row {
+            field: "godparent",
+            of: Some(who),
+            key: Some(g.id),
+            value: Some(value),
         });
     }
     out.extend(common_rows(common, w));

@@ -78,6 +78,7 @@ fn event_input(kind: &str, date: Option<&str>) -> EventInput {
         negative: false,
         private: false,
         preferred: false,
+        godparents: None,
         participants: None,
     }
 }

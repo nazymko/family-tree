@@ -6,6 +6,7 @@ mod delete;
 pub(crate) mod draft;
 mod event;
 mod family;
+pub mod godparent;
 mod media;
 pub(crate) use event::plan_date_correction;
 pub(crate) use family::plan_child_link_removal;
@@ -377,6 +378,12 @@ pub fn plan_with(
         C::DeleteName { person, name } => person::delete_name(&mut p, *person, *name)?,
         C::SaveEvent { owner, event } => event::save_event(&mut p, *owner, event)?,
         C::DeleteEvent { owner, event } => event::delete_event(&mut p, *owner, *event)?,
+        C::AddGodparent { event, godparent } => {
+            godparent::add_godparent(&mut p, *event, godparent)?
+        }
+        C::RemoveGodparent { event, godparent } => {
+            godparent::remove_godparent(&mut p, *event, *godparent)?
+        }
         C::QuickAdd {
             anchor,
             relation,

@@ -351,6 +351,7 @@ fn event_targets(e: &Event, f: &mut dyn FnMut(Uuid)) {
             ParticipantRef::Person(id) | ParticipantRef::Family(id) => f(id),
         }
     }
+    e.godparents.iter().filter_map(|g| g.person).for_each(f);
 }
 
 fn holds_kept(r: &Record, kept: &HashSet<Uuid>) -> bool {

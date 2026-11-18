@@ -48,6 +48,7 @@ fn birth(owner: Uuid, raw: &str) -> EditCommand {
             negative: false,
             private: false,
             preferred: true,
+            godparents: None,
             participants: None,
         },
     }

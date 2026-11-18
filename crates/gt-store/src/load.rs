@@ -301,6 +301,24 @@ impl Project {
             parts.entry(r.get(0)?).or_default().push(p);
         }
 
+        let mut gods: HashMap<String, Vec<Godparent>> = HashMap::new();
+        let mut st = conn.prepare(
+            "SELECT event_id, id, person_id, name, role, note FROM godparent ORDER BY pos, rowid",
+        )?;
+        let mut rows = st.query([])?;
+        while let Some(r) = rows.next()? {
+            let role: String = r.get(4)?;
+            let g = Godparent {
+                id: parse_uuid(&r.get::<_, String>(1)?)?,
+                person: opt_uuid(r.get(2)?)?,
+                name: r.get(3)?,
+                role: GodparentRole::parse(&role)
+                    .ok_or_else(|| corrupt(format!("bad godparent role {role:?}")))?,
+                note: r.get(5)?,
+            };
+            gods.entry(r.get(0)?).or_default().push(g);
+        }
+
         let mut st = conn.prepare(
             "SELECT id, private, changed, unknown_json, kind, date_json, place_id, description, \
              age, cause, negative, preferred, proof, confidence FROM event ORDER BY seq",
@@ -318,6 +336,7 @@ impl Project {
                 cause: r.get(9)?,
                 negative: r.get(10)?,
                 assertion: assertion(r.get(11)?, r.get(12)?, r.get(13)?)?,
+                godparents: gods.remove(&id.to_string()).unwrap_or_default(),
                 participants: parts.remove(&id.to_string()).unwrap_or_default(),
                 common,
             };

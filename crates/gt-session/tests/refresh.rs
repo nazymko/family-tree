@@ -83,6 +83,7 @@ fn event_input(rng: &mut Rng, id: Option<Uuid>) -> EventInput {
         negative: rng.below(8) == 0,
         private: false,
         preferred: rng.below(2) == 0,
+        godparents: None,
         participants: None,
     }
 }
@@ -487,6 +488,25 @@ fn extended_command(s: &Session, rng: &mut Rng, n: usize) -> Option<EditCommand>
                     })
                     .collect(),
             );
+            if event.kind == "baptism" && rng.below(2) == 0 {
+                // One godparent in the tree and one known only by name.
+                event.godparents = Some(vec![
+                    gt_session::GodparentInput {
+                        id: None,
+                        person: Some(*rng.pick(&persons)),
+                        name: None,
+                        role: "godfather".into(),
+                        note: None,
+                    },
+                    gt_session::GodparentInput {
+                        id: None,
+                        person: None,
+                        name: Some("Maria Koval".into()),
+                        role: "godmother".into(),
+                        note: Some("a widow".into()),
+                    },
+                ]);
+            }
             EditCommand::SaveEvent {
                 owner: EventOwner {
                     kind: EventOwnerKind::Person,

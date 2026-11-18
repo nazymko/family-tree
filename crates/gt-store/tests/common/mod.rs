@@ -113,6 +113,7 @@ pub fn event(kind: EventKind, who: Uuid, when: &str, at: Option<Uuid>) -> Event 
             proof: None,
             confidence: None,
         },
+        godparents: Vec::new(),
         participants: vec![Participant {
             target: ParticipantRef::Person(who),
             role: Role::Principal,

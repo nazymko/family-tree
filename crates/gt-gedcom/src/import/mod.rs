@@ -1,6 +1,7 @@
 //! GEDCOM -> `Tree` import. Never fails; problems are repaired and reported.
 
 mod fam;
+mod godparent;
 mod header;
 mod indi;
 mod media_paths;

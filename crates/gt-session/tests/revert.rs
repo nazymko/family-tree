@@ -394,6 +394,7 @@ fn event(n: u128, participants: Vec<Participant>) -> Event {
             proof: None,
             confidence: None,
         },
+        godparents: Vec::new(),
         participants,
     }
 }

@@ -683,7 +683,7 @@ fn merge(into: &mut Value, more: Value) {
     }
 }
 
-fn with_batch(required: &[&str], mut properties: Value) -> Value {
+pub(crate) fn with_batch(required: &[&str], mut properties: Value) -> Value {
     merge(
         &mut properties,
         json!({"batch": {"type": "string", "description": "The id begin_batch gave you."}}),
@@ -694,11 +694,11 @@ fn with_batch(required: &[&str], mut properties: Value) -> Value {
 }
 
 /// What a write did: the gate's answer, whom it reached, and whose parents it may have set.
-type Applied = (AgentWrite, Vec<Uuid>, Option<Uuid>);
+pub(crate) type Applied = (AgentWrite, Vec<Uuid>, Option<Uuid>);
 
 /// A write of the command `build` makes, under one lock. `build` adds what the agent should hear
 /// about its arguments to the list it is given.
-fn write<H: Host>(
+pub(crate) fn write<H: Host>(
     host: &H,
     ctx: &AgentCtx,
     batch: Uuid,
@@ -762,7 +762,7 @@ fn parents_set(s: &Session, child: Uuid, touched: &[Uuid]) -> Vec<Value> {
 /// The one way a tool writes, and the one place that learns what a write touched. It tells the app
 /// only after the session's lock is let go, and a repeat tells it nothing. `new_id` runs under the
 /// same lock as the write, so that it sees this write and no other.
-fn apply<H: Host>(
+pub(crate) fn apply<H: Host>(
     host: &H,
     ctx: &AgentCtx,
     run: impl Fn(&mut Session, &mut Vec<String>) -> Result<Applied, ApiError>,
@@ -810,7 +810,7 @@ fn written(result: &EditResult, is_it: impl Fn(&Uuid) -> bool) -> Option<Uuid> {
     result.touched.iter().copied().find(|id| is_it(id))
 }
 
-fn batch_arg(args: &Value) -> Result<Uuid, ApiError> {
+pub(crate) fn batch_arg(args: &Value) -> Result<Uuid, ApiError> {
     let given = args.get("batch").and_then(Value::as_str);
     match given.and_then(|text| Uuid::parse_str(text).ok()) {
         Some(batch) => Ok(batch),
@@ -822,7 +822,7 @@ fn batch_arg(args: &Value) -> Result<Uuid, ApiError> {
 }
 
 /// Short text from the agent, or `None`.
-fn short(args: &Value, name: &str) -> Result<Option<String>, ApiError> {
+pub(crate) fn short(args: &Value, name: &str) -> Result<Option<String>, ApiError> {
     Ok(optional_str(args, name)?.map(str::to_string))
 }
 
@@ -844,7 +844,7 @@ fn writing(
 }
 
 /// A note, an event's description or a citation's text.
-fn long(args: &Value, name: &str) -> Result<Option<String>, ApiError> {
+pub(crate) fn long(args: &Value, name: &str) -> Result<Option<String>, ApiError> {
     writing(
         args,
         name,
@@ -863,7 +863,7 @@ fn number_args(args: &Value) -> Result<Option<(String, String)>, ApiError> {
     }
 }
 
-fn optional_uuid(args: &Value, name: &str) -> Result<Option<Uuid>, ApiError> {
+pub(crate) fn optional_uuid(args: &Value, name: &str) -> Result<Option<Uuid>, ApiError> {
     match args.get(name) {
         None | Some(Value::Null) => Ok(None),
         Some(_) => uuid_arg(args, name).map(Some),
@@ -1288,6 +1288,7 @@ fn event_input(
         negative: old.is_some_and(|o| o.negative),
         private: old.is_some_and(|o| o.common.private),
         preferred: old.is_some_and(|o| o.assertion.preferred),
+        godparents: None,
         participants: None,
     })
 }

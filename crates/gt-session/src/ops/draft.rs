@@ -38,6 +38,7 @@ fn event(p: &Planner, kind: EventKind, raw: &str, person: Uuid) -> Event {
         cause: None,
         negative: false,
         assertion: assertion(true),
+        godparents: Vec::new(),
         participants: vec![Participant {
             target: ParticipantRef::Person(person),
             role: Role::Principal,

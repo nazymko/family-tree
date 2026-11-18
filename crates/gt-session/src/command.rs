@@ -152,6 +152,31 @@ pub struct EventInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub participants: Option<Vec<ParticipantInput>>,
+    /// The whole list of godparents, in order; left out, the event keeps the ones it has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub godparents: Option<Vec<GodparentInput>>,
+}
+
+/// A godparent of an event: a person in the tree or a name as written, exactly one of the two.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GodparentInput {
+    /// The godparent being kept or changed; none for a new one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub person: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    /// `godfather`, `godmother` or `godparent`.
+    pub role: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -481,6 +506,16 @@ pub enum EditCommand {
         owner: EventOwner,
         event: Uuid,
     },
+    /// One more godparent on a baptism or christening.
+    AddGodparent {
+        event: Uuid,
+        godparent: GodparentInput,
+    },
+    /// Takes one godparent off an event.
+    RemoveGodparent {
+        event: Uuid,
+        godparent: Uuid,
+    },
     QuickAdd {
         anchor: Uuid,
         relation: Relation,
@@ -694,6 +729,8 @@ impl EditCommand {
             EditCommand::DeleteName { .. } => "Delete name".into(),
             EditCommand::SaveEvent { .. } => "Save event".into(),
             EditCommand::DeleteEvent { .. } => "Delete event".into(),
+            EditCommand::AddGodparent { .. } => "Add godparent".into(),
+            EditCommand::RemoveGodparent { .. } => "Remove godparent".into(),
             EditCommand::QuickAdd {
                 relation,
                 parent_rel,

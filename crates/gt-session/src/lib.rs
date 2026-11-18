@@ -13,6 +13,7 @@ pub mod error;
 pub mod family_view;
 pub mod field_diff;
 pub mod file_stamp;
+pub mod godparents;
 pub mod import_format;
 pub mod index;
 pub mod kinship;
@@ -40,10 +41,10 @@ pub use agent::{
 };
 pub use command::{
     CitationArg, CitationInput, CitationPatch, CloneOf, DeleteImpact, DraftFamily, DraftPerson,
-    EditCommand, EditResult, EventInput, EventOwner, EventOwnerKind, EvidenceInput, HistoryEntry,
-    HistoryOp, LivingPatch, NameInput, NewSource, NoteInput, OwnerKind, OwnerRef, ParticipantInput,
-    PersonDraft, Relation, ReuseLast, SkippedFact, SourceInput, SourceRef, TextAreaInput,
-    TextRegionInput, UndoReport, UndoState,
+    EditCommand, EditResult, EventInput, EventOwner, EventOwnerKind, EvidenceInput, GodparentInput,
+    HistoryEntry, HistoryOp, LivingPatch, NameInput, NewSource, NoteInput, OwnerKind, OwnerRef,
+    ParticipantInput, PersonDraft, Relation, ReuseLast, SkippedFact, SourceInput, SourceRef,
+    TextAreaInput, TextRegionInput, UndoReport, UndoState,
 };
 pub use dto::*;
 pub use error::{ApiError, ErrorCode};

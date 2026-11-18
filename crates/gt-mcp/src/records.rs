@@ -545,6 +545,7 @@ fn event_fields(s: &Session, event: &Event) -> Fields {
         negative,
         assertion,
         participants,
+        godparents,
     } = event;
     let parties: Vec<Value> = participants
         .iter()
@@ -567,6 +568,12 @@ fn event_fields(s: &Session, event: &Event) -> Fields {
         "negative": negative,
         "participants": parties,
     }));
+    if !godparents.is_empty() {
+        out.insert(
+            "godparents".into(),
+            json!(crate::tools_godparent::godparent_rows(s, godparents)),
+        );
+    }
     out.extend(assertion_fields(assertion));
     out
 }

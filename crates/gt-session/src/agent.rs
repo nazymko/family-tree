@@ -53,6 +53,8 @@ pub enum AgentWrite {
     },
 }
 
+mod godparents;
+
 fn refused(msg: impl Into<String>) -> ApiError {
     ApiError::new(ErrorCode::AgentRefused, msg)
 }
@@ -98,7 +100,11 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         // A clip is a link of its own: step 5 lets the agent add one and change or move only
         // the clips it made itself.
         | C::AddAudioClip { .. }
-        | C::UpdateAudioClip { .. } => Ok(()),
+        | C::UpdateAudioClip { .. }
+        // A godparent is an item of the event's list: step 5 lets the agent add one, and take
+        // off only one it added itself (remove_own_godparent).
+        | C::AddGodparent { .. }
+        | C::RemoveGodparent { .. } => Ok(()),
         C::SetPlaceCoordinates { .. } => Err(refused(
             "Only the owner sets where a place is. Add a note with the coordinates and the              source instead.",
         )),
@@ -243,6 +249,7 @@ fn people_named(cmd: &EditCommand) -> Vec<Uuid> {
         C::QuickAdd { anchor, .. } => vec![*anchor],
         C::LinkExisting { anchor, person, .. } => vec![*anchor, *person],
         C::LinkChild { child, .. } => vec![*child],
+        C::AddGodparent { godparent, .. } => godparent.person.into_iter().collect(),
         C::SaveFamily {
             partner1, partner2, ..
         } => [*partner1, *partner2].into_iter().flatten().collect(),
@@ -880,6 +887,9 @@ impl Session {
         check_named(&cmd)?;
         self.check_clip(&cmd)?;
         if let Some(record) = self.clip_repeat(&cmd) {
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
+        }
+        if let Some(record) = self.godparent_repeat(&cmd) {
             return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
         }
         let cmd = self.keep_preferred(cmd);

@@ -990,6 +990,7 @@ impl<'a> Ctx<'a> {
                 cause: child_text(node, "cause"),
                 negative: false,
                 assertion: new_assertion(),
+                godparents: Vec::new(),
                 participants: vec![],
             },
         );

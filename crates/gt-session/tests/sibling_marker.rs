@@ -557,6 +557,7 @@ fn marker_refuses_edits_and_events() {
                 negative: false,
                 private: false,
                 preferred: true,
+                godparents: None,
                 participants: None,
             },
         },

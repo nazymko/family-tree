@@ -80,7 +80,11 @@ impl Tree {
         let mut t = self.clone();
         t.persons.values_mut().for_each(|r| strip(&mut r.common));
         t.families.values_mut().for_each(|r| strip(&mut r.common));
-        t.events.values_mut().for_each(|r| strip(&mut r.common));
+        t.events.values_mut().for_each(|r| {
+            strip(&mut r.common);
+            // Their ids are made anew by an import.
+            r.godparents.iter_mut().for_each(|g| g.id = Uuid::nil());
+        });
         t.places.values_mut().for_each(|r| strip(&mut r.common));
         t.sources.values_mut().for_each(|r| strip(&mut r.common));
         t.repositories

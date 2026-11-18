@@ -407,6 +407,11 @@ pub fn filter(tree: &Tree, policy: &PrivacyPolicy, today_jdn: i32) -> (Tree, Pri
                 !gone_families.contains(&f) && !hidden_families.contains(&f)
             }
         });
+        // A godparent who is hidden or left out goes, name and all: an export must not tell who.
+        e.godparents.retain(|g| {
+            g.person
+                .is_none_or(|x| !gone_persons.contains(&x) && !hidden.contains(&x))
+        });
         let touched = e.participants.len() != n;
         let has_principal = e.participants.iter().any(|p| p.role == Role::Principal);
         if touched && !has_principal {

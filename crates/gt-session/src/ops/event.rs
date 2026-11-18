@@ -151,6 +151,17 @@ pub(super) fn save_event(
         .unwrap_or_else(|| new_common(p.now));
     common.private = input.private;
     common.changed = Some(p.now);
+    let had: &[Godparent] = old.as_ref().map(|e| e.godparents.as_slice()).unwrap_or(&[]);
+    let godparents = match &input.godparents {
+        Some(list) => {
+            let probe = Event {
+                participants: participants.clone(),
+                ..old.clone().unwrap_or_else(|| blank_event(&common))
+            };
+            super::godparent::godparent_list(p, &probe, had, list)?
+        }
+        None => had.to_vec(),
+    };
     let event = Event {
         common,
         kind,
@@ -165,6 +176,7 @@ pub(super) fn save_event(
             proof: old.as_ref().and_then(|e| e.assertion.proof.clone()),
             confidence: old.as_ref().and_then(|e| e.assertion.confidence),
         },
+        godparents,
         participants,
     };
     p.put(event);
@@ -173,6 +185,23 @@ pub(super) fn save_event(
         Ok(Some(owner.id))
     } else {
         Ok(None)
+    }
+}
+
+/// An event with nothing in it but `common`, to check a new event's godparents against.
+fn blank_event(common: &Common) -> Event {
+    Event {
+        common: common.clone(),
+        kind: EventKind::Birth,
+        date: None,
+        place: None,
+        description: None,
+        age: None,
+        cause: None,
+        negative: false,
+        assertion: assertion(false),
+        participants: Vec::new(),
+        godparents: Vec::new(),
     }
 }
 
@@ -231,6 +260,7 @@ pub(super) fn add_birth(
         cause: None,
         negative: false,
         assertion: assertion(true),
+        godparents: Vec::new(),
         participants: vec![Participant {
             target: ParticipantRef::Person(person),
             role: Role::Principal,

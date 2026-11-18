@@ -204,6 +204,7 @@ fn living_cache_updates_after_edit() {
             negative: false,
             private: false,
             preferred: true,
+            godparents: None,
             participants: None,
         },
     };

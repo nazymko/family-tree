@@ -82,6 +82,7 @@ fn add_event(t: &mut Tree, kind: EventKind, date: Option<&str>, who: &[(Uuid, Ro
             cause: None,
             negative: false,
             assertion: assertion(),
+            godparents: Vec::new(),
             participants: who
                 .iter()
                 .map(|(p, r)| Participant {

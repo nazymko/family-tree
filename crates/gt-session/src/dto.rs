@@ -202,6 +202,35 @@ pub struct ParticipantDto {
     pub role: String,
 }
 
+/// Someone who stood godparent at a baptism or christening: a person in the tree, or a name as
+/// the record writes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GodparentDto {
+    pub id: Uuid,
+    /// `godfather`, `godmother`, or `godparent` (not said which).
+    pub role: String,
+    /// Set when the godparent is a person in the tree.
+    pub person: Option<PersonRef>,
+    /// Set when the godparent is only a name.
+    pub name: Option<String>,
+    pub note: Option<String>,
+}
+
+/// Someone this person stood godparent for: the baptism or christening, and their role at it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GodchildDto {
+    pub event: Uuid,
+    /// `baptism` or `christening` (or any other kind that had godparents).
+    pub kind: String,
+    pub date: Option<DateDto>,
+    /// The godchild.
+    pub person: PersonRef,
+    /// `godfather`, `godmother` or `godparent`.
+    pub role: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct EventDto {
@@ -219,6 +248,10 @@ pub struct EventDto {
     pub private: bool,
     pub preferred: bool,
     pub participants: Vec<ParticipantDto>,
+    /// Who stood godparent, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<GodparentDto>>", optional)]
+    pub godparents: Vec<GodparentDto>,
     pub citations: Vec<CitationDto>,
     pub notes: Vec<NoteDto>,
     pub media: Vec<MediaLinkDto>,
@@ -427,6 +460,10 @@ pub struct PersonDetail {
     pub notes: Vec<NoteDto>,
     pub media: Vec<MediaLinkDto>,
     pub citations: Vec<CitationDto>,
+    /// The people this person stood godparent for (linked godparents only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<GodchildDto>>", optional)]
+    pub godchildren: Vec<GodchildDto>,
     #[ts(type = "number")]
     pub changed: i64,
 }

@@ -743,6 +743,7 @@ fn event_input(id: Option<Uuid>, kind: &str, date: &str, place: Option<&str>) ->
         negative: false,
         private: false,
         preferred: true,
+        godparents: None,
         participants: None,
     }
 }

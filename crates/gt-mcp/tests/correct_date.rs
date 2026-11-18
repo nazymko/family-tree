@@ -63,6 +63,7 @@ fn owners_event(host: &TestHost, person: Uuid, kind: &str) -> Uuid {
                     negative: false,
                     private: false,
                     preferred: true,
+                    godparents: None,
                     participants: None,
                 },
             })

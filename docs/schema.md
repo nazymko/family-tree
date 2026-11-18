@@ -1,4 +1,4 @@
-# Project database schema (version 10)
+# Project database schema (version 11)
 
 A gene-tree project is a folder:
 
@@ -113,6 +113,17 @@ Who took part in an event.
 - `target_type`: `person` or `family`.
 - `target_id`: the person or family id.
 - `role`: `principal`, `witness`, `godparent`, `clergy`, `officiator`, `informant`, `parent`, `father`, `mother`, `child`, `spouse`, `husband`, `wife`, `friend`, `neighbor`, `multiple`, or `other:<text>`.
+
+### `godparent`
+Who stood godparent at a baptism or christening (schema 11). The rows belong to their event.
+- `event_id`: the event.
+- `pos`: order among the event's godparents.
+- `person_id`: the godparent, when they are a person in the tree; no foreign key (a deleted person's row becomes their name).
+- `name`: the godparent as the record writes them, when they are not a person in the tree. Exactly one of `person_id` and `name` is set.
+- `role`: `godfather`, `godmother`, or `godparent` (not said which).
+- `note`: what else the record says of them.
+
+The schema 11 migration moves `participant` rows with the role `godparent` (or `other:Godfather` / `other:Godmother`) here, the role following the person's sex. GEDCOM: a person is an `ASSO` pointer on the event with `RELA Godfather` (5.5.1) or `ROLE GODP` + `PHRASE Godfather` (7.0); a name only is `ASSO @VOID@` with the name as its `PHRASE` (7.0) or, since 5.5.1 has no void pointer, a `NOTE Godfather: <name>` on the event with the godparent's note on the following lines. The import reads all of these back.
 
 ## Places
 

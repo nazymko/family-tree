@@ -306,5 +306,19 @@
     "person": "018f3a6e-0000-7000-8000-000000000001",
     "sourceFile": "recording2.txt",
     "number": "12"
+  },
+  {
+    "type": "addGodparent",
+    "event": "018f3a6e-0000-7000-8000-000000000004",
+    "godparent": {
+      "name": "Ivan Petrovych Koval, a peasant",
+      "role": "godfather",
+      "note": "of Ivanivka"
+    }
+  },
+  {
+    "type": "removeGodparent",
+    "event": "018f3a6e-0000-7000-8000-000000000004",
+    "godparent": "018f3a6e-0000-7000-8000-000000000008"
   }
 ]

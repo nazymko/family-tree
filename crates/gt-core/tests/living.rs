@@ -54,6 +54,7 @@ fn add_event(t: &mut Tree, p: Uuid, kind: EventKind, date: Option<&str>) {
                 proof: None,
                 confidence: None,
             },
+            godparents: Vec::new(),
             participants: vec![Participant {
                 target: ParticipantRef::Person(p),
                 role: Role::Principal,

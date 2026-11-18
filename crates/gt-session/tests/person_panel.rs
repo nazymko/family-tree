@@ -50,6 +50,7 @@ fn event(owner: EventOwner, kind: &str) -> EditCommand {
             negative: false,
             private: false,
             preferred: true,
+            godparents: None,
             participants: None,
         },
     }

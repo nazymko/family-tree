@@ -122,6 +122,7 @@ fn event(place: Option<Uuid>, role: Role) -> Event {
             proof: None,
             confidence: Some(2),
         },
+        godparents: Vec::new(),
         participants: vec![Participant {
             target: ParticipantRef::Person(u(9)),
             role,

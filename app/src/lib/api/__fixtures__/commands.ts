@@ -75,6 +75,8 @@ export const commandFixtureMap = {
   addSiblingMarker: { type: 'addSiblingMarker', family: `${ID}3` },
   setPlaceCoordinates: { type: 'setPlaceCoordinates', place: `${ID}7`, latE6: 50123456, lonE6: 30654321 },
   addNumber: { type: 'addNumber', person: `${ID}1`, sourceFile: 'recording2.txt', number: '12' },
+  addGodparent: { type: 'addGodparent', event: `${ID}4`, godparent: { name: 'Ivan Petrovych Koval, a peasant', role: 'godfather', note: 'of Ivanivka' } },
+  removeGodparent: { type: 'removeGodparent', event: `${ID}4`, godparent: `${ID}8` },
 } satisfies { [K in EditCommand['type']]: Extract<EditCommand, { type: K }> };
 
 export const commandFixtures: EditCommand[] = Object.values(commandFixtureMap) as EditCommand[];

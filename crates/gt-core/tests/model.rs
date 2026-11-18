@@ -75,6 +75,7 @@ fn tree_relationship_queries() {
         cause: None,
         negative: false,
         assertion: assertion(),
+        godparents: Vec::new(),
         participants: vec![Participant {
             target: ParticipantRef::Person(cid),
             role: Role::Principal,

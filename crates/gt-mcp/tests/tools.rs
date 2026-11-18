@@ -126,6 +126,7 @@ fn namesakes_distinguishable() {
                 negative: false,
                 private: false,
                 preferred: true,
+                godparents: None,
                 participants: None,
             },
         })
@@ -1028,6 +1029,7 @@ fn heavy_person(host: &TestHost) -> (Uuid, Vec<Uuid>) {
                         negative: false,
                         private: false,
                         preferred: false,
+                        godparents: None,
                         participants: None,
                     },
                 })
@@ -1770,6 +1772,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
             cause: Some(mark("event-cause")),
             negative: true,
             assertion: assertion(),
+            godparents: Vec::new(),
             participants: vec![
                 Participant {
                     target: ParticipantRef::Person(ids.person),
@@ -1981,6 +1984,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
                 proof: None,
                 confidence: None,
             },
+            godparents: Vec::new(),
             participants: Vec::new(),
         },
     );
@@ -2373,6 +2377,7 @@ fn log_and_history_give_agents_plain_words_not_the_app_markers() {
                 negative: false,
                 private: false,
                 preferred: true,
+                godparents: None,
                 participants: None,
             },
         };

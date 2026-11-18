@@ -1417,6 +1417,9 @@ fn only_the_tools_named_here_can_write() {
             "set_media_rotation",
             // Title, description, date and place of a media record: its own, or what is empty.
             "update_own_media",
+            // Godparents of a baptism: added as items of the event; taken off only the agent's own.
+            "add_godparent",
+            "remove_own_godparent",
         ]
     );
 }

@@ -348,6 +348,7 @@ impl Session {
                     ParticipantRef::Family(_) => None,
                 })
                 .collect(),
+            godparents: self.godparent_dtos(&e.godparents),
             citations: self.citations_dto(&e.common.citations),
             notes: self.note_dtos(&e.common.notes),
             media: self.media_dtos(&e.common.media),
@@ -430,6 +431,7 @@ pub fn person_detail(s: &Session, id: Uuid) -> Result<PersonDetail, ApiError> {
         notes: s.note_dtos(&p.common.notes),
         media: s.media_dtos(&p.common.media),
         citations: s.citations_dto(&p.common.citations),
+        godchildren: s.godchildren(id),
         changed: p.common.changed.unwrap_or(0),
     })
 }

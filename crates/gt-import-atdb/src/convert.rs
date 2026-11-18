@@ -880,6 +880,7 @@ fn events(
                 cause: None,
                 negative: false,
                 assertion: assertion(false),
+                godparents: Vec::new(),
                 participants,
             },
         );

@@ -5,6 +5,7 @@ import type { DraftFamily } from "./DraftFamily";
 import type { DraftPerson } from "./DraftPerson";
 import type { EventInput } from "./EventInput";
 import type { EventOwner } from "./EventOwner";
+import type { GodparentInput } from "./GodparentInput";
 import type { LivingPatch } from "./LivingPatch";
 import type { NameInput } from "./NameInput";
 import type { NoteInput } from "./NoteInput";
@@ -17,7 +18,7 @@ import type { SourceInput } from "./SourceInput";
 import type { TextRegionInput } from "./TextRegionInput";
 import type { UnionKindId } from "./UnionKindId";
 
-export type EditCommand = { "type": "createPerson", draft: PersonDraft, } | { "type": "updatePerson", id: string, sex?: SexKind, sexText?: string, livingOverride?: LivingPatch, private?: boolean, } | { "type": "deletePerson", id: string, } | { "type": "saveName", person: string, name: NameInput, } | { "type": "deleteName", person: string, name: string, } | { "type": "saveEvent", owner: EventOwner, event: EventInput, } | { "type": "deleteEvent", owner: EventOwner, event: string, } | { "type": "quickAdd", anchor: string, relation: Relation, draft: PersonDraft, family?: string, newParentSet?: boolean, 
+export type EditCommand = { "type": "createPerson", draft: PersonDraft, } | { "type": "updatePerson", id: string, sex?: SexKind, sexText?: string, livingOverride?: LivingPatch, private?: boolean, } | { "type": "deletePerson", id: string, } | { "type": "saveName", person: string, name: NameInput, } | { "type": "deleteName", person: string, name: string, } | { "type": "saveEvent", owner: EventOwner, event: EventInput, } | { "type": "deleteEvent", owner: EventOwner, event: string, } | { "type": "addGodparent", event: string, godparent: GodparentInput, } | { "type": "removeGodparent", event: string, godparent: string, } | { "type": "quickAdd", anchor: string, relation: Relation, draft: PersonDraft, family?: string, newParentSet?: boolean, 
 /**
  * Father, mother or child: how they are related when it is not by birth (stepfather, adopted son, ...).
  */

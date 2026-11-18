@@ -13,7 +13,7 @@ use rusqlite::{Transaction, params};
 use std::collections::HashMap;
 
 /// Child tables first, so the bulk delete never cascades row by row.
-const CLEAR_ORDER: [&str; 22] = [
+const CLEAR_ORDER: [&str; 23] = [
     "search_words",
     "search_trigram",
     "name_phonetic",
@@ -22,6 +22,7 @@ const CLEAR_ORDER: [&str; 22] = [
     "media_link",
     "ext_id",
     "participant",
+    "godparent",
     "repo_ref",
     "place_name",
     "name",
@@ -624,11 +625,28 @@ pub(crate) fn insert_event(tx: &Transaction, e: &Event, seq: i64) -> Result<(), 
             enum_text(&p.role)
         ])?;
     }
+    for (pos, g) in e.godparents.iter().enumerate() {
+        tx.prepare_cached(
+            "INSERT INTO godparent(id, event_id, pos, person_id, name, role, note) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        )?
+        .execute(params![
+            s(&g.id),
+            s(id),
+            idx(pos),
+            g.person.as_ref().map(s),
+            g.name,
+            g.role.id(),
+            g.note
+        ])?;
+    }
     Ok(())
 }
 
 fn clear_event_owned(tx: &Transaction, id: &str) -> Result<(), StoreError> {
     tx.prepare_cached("DELETE FROM participant WHERE event_id = ?1")?
+        .execute([id])?;
+    tx.prepare_cached("DELETE FROM godparent WHERE event_id = ?1")?
         .execute([id])?;
     clear_links(tx, "event", id)
 }

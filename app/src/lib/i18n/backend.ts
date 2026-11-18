@@ -15,6 +15,8 @@ const EDIT_KEYS: Record<string, [label: MessageKey, done: MessageKey]> = {
   'Delete name': ['edit.deleteName', 'edit.doneNameDeleted'],
   'Save event': ['edit.saveEvent', 'edit.doneEventSaved'],
   'Delete event': ['edit.deleteEvent', 'edit.doneEventDeleted'],
+  'Add godparent': ['edit.addGodparent', 'edit.doneGodparentAdded'],
+  'Remove godparent': ['edit.removeGodparent', 'edit.doneGodparentRemoved'],
   'Save family': ['edit.saveFamily', 'edit.doneFamilySaved'],
   'Delete family': ['edit.deleteFamily', 'edit.doneFamilyDeleted'],
   'Add child to family': ['edit.addChildToFamily', 'edit.doneChildAddedToFamily'],

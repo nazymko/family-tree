@@ -1,6 +1,26 @@
 //! Text mappings for roles, name kinds and parent relationships (both directions).
 
-use gt_core::model::{NameKind, ParentRel, Role};
+use gt_core::model::{GodparentRole, NameKind, ParentRel, Role};
+
+/// A godparent's role from an `ASSO.RELA` text or a 7.0 `ROLE` / `PHRASE`; `None` when the text
+/// says no godparent.
+pub fn godparent_role_from_text(t: &str) -> Option<GodparentRole> {
+    match t.trim().to_ascii_uppercase().as_str() {
+        "GODP" | "GODPARENT" => Some(GodparentRole::Godparent),
+        "GODFATHER" | "GODF" => Some(GodparentRole::Godfather),
+        "GODMOTHER" | "GODM" => Some(GodparentRole::Godmother),
+        _ => None,
+    }
+}
+
+/// The word a godparent's role is written with (`RELA` in 5.5.1, `PHRASE` in 7.0).
+pub fn godparent_role_word(r: GodparentRole) -> &'static str {
+    match r {
+        GodparentRole::Godfather => "Godfather",
+        GodparentRole::Godmother => "Godmother",
+        GodparentRole::Godparent => "Godparent",
+    }
+}
 
 /// Role from an `ASSO.RELA` (5.5.1) or `ASSO.ROLE` (7.0) text.
 pub fn role_from_text(t: &str) -> Role {

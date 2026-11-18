@@ -216,6 +216,7 @@ fn event_input(
         negative: false,
         private: false,
         preferred: true,
+        godparents: None,
         participants,
     }
 }

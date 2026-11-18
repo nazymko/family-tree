@@ -392,6 +392,11 @@ impl<'a> Bld<'a> {
             }
             n.children.push(asso);
         }
+        for g in &ev.godparents {
+            if let Some(node) = self.godparent_node(g) {
+                n.children.push(node);
+            }
+        }
         let mut kids = Vec::new();
         self.assertion_children(&ev.assertion, false, &mut kids);
         kids.push(self.kv("_EVID", &ev.common.id.to_string()));
@@ -399,6 +404,47 @@ impl<'a> Bld<'a> {
         n.children.append(&mut kids);
         insert_unknown(&mut n.children, &ev.common.unknown);
         n
+    }
+
+    /// A godparent of an event. A person: `ASSO @I1@` with `RELA Godfather` (5.5.1) or
+    /// `ROLE GODP` + `PHRASE Godfather` (7.0). A name only: in 7.0 `ASSO @VOID@` with the name as
+    /// its `PHRASE`; 5.5.1 has no such pointer, so a `NOTE Godfather: <name>` (the note on the
+    /// next lines), which any program shows and the import reads back.
+    fn godparent_node(&mut self, g: &Godparent) -> Option<GedNode> {
+        let word = crate::maps::godparent_role_word(g.role);
+        let mut asso = match (g.person, &g.name) {
+            (Some(pid), _) => {
+                let x = self.px.get(&pid).cloned()?;
+                self.ptr("ASSO", x)
+            }
+            (None, Some(name)) if self.v70 => {
+                let mut a = self.ptr("ASSO", "@VOID@".to_string());
+                a.children.push(self.kv("PHRASE", name));
+                a
+            }
+            (None, Some(name)) => {
+                let mut text = format!("{word}: {}", name.replace(['\r', '\n'], " "));
+                if let Some(note) = g.note.as_deref().filter(|s| !s.trim().is_empty()) {
+                    text.push('\n');
+                    text.push_str(note);
+                }
+                return Some(self.kv("NOTE", &text));
+            }
+            (None, None) => return None,
+        };
+        if self.v70 {
+            let mut role = self.kv("ROLE", "GODP");
+            if g.role != GodparentRole::Godparent {
+                role.children.push(self.kv("PHRASE", word));
+            }
+            asso.children.push(role);
+        } else {
+            asso.children.push(self.kv("RELA", word));
+        }
+        if let Some(note) = g.note.as_deref().filter(|s| !s.trim().is_empty()) {
+            asso.children.push(self.kv("NOTE", note));
+        }
+        Some(asso)
     }
 
     // ---- records -------------------------------------------------------------------------

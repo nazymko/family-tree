@@ -1,5 +1,6 @@
 //! INDI records: names, events (shared with FAM), sex.
 
+use super::godparent;
 use super::{
     Ctx, Rec, assertion_child, child, common_child, link_child, new_assertion, new_common,
     parse_uuid, place_from_text, push_unknown, read_date, resolve, val,
@@ -325,16 +326,25 @@ pub(crate) fn read_event(
         role: Role::Principal,
     };
     if ctx.tree.events.contains_key(&id) {
-        // Another copy of a shared event: only add the participants.
+        // Another copy of a shared event: only add the participants and godparents.
         let mut extra = vec![principal];
-        for c in node.children.iter().filter(|c| c.tag == "ASSO") {
-            if let Some(p) = read_asso(ctx, c) {
-                extra.push(p);
+        let mut gods = Vec::new();
+        for c in &node.children {
+            if c.tag == "ASSO" {
+                match godparent::read_godparent_asso(ctx, c) {
+                    Some(g) => gods.extend(g),
+                    None => extra.extend(read_asso(ctx, c)),
+                }
+            } else if c.tag == "NOTE" {
+                gods.extend(godparent::read_godparent_note(c));
             }
         }
         if let Some(ev) = ctx.tree.events.get_mut(&id) {
             for p in extra {
                 add_participant(&mut ev.participants, p);
+            }
+            for g in gods {
+                godparent::add_godparent(id, &mut ev.godparents, g);
             }
             ev.participants.sort_by_key(|p| p.role != Role::Principal);
         }
@@ -355,6 +365,7 @@ pub(crate) fn read_event(
         cause: None,
         negative,
         assertion: new_assertion(),
+        godparents: Vec::new(),
         participants: vec![principal],
     };
     for (pos, c) in node.children.iter().enumerate() {
@@ -369,11 +380,23 @@ pub(crate) fn read_event(
             "TYPE" if custom => {}
             "_EVID" => {}
             "NOTE" if date_phrase_note(&mut ev, c) => {}
-            "ASSO" => {
-                if let Some(p) = read_asso(ctx, c) {
-                    add_participant(&mut ev.participants, p);
+            "NOTE" if godparent::read_godparent_note(c).is_some() => {
+                if let Some(g) = godparent::read_godparent_note(c) {
+                    godparent::add_godparent(id, &mut ev.godparents, g);
                 }
             }
+            "ASSO" => match godparent::read_godparent_asso(ctx, c) {
+                Some(g) => {
+                    if let Some(g) = g {
+                        godparent::add_godparent(id, &mut ev.godparents, g);
+                    }
+                }
+                None => {
+                    if let Some(p) = read_asso(ctx, c) {
+                        add_participant(&mut ev.participants, p);
+                    }
+                }
+            },
             _ => {
                 if !assertion_child(&mut ev.assertion, c) && !common_child(ctx, c, &mut common) {
                     push_unknown(ctx, &mut common.unknown, c, pos, node.children.len());

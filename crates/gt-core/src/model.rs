@@ -162,7 +162,57 @@ pub struct Event {
     pub negative: bool,
     pub assertion: Assertion,
     pub participants: Vec<Participant>,
+    /// Who stood godparent (at a baptism or christening). Old change-log rows have no such field.
+    #[serde(default)]
+    pub godparents: Vec<Godparent>,
 }
+
+/// Someone who stood godparent: a person in the tree, or only a name as the record writes it
+/// (most godparents in metric books are nobody else in the tree). Exactly one of `person` and
+/// `name` is set.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Godparent {
+    /// Stable across edits, so a change is one item changing.
+    pub id: Uuid,
+    #[serde(default)]
+    pub person: Option<Uuid>,
+    /// The name as written, with whatever the record adds ("Ivan Koval, a peasant of ...").
+    #[serde(default)]
+    pub name: Option<String>,
+    pub role: GodparentRole,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum GodparentRole {
+    Godfather,
+    Godmother,
+    /// Not said which (an imported file that only says "godparent").
+    Godparent,
+}
+
+impl GodparentRole {
+    pub fn id(self) -> &'static str {
+        match self {
+            GodparentRole::Godfather => "godfather",
+            GodparentRole::Godmother => "godmother",
+            GodparentRole::Godparent => "godparent",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<GodparentRole> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "godfather" => Some(GodparentRole::Godfather),
+            "godmother" => Some(GodparentRole::Godmother),
+            "godparent" => Some(GodparentRole::Godparent),
+            _ => None,
+        }
+    }
+}
+
+/// Characters of a godparent's written name or note.
+pub const GODPARENT_TEXT_MAX: usize = 1000;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Participant {
