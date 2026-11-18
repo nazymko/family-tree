@@ -95,7 +95,7 @@
     <button
       type="button"
       role={item.checked !== undefined ? 'menuitemradio' : 'menuitem'}
-      aria-checked={item.checked !== undefined ? String(item.checked) : undefined}
+      aria-checked={item.checked}
       tabindex="-1"
       class:danger={item.danger}
       class:radio={item.checked !== undefined}
