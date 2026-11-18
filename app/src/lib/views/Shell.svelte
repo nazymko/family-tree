@@ -15,7 +15,6 @@
   import Sources from './Sources.svelte';
   import ChangeLog from './ChangeLog.svelte';
   import MediaView from './MediaView.svelte';
-  import MapView from '../map/MapView.svelte';
   import Settings from './Settings.svelte';
   import Pedigree from './Pedigree.svelte';
   import WholeTree from './WholeTree.svelte';
@@ -480,7 +479,9 @@
             <RoutePlaceholder title={t('nav.media')} note={t('shell.chooseFirst')} />
           {/if}
         {:else if nav.route.name === 'map'}
-          <MapView onOpenPerson={openPerson} />
+          {#await import('../map/MapView.svelte') then { default: MapView }}
+            <MapView onOpenPerson={openPerson} />
+          {/await}
         {:else if nav.route.name === 'trace'}
           <TraceView />
         {:else if nav.route.name === 'settings'}

@@ -5,7 +5,9 @@
 //! touches the network.
 
 use gt_gazetteer::{Gazetteer, Index, index::index_path};
-use gt_session::{ApiError, ErrorCode, GazetteerCountryDto, GazetteerProgressDto, GazetteerStatusDto};
+use gt_session::{
+    ApiError, ErrorCode, GazetteerCountryDto, GazetteerProgressDto, GazetteerStatusDto,
+};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -111,12 +113,18 @@ pub fn download_from(
     let folder = dir(config_dir);
     std::fs::create_dir_all(&folder).map_err(gz_disk)?;
     let part = folder.join(format!("{cc}.zip.part"));
-    let result = download_to(base, &cc, &part, progress).and_then(|()| index_zip(&folder, &cc, &part, progress));
+    let result = download_to(base, &cc, &part, progress)
+        .and_then(|()| index_zip(&folder, &cc, &part, progress));
     let _ = std::fs::remove_file(&part);
     result
 }
 
-fn download_to(base: &str, cc: &str, part: &Path, progress: &dyn Fn(GazetteerProgressDto)) -> Result<(), ApiError> {
+fn download_to(
+    base: &str,
+    cc: &str,
+    part: &Path,
+    progress: &dyn Fn(GazetteerProgressDto),
+) -> Result<(), ApiError> {
     let mut resp = client(Duration::from_secs(60 * 60))?
         .get(format!("{base}/{cc}.zip"))
         .send()
@@ -129,7 +137,10 @@ fn download_to(base: &str, cc: &str, part: &Path, progress: &dyn Fn(GazetteerPro
     }
     let total = resp.content_length().unwrap_or(0);
     if total > MAX_BYTES {
-        return Err(ApiError::new(ErrorCode::Invalid, "That file is larger than expected."));
+        return Err(ApiError::new(
+            ErrorCode::Invalid,
+            "That file is larger than expected.",
+        ));
     }
     let mut file = std::fs::File::create(part).map_err(gz_disk)?;
     let mut buf = vec![0u8; 64 * 1024];
@@ -144,7 +155,10 @@ fn download_to(base: &str, cc: &str, part: &Path, progress: &dyn Fn(GazetteerPro
             .map_err(gz_disk)?;
         done += n as u64;
         if done > MAX_BYTES {
-            return Err(ApiError::new(ErrorCode::Invalid, "That file is larger than expected."));
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "That file is larger than expected.",
+            ));
         }
         if last.elapsed() >= Duration::from_millis(120) {
             last = Instant::now();
@@ -187,9 +201,7 @@ pub fn index_zip(
         )
     })?;
     let path = index_path(folder, cc);
-    index
-        .save(&path)
-        .map_err(gz_disk)?;
+    index.save(&path).map_err(gz_disk)?;
     progress(GazetteerProgressDto {
         country: cc.to_string(),
         phase: "index".into(),

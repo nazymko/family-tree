@@ -590,7 +590,10 @@ pub fn suggest_places(
 
 /// Everything the Map view draws, for one scope.
 #[tauri::command(async)]
-pub fn map_data(state: State<'_, AppState>, scope: gt_session::MapScope) -> ApiResult<gt_session::MapDataDto> {
+pub fn map_data(
+    state: State<'_, AppState>,
+    scope: gt_session::MapScope,
+) -> ApiResult<gt_session::MapDataDto> {
     state.with_session(|s| Ok(s.map_data(&scope)))
 }
 
@@ -605,7 +608,10 @@ pub fn gazetteer_status(state: State<'_, AppState>) -> gt_session::GazetteerStat
 
 /// The download size of a country (bytes), asked of GeoNames when the person chooses the country.
 #[tauri::command]
-pub async fn gazetteer_remote_size<R: Runtime>(app: AppHandle<R>, country: String) -> ApiResult<Option<u64>> {
+pub async fn gazetteer_remote_size<R: Runtime>(
+    app: AppHandle<R>,
+    country: String,
+) -> ApiResult<Option<u64>> {
     blocking(&app, move |_| crate::gazetteer::remote_size(&country)).await
 }
 
@@ -643,10 +649,15 @@ pub fn gazetteer_suggest(
     let parts = state.with_session(|s| Ok(s.place_parts(place)))?;
     let gz = {
         let mut slot = AppState::lock(&state.gazetteer);
-        slot.get_or_insert_with(|| crate::gazetteer::load(&state.config_dir)).clone()
+        slot.get_or_insert_with(|| crate::gazetteer::load(&state.config_dir))
+            .clone()
     };
     let refs: Vec<&str> = parts.iter().map(String::as_str).collect();
-    Ok(gz.search(&refs, limit.clamp(1, 20)).into_iter().map(Into::into).collect())
+    Ok(gz
+        .search(&refs, limit.clamp(1, 20))
+        .into_iter()
+        .map(Into::into)
+        .collect())
 }
 
 #[tauri::command(async)]

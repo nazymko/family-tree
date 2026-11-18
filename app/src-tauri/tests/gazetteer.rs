@@ -10,14 +10,17 @@ use std::sync::Mutex;
 fn row(id: u32, name: &str, lat: &str, lon: &str, admin1: &str) -> String {
     // geonameid, name, asciiname, alternates, lat, lon, class, code, country, cc2, admin1, admin2, admin3, admin4, pop,
     // elevation, dem, timezone, modified
-    format!("{id}\t{name}\t{name}\t\t{lat}\t{lon}\tP\tPPL\tZZ\t\t{admin1}\t\t\t\t500\t\t\tEurope/Kyiv\t2020-01-01\n")
+    format!(
+        "{id}\t{name}\t{name}\t\t{lat}\t{lon}\tP\tPPL\tZZ\t\t{admin1}\t\t\t\t500\t\t\tEurope/Kyiv\t2020-01-01\n"
+    )
 }
 
 fn zip_bytes() -> Vec<u8> {
     let mut buf = std::io::Cursor::new(Vec::new());
     {
         let mut z = zip::ZipWriter::new(&mut buf);
-        z.start_file("ZZ.txt", zip::write::SimpleFileOptions::default()).unwrap();
+        z.start_file("ZZ.txt", zip::write::SimpleFileOptions::default())
+            .unwrap();
         let text = [
             row(1, "Berezivka", "50.52", "30.28", "01"),
             row(2, "Dubky", "50.31", "31.05", "01"),
@@ -45,7 +48,10 @@ fn serve(requests: usize) -> (String, std::thread::JoinHandle<()>) {
             let is_head = req.starts_with("HEAD");
             let status = if ok { "200 OK" } else { "404 Not Found" };
             let len = if ok { body.len() } else { 0 };
-            let _ = write!(s, "HTTP/1.1 {status}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n");
+            let _ = write!(
+                s,
+                "HTTP/1.1 {status}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n"
+            );
             if ok && !is_head {
                 let _ = s.write_all(&body);
             }
@@ -66,13 +72,17 @@ fn downloads_indexes_and_cleans_up() {
     );
 
     let seen = Mutex::new(Vec::new());
-    let done = gazetteer::download_from(&base, dir.path(), "zz", &|p| seen.lock().unwrap().push(p)).unwrap();
+    let done = gazetteer::download_from(&base, dir.path(), "zz", &|p| seen.lock().unwrap().push(p))
+        .unwrap();
     assert_eq!(done.country, "ZZ");
     assert_eq!(done.rows, 3);
     assert!(done.bytes > 0);
 
     let seen = seen.into_inner().unwrap();
-    assert!(seen.iter().any(|p| p.phase == "download" && p.done == p.total && p.total > 0));
+    assert!(
+        seen.iter()
+            .any(|p| p.phase == "download" && p.done == p.total && p.total > 0)
+    );
     assert_eq!(seen.last().unwrap().phase, "index");
 
     // The index is on disk, the zip is not.
