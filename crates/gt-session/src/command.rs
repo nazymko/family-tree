@@ -664,6 +664,17 @@ pub enum EditCommand {
         families: Vec<DraftFamily>,
         attach_picture: bool,
     },
+    /// Sets the point of a place on the map, or clears it (both absent). Millionths of a degree
+    /// (the command stays comparable): lat -90..90, lon -180..180, times 1,000,000.
+    SetPlaceCoordinates {
+        place: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        lat_e6: Option<i32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        lon_e6: Option<i32>,
+    },
     /// An agent's own number for a person, unique within one named source file. Never exported.
     AddNumber {
         person: Uuid,
@@ -721,6 +732,13 @@ impl EditCommand {
             EditCommand::UpdateAudioClip { .. } => "Edit clip".into(),
             EditCommand::DeleteAudioClip { .. } => "Delete clip".into(),
             EditCommand::ImportDraft { .. } => "Add traced people".into(),
+            EditCommand::SetPlaceCoordinates { lat_e6, lon_e6, .. } => {
+                if lat_e6.is_none() && lon_e6.is_none() {
+                    "Clear place coordinates".into()
+                } else {
+                    "Set place coordinates".into()
+                }
+            }
             EditCommand::AddNumber { .. } => "Record number".into(),
         }
     }

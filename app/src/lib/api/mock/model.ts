@@ -56,6 +56,8 @@ export interface Fixture {
   places: PlaceOption[];
   sources: SourceDto[];
   media: MediaDto[];
+  /** Starting coordinates of places, by place id. */
+  placeCoords?: Record<Id, [number, number]>;
   homePerson: Id;
   /** Hand-written edge cases; null when the tree is too small to hold them. */
   specials: {
@@ -72,6 +74,8 @@ export interface Db {
   places: Map<Id, PlaceOption>;
   sources: Map<Id, SourceDto>;
   media: Map<Id, MediaDto>;
+  /** Place coordinates (lat, lon) set by the person; the places themselves carry none. */
+  coords?: Map<Id, [number, number]>;
 }
 
 export class MockApiError extends Error {

@@ -75,6 +75,16 @@ import type {
   TraceImageInfo,
   UndoState,
   WholeMeta,
+  GazetteerCandidateDto,
+  GazetteerCountryDto,
+  GazetteerProgressDto,
+  GazetteerStatusDto,
+  MapDataDto,
+  MapEventDto,
+  MapLinkDto,
+  MapPersonDto,
+  MapPlaceDto,
+  MapScope,
 } from '../types';
 import { personFieldChanges } from './fieldDiff';
 import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } from './build';
@@ -265,6 +275,7 @@ const LABELS: Record<EditCommand['type'], string> = {
   updateAudioClip: 'Edit clip',
   deleteAudioClip: 'Delete clip',
   importDraft: 'Add traced people',
+  setPlaceCoordinates: 'Set place coordinates',
   addNumber: 'Record number',
 };
 
@@ -276,6 +287,15 @@ const markerEntry = (id: Id) => new MockApiError('not_found', `"${id}" is the en
 function unnamedOk(n: NameDto): NameDto {
   return n.display ? n : { ...n, display: 'Unknown' };
 }
+
+/** A tiny invented country for the browser mock and the screenshots: villages that exist nowhere. */
+export const MOCK_GAZETTEER = [
+  { id: 9000001, name: 'Berezivka', local: 'Берегівка', region: 'Zelena oblast', lat: 50.52, lon: 30.28, pop: 1200 },
+  { id: 9000002, name: 'Berezivka', local: 'Берегівка', region: 'Syni oblast', lat: 49.1, lon: 33.4, pop: 300 },
+  { id: 9000003, name: 'Dubky', local: 'Дубки', region: 'Zelena oblast', lat: 50.31, lon: 31.05, pop: 800 },
+  { id: 9000004, name: 'Hlukhiv', local: 'Глухів', region: 'Zelena oblast', lat: 51.2, lon: 33.1, pop: 30000 },
+  { id: 9000005, name: 'Kyiv', local: 'Київ', region: 'Kyiv', lat: 50.45, lon: 30.52, pop: 2800000 },
+];
 
 export class MockApi implements Api {
   private db: Db;
@@ -305,6 +325,7 @@ export class MockApi implements Api {
       places: new Map(fixture.places.map((p) => [p.id, p])),
       sources: new Map(fixture.sources.map((s) => [s.id, s])),
       media: new Map(fixture.media.map((m) => [m.id, m])),
+      coords: new Map(Object.entries(fixture.placeCoords ?? {})),
     };
     // Fixture citations point at the fixture's SourceDto objects; re-point them at this database's copies.
     for (const p of this.db.persons.values()) this.relinkSources(p);
@@ -2184,6 +2205,102 @@ export class MockApi implements Api {
     return out;
   }
 
+  // ------------------------------------------------------------------ map
+
+  async mapData(scope: MapScope): Promise<MapDataDto> {
+    const parents = (p: Id): Id[] => [...new Set([...this.db.families.values()].filter((f) => f.children.some((c) => c.person === p)).flatMap((f) => [f.partner1, f.partner2]).filter((x): x is Id => !!x))];
+    const real = (id: Id) => {
+      const p = this.db.persons.get(id);
+      return !!p && !p.siblingMarker && !p.private;
+    };
+    const gen = new Map<Id, number>();
+    const links: MapLinkDto[] = [];
+    if (scope.kind === 'all') {
+      for (const p of this.db.persons.values()) if (real(p.id)) gen.set(p.id, 0);
+    } else if (scope.person && real(scope.person)) {
+      gen.set(scope.person, 0);
+      const up = scope.kind === 'ancestors';
+      const max = scope.kind === 'person' ? 0 : (scope.generations ?? 40);
+      const todo = [scope.person];
+      for (let i = 0; i < todo.length; i++) {
+        const g = gen.get(todo[i])!;
+        if (g >= max) continue;
+        for (const q of up ? parents(todo[i]) : this.childrenOf(todo[i])) {
+          if (!real(q)) continue;
+          links.push(up ? { parent: q, child: todo[i] } : { parent: todo[i], child: q });
+          if (!gen.has(q)) {
+            gen.set(q, g + 1);
+            todo.push(q);
+          }
+        }
+      }
+    }
+    const places = new Map<Id, MapPlaceDto>();
+    const events: MapEventDto[] = [];
+    let without = 0;
+    const take = (e: EventDto, person: Id) => {
+      if (e.private) return;
+      if (!e.place) {
+        without++;
+        return;
+      }
+      if (!places.has(e.place.id)) {
+        const c = this.db.coords?.get(e.place.id);
+        places.set(e.place.id, { id: e.place.id, label: e.place.full, name: e.place.name, lat: c ? c[0] : null, lon: c ? c[1] : null });
+      }
+      events.push({ id: e.id, kind: e.kind, year: yearOf(e.date), place: e.place.id, person });
+    };
+    for (const [id] of gen) {
+      const p = this.person(id);
+      for (const e of p.events) if (e.participants.length === 0 || e.participants.some((x) => x.person.id === id && x.role === 'principal')) take(e, id);
+    }
+    for (const f of this.db.families.values()) {
+      for (const who of [f.partner1, f.partner2]) if (who && gen.has(who)) for (const e of f.events) take(e, who);
+    }
+    events.sort((a, b) => (a.year ?? -1e9) - (b.year ?? -1e9));
+    const people: MapPersonDto[] = [...gen].map(([id, g]) => {
+      const p = this.person(id);
+      const n = p.names.find((x) => x.preferred) ?? p.names[0];
+      return { id, name: n?.display ?? '', surname: n?.surnames[0] ?? '', generation: g, living: this.computeLiving(p) };
+    });
+    return { places: [...places.values()], people, events, links, eventsWithoutPlace: without };
+  }
+
+  private gaz = new Set<string>();
+
+  async gazetteerStatus(): Promise<GazetteerStatusDto> {
+    return { countries: [...this.gaz].map((country) => ({ country, rows: MOCK_GAZETTEER.length, bytes: 1_200_000 })), attribution: 'Place data: GeoNames (geonames.org), CC BY 4.0.' };
+  }
+
+  async gazetteerRemoteSize(country: string): Promise<number | null> {
+    return country.toUpperCase() === 'ZZ' ? 4_300_000 : null;
+  }
+
+  async gazetteerDownload(country: string, onProgress?: (p: GazetteerProgressDto) => void): Promise<GazetteerCountryDto> {
+    const cc = country.toUpperCase();
+    if (cc !== 'ZZ') throw new MockApiError('not_found', `GeoNames has no file for ${cc}.`);
+    onProgress?.({ country: cc, phase: 'download', done: 4_300_000, total: 4_300_000 });
+    this.gaz.add(cc);
+    return { country: cc, rows: MOCK_GAZETTEER.length, bytes: 1_200_000 };
+  }
+
+  async gazetteerRemove(country: string): Promise<void> {
+    this.gaz.delete(country.toUpperCase());
+  }
+
+  async gazetteerSuggest(place: Id, limit: number): Promise<GazetteerCandidateDto[]> {
+    const pl = this.db.places.get(place);
+    if (!pl || this.gaz.size === 0) return [];
+    const parts = pl.full.split(',').map((x) => fold(x.trim()));
+    const out: GazetteerCandidateDto[] = [];
+    for (const g of MOCK_GAZETTEER) {
+      if (fold(g.name) !== parts[0]) continue;
+      const region_match = parts.slice(1).some((x) => fold(g.region).includes(x));
+      out.push({ geonameId: g.id, country: 'ZZ', name: g.name, local: g.local, lat: g.lat, lon: g.lon, code: 'PPL', population: g.pop, region: g.region, regionLocal: g.region, score: 100 + (region_match ? 30 : 0), regionMatch: region_match });
+    }
+    return out.sort((a, b) => b.score - a.score).slice(0, limit);
+  }
+
   private childrenOf(id: Id): Id[] {
     const seen = new Set<Id>();
     const out: Id[] = [];
@@ -2837,6 +2954,16 @@ export class MockApi implements Api {
         if ((m.mime ?? '').startsWith('audio/') || m.mime === 'application/pdf') throw invalid('Only a picture can be turned.');
         m.rotation = cmd.rotation;
         return { focus: null, touched: [m.id] };
+      }
+
+      case 'setPlaceCoordinates': {
+        if (!this.db.places.has(cmd.place)) throw missing('place', cmd.place);
+        const coords = (this.db.coords ??= new Map());
+        if (cmd.latE6 == null && cmd.lonE6 == null) coords.delete(cmd.place);
+        else if (cmd.latE6 == null || cmd.lonE6 == null) throw invalid('Give both the latitude and the longitude, or neither.');
+        else if (Math.abs(cmd.latE6) > 90_000_000 || Math.abs(cmd.lonE6) > 180_000_000) throw invalid('The latitude is within 90 degrees and the longitude within 180.');
+        else coords.set(cmd.place, [cmd.latE6 / 1e6, cmd.lonE6 / 1e6]);
+        return { focus: null, touched: [cmd.place] };
       }
 
       case 'addNumber': {

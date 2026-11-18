@@ -476,6 +476,11 @@ pub fn plan_with(
             source_file,
             number,
         } => person::add_number(&mut p, *person, source_file, number)?,
+        C::SetPlaceCoordinates {
+            place,
+            lat_e6,
+            lon_e6,
+        } => places::set_coordinates(&mut p, *place, *lat_e6, *lon_e6)?,
         C::SetMediaRotation { id, rotation } => media::set_rotation(&mut p, *id, *rotation)?,
         C::AddAudioClip {
             target,

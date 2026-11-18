@@ -1826,6 +1826,7 @@ dependencies = [
  "base64 0.22.1",
  "getrandom 0.3.4",
  "gt-core",
+ "gt-gazetteer",
  "gt-gedcom",
  "gt-mcp",
  "gt-session",
@@ -1844,6 +1845,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tempfile",
  "uuid",
+ "zip",
 ]
 
 [[package]]
@@ -1871,6 +1873,16 @@ dependencies = [
  "serde",
  "unicode-normalization",
  "uuid",
+]
+
+[[package]]
+name = "gt-gazetteer"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.21",
+ "unicode-normalization",
+ "zip",
 ]
 
 [[package]]
@@ -1959,6 +1971,7 @@ dependencies = [
  "fast_image_resize",
  "flate2",
  "gt-core",
+ "gt-gazetteer",
  "gt-gedcom",
  "gt-import",
  "gt-import-atdb",

@@ -1,0 +1,18 @@
+[package]
+name = "gt-gazetteer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Offline GeoNames gazetteer: compact per-country index and fuzzy place matching"
+
+[dependencies]
+unicode-normalization.workspace = true
+zip.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

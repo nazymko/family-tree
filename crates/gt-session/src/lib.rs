@@ -17,6 +17,7 @@ pub mod import_format;
 pub mod index;
 pub mod kinship;
 pub mod log;
+pub mod map;
 pub mod merge;
 mod mp4_tracks;
 pub use merge::{CopySizeDto, CopyZipDto, MergePreviewDto, MergeResultDto};
@@ -51,6 +52,10 @@ pub use log::{
     ActorDto, BatchDto, BatchRef, LocationDto, LocationPage, LogAgentDto, LogChangeDto, LogFactDto,
     LogFilterDto, LogPersonDto, LogRowDto, RecordHomeDto, RecordRefDto, RevealTarget,
     ReviewScopeDto,
+};
+pub use map::{
+    GazetteerCandidateDto, GazetteerCountryDto, GazetteerProgressDto, GazetteerStatusDto,
+    MapDataDto, MapEventDto, MapLinkDto, MapPersonDto, MapPlaceDto, MapScope, MapScopeKind,
 };
 pub use names::{display_name, lifespan};
 pub use session::{Session, SessionClock};

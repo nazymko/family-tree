@@ -127,10 +127,10 @@ export function ellipsize(measure: (s: string) => number, text: string, maxW: nu
   let hi = text.length;
   while (lo < hi) {
     const mid = (lo + hi + 1) >> 1;
-    if (measure(text.slice(0, mid).trimEnd() + '…') <= maxW) lo = mid;
+    if (measure(text.slice(0, mid).trimEnd() + '\u2026') <= maxW) lo = mid;
     else hi = mid - 1;
   }
-  return lo === 0 ? '' : text.slice(0, lo).trimEnd() + '…';
+  return lo === 0 ? '' : text.slice(0, lo).trimEnd() + '\u2026';
 }
 
 /** The HTML the print dialog gets: one A3 page holding the SVG, no browser margins, nothing that could add a second page. */

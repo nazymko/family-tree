@@ -58,7 +58,7 @@
   const api = getApi();
   const platform = getPlatform();
 
-  type NavName = 'family' | 'people' | 'whole' | 'pedigree' | 'descendants' | 'relatives' | 'sources' | 'media' | 'log' | 'settings';
+  type NavName = 'family' | 'people' | 'whole' | 'pedigree' | 'descendants' | 'relatives' | 'sources' | 'media' | 'map' | 'log' | 'settings';
   const ITEMS: { name: NavName; label: MessageKey; icon: IconName }[] = [
     { name: 'family', label: 'nav.family', icon: 'family' },
     { name: 'people', label: 'nav.people', icon: 'people' },
@@ -68,6 +68,7 @@
     { name: 'relatives', label: 'nav.relatives', icon: 'relatives' },
     { name: 'sources', label: 'nav.sources', icon: 'sources' },
     { name: 'media', label: 'nav.media', icon: 'media' },
+    { name: 'map', label: 'nav.map', icon: 'map' },
     { name: 'log', label: 'nav.log', icon: 'log' },
   ];
 
@@ -477,6 +478,10 @@
           {:else}
             <RoutePlaceholder title={t('nav.media')} note={t('shell.chooseFirst')} />
           {/if}
+        {:else if nav.route.name === 'map'}
+          {#await import('../map/MapView.svelte') then { default: MapView }}
+            <MapView onOpenPerson={openPerson} />
+          {/await}
         {:else if nav.route.name === 'trace'}
           <TraceView />
         {:else if nav.route.name === 'settings'}

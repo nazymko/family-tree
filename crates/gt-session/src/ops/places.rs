@@ -93,3 +93,32 @@ pub(super) fn place_for_text(p: &mut Planner, input: &str) -> Result<Option<Uuid
     }
     Ok(Some(leaf))
 }
+
+/// Sets (both given) or clears (both absent) the point of a place. Millionths of a degree.
+pub(super) fn set_coordinates(
+    p: &mut Planner,
+    id: Uuid,
+    lat_e6: Option<i32>,
+    lon_e6: Option<i32>,
+) -> Result<Option<Uuid>, ApiError> {
+    let point = match (lat_e6, lon_e6) {
+        (None, None) => None,
+        (Some(la), Some(lo)) => {
+            if !(-90_000_000..=90_000_000).contains(&la)
+                || !(-180_000_000..=180_000_000).contains(&lo)
+            {
+                return Err(invalid(
+                    "Latitude must be between -90 and 90 and longitude between -180 and 180.",
+                ));
+            }
+            Some((f64::from(la) / 1e6, f64::from(lo) / 1e6))
+        }
+        _ => return Err(invalid("Give both latitude and longitude, or neither.")),
+    };
+    let mut place: Place = p.get(id)?;
+    place.lat = point.map(|c| c.0);
+    place.lon = point.map(|c| c.1);
+    place.common.changed = Some(p.now);
+    p.put(place);
+    Ok(None)
+}

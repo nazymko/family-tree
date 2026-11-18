@@ -73,6 +73,7 @@ export const commandFixtureMap = {
     attachPicture: true,
   },
   addSiblingMarker: { type: 'addSiblingMarker', family: `${ID}3` },
+  setPlaceCoordinates: { type: 'setPlaceCoordinates', place: `${ID}7`, latE6: 50123456, lonE6: 30654321 },
   addNumber: { type: 'addNumber', person: `${ID}1`, sourceFile: 'recording2.txt', number: '12' },
 } satisfies { [K in EditCommand['type']]: Extract<EditCommand, { type: K }> };
 

@@ -54,6 +54,12 @@ import type {
   TraceImageInfo,
   UndoState,
   WholeMeta,
+  GazetteerCandidateDto,
+  GazetteerCountryDto,
+  GazetteerProgressDto,
+  GazetteerStatusDto,
+  MapDataDto,
+  MapScope,
 } from './types';
 import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus } from './types';
 
@@ -148,6 +154,15 @@ export interface Api {
   exportGedcom(opts: ExportOptions, dest: string, previewToken: string): Promise<{ bytes: number }>;
   /** Writes a chart picture (PNG bytes) to `dest`, replacing the file when it exists (the save dialog already asked). */
   savePicture(dest: string, bytes: Uint8Array): Promise<{ bytes: number }>;
+
+  // --- Map view: what the map draws, and the offline place data (the one download is the person's own click) ---
+  mapData(scope: MapScope): Promise<MapDataDto>;
+  gazetteerStatus(): Promise<GazetteerStatusDto>;
+  /** Download size in bytes of a country's place data, or null when unknown. */
+  gazetteerRemoteSize(country: string): Promise<number | null>;
+  gazetteerDownload(country: string, onProgress?: (p: GazetteerProgressDto) => void): Promise<GazetteerCountryDto>;
+  gazetteerRemove(country: string): Promise<void>;
+  gazetteerSuggest(place: Id, limit: number): Promise<GazetteerCandidateDto[]>;
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;
   /** Who changed what, newest first. The owner's changes never count as "not yet reviewed". */
