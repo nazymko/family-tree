@@ -76,6 +76,7 @@ fn open(s: &mut Session, given: &[&str], kin: AroundKin) -> (ChartMeta, ChartWin
             aunts_uncles: None,
             kin: Some(kin),
             roots: if ids.len() > 1 { Some(ids) } else { None },
+            direction: None,
         })
         .unwrap();
     let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();
@@ -231,6 +232,7 @@ fn own_brothers_and_sisters_in_a_family_without_partners() {
             aunts_uncles: Some(true),
             kin: None,
             roots: None,
+            direction: None,
         })
         .unwrap();
     let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();

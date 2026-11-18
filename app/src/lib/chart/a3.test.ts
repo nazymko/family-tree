@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { A3_MAX_SCALE, A3_MIN_PT, MM_PX, layoutA3, mmToPx, printDocument, printedPt, pxToMm } from './a3';
+import { A3_MAX_SCALE, A3_MIN_PT, MM_PX, bestDirection, fillRatio, layoutA3, mmToPx, printDocument, printedPt, pxToMm } from './a3';
 import { renderSvg } from './pictureExport';
 import type { PicturePlan } from './picture';
 
@@ -84,5 +84,44 @@ describe('A3 svg', () => {
     const html = printDocument('<?xml version="1.0"?>\n<svg></svg>', 'portrait');
     expect(html).toContain('@page{size:A3 portrait;margin:0}');
     expect(html).not.toContain('<?xml');
+  });
+});
+
+describe('A3 direction choice', () => {
+  const wide = { x: 0, y: 0, w: 7000, h: 600 };
+  const tall = { x: 0, y: 0, w: 1200, h: 3000 };
+  const sizes = (a: typeof wide, b: typeof wide) => [
+    { direction: 'top' as const, bounds: a },
+    { direction: 'bottom' as const, bounds: a },
+    { direction: 'left' as const, bounds: b },
+    { direction: 'right' as const, bounds: b },
+  ];
+
+  it('takes_the_direction_that_prints_largest', () => {
+    const wideTall = bestDirection(sizes({ x: 0, y: 0, w: 7000, h: 600 }, { x: 0, y: 0, w: 1000, h: 1300 }), 'top');
+    expect(wideTall.direction).toBe('left');
+    expect(wideTall.layout.scale).toBeGreaterThan(layoutA3(wide).scale * 3);
+    expect(bestDirection(sizes({ x: 0, y: 0, w: 1000, h: 800 }, tall), 'left').direction).toBe('top');
+  });
+
+  it('keeps_the_current_direction_on_a_tie', () => {
+    expect(bestDirection(sizes(wide, wide), 'bottom').direction).toBe('bottom');
+    expect(bestDirection(sizes(wide, wide), 'right').direction).toBe('right');
+    // A mirror image (same size) never beats the current side.
+    expect(bestDirection(sizes(tall, tall), 'top').direction).toBe('top');
+  });
+
+  it('honours_a_manual_orientation_when_choosing', () => {
+    const fit = bestDirection(sizes(wide, tall), 'top', 'portrait');
+    expect(fit.layout.orientation).toBe('portrait');
+  });
+
+  it('measures_how_much_of_the_printable_area_is_filled', () => {
+    const l = layoutA3(wide, 'landscape');
+    const f = fillRatio(wide, l);
+    expect(f.w).toBeCloseTo(1, 6);
+    expect(f.h).toBeLessThan(0.2);
+    const t = layoutA3(tall, 'portrait');
+    expect(fillRatio(tall, t).h).toBeCloseTo(1, 6);
   });
 });

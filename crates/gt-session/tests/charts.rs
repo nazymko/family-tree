@@ -83,6 +83,7 @@ fn pedigree_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
         aunts_uncles: None,
         kin: None,
         roots: None,
+        direction: None,
     }
 }
 
@@ -94,6 +95,7 @@ fn descendants_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
         aunts_uncles: None,
         kin: None,
         roots: None,
+        direction: None,
     }
 }
 
@@ -246,6 +248,7 @@ fn open_unknown_person_is_not_found() {
         aunts_uncles: None,
         kin: None,
         roots: None,
+        direction: None,
     };
     assert_eq!(s.chart_open(&req).unwrap_err().code, ErrorCode::NotFound);
 }
@@ -573,6 +576,7 @@ fn relatives_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
         aunts_uncles: None,
         kin: None,
         roots: None,
+        direction: None,
     }
 }
 
@@ -976,6 +980,7 @@ fn whole_tree_commands_refuse_other_charts_and_other_charts_refuse_whole() {
         aunts_uncles: None,
         kin: None,
         roots: None,
+        direction: None,
     };
     assert_eq!(s.chart_open(&req).unwrap_err().code, ErrorCode::Invalid);
     let w = s.chart_open_whole().unwrap();

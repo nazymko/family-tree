@@ -9,7 +9,7 @@
   import Button from '../ui/Button.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
   import DirectionControl from '../ui/DirectionControl.svelte';
-  import { DEFAULT_DIRECTIONS, arrowStep, camAtSide, edgeStrip, isHorizontal, opposite, rootSide, type ChartDirection } from './direction';
+  import { DEFAULT_DIRECTIONS, DIRECTIONS, arrowStep, camAtSide, edgeStrip, isHorizontal, opposite, rootSide, type ChartDirection } from './direction';
   import IconButton from '../ui/IconButton.svelte';
   import Menu, { type MenuItem } from '../ui/Menu.svelte';
   import { compact } from '../ui/compact.svelte';
@@ -24,7 +24,7 @@
   import { createDoubleTap, createLongPress, isTouchPointer } from '../ui/longPress';
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, chartTitle, later, printPicture, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
-  import { layoutA3, type A3Choice } from './a3';
+  import { A3_SUB_PT, A3_TITLE_PT, PT_PX, bestDirection, layoutA3, mmToPx, type A3Choice } from './a3';
   import { sceneBounds, pictureFileName } from './picture';
   import { settings } from '../state/settings.svelte';
   import { t, plural, localeStore, currentTag } from '../i18n';
@@ -297,6 +297,12 @@
     return typeof e === 'object' && e !== null && (e as { code?: string }).code === 'stale';
   }
 
+  function chartRequest(direction?: ChartDirection): ChartRequest {
+    const req: ChartRequest =
+      kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? (many ? { kind, root, generations, kin, roots } : { kind, root, generations, kin }) : { kind, root, generations };
+    return direction ? { ...req, direction } : req;
+  }
+
   /** `keepView`: reopened after an edit. The camera stays where it was and the selected person stays selected. */
   async function open(keepView = false): Promise<void> {
     const seq = ++openSeq;
@@ -310,9 +316,7 @@
     if (!keepCam) selNode = null;
     let m: ChartMeta;
     try {
-      const req: ChartRequest =
-        kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? (many ? { kind, root, generations, kin, roots } : { kind, root, generations, kin }) : { kind, root, generations };
-      m = await api.chartOpen(req);
+      m = await api.chartOpen(chartRequest());
     } catch (e) {
       if (seq !== openSeq) return;
       // The person was deleted while the screen was open: leave it quietly instead of showing an error.
@@ -925,8 +929,7 @@
   // ------------------------------------------------------------ pictures
 
   /** Every node and line of the open chart, fetched in tiles at 100% so names and dates are full. */
-  async function wholeScene(): Promise<Scene> {
-    const m = meta;
+  async function wholeScene(m: ChartMeta | null = meta): Promise<Scene> {
     if (!m) return { nodes: [], edges: [] };
     const parts: Scene[] = [];
     for (const r of tileRects({ x: -1, y: -1, w: m.bounds.w + 2, h: m.bounds.h + 2 })) {
@@ -963,7 +966,21 @@
     if (!meta || !cache?.current()) return null;
     theme ??= themeFromCss();
     const th = theme;
-    const scene = await wholeScene();
+    // A print lays the chart out in every direction and keeps the one that prints largest; the screen's direction is not changed.
+    const sizes: { direction: ChartDirection; bounds: Rect }[] = [];
+    for (const d of DIRECTIONS) {
+      const probe = await api.chartOpen(chartRequest(d));
+      await api.chartClose(probe.chartId).catch(() => {});
+      sizes.push({ direction: d, bounds: { x: 0, y: 0, w: probe.bounds.w, h: probe.bounds.h } });
+    }
+    const pick = bestDirection(sizes, dirNow, choice);
+    const chart = await api.chartOpen(chartRequest(pick.direction));
+    let scene: Scene;
+    try {
+      scene = await wholeScene(chart);
+    } finally {
+      await api.chartClose(chart.chartId).catch(() => {});
+    }
     if (scene.nodes.length === 0) return null;
     const lay = layoutA3(sceneBounds(scene), choice);
     const pxScale = format === 'svg' ? 1 : lay.pngScale;
@@ -987,7 +1004,7 @@
       pageMm: { ...lay.mm, orientation: lay.orientation },
       warning: lay.tooSmall ? t('picture.a3Small', { pt: Math.round(lay.namePt * 10) / 10 }) : undefined,
       paint: (ctx, p) => {
-        draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: rootNodeId, focusMore: chosenMore, theme: th, kind, dir: dirNow, handles: false, lod: 'full' });
+        draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: rootNodeId, focusMore: chosenMore, theme: th, kind, dir: pick.direction, handles: false, lod: 'full' });
         // Title block: the chart name on the left, the tree name and date on the right, a rule under both.
         const left = lay.area.x;
         const right = lay.px.w - lay.area.x;
@@ -996,15 +1013,15 @@
         ctx.textBaseline = 'alphabetic';
         ctx.textAlign = 'left';
         ctx.fillStyle = th.ink;
-        ctx.font = `600 22px ${th.serif}`;
-        ctx.fillText(title, left, top - 24);
+        ctx.font = `600 ${A3_TITLE_PT * PT_PX}px ${th.serif}`;
+        ctx.fillText(title, left, top - mmToPx(6));
         ctx.textAlign = 'right';
         ctx.fillStyle = th.ink2;
-        ctx.font = `13px ${th.font}`;
-        ctx.fillText(sub, right, top - 24);
+        ctx.font = `${A3_SUB_PT * PT_PX}px ${th.font}`;
+        ctx.fillText(sub, right, top - mmToPx(6));
         ctx.beginPath();
-        ctx.moveTo(left, top - 14);
-        ctx.lineTo(right, top - 14);
+        ctx.moveTo(left, top - mmToPx(3));
+        ctx.lineTo(right, top - mmToPx(3));
         ctx.strokeStyle = th.rule;
         ctx.lineWidth = 1;
         ctx.stroke();

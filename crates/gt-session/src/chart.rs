@@ -627,7 +627,9 @@ impl Session {
             links: &self.links,
             index: &self.index,
         };
-        let direction = self.direction_of(req.kind);
+        let direction = req
+            .direction
+            .map_or_else(|| self.direction_of(req.kind), Into::into);
         let native = native_direction(req.kind);
         let m = Metrics::default().for_direction(native, direction);
         let mut layout = match req.kind {

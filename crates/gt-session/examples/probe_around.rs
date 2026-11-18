@@ -28,6 +28,7 @@ fn main() {
             aunts_uncles: None,
             kin: Some(AroundKin::All),
             roots: Some(ids.clone()),
+            direction: None,
         })
         .expect("open the chart");
     println!(

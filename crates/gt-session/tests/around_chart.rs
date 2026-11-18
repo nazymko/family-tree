@@ -48,6 +48,7 @@ fn request(s: &Session, given: &str, generations: u32) -> ChartRequest {
         aunts_uncles: None,
         kin: None,
         roots: None,
+        direction: None,
     }
 }
 
@@ -213,4 +214,21 @@ fn person_count_is_the_number_of_distinct_people_on_the_chart() {
         assert_eq!(m.person_count as usize, distinct.len(), "{given} {gens}");
         assert!(m.person_count >= 1 && m.person_count <= m.node_count);
     }
+}
+
+#[test]
+fn a_direction_in_the_request_turns_that_chart_only() {
+    let (_d, mut s) = open_tree(&tree_of(KOVAL));
+    let base = s.chart_open(&request(&s, "Ivan Petrovych", 3)).unwrap();
+    let mut req = request(&s, "Ivan Petrovych", 3);
+    req.direction = Some(ChartDirection::Left);
+    let turned = s.chart_open(&req).unwrap();
+    assert!(
+        (turned.bounds.w - base.bounds.w).abs() > 1.0
+            || (turned.bounds.h - base.bounds.h).abs() > 1.0,
+        "a sideways chart has other bounds than the default one"
+    );
+    // The settings are not touched: the next chart without a direction comes out like the first.
+    let again = s.chart_open(&request(&s, "Ivan Petrovych", 3)).unwrap();
+    assert_eq!(again.bounds, base.bounds);
 }

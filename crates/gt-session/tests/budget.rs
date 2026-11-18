@@ -258,6 +258,7 @@ fn chart_window_under_8ms() {
             aunts_uncles: None,
             kin: None,
             roots: None,
+            direction: None,
         })
         .unwrap();
     let rect = Rect {
@@ -293,6 +294,7 @@ fn chart_open_pedigree_8_gens_under_50ms() {
         aunts_uncles: None,
         kin: None,
         roots: None,
+        direction: None,
     };
     let mut nodes = 0;
     let took = median(9, || {

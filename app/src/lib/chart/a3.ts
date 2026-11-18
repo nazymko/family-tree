@@ -1,5 +1,6 @@
 import type { Rect } from '../api/types';
 import type { Camera } from './camera';
+import type { ChartDirection } from './direction';
 
 /** CSS pixels per millimetre (96 dpi). A page is laid out in these units; the SVG scales them to real millimetres. */
 export const MM_PX = 96 / 25.4;
@@ -9,7 +10,12 @@ export const A3_SHORT_MM = 297;
 /** Empty border around everything on the page (mm). */
 export const A3_MARGIN_MM = 10;
 /** Height of the title block at the top of the page (mm). */
-export const A3_TITLE_MM = 14;
+export const A3_TITLE_MM = 16;
+/** Type sizes of the title block (points): the chart name, and the tree name with the date. */
+export const A3_TITLE_PT = 18;
+export const A3_SUB_PT = 11;
+/** Points to layout px (96 dpi). */
+export const PT_PX = 96 / 72;
 /** Resolution of the PNG. */
 export const A3_DPI = 300;
 /** Boxes are never printed larger than this multiple of their screen size. */
@@ -86,6 +92,32 @@ export function layoutA3(bounds: Rect, choice: A3Choice = 'auto'): A3Layout {
     namePt,
     tooSmall: namePt < A3_MIN_PT,
   };
+}
+
+export interface DirectionFit {
+  direction: ChartDirection;
+  layout: A3Layout;
+}
+
+/**
+ * Picks the chart direction for a print: the one (with the page orientation) that allows the largest uniform scale.
+ * `bounds` holds the size of the chart laid out in each direction. A direction only wins when it is clearly larger
+ * (more than 0.1%), so on a tie the direction the person is looking at stays.
+ */
+export function bestDirection(bounds: { direction: ChartDirection; bounds: Rect }[], current: ChartDirection, choice: A3Choice = 'auto'): DirectionFit {
+  let best: DirectionFit | null = null;
+  const ordered = [...bounds].sort((a, b) => Number(b.direction === current) - Number(a.direction === current));
+  for (const c of ordered) {
+    const layout = layoutA3(c.bounds, choice);
+    if (!best || layout.scale > best.layout.scale * 1.001) best = { direction: c.direction, layout };
+  }
+  if (!best) throw new Error('no chart direction to choose from');
+  return best;
+}
+
+/** How much of the printable area the chart fills (0..1 each way). */
+export function fillRatio(bounds: Rect, l: A3Layout): { w: number; h: number } {
+  return { w: (bounds.w * l.scale) / l.area.w, h: (bounds.h * l.scale) / l.area.h };
 }
 
 /** The HTML the print dialog gets: one A3 page holding the SVG, no browser margins. */

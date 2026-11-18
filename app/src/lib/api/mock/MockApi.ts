@@ -1217,7 +1217,7 @@ export class MockApi implements Api {
           ? layoutDescendants(req.root, generations, src)
           : layoutRelatives(req.root, Math.min(generations, 6), req.auntsUncles ?? true, src);
     // The side the ancestors are drawn on, for this kind of chart.
-    const layout = orientLayout(laid, req.kind, this.settings.chartDirections[req.kind]);
+    const layout = orientLayout(laid, req.kind, req.direction ?? this.settings.chartDirections[req.kind]);
     const chartId = this.nextChart++;
     this.charts.set(chartId, { kind: req.kind, layout, version: this.version, reference: req.root });
     return {
