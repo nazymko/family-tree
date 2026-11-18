@@ -612,9 +612,15 @@ export class MockApi implements Api {
       // The person holds copies; edits (title, transcription) land on the media store.
       media: p.media.map((l) => ({ ...l, media: this.db.media.get(l.media.id) ?? l.media })),
       citations: p.citations,
-      ...(this.godchildrenOf(id).length > 0 ? { godchildren: this.godchildrenOf(id) } : {}),
+      ...this.godchildrenField(id),
       changed: p.changed,
     });
+  }
+
+  /** `{ godchildren }` when `id` stood godparent for anyone, else nothing (the field is optional, as from Rust). */
+  private godchildrenField(id: Id): { godchildren?: GodchildDto[] } {
+    const list = this.godchildrenOf(id);
+    return list.length > 0 ? { godchildren: list } : {};
   }
 
   /** Everyone `id` stood godparent for (linked godparents only), oldest first. */
