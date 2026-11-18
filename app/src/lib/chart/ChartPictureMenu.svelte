@@ -10,6 +10,7 @@
   import { t } from '../i18n';
   import type { PictureScope } from './picture';
   import type { A3Choice } from './a3';
+  import { a3Direction } from './a3Pref.svelte';
   import { relativeItems } from './relativeItems';
 
   /**
@@ -92,7 +93,10 @@
     { label: t('picture.screen'), onselect: () => onpick('screen') },
     ...(ona3
       ? [
-          { label: t('picture.a3'), onselect: () => ona3('auto', false), separatorBefore: true },
+          // The direction of the print: as on the screen (the default) or the one that prints largest. Kept for next time.
+          { label: t('picture.a3DirScreen'), checked: a3Direction.value === 'screen', onselect: () => a3Direction.set('screen'), separatorBefore: true },
+          { label: t('picture.a3DirBest'), checked: a3Direction.value === 'best', onselect: () => a3Direction.set('best') },
+          { label: t('picture.a3'), onselect: () => ona3('auto', false) },
           { label: t('picture.a3Landscape'), onselect: () => ona3('landscape', false) },
           { label: t('picture.a3Portrait'), onselect: () => ona3('portrait', false) },
           { label: t('picture.a3Print'), onselect: () => ona3('auto', true) },

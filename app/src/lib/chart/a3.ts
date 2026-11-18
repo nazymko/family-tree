@@ -115,6 +115,20 @@ export function bestDirection(bounds: { direction: ChartDirection; bounds: Rect 
   return best;
 }
 
+/** Which direction an A3 print uses: the one on the screen, or the one that prints largest. */
+export type A3DirectionMode = 'screen' | 'best';
+
+/**
+ * The direction and page layout of an A3 print. 'screen' keeps `current` (the page orientation still follows `choice`,
+ * so 'auto' turns the page for that direction); 'best' is `bestDirection`. `bounds` must hold `current` for 'screen'.
+ */
+export function printDirection(bounds: { direction: ChartDirection; bounds: Rect }[], current: ChartDirection, mode: A3DirectionMode, choice: A3Choice = 'auto'): DirectionFit {
+  if (mode === 'best') return bestDirection(bounds, current, choice);
+  const own = bounds.find((b) => b.direction === current);
+  if (!own) throw new Error('the chart was not laid out in its own direction');
+  return { direction: current, layout: layoutA3(own.bounds, choice) };
+}
+
 /** How much of the printable area the chart fills (0..1 each way). */
 export function fillRatio(bounds: Rect, l: A3Layout): { w: number; h: number } {
   return { w: (bounds.w * l.scale) / l.area.w, h: (bounds.h * l.scale) / l.area.h };

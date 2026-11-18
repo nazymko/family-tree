@@ -24,7 +24,8 @@
   import { createDoubleTap, createLongPress, isTouchPointer } from '../ui/longPress';
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, chartTitle, later, printPicture, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
-  import { A3_SUB_PT, A3_TITLE_PT, PT_PX, bestDirection, ellipsize, mmToPx, type A3Choice } from './a3';
+  import { A3_SUB_PT, A3_TITLE_PT, PT_PX, ellipsize, mmToPx, printDirection, type A3Choice } from './a3';
+  import { a3Direction } from './a3Pref.svelte';
   import { sceneBounds, pictureFileName } from './picture';
   import { settings } from '../state/settings.svelte';
   import { t, plural, localeStore, currentTag } from '../i18n';
@@ -966,11 +967,13 @@
     if (!meta || !cache?.current()) return null;
     theme ??= themeFromCss();
     const th = theme;
-    // A print lays the chart out in every direction and keeps the one that prints largest; the screen's direction is not changed.
+    // A print keeps the direction on the screen; with "best fit" chosen it lays the chart out in every direction and keeps the
+    // one that prints largest. The screen's direction is not changed either way.
     // The layouts are print charts: compact, outside the two-chart limit, so no chart the person has open is closed. Each is
     // closed as soon as its boxes are read, whatever happens.
+    const mode = a3Direction.value;
     const found: { direction: ChartDirection; scene: Scene; meta: ChartMeta; bounds: Rect }[] = [];
-    for (const d of DIRECTIONS) {
+    for (const d of mode === 'best' ? DIRECTIONS : [dirNow]) {
       const probe = await api.chartOpen(chartRequest(d, true));
       try {
         const sc = await wholeScene(probe);
@@ -983,7 +986,7 @@
         }
       }
     }
-    const pick = bestDirection(found, dirNow, choice);
+    const pick = printDirection(found, dirNow, mode, choice);
     const chosen = found.find((f) => f.direction === pick.direction)!;
     const scene = chosen.scene;
     if (scene.nodes.length === 0) return null;
@@ -1010,7 +1013,9 @@
       theme: { paper: th.paper, ink2: th.ink2, font: th.font },
       caption: '',
       pageMm: { ...lay.mm, orientation: lay.orientation },
-      warning: lay.tooSmall ? t('picture.a3Small', { pt: Math.round(lay.namePt * 10) / 10 }) : undefined,
+      warning: lay.tooSmall
+        ? t('picture.a3Small', { pt: Math.round(lay.namePt * 10) / 10 }) + (mode === 'screen' ? ` ${t('picture.a3SmallBestHint')}` : '')
+        : undefined,
       paint: (ctx, p) => {
         draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: printFocus, focusMore: printMore, theme: th, kind, dir: pick.direction, handles: false, lod: 'full', compact: true });
         // Title block: the chart name on the left, the tree name and date on the right, a rule under both.

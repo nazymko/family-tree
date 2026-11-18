@@ -8,6 +8,11 @@
     title?: string;
     /** A thin line above this item, to start a new group (shown by the context menu). */
     separatorBefore?: boolean;
+    /**
+     * A choice of one in a group (shown by the context menu): the item is a radio item, ticked when true. Choosing it
+     * keeps the menu open, so the person sees the tick move and can go on to the action.
+     */
+    checked?: boolean;
   }
 </script>
 

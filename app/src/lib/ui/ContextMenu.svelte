@@ -31,7 +31,7 @@
     top = Math.max(oy + EDGE, t);
   }
 
-  const buttons = (): HTMLElement[] => (menu ? Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]')) : []);
+  const buttons = (): HTMLElement[] => (menu ? Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')) : []);
 
   onMount(() => {
     place();
@@ -66,6 +66,8 @@
 
   function choose(item: MenuItem): void {
     if (item.disabled) return;
+    // A choice in a group changes a setting and leaves the menu open.
+    if (item.checked !== undefined) return item.onselect();
     onclose(true);
     item.onselect();
   }
@@ -92,13 +94,18 @@
     {/if}
     <button
       type="button"
-      role="menuitem"
+      role={item.checked !== undefined ? 'menuitemradio' : 'menuitem'}
+      aria-checked={item.checked !== undefined ? String(item.checked) : undefined}
       tabindex="-1"
       class:danger={item.danger}
+      class:radio={item.checked !== undefined}
       aria-disabled={item.disabled ? 'true' : undefined}
       aria-describedby={item.disabled && item.title ? `${uid}-hint-${index}` : undefined}
       onclick={() => choose(item)}
     >
+      {#if item.checked !== undefined}
+        <span class="tick" aria-hidden="true"></span>
+      {/if}
       <span>{item.label}</span>
       {#if item.disabled && item.title}
         <small id="{uid}-hint-{index}">{item.title}</small>
@@ -124,7 +131,8 @@
     box-shadow: var(--shadow-pop);
     animation: pop var(--dur-base) var(--ease);
   }
-  button[role='menuitem'] {
+  button[role='menuitem'],
+  button[role='menuitemradio'] {
     display: grid;
     gap: 2px;
     padding: var(--s-3) var(--s-4);
@@ -136,10 +144,13 @@
     cursor: pointer;
   }
   button[role='menuitem']:hover,
-  button[role='menuitem']:focus-visible {
+  button[role='menuitem']:focus-visible,
+  button[role='menuitemradio']:hover,
+  button[role='menuitemradio']:focus-visible {
     background: var(--paper-2);
   }
-  button[role='menuitem']:focus-visible {
+  button[role='menuitem']:focus-visible,
+  button[role='menuitemradio']:focus-visible {
     outline: 2px solid var(--focus);
     outline-offset: -2px;
   }
@@ -149,6 +160,20 @@
   }
   button[role='menuitem'][aria-disabled='true'] span {
     opacity: 0.6;
+  }
+  .radio {
+    grid-template-columns: 1rem 1fr;
+    align-items: center;
+  }
+  /* The tick of a radio item is a dot drawn by CSS, so the item's text is only its label. */
+  .tick {
+    justify-self: center;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+  }
+  [aria-checked='true'] .tick {
+    background: var(--ribbon, var(--ink-1));
   }
   hr {
     height: 1px;

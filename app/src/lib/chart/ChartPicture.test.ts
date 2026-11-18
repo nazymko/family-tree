@@ -8,6 +8,8 @@ import { notices } from '../ui/notices.svelte';
 import ChartCanvas from './ChartCanvas.svelte';
 import WholeCanvas from './WholeCanvas.svelte';
 import Host from './testing/Host.svelte';
+import type { ChartDirection } from './direction';
+import { A3_DIRECTION_KEY, a3Direction } from './a3Pref.svelte';
 import { allNodes, attachContext, fakeRaf, lastCamera, makeApi, richestRoot } from './testing/helpers';
 
 const RECT = { left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON() {} };
@@ -32,7 +34,7 @@ function stubOffscreen() {
 /** Boxes painted into a picture: the rectangles added to a path, minus the one clip rectangle. */
 const boxes = (ctx: ReturnType<typeof makeFakeContext>) => ctx.calls.filter((c) => c.op === 'rect').length - 1;
 
-async function setupChart(kind: ChartKind = 'pedigree') {
+async function setupChart(kind: ChartKind = 'pedigree', direction?: ChartDirection) {
   const raf = fakeRaf();
   const { api, fx } = makeApi();
   const root = await richestRoot(api, fx, kind);
@@ -41,7 +43,7 @@ async function setupChart(kind: ChartKind = 'pedigree') {
   const winSpy = vi.spyOn(api, 'chartWindow');
   const saveSpy = vi.spyOn(api, 'savePicture');
   render(Host, {
-    props: { api, view: ChartCanvas, props: { kind, root, generations: 6, onRecentre: vi.fn(), onOpenPerson: vi.fn() }, platform },
+    props: { api, view: ChartCanvas, props: { kind, root, generations: 6, onRecentre: vi.fn(), onOpenPerson: vi.fn(), ...(direction ? { direction } : {}) }, platform },
   });
   const canvas = screen.getByRole('application') as HTMLCanvasElement;
   const ctx = attachContext(canvas);
@@ -64,6 +66,9 @@ async function rightClick(el: Element, at = { clientX: 400, clientY: 300 }) {
 
 beforeEach(() => {
   notices.dismiss();
+  // Every case starts with the default A3 direction (as on screen).
+  localStorage.removeItem(A3_DIRECTION_KEY);
+  a3Direction.reload();
 });
 
 afterEach(() => {
@@ -173,8 +178,48 @@ describe('picture menu on a chart', () => {
     expect((s.platform.calls.find((c) => c.method === 'pickSavePath')!.args[0] as { extensions: string[] }).extensions).toEqual(['png', 'svg']);
   });
 
+  it('the_menu_offers_the_a3_direction_as_on_screen_by_default_and_remembers_best_fit', async () => {
+    const s = await setupChart();
+    await rightClick(s.canvas);
+    const radios = within(menu()).getAllByRole('menuitemradio');
+    expect(radios.map((r) => r.textContent?.trim())).toEqual(['Direction: as on screen', 'Direction: best fit']);
+    expect(radios.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false']);
+    // Choosing one ticks it and leaves the menu open for the save.
+    await fireEvent.click(radios[1]);
+    expect(menu()).toBeTruthy();
+    const after = within(menu()).getAllByRole('menuitemradio');
+    expect(after.map((r) => r.getAttribute('aria-checked'))).toEqual(['false', 'true']);
+    expect(localStorage.getItem(A3_DIRECTION_KEY)).toBe('best');
+    // The arrow keys reach the choices too.
+    after[1].focus();
+    await fireEvent.keyDown(menu(), { key: 'ArrowUp' });
+    expect(after[0]).toHaveFocus();
+    await fireEvent.keyDown(menu(), { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    // Kept for the next menu.
+    await rightClick(s.canvas);
+    expect(within(menu()).getByRole('menuitemradio', { name: 'Direction: best fit' }).getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('a_default_a3_save_lays_the_chart_out_once_in_the_direction_on_screen', async () => {
+    stubOffscreen();
+    // Ancestors on the left: not what this chart has by default, and not what best fit has to pick.
+    const s = await setupChart('around', 'left');
+    const closeSpy = vi.spyOn(s.api, 'chartClose');
+    const before = s.openSpy.mock.calls.length;
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled());
+    const probes = s.openSpy.mock.calls.slice(before).map((c) => c[0]);
+    expect(probes).toHaveLength(1);
+    expect(probes[0].print).toBe(true);
+    expect(probes[0].direction).toBe('left');
+    expect(closeSpy.mock.calls.length).toBe(1);
+  });
+
   it('an_a3_save_lays_out_print_charts_only_and_closes_them_without_touching_the_open_chart', async () => {
     stubOffscreen();
+    a3Direction.set('best');
     const s = await setupChart('around');
     const closeSpy = vi.spyOn(s.api, 'chartClose');
     const screenChart = (await s.openSpy.mock.results[0].value).chartId;
@@ -183,7 +228,7 @@ describe('picture menu on a chart', () => {
     await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, portrait/ }));
     await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled());
     const probes = s.openSpy.mock.calls.slice(before).map((c) => c[0]);
-    // One layout per direction; every one a print chart that sets its own direction.
+    // Best fit: one layout per direction; every one a print chart that sets its own direction.
     expect(probes.length).toBe(4);
     expect(probes.every((r) => r.print === true && r.direction !== undefined)).toBe(true);
     // Each was closed, and the chart on screen was not.
@@ -194,6 +239,7 @@ describe('picture menu on a chart', () => {
 
   it('an_error_in_the_middle_of_the_probes_still_closes_every_print_chart', async () => {
     stubOffscreen();
+    a3Direction.set('best');
     const s = await setupChart('around');
     const closeSpy = vi.spyOn(s.api, 'chartClose');
     const before = s.openSpy.mock.calls.length;

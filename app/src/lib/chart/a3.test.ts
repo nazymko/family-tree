@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { A3_MAX_SCALE, A3_MIN_PT, MM_PX, bestDirection, ellipsize, fillRatio, layoutA3, printHtml, mmToPx, printDocument, printedPt, pxToMm } from './a3';
+import { A3_MAX_SCALE, A3_MIN_PT, MM_PX, bestDirection, ellipsize, fillRatio, layoutA3, printDirection, printHtml, mmToPx, printDocument, printedPt, pxToMm } from './a3';
 import { renderSvg } from './pictureExport';
 import type { PicturePlan } from './picture';
 
@@ -114,6 +114,35 @@ describe('A3 direction choice', () => {
   it('honours_a_manual_orientation_when_choosing', () => {
     const fit = bestDirection(sizes(wide, tall), 'top', 'portrait');
     expect(fit.layout.orientation).toBe('portrait');
+  });
+
+  it('as_on_screen_keeps_the_screen_direction_even_when_another_prints_larger', () => {
+    const all = sizes({ x: 0, y: 0, w: 7000, h: 600 }, { x: 0, y: 0, w: 1000, h: 1300 });
+    // Best fit would turn it to the left; the screen's top stays.
+    expect(bestDirection(all, 'top').direction).toBe('left');
+    const fit = printDirection(all, 'top', 'screen');
+    expect(fit.direction).toBe('top');
+    expect(fit.layout).toEqual(layoutA3({ x: 0, y: 0, w: 7000, h: 600 }));
+    // Only the screen's own layout is needed.
+    expect(printDirection([{ direction: 'right', bounds: tall }], 'right', 'screen').direction).toBe('right');
+    expect(() => printDirection([{ direction: 'top', bounds: tall }], 'left', 'screen')).toThrow();
+  });
+
+  it('best_fit_still_picks_the_largest', () => {
+    const all = sizes({ x: 0, y: 0, w: 7000, h: 600 }, { x: 0, y: 0, w: 1000, h: 1300 });
+    const fit = printDirection(all, 'top', 'best');
+    expect(fit).toEqual(bestDirection(all, 'top'));
+    expect(fit.layout.scale).toBeGreaterThan(printDirection(all, 'top', 'screen').layout.scale * 3);
+  });
+
+  it('as_on_screen_turns_the_page_for_that_direction_when_the_orientation_is_auto', () => {
+    // The same chart: wide when its ancestors are on top, tall when they are on the left.
+    const all = sizes(wide, tall);
+    expect(printDirection(all, 'top', 'screen').layout.orientation).toBe('landscape');
+    expect(printDirection(all, 'left', 'screen').layout.orientation).toBe('portrait');
+    // A chosen orientation is kept.
+    expect(printDirection(all, 'left', 'screen', 'landscape').layout.orientation).toBe('landscape');
+    expect(printDirection(all, 'top', 'screen', 'portrait').layout.orientation).toBe('portrait');
   });
 
   it('measures_how_much_of_the_printable_area_is_filled', () => {

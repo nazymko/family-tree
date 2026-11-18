@@ -1680,6 +1680,9 @@ export const en = {
     a3Portrait: 'Save for A3 print, portrait…',
     a3Print: 'Print on A3…',
     a3Small: 'The names print at only {pt} pt, which is hard to read. For a larger print, show fewer generations.',
+    a3SmallBestHint: 'The direction "best fit" may print it larger.',
+    a3DirScreen: 'Direction: as on screen',
+    a3DirBest: 'Direction: best fit',
   },
   chartCanvas: {
     pedigreeChart: 'Pedigree chart',
