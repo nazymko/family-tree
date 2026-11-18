@@ -95,6 +95,7 @@
     }
   });
   let fitSoon = true;
+  let fittedWithPoints = false;
 
   $effect(() => {
     const id = personId;
@@ -141,6 +142,7 @@
   const peopleHere = $derived.by(() => {
     if (!chosenPoint || !data) return [];
     const byId = new Map(data.people.map((p) => [p.id, p]));
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const rows = new Map<string, { id: string; name: string; living: boolean; events: { kind: string; year: number | null }[] }>();
     for (const e of chosenPoint.events) {
       const p = byId.get(e.person);
@@ -165,11 +167,13 @@
     if (!data) return;
     const w = filterEvents(data.events, { kinds: new Set(), from: null, to: null });
     const pts = placePoints(data, w).map((p) => ({ x: p.x, y: p.y }));
+    fittedWithPoints = pts.length > 0;
     cam = fitPoints(pts, size.w, size.h);
   }
 
   $effect(() => {
-    if (fitSoon && data && size.w > 0) fit();
+    // The first points that appear (a coordinate was just set) bring the view to them.
+    if ((fitSoon || (!fittedWithPoints && points.length > 0)) && data && size.w > 0) fit();
   });
 
   onMount(() => {
@@ -218,7 +222,7 @@
   let drag: { x: number; y: number; moved: number } | null = null;
 
   function down(e: PointerEvent) {
-    canvas?.setPointerCapture(e.pointerId);
+    canvas?.setPointerCapture?.(e.pointerId);
     drag = { x: e.clientX, y: e.clientY, moved: 0 };
   }
   function move(e: PointerEvent) {
@@ -269,6 +273,7 @@
   // ------------------------------------------------------------- filters
 
   function toggleKind(k: string) {
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const next = new Set(kinds);
     if (next.has(k)) next.delete(k);
     else next.add(k);
@@ -434,11 +439,10 @@
   <div class="stage" class:withSide={helperOpen || chosenPoint}>
     <div class="canvasBox" bind:this={box}>
       {#if failed}
-        <EmptyState title={t('map.loadFailed')}>{''}</EmptyState>
+        <div class="over"><EmptyState title={t('map.loadFailed')} /></div>
       {:else if data && data.events.length === 0 && data.eventsWithoutPlace === 0}
-        <EmptyState title={t('map.empty')}>{''}</EmptyState>
+        <div class="over"><EmptyState title={t('map.empty')} /></div>
       {/if}
-      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <canvas
         bind:this={canvas}
         class:picking={!!picking}
@@ -618,6 +622,14 @@
   canvas:focus-visible {
     outline: 2px solid var(--focus);
     outline-offset: -2px;
+  }
+  .over {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    display: grid;
+    place-items: center;
   }
   .zoom {
     position: absolute;

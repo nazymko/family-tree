@@ -399,7 +399,8 @@ function drawHeat(ctx: Ctx, sc: Scene, th: MapTheme, v: View, scale: number): vo
       g.fillStyle = grad;
       g.fillRect(x - radius, y - radius, radius * 2, radius * 2);
     }
-    const img = g.getImageData(0, 0, glow.c.width, glow.c.height);
+    const img = g.getImageData(0, 0, glow.c.width, glow.c.height) as ImageData | undefined;
+    if (!img?.data) return;
     const d = img.data;
     ramp ??= rampTable();
     for (let i = 0; i < d.length; i += 4) {

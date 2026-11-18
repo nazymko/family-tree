@@ -148,10 +148,10 @@
       <label>
         <span>{t('map.helper.countryCode')}</span>
         <input list="map-countries" maxlength="2" bind:value={country} disabled={busy} autocapitalize="characters" />
-        <datalist id="map-countries">
-          {#each COUNTRIES as cc (cc)}<option value={cc}>{countryName(cc)}</option>{/each}
-        </datalist>
       </label>
+      <datalist id="map-countries">
+        {#each COUNTRIES as cc (cc)}<option value={cc}>{countryName(cc)}</option>{/each}
+      </datalist>
       <Button variant="secondary" onclick={download} disabled={busy || country.trim().length !== 2 || have.has(country.trim().toUpperCase())}>
         {t('map.helper.download')}
       </Button>

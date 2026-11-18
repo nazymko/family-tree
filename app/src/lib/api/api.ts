@@ -59,10 +59,6 @@ import type {
   GazetteerProgressDto,
   GazetteerStatusDto,
   MapDataDto,
-  MapEventDto,
-  MapLinkDto,
-  MapPersonDto,
-  MapPlaceDto,
   MapScope,
 } from './types';
 import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus } from './types';
