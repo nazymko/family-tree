@@ -57,6 +57,12 @@ import type {
   TraceDraftState,
   TraceImageInfo,
   UndoState,
+  GazetteerCandidateDto,
+  GazetteerCountryDto,
+  GazetteerProgressDto,
+  GazetteerStatusDto,
+  MapDataDto,
+  MapScope,
   WholeMeta,
 } from '../types';
 import { toApiError } from './errors';
@@ -259,6 +265,30 @@ export class TauriApi implements Api {
     } catch (e) {
       throw toApiError(e);
     }
+  }
+  mapData(scope: MapScope): Promise<MapDataDto> {
+    return call('map_data', { scope });
+  }
+  gazetteerStatus(): Promise<GazetteerStatusDto> {
+    return call('gazetteer_status');
+  }
+  gazetteerRemoteSize(country: string): Promise<number | null> {
+    return call('gazetteer_remote_size', { country });
+  }
+  async gazetteerDownload(country: string, onProgress?: (p: GazetteerProgressDto) => void): Promise<GazetteerCountryDto> {
+    let unlisten: (() => void) | null = null;
+    try {
+      if (onProgress) unlisten = await listen<GazetteerProgressDto>('gazetteer-progress', (e) => onProgress(e.payload));
+      return await call<GazetteerCountryDto>('gazetteer_download', { country });
+    } finally {
+      unlisten?.();
+    }
+  }
+  gazetteerRemove(country: string): Promise<void> {
+    return call('gazetteer_remove', { country });
+  }
+  gazetteerSuggest(place: Id, limit: number): Promise<GazetteerCandidateDto[]> {
+    return call('gazetteer_suggest', { place, limit });
   }
   getSettings(): Promise<Settings> {
     return call('get_settings');
