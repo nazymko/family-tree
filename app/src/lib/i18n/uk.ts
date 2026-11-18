@@ -874,6 +874,7 @@ export const uk: Messages = {
     mediaRegion: 'Ділянка зображення',
     transcription: 'Розшифровка',
     mediaRotation: 'Поворот',
+    versionOf: 'Версія файлу',
     mediaClip: 'Уривок запису',
     and: 'та',
     removed: '(запис вилучено)',

@@ -109,6 +109,16 @@ pub(super) fn delete_media(p: &mut Planner, id: Uuid) -> Result<Option<Uuid>, Ap
         citations,
         notes
     );
+    // The other versions of a deleted primary stay a group, under the first of them.
+    if media.version_of.is_none() {
+        let rest = versions_of(p, id);
+        if let Some((next, more)) = rest.split_first() {
+            point_at(p, *next, None)?;
+            for v in more {
+                point_at(p, *v, Some(*next))?;
+            }
+        }
+    }
     p.abandon(&media.common.citations, &media.common.notes, true);
     p.remove::<Media>(id);
     Ok(None)
@@ -500,6 +510,118 @@ pub(super) fn delete_clip(
         Ok(())
     })?;
     Ok(focus)
+}
+
+/// Every record whose `version_of` is `primary`, as planned so far, in tree order.
+fn versions_of(p: &Planner, primary: Uuid) -> Vec<Uuid> {
+    p.tree
+        .media
+        .keys()
+        .filter(|id| **id != primary)
+        .filter(|id| {
+            p.find::<Media>(**id)
+                .is_some_and(|m| m.version_of == Some(primary))
+        })
+        .copied()
+        .collect()
+}
+
+/// Sets which record a media record is a version of; a record that already says so is not written.
+fn point_at(p: &mut Planner, id: Uuid, to: Option<Uuid>) -> Result<(), ApiError> {
+    let mut m: Media = p.get(id)?;
+    if m.version_of != to {
+        m.version_of = to;
+        m.common.changed = Some(p.now);
+        p.put(m);
+    }
+    Ok(())
+}
+
+/// The largest number of files in one version group.
+pub const VERSION_GROUP_MAX: usize = 50;
+
+/// Makes `others` versions of `primary`. Each file's group comes along whole, and every member
+/// ends up pointing at `primary`, which points at nothing. Files, transcriptions and links stay.
+pub(super) fn group_versions(
+    p: &mut Planner,
+    primary: Uuid,
+    others: &[Uuid],
+) -> Result<Option<Uuid>, ApiError> {
+    let head: Media = p.get(primary)?;
+    let mut members: Vec<Uuid> = Vec::new();
+    let add = |id: Uuid, members: &mut Vec<Uuid>| {
+        if id != primary && !members.contains(&id) {
+            members.push(id);
+        }
+    };
+    let mut roots = vec![head.version_of.unwrap_or(primary)];
+    for o in others {
+        let m: Media = p.get(*o)?;
+        if is_sound(&m) != is_sound(&head) {
+            return Err(invalid(
+                "A sound recording and a picture cannot be versions of one another.",
+            ));
+        }
+        roots.push(m.version_of.unwrap_or(*o));
+    }
+    for r in roots {
+        add(r, &mut members);
+        for v in versions_of(p, r) {
+            add(v, &mut members);
+        }
+    }
+    if members.is_empty() {
+        return Err(invalid("Choose another file of the same page."));
+    }
+    if members.len() + 1 > VERSION_GROUP_MAX {
+        return Err(invalid(format!(
+            "A page can have at most {VERSION_GROUP_MAX} versions."
+        )));
+    }
+    point_at(p, primary, None)?;
+    for id in members {
+        point_at(p, id, Some(primary))?;
+    }
+    Ok(None)
+}
+
+/// Takes `media` out of its version group. When it was the primary, `new_primary` (one of the
+/// other versions), or else the first of them, becomes the primary of the rest; a group left with
+/// one file is no group any more.
+pub(super) fn ungroup_version(
+    p: &mut Planner,
+    media: Uuid,
+    new_primary: Option<Uuid>,
+) -> Result<Option<Uuid>, ApiError> {
+    let m: Media = p.get(media)?;
+    match m.version_of {
+        // The primary of a group left with one file points at nothing already: a plain file.
+        Some(_) => point_at(p, media, None)?,
+        None => {
+            let rest = versions_of(p, media);
+            if rest.is_empty() {
+                return Err(invalid("This file has no other versions."));
+            }
+            let next = match new_primary {
+                Some(n) if rest.contains(&n) => n,
+                Some(_) => {
+                    return Err(invalid(
+                        "The new primary must be one of the other versions.",
+                    ));
+                }
+                None => rest[0],
+            };
+            point_at(p, next, None)?;
+            for id in rest.into_iter().filter(|id| *id != next) {
+                point_at(p, id, Some(next))?;
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn is_sound(m: &Media) -> bool {
+    m.mime.as_deref().is_some_and(|t| t.starts_with("audio/"))
 }
 
 /// Whether a media record is a picture that can be shown turned: not a recording or a document.

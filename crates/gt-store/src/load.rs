@@ -439,7 +439,7 @@ impl Project {
 
         let mut st = conn.prepare(
             "SELECT id, private, changed, unknown_json, path, original_name, mime, title, \
-             date_json, description, sha256, transcription_json, rotation, place_id FROM media ORDER BY seq",
+             date_json, description, sha256, transcription_json, rotation, place_id,              version_of FROM media ORDER BY seq",
         )?;
         let mut rows = st.query([])?;
         while let Some(r) = rows.next()? {
@@ -458,6 +458,11 @@ impl Project {
                     Some(t) => Some(parse_uuid(&t)?).filter(|p| tree.places.contains_key(p)),
                     None => None,
                 },
+                // Read as written; groups are made sound once every record is in.
+                version_of: match r.get::<_, Option<String>>(14)? {
+                    Some(t) => Some(parse_uuid(&t)?),
+                    None => None,
+                },
                 path: r.get(4)?,
                 original_name: r.get(5)?,
                 mime: r.get(6)?,
@@ -469,6 +474,8 @@ impl Project {
             };
             tree.media.insert(id, m);
         }
+        // A primary that is gone reads as none; a chain reads as its first primary.
+        tree.mend_media_versions();
 
         let mut st = conn.prepare(
             "SELECT id, private, changed, unknown_json, kind, text, lang, shared \

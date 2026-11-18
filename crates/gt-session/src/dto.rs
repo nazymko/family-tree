@@ -317,6 +317,12 @@ pub struct MediaDto {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(as = "Option<Vec<String>>", optional)]
     pub web_links: Vec<String>,
+    /// When the same page is kept in several files (copies in other quality): every version, the
+    /// group's primary first and this file among them. The versions carry no list of their own.
+    /// Absent for a file with no other versions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<MediaDto>>", optional)]
+    pub versions: Vec<MediaDto>,
 }
 
 /// One piece of a picture's transcription.

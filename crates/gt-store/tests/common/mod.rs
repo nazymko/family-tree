@@ -196,6 +196,7 @@ pub fn rich_tree() -> Tree {
     t.media.insert(
         media_id,
         Media {
+            version_of: None,
             place: Some(place_b),
             common: common(media_id),
             path: "media/ab/abcdef.jpg".into(),

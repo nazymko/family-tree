@@ -75,6 +75,81 @@ impl Tree {
         })
     }
 
+    /// The primary of the version group a media record belongs to: the record itself when it is
+    /// no version of another (or names one that is gone).
+    pub fn version_primary(&self, media: Uuid) -> Uuid {
+        match self.media.get(&media).and_then(|m| m.version_of) {
+            Some(p) if p != media && self.media.contains_key(&p) => p,
+            _ => media,
+        }
+    }
+
+    /// Every record of the version group of `media`, the primary first, then the others in tree
+    /// order. A record with no other versions is a group of one.
+    pub fn version_group(&self, media: Uuid) -> Vec<Uuid> {
+        let primary = self.version_primary(media);
+        let mut out = vec![primary];
+        out.extend(
+            self.media
+                .iter()
+                .filter(|(id, m)| **id != primary && m.version_of == Some(primary))
+                .map(|(id, _)| *id),
+        );
+        out
+    }
+
+    /// Every version group with more than one file: its primary, and the other files in tree
+    /// order. One pass over the media, for code that asks about many records at once.
+    pub fn version_index(&self) -> std::collections::HashMap<Uuid, Vec<Uuid>> {
+        let mut out: std::collections::HashMap<Uuid, Vec<Uuid>> = Default::default();
+        for (id, m) in &self.media {
+            if let Some(p) = m
+                .version_of
+                .filter(|p| *p != *id && self.media.contains_key(p))
+            {
+                out.entry(p).or_default().push(*id);
+            }
+        }
+        out
+    }
+
+    /// Makes the version groups sound after reading them: a `version_of` naming no record, the
+    /// record itself, or a record that is a version itself is pointed at that chain's primary, or
+    /// cleared when there is none. The ids that changed.
+    pub fn mend_media_versions(&mut self) -> Vec<Uuid> {
+        let mut fixes: Vec<(Uuid, Option<Uuid>)> = Vec::new();
+        for (id, m) in &self.media {
+            let Some(mut to) = m.version_of else {
+                continue;
+            };
+            let mut seen = vec![*id];
+            let root = loop {
+                if seen.contains(&to) {
+                    break None;
+                }
+                match self.media.get(&to) {
+                    None => break None,
+                    Some(t) => match t.version_of {
+                        None => break Some(to),
+                        Some(next) => {
+                            seen.push(to);
+                            to = next;
+                        }
+                    },
+                }
+            };
+            if root != m.version_of {
+                fixes.push((*id, root));
+            }
+        }
+        for (id, to) in &fixes {
+            if let Some(m) = self.media.get_mut(id) {
+                m.version_of = *to;
+            }
+        }
+        fixes.into_iter().map(|(id, _)| id).collect()
+    }
+
     /// Copy with `changed` cleared and `ExtIdKind::Xref` ids removed; used by round-trip tests.
     pub fn normalized_for_compare(&self) -> Tree {
         let mut t = self.clone();

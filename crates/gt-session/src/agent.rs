@@ -98,7 +98,13 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         // A clip is a link of its own: step 5 lets the agent add one and change or move only
         // the clips it made itself.
         | C::AddAudioClip { .. }
-        | C::UpdateAudioClip { .. } => Ok(()),
+        | C::UpdateAudioClip { .. }
+        // Versions of one page: a file in no group has nothing in `version_of`, so step 5 lets
+        // the agent fill it; `group_media_versions_as_agent` refuses a file already in a group.
+        | C::GroupMediaVersions { .. } => Ok(()),
+        C::UngroupMediaVersion { .. } => Err(refused(
+            "Only the owner takes a file out of a group of versions. Say in your report which              file you think is no version of the others.",
+        )),
         C::SetPlaceCoordinates { .. } => Err(refused(
             "Only the owner sets where a place is. Add a note with the coordinates and the              source instead.",
         )),
@@ -1069,6 +1075,7 @@ impl Session {
             None => None,
         };
         let media = Media {
+            version_of: None,
             place: place.as_ref().map(|(id, _)| *id),
             common: crate::ops::new_common(now),
             path: rel.clone(),
@@ -1261,6 +1268,80 @@ impl Session {
         let cmd = EditCommand::SetMediaRotation {
             id: media,
             rotation,
+        };
+        self.gated(cmd, None, ctx, batch)
+    }
+
+    /// Makes `others` versions of the same page as `primary`, which is shown and opened first.
+    /// Every file must be in no group yet, or already in the group `primary` heads: the owner's
+    /// groups and choice of primary stay as they are. The same group again answers
+    /// [`AgentWrite::AlreadyThere`]. No file, transcription or link changes.
+    pub fn group_media_versions_as_agent(
+        &mut self,
+        primary: Uuid,
+        others: &[Uuid],
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        if others.is_empty() {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "others must name at least one other file of the same page.",
+            ));
+        }
+        if others.len() + 1 > crate::ops::VERSION_GROUP_MAX {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                format!(
+                    "A page can have at most {} versions.",
+                    crate::ops::VERSION_GROUP_MAX
+                ),
+            ));
+        }
+        for id in std::iter::once(&primary).chain(others) {
+            if !self.tree.media.contains_key(id) {
+                return Err(ApiError::not_found("media", *id));
+            }
+        }
+        if others.contains(&primary) {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "The primary cannot also be one of the others.",
+            ));
+        }
+        let head = self.tree.version_primary(primary);
+        if head != primary {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                format!(
+                    "This file is already a version in a group whose primary is {head}. The                      primary stays as it is: group the other files with {head} instead, or say                      so in your report."
+                ),
+            ));
+        }
+        for o in others {
+            let in_other_group = match self.tree.media.get(o).and_then(|m| m.version_of) {
+                Some(p) => p != primary,
+                None => self.tree.version_group(*o).len() > 1,
+            };
+            if in_other_group {
+                return Err(ApiError::new(
+                    ErrorCode::Conflict,
+                    format!(
+                        "{o} is already in another group of versions, so it stays there. Say in                          your report which files you think are the same page."
+                    ),
+                ));
+            }
+        }
+        if others
+            .iter()
+            .all(|o| self.tree.media.get(o).and_then(|m| m.version_of) == Some(primary))
+        {
+            return Ok((AgentWrite::AlreadyThere { record: primary }, Vec::new()));
+        }
+        let cmd = EditCommand::GroupMediaVersions {
+            primary,
+            others: others.to_vec(),
         };
         self.gated(cmd, None, ctx, batch)
     }

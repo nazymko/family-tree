@@ -486,20 +486,19 @@ impl Session {
             citations,
             notes
         );
-        let mut loose: Vec<MediaLinkDto> = self
+        let links: Vec<MediaLink> = self
             .tree
             .media
             .keys()
             .filter(|id| !linked.contains(id))
-            .flat_map(|id| {
-                self.media_dtos(&[MediaLink {
-                    media: *id,
-                    region: None,
-                    primary: false,
-                    clip: None,
-                }])
+            .map(|id| MediaLink {
+                media: *id,
+                region: None,
+                primary: false,
+                clip: None,
             })
             .collect();
+        let mut loose: Vec<MediaLinkDto> = self.media_dtos(&links);
         loose.sort_by(|a, b| {
             (a.media.original_name.as_deref(), a.media.id)
                 .cmp(&(b.media.original_name.as_deref(), b.media.id))
@@ -557,6 +556,7 @@ impl Session {
             })
             .map(|(f, named)| Staged {
                 media: Media {
+                    version_of: None,
                     place: None,
                     common: crate::ops::new_common(now),
                     path: f.rel,

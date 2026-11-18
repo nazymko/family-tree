@@ -625,6 +625,22 @@ pub enum EditCommand {
         #[ts(type = "0 | 90 | 180 | 270")]
         rotation: u16,
     },
+    /// Makes files versions of one page (copies in other quality): `primary` is shown and opened
+    /// first, `others` are kept as its versions. A file already in a group brings its whole group
+    /// along, so one command also joins two groups or makes another version the primary. No file,
+    /// transcription or link is touched.
+    GroupMediaVersions {
+        primary: Uuid,
+        others: Vec<Uuid>,
+    },
+    /// Takes one file out of its version group; it becomes a file of its own again. When it was
+    /// the primary, `new_primary` (or else the first other version) is shown first from now on.
+    UngroupMediaVersion {
+        media: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        new_primary: Option<Uuid>,
+    },
     /// A stretch of a sound recording, linked to the record where its story is told: a note,
     /// citation, event, person or family. Times in milliseconds from the start of the recording.
     AddAudioClip {
@@ -728,6 +744,8 @@ impl EditCommand {
             EditCommand::UpdateMedia { .. } => "Edit media".into(),
             EditCommand::SetMediaTranscription { .. } => "Edit transcription".into(),
             EditCommand::SetMediaRotation { .. } => "Turn picture".into(),
+            EditCommand::GroupMediaVersions { .. } => "Group versions".into(),
+            EditCommand::UngroupMediaVersion { .. } => "Ungroup version".into(),
             EditCommand::AddAudioClip { .. } => "Add clip".into(),
             EditCommand::UpdateAudioClip { .. } => "Edit clip".into(),
             EditCommand::DeleteAudioClip { .. } => "Delete clip".into(),

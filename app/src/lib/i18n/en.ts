@@ -865,6 +865,7 @@ export const en = {
     mediaRegion: 'Part of the picture',
     transcription: 'Transcription',
     mediaRotation: 'Turned',
+    versionOf: 'Version of',
     mediaClip: 'Clip of a recording',
     and: 'and',
     removed: '(record removed)',

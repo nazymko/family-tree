@@ -307,6 +307,7 @@ fn citation_source_place_repository_and_media_have_their_fields() {
         ]
     );
     let media = Media {
+        version_of: None,
         place: None,
         common: common(8),
         path: "media/a.jpg".into(),

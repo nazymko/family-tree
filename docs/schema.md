@@ -1,4 +1,4 @@
-# Project database schema (version 10)
+# Project database schema (version 11)
 
 A gene-tree project is a folder:
 
@@ -178,6 +178,7 @@ A file in `media/` (or elsewhere) with its description.
 - `transcription_json`: what is written on the picture (schema 6), or null when nothing is. A JSON array of pieces in reading order, each `{"id", "area", "rotation", "text"}`: `area` is `{"x", "y", "w", "h"}`, fractions from 0 to 1 of the picture as it is displayed (after its EXIF orientation), from the top left corner, or null for text with no place on the picture (a whole transcript); `rotation` is how far the writing is turned clockwise, 0, 90, 180 or 270. On a sound recording the same array is a time-coded transcript: each piece has no `area` and may have `"time": {"start_ms", "end_ms"}` (milliseconds from the start of the recording, start before end; a piece whose times are not in that order loses them when the tree opens) and `"speaker"` (who says it, as written); both are left out when absent, and a recording has no transcript unless one is entered. The text belongs to the picture wherever it is attached. The joined full text is the pieces' texts, trimmed, with a blank line between them. A GEDCOM export does not carry it (GEDCOM has no place for it), and it is not in the search tables.
 - `rotation`: how the picture is shown (schema 7): degrees clockwise, 0, 90, 180 or 270, on top of its EXIF orientation; null when nobody has turned it, which shows as 0. The transcription's areas stay on the picture upright by EXIF, before this turn, so turning a picture never moves them. A value that is not a quarter turn is read as 0 when the tree opens. A GEDCOM export does not carry it.
 - `place_id`: where the media was made, a recording recorded or a picture taken (schema 9): the id of a `place`, the same places the events use; null when nobody has said, as on every older row. It has no foreign key; a place that is gone reads as none when the tree opens. A GEDCOM export does not carry it.
+- `version_of`: when this file is another version of the same page or document, a copy in other quality (schema 11): the id of the `media` row that is the group's primary, shown and opened first; null on the primary itself and on every file with no other versions, as on every older row. It never names a row that has a `version_of` of its own. It has no foreign key; a primary that is gone reads as none when the tree opens, and a chain reads as its first primary. Files, transcriptions and links stay on each version. A GEDCOM export writes every version as an ordinary OBJE record.
 
 ### `note`
 A note or story, written in Markdown. Links to people and places use `genetree://person/<uuid>` addresses.

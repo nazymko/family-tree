@@ -427,6 +427,12 @@ pub struct Media {
     /// event has. Old change-log rows have no such field.
     #[serde(default)]
     pub place: Option<Uuid>,
+    /// When this file is another version of the same page or document (a copy in other quality):
+    /// the media record that is the group's primary, shown and opened first. `None` on the primary
+    /// itself and on a file with no other versions. Never points at a record that has one itself.
+    /// Old change-log rows have no such field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_of: Option<Uuid>,
 }
 
 impl Media {

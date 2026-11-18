@@ -140,7 +140,7 @@ fn schema_6_project_gains_the_rotation_column_and_its_pictures_stay_unturned() {
 }
 
 /// Takes a project back from schema 8: no place on media, no clip columns on media links.
-const DROP_CLIPS: &str = "ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; \
+const DROP_CLIPS: &str = "ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; \
     ALTER TABLE media_link DROP COLUMN clip_id; \
     ALTER TABLE media_link DROP COLUMN clip_start_ms; ALTER TABLE media_link DROP COLUMN clip_end_ms; \
     ALTER TABLE media_link DROP COLUMN clip_label;";
@@ -194,7 +194,7 @@ fn schema_8_project_gains_the_media_place_column_and_its_media_have_no_place() {
         // What a schema 8 app left behind: a recording, no place column.
         let c = Connection::open(dir.join("tree.db")).unwrap();
         c.execute_batch(
-            "ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; PRAGMA user_version = 8; \
+            "ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; PRAGMA user_version = 8; \
              INSERT INTO media(id, seq, private, path, mime) \
              VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.ogg', 'audio/ogg');",
         )
@@ -202,7 +202,7 @@ fn schema_8_project_gains_the_media_place_column_and_its_media_have_no_place() {
     }
     let p = Project::open(&dir).unwrap();
     assert_eq!(p.schema_version(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 10);
+    assert_eq!(SCHEMA_VERSION, 11);
     let has: i64 = p
         .conn()
         .query_row(
@@ -314,7 +314,7 @@ fn schema_9_project_gains_the_source_kind_columns_and_its_sources_have_no_kind()
     {
         let c = Connection::open(dir.join("tree.db")).unwrap();
         c.execute_batch(
-            "ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; \
+            "ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; \
              ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; \
              PRAGMA user_version = 9; \
              INSERT INTO source(id, seq, private, title) \
@@ -330,5 +330,74 @@ fn schema_9_project_gains_the_source_kind_columns_and_its_sources_have_no_kind()
     assert_eq!(
         (&s.kind, &s.issuer, &s.doc_number, &s.doc_date),
         (&None, &None, &None, &None)
+    );
+}
+
+#[test]
+fn schema_10_project_gains_the_version_column_and_its_media_are_in_no_group() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // What a schema 10 app left behind: two pictures, no version column.
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            "ALTER TABLE media DROP COLUMN version_of; PRAGMA user_version = 10; \
+             INSERT INTO media(id, seq, private, path, mime) \
+             VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.jpg', 'image/jpeg'), \
+                    ('00000000-0000-0000-0000-0000000000a2', 1, 0, 'media/cd/cd.jpg', 'image/jpeg');",
+        )
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
+    let has: i64 = p
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('media') WHERE name = 'version_of'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(has, 1);
+    let tree = p.load_tree().unwrap();
+    assert!(tree.media.values().all(|m| m.version_of.is_none()));
+    assert!(tree.version_index().is_empty());
+}
+
+#[test]
+fn versions_read_back_and_a_gone_or_chained_primary_is_mended() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("New.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // a2 and a3 are versions of a1; a4 names a record that is gone; a5 names a version (a2).
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            "INSERT INTO media(id, seq, private, path, mime, version_of) VALUES \
+             ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/a1.jpg', 'image/jpeg', NULL), \
+             ('00000000-0000-0000-0000-0000000000a2', 1, 0, 'media/a2.jpg', 'image/jpeg', '00000000-0000-0000-0000-0000000000a1'), \
+             ('00000000-0000-0000-0000-0000000000a3', 2, 0, 'media/a3.jpg', 'image/jpeg', '00000000-0000-0000-0000-0000000000a1'), \
+             ('00000000-0000-0000-0000-0000000000a4', 3, 0, 'media/a4.jpg', 'image/jpeg', '00000000-0000-0000-0000-0000000000ff'), \
+             ('00000000-0000-0000-0000-0000000000a5', 4, 0, 'media/a5.jpg', 'image/jpeg', '00000000-0000-0000-0000-0000000000a2');",
+        )
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    let tree = p.load_tree().unwrap();
+    let id = |n: u128| gt_core::Uuid::from_u128(n);
+    let of = |n: u128| tree.media[&id(n)].version_of;
+    assert_eq!(of(0xa1), None);
+    assert_eq!(of(0xa2), Some(id(0xa1)));
+    assert_eq!(of(0xa3), Some(id(0xa1)));
+    assert_eq!(of(0xa4), None, "a primary that is gone reads as none");
+    assert_eq!(
+        of(0xa5),
+        Some(id(0xa1)),
+        "a chain reads as its first primary"
+    );
+    assert_eq!(
+        tree.version_group(id(0xa3)),
+        vec![id(0xa1), id(0xa2), id(0xa3), id(0xa5)]
     );
 }
