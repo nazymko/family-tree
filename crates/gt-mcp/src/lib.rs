@@ -43,7 +43,12 @@ pub const INSTRUCTIONS: &str = concat!(
      the owner's stay. get_media returns the pieces, the joined fullText, and yours: true on \
      those update_own_media_region may change. update_own_media corrects the title, description, date and place of a media record. set_media_rotation turns how the app shows a \
      picture (your own, or one nobody has turned) so sideways writing reads upright; the image \
-     get_media returns and every x, y, w and h stay upright by EXIF, not turned.\n\n\
+     get_media returns and every x, y, w and h stay upright by EXIF, not turned. \
+     group_media_versions groups files of the very same page in other quality (a new scan and an \
+     old small copy) so the app shows one picture: the primary, usually the one with the most \
+     pixels, opens first and the others are a click away. It deletes nothing, keeps every \
+     transcription and link, and never touches a group someone else made; get_media and \
+     list_media show a group as versionPrimary and versions.\n\n\
      Recordings: add_media also copies a sound recording (MP3, WAV, Ogg, M4A, AAC, FLAC, up to 2 \
      GiB) onto its source, and only there. add_audio_clip then links a stretch of it (start, end, \
      an optional label) to the note, citation, event, person or family that part of the story is \

@@ -502,6 +502,24 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             call: set_media_rotation::<H>,
         },
         Tool {
+            name: "group_media_versions",
+            description: "Groups files that show the same page or document in different quality (a new scan and an older small copy, say) so the app shows them as ONE picture: primary is the one shown and opened first, usually the copy with the most pixels (width and height are in get_media and list_media); others are kept as its versions, one click away. Nothing is deleted or moved: every file keeps its transcription, its links to people, events and citations, and its place in the history. Group only files you have compared and that show the very same page. A file already in a group the owner or anyone else made stays there, and a file that is a version in a group cannot be made the primary of another: such a call is refused, say so in your report. You may add files to a group whose primary is the one you give. The same group again answers alreadyThere. The owner can undo it with the batch.",
+            schema: with_batch(
+                &["primary", "others"],
+                json!({
+                    "primary": id("The file shown and opened first: usually the one with the most pixels."),
+                    "others": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 49,
+                        "items": {"type": "string", "description": "The id of another file of the same page."},
+                        "description": "The other files of the same page.",
+                    },
+                }),
+            ),
+            call: group_media_versions::<H>,
+        },
+        Tool {
             name: "update_own_media",
             description: "Changes the title, description, date or place of a picture, document or recording. What you leave out stays as it is; an empty title, description or place takes it away. The date is read like the date of add_media. Give at least one of them. It works on a media record you added yourself, which the owner has not changed since; on any other you can only fill what is empty, and the rest stays as it is: say what you found in a note. Only these fields change: the file, its transcription, its clips, its rotation and where it is linked stay as they are. Saying again what it says answers alreadyThere. The change is in the history under your name, and the owner can undo it with the batch.",
             schema: with_batch(
@@ -1866,6 +1884,37 @@ fn set_media_rotation<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolRe
             Ok((write, reached, None))
         },
         |_, _| Some(media),
+    )
+}
+
+fn group_media_versions<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let primary = uuid_arg(args, "primary")?;
+    let others: Vec<Uuid> = args
+        .get("others")
+        .and_then(Value::as_array)
+        .filter(|list| list.len() < gt_session::VERSION_GROUP_MAX)
+        .ok_or_else(|| {
+            invalid(format!(
+                "others must be a list of at most {} file ids",
+                gt_session::VERSION_GROUP_MAX - 1
+            ))
+        })?
+        .iter()
+        .map(|v| {
+            v.as_str()
+                .and_then(|s| Uuid::parse_str(s).ok())
+                .ok_or_else(|| invalid("others must hold the ids of media records".into()))
+        })
+        .collect::<Result<_, _>>()?;
+    apply(
+        host,
+        ctx,
+        |s, _| {
+            let (write, reached) = s.group_media_versions_as_agent(primary, &others, ctx, batch)?;
+            Ok((write, reached, None))
+        },
+        |_, _| Some(primary),
     )
 }
 
