@@ -131,7 +131,7 @@ describe('A3 page text and print frame', () => {
     const w = (x: string) => x.length * 10;
     expect(ellipsize(w, 'Short', 100)).toBe('Short');
     const cut = ellipsize(w, 'A very long chart name indeed', 100);
-    expect(cut.endsWith('…')).toBe(true);
+    expect(cut.endsWith('\u2026')).toBe(true);
     expect(w(cut)).toBeLessThanOrEqual(100);
     expect(ellipsize(w, 'Anything', 5)).toBe('');
   });
