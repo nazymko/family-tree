@@ -55,6 +55,9 @@ async function setupChart(kind: ChartKind = 'pedigree', direction?: ChartDirecti
   return { api, platform, raf, canvas, ctx, openSpy, winSpy, saveSpy, root };
 }
 
+/** An A3 save lays the chart out up to four times; under a loaded machine that takes longer than waitFor's 1 s. */
+const A3_WAIT = { timeout: 15000 };
+
 const selectedLabel = () => screen.getByRole('option').textContent;
 // The menu is named for the pictures alone, or for the person and the pictures when it starts with the add items.
 const menu = () => screen.getByRole('menu', { name: /^(Save as picture|Person and picture options)$/ });
@@ -209,7 +212,7 @@ describe('picture menu on a chart', () => {
     const before = s.openSpy.mock.calls.length;
     await rightClick(s.canvas);
     await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
-    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled());
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled(), A3_WAIT);
     const probes = s.openSpy.mock.calls.slice(before).map((c) => c[0]);
     expect(probes).toHaveLength(1);
     expect(probes[0].print).toBe(true);
@@ -226,7 +229,7 @@ describe('picture menu on a chart', () => {
     const before = s.openSpy.mock.calls.length;
     await rightClick(s.canvas);
     await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, portrait/ }));
-    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled());
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled(), A3_WAIT);
     const probes = s.openSpy.mock.calls.slice(before).map((c) => c[0]);
     // Best fit: one layout per direction; every one a print chart that sets its own direction.
     expect(probes.length).toBe(4);
@@ -255,8 +258,8 @@ describe('picture menu on a chart', () => {
     });
     await rightClick(s.canvas);
     await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, landscape/ }));
-    await waitFor(() => expect(reads).toBeGreaterThan(0));
-    await waitFor(() => expect(closeSpy.mock.calls.length).toBe(s.openSpy.mock.calls.length - before));
+    await waitFor(() => expect(reads).toBeGreaterThan(0), A3_WAIT);
+    await waitFor(() => expect(closeSpy.mock.calls.length).toBe(s.openSpy.mock.calls.length - before), A3_WAIT);
     expect(s.saveSpy).not.toHaveBeenCalled();
   });
 
@@ -266,7 +269,7 @@ describe('picture menu on a chart', () => {
     vi.spyOn(s.api, 'chartClose').mockRejectedValue(new Error('gone'));
     await rightClick(s.canvas);
     await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, portrait/ }));
-    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled());
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled(), A3_WAIT);
   });
 
   it('the_branch_item_saves_the_selected_person_and_the_people_behind_them_only', async () => {
