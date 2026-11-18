@@ -23,6 +23,8 @@ use uuid::Uuid;
 /// Node cap per chart.
 pub const MAX_NODES: usize = 20_000;
 const MAX_CHARTS: usize = 2;
+/// Most print charts open at once (a print needs up to five: one per direction, one after the other, then the printed one).
+const MAX_TRANSIENT: usize = 6;
 const MAX_OUTLINE: usize = 100;
 /// Below this zoom the canvas draws dots only, so the window carries no text.
 const TEXT_ZOOM: f32 = 0.25;
@@ -413,7 +415,22 @@ pub struct Charts {
 }
 
 impl Charts {
-    /// Closes the least recently used chart while two (not counting the whole tree) are open.
+    /// A print chart takes no place from the person's charts; only the print charts are capped, so a close that never
+    /// came (a failed call, a reloaded page) cannot leak them: the oldest one goes.
+    fn make_room_print(&mut self) {
+        while self.open.iter().filter(|c| c.transient).count() >= MAX_TRANSIENT {
+            let oldest = self
+                .open
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.transient)
+                .min_by_key(|(_, c)| c.last_used.get())
+                .map_or(0, |(i, _)| i);
+            self.open.remove(oldest);
+        }
+    }
+
+    /// Closes the least recently used chart while two (not counting the whole tree or print charts) are open.
     fn make_room(&mut self) {
         while self
             .open
@@ -610,7 +627,9 @@ impl Session {
     }
 
     /// Lays out a chart. Generations are clamped (pedigree 1..=12, descendants 1..=8) and the
-    /// layout stops at 20 000 nodes. Opening a third chart closes the least recently used one.
+    /// layout stops at 20 000 nodes. Opening a third chart closes the least recently used one. A print chart
+    /// (`print`) is the exception: it is compact, may be turned (`direction`), does not count toward the two charts
+    /// and never closes one; at most six are kept (the oldest goes) and the caller closes each when done.
     pub fn chart_open(&mut self, req: &ChartRequest) -> Result<ChartMeta, ApiError> {
         let root = self
             .index
@@ -675,7 +694,9 @@ impl Session {
         };
         layout.orient(native, direction);
         let charts = &mut self.charts;
-        if !print {
+        if print {
+            charts.make_room_print();
+        } else {
             charts.make_room();
         }
         charts.next_id += 1;
@@ -773,7 +794,10 @@ impl Session {
         req: &ChartRequest,
         chosen: &[Uuid],
     ) -> Result<ChartMeta, ApiError> {
-        let direction = self.direction_of(ChartKind::Around);
+        let print = req.print.unwrap_or(false);
+        let direction = req
+            .direction
+            .map_or_else(|| self.direction_of(ChartKind::Around), Into::into);
         let ManyLayout {
             layout,
             chosen_nodes,
@@ -789,7 +813,11 @@ impl Session {
             .slot(req.root)
             .ok_or_else(|| ApiError::not_found("person", req.root))?;
         let charts = &mut self.charts;
-        charts.make_room();
+        if print {
+            charts.make_room_print();
+        } else {
+            charts.make_room();
+        }
         charts.next_id += 1;
         let meta = ChartMeta {
             chart_id: charts.next_id,
@@ -819,7 +847,7 @@ impl Session {
             kin: RefCell::new(Some(KinMemo::new(root_slot))),
             whole: None,
             chosen: chosen_nodes,
-            transient: false,
+            transient: print,
         };
         charts.touch(&chart);
         charts.open.push(chart);
@@ -833,7 +861,12 @@ impl Session {
         chosen: &[Uuid],
         direction: Direction,
     ) -> Result<ManyLayout, ApiError> {
-        let m = Metrics::default().for_direction(Direction::Top, direction);
+        let base = if req.print.unwrap_or(false) {
+            Metrics::compact()
+        } else {
+            Metrics::default()
+        };
+        let m = base.for_direction(Direction::Top, direction);
         let generations =
             u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
         let slots: Vec<u32> = chosen

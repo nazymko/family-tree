@@ -120,44 +120,70 @@ export function fillRatio(bounds: Rect, l: A3Layout): { w: number; h: number } {
   return { w: (bounds.w * l.scale) / l.area.w, h: (bounds.h * l.scale) / l.area.h };
 }
 
-/** The HTML the print dialog gets: one A3 page holding the SVG, no browser margins. */
+/** Shortens `text` with an ellipsis until `measure` says it fits in `maxW`. */
+export function ellipsize(measure: (s: string) => number, text: string, maxW: number): string {
+  if (measure(text) <= maxW) return text;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (measure(text.slice(0, mid).trimEnd() + '…') <= maxW) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo === 0 ? '' : text.slice(0, lo).trimEnd() + '…';
+}
+
+/** The HTML the print dialog gets: one A3 page holding the SVG, no browser margins, nothing that could add a second page. */
 export function printDocument(svg: string, orientation: A3Orientation): string {
   const body = svg.replace(/^<\?xml[^>]*\?>\s*/, '');
+  const w = orientation === 'landscape' ? A3_LONG_MM : A3_SHORT_MM;
+  const h = orientation === 'landscape' ? A3_SHORT_MM : A3_LONG_MM;
   return (
     `<!doctype html><html><head><meta charset="utf-8"><style>` +
-    `@page{size:A3 ${orientation};margin:0}html,body{margin:0;padding:0}svg{display:block}` +
+    `@page{size:A3 ${orientation};margin:0}` +
+    `html,body{margin:0;padding:0;width:${w}mm;height:${h}mm;overflow:hidden}` +
+    `svg{display:block;page-break-after:avoid;break-after:avoid}` +
     `</style></head><body>${body}</body></html>`
   );
 }
 
-/** Prints an HTML document through a hidden frame (the system print dialog; "Microsoft Print to PDF" makes a PDF). */
-export function printHtml(html: string): Promise<void> {
+/**
+ * Prints an HTML document through a hidden frame (the system print dialog; "Microsoft Print to PDF" makes a PDF).
+ * Resolves when the print call has returned; rejects when the frame does not load within `loadMs`. The frame is removed
+ * after the print finished (`afterprint`), or after `cleanupMs` when the webview never says so: never while the dialog is open.
+ */
+export function printHtml(html: string, opts: { loadMs?: number; cleanupMs?: number } = {}): Promise<void> {
+  const loadMs = opts.loadMs ?? 15_000;
+  const cleanupMs = opts.cleanupMs ?? 120_000;
   return new Promise<void>((resolve, reject) => {
     const frame = document.createElement('iframe');
     frame.setAttribute('aria-hidden', 'true');
     frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
-    let finished = false;
-    const done = () => {
-      if (finished) return;
-      finished = true;
-      setTimeout(() => frame.remove(), 1000);
-      resolve();
+    let cleanup: ReturnType<typeof setTimeout> | undefined;
+    const remove = () => {
+      if (cleanup !== undefined) clearTimeout(cleanup);
+      frame.remove();
     };
+    const loadTimer = setTimeout(() => {
+      remove();
+      reject(new Error('The print page did not load.'));
+    }, loadMs);
     frame.onload = () => {
+      clearTimeout(loadTimer);
       const w = frame.contentWindow;
       if (!w) {
-        frame.remove();
-        reject(new Error('no print frame'));
+        remove();
+        reject(new Error('The print page did not load.'));
         return;
       }
       try {
-        w.addEventListener('afterprint', done, { once: true });
+        w.addEventListener('afterprint', remove, { once: true });
+        cleanup = setTimeout(remove, cleanupMs);
         w.focus();
         w.print();
-        // Some webviews never fire afterprint; the call has returned by now in the ones that block.
-        setTimeout(done, 3000);
+        resolve();
       } catch (e) {
-        frame.remove();
+        remove();
         reject(e);
       }
     };

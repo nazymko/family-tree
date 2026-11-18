@@ -24,7 +24,7 @@
   import { createDoubleTap, createLongPress, isTouchPointer } from '../ui/longPress';
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, chartTitle, later, printPicture, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
-  import { A3_SUB_PT, A3_TITLE_PT, PT_PX, bestDirection, layoutA3, mmToPx, type A3Choice } from './a3';
+  import { A3_SUB_PT, A3_TITLE_PT, PT_PX, bestDirection, ellipsize, mmToPx, type A3Choice } from './a3';
   import { sceneBounds, pictureFileName } from './picture';
   import { settings } from '../state/settings.svelte';
   import { t, plural, localeStore, currentTag } from '../i18n';
@@ -967,33 +967,30 @@
     theme ??= themeFromCss();
     const th = theme;
     // A print lays the chart out in every direction and keeps the one that prints largest; the screen's direction is not changed.
-    // The probes are print charts: compact, outside the two-chart limit, so no chart the person has open is closed. A chart built
-    // around several people has no direction of its own, so it is printed as it is on screen.
-    let pick: { direction: ChartDirection };
-    let scene: Scene;
-    if (many) {
-      pick = { direction: dirNow };
-      scene = await wholeScene();
-    } else {
-      const sizes: { direction: ChartDirection; bounds: Rect }[] = [];
-      for (const d of DIRECTIONS) {
-        const probe = await api.chartOpen(chartRequest(d, true));
+    // The layouts are print charts: compact, outside the two-chart limit, so no chart the person has open is closed. Each is
+    // closed as soon as its boxes are read, whatever happens.
+    const found: { direction: ChartDirection; scene: Scene; meta: ChartMeta; bounds: Rect }[] = [];
+    for (const d of DIRECTIONS) {
+      const probe = await api.chartOpen(chartRequest(d, true));
+      try {
+        const sc = await wholeScene(probe);
+        found.push({ direction: d, scene: sc, meta: probe, bounds: sceneBounds(sc) });
+      } finally {
         try {
-          sizes.push({ direction: d, bounds: { x: 0, y: 0, w: probe.bounds.w, h: probe.bounds.h } });
-        } finally {
-          await api.chartClose(probe.chartId).catch(() => {});
+          await api.chartClose(probe.chartId);
+        } catch {
+          // The engine keeps at most six print charts and drops the oldest, so a close that failed cannot pile up.
         }
       }
-      pick = bestDirection(sizes, dirNow, choice);
-      const chart = await api.chartOpen(chartRequest(pick.direction, true));
-      try {
-        scene = await wholeScene(chart);
-      } finally {
-        await api.chartClose(chart.chartId).catch(() => {});
-      }
     }
+    const pick = bestDirection(found, dirNow, choice);
+    const chosen = found.find((f) => f.direction === pick.direction)!;
+    const scene = chosen.scene;
     if (scene.nodes.length === 0) return null;
-    const lay = layoutA3(sceneBounds(scene), choice);
+    // The centre person (and the others it is built around) are the ones of the print chart, not the screen's box numbers.
+    const printFocus = chosen.meta.rootNode;
+    const printMore = new Set(chosen.meta.chosenNodes ?? []);
+    const lay = pick.layout;
     const pxScale = format === 'svg' ? 1 : lay.pngScale;
     const title = chartTitle(kind, rootName);
     const treeName = settings.value.treeName.trim();
@@ -1015,21 +1012,26 @@
       pageMm: { ...lay.mm, orientation: lay.orientation },
       warning: lay.tooSmall ? t('picture.a3Small', { pt: Math.round(lay.namePt * 10) / 10 }) : undefined,
       paint: (ctx, p) => {
-        draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: rootNodeId, focusMore: chosenMore, theme: th, kind, dir: pick.direction, handles: false, lod: 'full' });
+        draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: printFocus, focusMore: printMore, theme: th, kind, dir: pick.direction, handles: false, lod: 'full', compact: true });
         // Title block: the chart name on the left, the tree name and date on the right, a rule under both.
         const left = lay.area.x;
         const right = lay.px.w - lay.area.x;
         const top = lay.area.y;
         ctx.setTransform(p.scale, 0, 0, p.scale, 0, 0);
         ctx.textBaseline = 'alphabetic';
+        // The tree name and date go to the right (at most 45% of the width); the chart name gets the rest. Long ones end in an ellipsis.
+        ctx.font = `${A3_SUB_PT * PT_PX}px ${th.font}`;
+        const subText = ellipsize((x) => ctx.measureText(x).width, sub, (right - left) * 0.45);
+        const subW = ctx.measureText(subText).width;
+        ctx.font = `600 ${A3_TITLE_PT * PT_PX}px ${th.serif}`;
+        const titleText = ellipsize((x) => ctx.measureText(x).width, title, right - left - subW - mmToPx(8));
         ctx.textAlign = 'left';
         ctx.fillStyle = th.ink;
-        ctx.font = `600 ${A3_TITLE_PT * PT_PX}px ${th.serif}`;
-        ctx.fillText(title, left, top - mmToPx(6));
+        ctx.fillText(titleText, left, top - mmToPx(6));
         ctx.textAlign = 'right';
         ctx.fillStyle = th.ink2;
         ctx.font = `${A3_SUB_PT * PT_PX}px ${th.font}`;
-        ctx.fillText(sub, right, top - mmToPx(6));
+        ctx.fillText(subText, right, top - mmToPx(6));
         ctx.beginPath();
         ctx.moveTo(left, top - mmToPx(3));
         ctx.lineTo(right, top - mmToPx(3));

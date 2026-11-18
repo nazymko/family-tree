@@ -46,6 +46,8 @@ export interface DrawOpts {
   marked?: ReadonlySet<string>;
   /** Forces the level of detail (a print draws full text at any scale). */
   lod?: Lod;
+  /** Compact cards (a print): two-line names, no birth-surname row, the relationship only when it fits. */
+  compact?: boolean;
 }
 
 /** The check-mark badge and frame of the boxes marked with Shift+click. */
@@ -400,7 +402,7 @@ export function draw(
       // How this person is related to the centred one, at the right of the second line.
       let rel = isDup || isFocus(n.id) ? '' : kind === 'relatives' || kind === 'around' ? relationText(n) : kinshipText(n.kinship);
       // A compact card (made for a print) has no row for the birth surname; the name may take two lines.
-      const compact = n.h < 62;
+      const compact = opts.compact === true;
       const maiden = compact ? '' : birthSurnameText(n.person);
       const measure = (t: string) => ctx.measureText(t).width;
       const lines = nameLines(measure, n.person?.name ?? '', maxW, !compact && (sub !== '' || rel !== '' || maiden !== ''));

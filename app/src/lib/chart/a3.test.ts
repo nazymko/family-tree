@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { A3_MAX_SCALE, A3_MIN_PT, MM_PX, bestDirection, fillRatio, layoutA3, mmToPx, printDocument, printedPt, pxToMm } from './a3';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { A3_MAX_SCALE, A3_MIN_PT, MM_PX, bestDirection, ellipsize, fillRatio, layoutA3, printHtml, mmToPx, printDocument, printedPt, pxToMm } from './a3';
 import { renderSvg } from './pictureExport';
 import type { PicturePlan } from './picture';
 
@@ -123,5 +123,73 @@ describe('A3 direction choice', () => {
     expect(f.h).toBeLessThan(0.2);
     const t = layoutA3(tall, 'portrait');
     expect(fillRatio(tall, t).h).toBeCloseTo(1, 6);
+  });
+});
+
+describe('A3 page text and print frame', () => {
+  it('ellipsizes_a_long_title_to_the_room_it_has', () => {
+    const w = (x: string) => x.length * 10;
+    expect(ellipsize(w, 'Short', 100)).toBe('Short');
+    const cut = ellipsize(w, 'A very long chart name indeed', 100);
+    expect(cut.endsWith('…')).toBe(true);
+    expect(w(cut)).toBeLessThanOrEqual(100);
+    expect(ellipsize(w, 'Anything', 5)).toBe('');
+  });
+
+  it('sets_the_page_size_and_forbids_a_second_page', () => {
+    const html = printDocument('<svg></svg>', 'landscape');
+    expect(html).toContain('width:420mm;height:297mm;overflow:hidden');
+    expect(html).toContain('page-break-after:avoid');
+    expect(html).toContain('display:block');
+  });
+});
+
+describe('printHtml', () => {
+  function fakeFrame() {
+    const listeners: Record<string, () => void> = {};
+    const win = { addEventListener: (n: string, f: () => void) => (listeners[n] = f), focus: vi.fn(), print: vi.fn() };
+    const frame = { setAttribute: vi.fn(), style: { cssText: '' }, remove: vi.fn(), contentWindow: win, onload: null as null | (() => void), srcdoc: '' };
+    vi.spyOn(document, 'createElement').mockReturnValue(frame as unknown as HTMLElement);
+    vi.spyOn(document.body, 'appendChild').mockReturnValue(frame as unknown as HTMLElement);
+    return { frame, win, listeners };
+  }
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('keeps_the_frame_while_the_dialog_is_open_and_removes_it_after_afterprint', async () => {
+    vi.useFakeTimers();
+    const { frame, win, listeners } = fakeFrame();
+    const done = printHtml('<p/>');
+    frame.onload!();
+    await done;
+    expect(win.print).toHaveBeenCalled();
+    vi.advanceTimersByTime(30_000);
+    expect(frame.remove).not.toHaveBeenCalled();
+    listeners.afterprint();
+    expect(frame.remove).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes_the_frame_after_the_long_fallback_when_afterprint_never_comes', async () => {
+    vi.useFakeTimers();
+    const { frame } = fakeFrame();
+    const done = printHtml('<p/>', { cleanupMs: 60_000 });
+    frame.onload!();
+    await done;
+    vi.advanceTimersByTime(59_000);
+    expect(frame.remove).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(2_000);
+    expect(frame.remove).toHaveBeenCalled();
+  });
+
+  it('rejects_and_removes_the_frame_when_it_never_loads', async () => {
+    vi.useFakeTimers();
+    const { frame } = fakeFrame();
+    const done = printHtml('<p/>', { loadMs: 5_000 });
+    const caught = done.catch((e: Error) => e.message);
+    vi.advanceTimersByTime(5_001);
+    expect(await caught).toMatch(/did not load/);
+    expect(frame.remove).toHaveBeenCalled();
   });
 });

@@ -183,13 +183,44 @@ describe('picture menu on a chart', () => {
     await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, portrait/ }));
     await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled());
     const probes = s.openSpy.mock.calls.slice(before).map((c) => c[0]);
-    // One layout per direction, then the one that is printed; every one a print chart that sets its own direction.
-    expect(probes.length).toBe(5);
+    // One layout per direction; every one a print chart that sets its own direction.
+    expect(probes.length).toBe(4);
     expect(probes.every((r) => r.print === true && r.direction !== undefined)).toBe(true);
     // Each was closed, and the chart on screen was not.
-    expect(closeSpy.mock.calls.length).toBe(5);
+    expect(closeSpy.mock.calls.length).toBe(4);
     expect(closeSpy.mock.calls.some((c) => c[0] === screenChart)).toBe(false);
     expect(s.saveSpy.mock.calls[0][0]).toMatch(/\(A3\)\.png$/);
+  });
+
+  it('an_error_in_the_middle_of_the_probes_still_closes_every_print_chart', async () => {
+    stubOffscreen();
+    const s = await setupChart('around');
+    const closeSpy = vi.spyOn(s.api, 'chartClose');
+    const before = s.openSpy.mock.calls.length;
+    // The window read of the third print chart fails.
+    let reads = 0;
+    s.winSpy.mockImplementation(async (id, rect, zoom) => {
+      const printCharts = s.openSpy.mock.calls.length - before;
+      if (printCharts === 3) {
+        reads++;
+        throw new Error('window failed');
+      }
+      return MockApi.prototype.chartWindow.call(s.api, id, rect, zoom);
+    });
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, landscape/ }));
+    await waitFor(() => expect(reads).toBeGreaterThan(0));
+    await waitFor(() => expect(closeSpy.mock.calls.length).toBe(s.openSpy.mock.calls.length - before));
+    expect(s.saveSpy).not.toHaveBeenCalled();
+  });
+
+  it('a_close_that_fails_does_not_stop_the_a3_save', async () => {
+    stubOffscreen();
+    const s = await setupChart('around');
+    vi.spyOn(s.api, 'chartClose').mockRejectedValue(new Error('gone'));
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, portrait/ }));
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled());
   });
 
   it('the_branch_item_saves_the_selected_person_and_the_people_behind_them_only', async () => {

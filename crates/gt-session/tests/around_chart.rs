@@ -263,3 +263,62 @@ fn a_print_chart_is_compact_and_never_closes_the_charts_that_are_open() {
         "compact cards make the same chart narrower"
     );
 }
+
+#[test]
+fn an_open_print_chart_is_not_evicted_by_the_persons_charts_and_survives_two_more_of_them() {
+    let (_d, mut s) = open_tree(&tree_of(KOVAL));
+    for d in [ChartDirection::Left, ChartDirection::Bottom] {
+        let mut req = request(&s, "Ivan Petrovych", 3);
+        req.print = Some(true);
+        req.direction = Some(d);
+        let print = s.chart_open(&req).unwrap();
+        let first = s.chart_open(&request(&s, "Ivan Petrovych", 2)).unwrap();
+        let second = s.chart_open(&request(&s, "Olena", 2)).unwrap();
+        let third = s.chart_open(&request(&s, "Taras", 2)).unwrap();
+        // Two of the person's own charts are kept (the limit), and the print chart stays.
+        assert!(s.chart_window(print.chart_id, &everything(), 1.0).is_ok());
+        assert!(s.chart_window(second.chart_id, &everything(), 1.0).is_ok());
+        assert!(s.chart_window(third.chart_id, &everything(), 1.0).is_ok());
+        assert!(s.chart_window(first.chart_id, &everything(), 1.0).is_err());
+        s.chart_close(print.chart_id);
+        s.chart_close(second.chart_id);
+        s.chart_close(third.chart_id);
+    }
+}
+
+#[test]
+fn a_print_chart_around_several_people_is_compact_turned_and_leaves_the_open_charts_alone() {
+    let (_d, mut s) = open_tree(&tree_of(KOVAL));
+    let ids = vec![find(s.tree(), "Ivan Petrovych"), find(s.tree(), "Olena")];
+    let mut req = request(&s, "Ivan Petrovych", 3);
+    req.roots = Some(ids);
+    let plain = s.chart_open(&req).unwrap();
+    s.chart_close(plain.chart_id);
+    let a = s.chart_open(&request(&s, "Ivan Petrovych", 3)).unwrap();
+    let b = s.chart_open(&request(&s, "Taras", 3)).unwrap();
+    req.print = Some(true);
+    req.direction = Some(ChartDirection::Left);
+    let p = s.chart_open(&req).unwrap();
+    assert!(s.chart_window(a.chart_id, &everything(), 1.0).is_ok());
+    assert!(s.chart_window(b.chart_id, &everything(), 1.0).is_ok());
+    assert!(s.chart_window(p.chart_id, &everything(), 1.0).is_ok());
+    assert!(
+        (p.bounds.w - plain.bounds.w).abs() > 1.0 || (p.bounds.h - plain.bounds.h).abs() > 1.0,
+        "turned and compact"
+    );
+    s.chart_close(p.chart_id);
+}
+
+#[test]
+fn print_charts_are_capped_and_the_oldest_goes() {
+    let (_d, mut s) = open_tree(&tree_of(KOVAL));
+    let mut req = request(&s, "Ivan Petrovych", 2);
+    req.print = Some(true);
+    req.direction = Some(ChartDirection::Left);
+    let ids: Vec<u32> = (0..8)
+        .map(|_| s.chart_open(&req).unwrap().chart_id)
+        .collect();
+    assert!(s.chart_window(ids[0], &everything(), 1.0).is_err());
+    assert!(s.chart_window(ids[1], &everything(), 1.0).is_err());
+    assert!(s.chart_window(ids[7], &everything(), 1.0).is_ok());
+}
