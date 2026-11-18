@@ -99,6 +99,9 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         // the clips it made itself.
         | C::AddAudioClip { .. }
         | C::UpdateAudioClip { .. } => Ok(()),
+        C::SetPlaceCoordinates { .. } => Err(refused(
+            "Only the owner sets where a place is. Add a note with the coordinates and the              source instead.",
+        )),
         C::AddCitation { citation, .. } => match citation {
             CitationArg::Reuse(_) => Err(refused(
                 "Reusing the last citation shares the owner's working state. Give the source and \
