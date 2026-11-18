@@ -9,6 +9,15 @@ Font files are assets, not code. They ship inside the desktop app and are never 
 | Source Serif 4 (variable) | `@fontsource-variable/source-serif-4` | OFL-1.1 |
 | Atkinson Hyperlegible Next | `@fontsource/atkinson-hyperlegible-next` | OFL-1.1 |
 
+## Map data
+
+| Data | Source | Licence |
+|---|---|---|
+| World basemap (land, borders, regions, rivers, lakes, populated places), simplified by `scripts/build-basemap.mjs` into `app/src/lib/map/data/basemap.topo.json` | Natural Earth, naturalearthdata.com | Public domain |
+| Place coordinates for the "Place coordinates" helper | GeoNames, geonames.org, downloaded once per country only when the person asks | CC BY 4.0 (attribution shown in the app) |
+
+The map code uses `topojson-client` (ISC) at runtime; `topojson-server` and `topojson-simplify` (ISC) only in the build script.
+
 ## Frontend dependencies
 
 Runtime and development dependencies of `app/` are MIT, Apache-2.0, BSD or ISC licensed.
