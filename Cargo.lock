@@ -1845,6 +1845,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tempfile",
  "uuid",
+ "zip",
 ]
 
 [[package]]

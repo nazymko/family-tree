@@ -51,6 +51,7 @@ tauri = { version = "2.12", features = ["test"] }
 tempfile = { workspace = true }
 gt-gedcom = { path = "../../crates/gt-gedcom" }
 gt-core = { path = "../../crates/gt-core" }
+zip = { workspace = true }
 
 [lints]
 workspace = true

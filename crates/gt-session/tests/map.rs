@@ -140,7 +140,7 @@ fn descendants_and_one_person() {
     assert_eq!(d.links.len(), 1);
     let one = s.map_data(&scope(MapScopeKind::Person, Some(ivan), None));
     assert_eq!(one.people.len(), 1);
-    assert_eq!(one.events.len(), 3 + 0);
+    assert_eq!(one.events.len(), 3);
     assert!(one.links.is_empty());
     let none = s.map_data(&scope(MapScopeKind::Person, None, None));
     assert!(none.people.is_empty() && none.events.is_empty());

@@ -37,20 +37,23 @@ pub fn country_code(cc: &str) -> Result<String, ApiError> {
     } else {
         Err(ApiError::new(
             ErrorCode::Invalid,
-            "A country is two letters, such as UA or PL.",
+            "A country code is two letters.",
         ))
     }
 }
 
-fn net_err(what: &str, e: impl std::fmt::Display) -> ApiError {
+fn gz_net(e: impl std::fmt::Display) -> ApiError {
     ApiError::new(
         ErrorCode::Io,
-        format!("{what}: {e}. Check the internet connection and try again."),
+        format!("GeoNames could not be reached: {e}. Check the internet connection and try again."),
     )
 }
 
-fn io_err(what: &str, e: impl std::fmt::Display) -> ApiError {
-    ApiError::new(ErrorCode::Io, format!("{what}: {e}."))
+fn gz_disk(e: impl std::fmt::Display) -> ApiError {
+    ApiError::new(
+        ErrorCode::Io,
+        format!("The place data could not be read or written: {e}."),
+    )
 }
 
 fn client(total: Duration) -> Result<reqwest::blocking::Client, ApiError> {
@@ -59,23 +62,33 @@ fn client(total: Duration) -> Result<reqwest::blocking::Client, ApiError> {
         .connect_timeout(Duration::from_secs(20))
         .timeout(total)
         .build()
-        .map_err(|e| net_err("Could not start the download", e))
+        .map_err(gz_net)
 }
 
 /// The size of a country's zip, from a HEAD request (`None` when the server does not say).
 pub fn remote_size(cc: &str) -> Result<Option<u64>, ApiError> {
+    remote_size_from(&base(), cc)
+}
+
+/// `remote_size` against another server (the tests').
+pub fn remote_size_from(base: &str, cc: &str) -> Result<Option<u64>, ApiError> {
     let cc = country_code(cc)?;
     let resp = client(Duration::from_secs(30))?
-        .head(format!("{}/{cc}.zip", base()))
+        .head(format!("{base}/{cc}.zip"))
         .send()
-        .map_err(|e| net_err("Could not reach GeoNames", e))?;
+        .map_err(gz_net)?;
     if !resp.status().is_success() {
         return Err(ApiError::new(
             ErrorCode::NotFound,
             format!("GeoNames has no file for {cc}."),
         ));
     }
-    Ok(resp.content_length())
+    // A HEAD response has no body, so reqwest reports 0 from `content_length()`: read the header itself.
+    Ok(resp
+        .headers()
+        .get(reqwest::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok()))
 }
 
 /// Downloads and indexes one country. `progress` gets the download (bytes) and then the indexing phase.
@@ -84,20 +97,30 @@ pub fn download(
     cc: &str,
     progress: &dyn Fn(GazetteerProgressDto),
 ) -> Result<GazetteerCountryDto, ApiError> {
+    download_from(&base(), config_dir, cc, progress)
+}
+
+/// `download` from another server (the tests').
+pub fn download_from(
+    base: &str,
+    config_dir: &Path,
+    cc: &str,
+    progress: &dyn Fn(GazetteerProgressDto),
+) -> Result<GazetteerCountryDto, ApiError> {
     let cc = country_code(cc)?;
     let folder = dir(config_dir);
-    std::fs::create_dir_all(&folder).map_err(|e| io_err("Could not create the place data folder", e))?;
+    std::fs::create_dir_all(&folder).map_err(gz_disk)?;
     let part = folder.join(format!("{cc}.zip.part"));
-    let result = download_to(&cc, &part, progress).and_then(|()| index_zip(&folder, &cc, &part, progress));
+    let result = download_to(base, &cc, &part, progress).and_then(|()| index_zip(&folder, &cc, &part, progress));
     let _ = std::fs::remove_file(&part);
     result
 }
 
-fn download_to(cc: &str, part: &Path, progress: &dyn Fn(GazetteerProgressDto)) -> Result<(), ApiError> {
+fn download_to(base: &str, cc: &str, part: &Path, progress: &dyn Fn(GazetteerProgressDto)) -> Result<(), ApiError> {
     let mut resp = client(Duration::from_secs(60 * 60))?
-        .get(format!("{}/{cc}.zip", base()))
+        .get(format!("{base}/{cc}.zip"))
         .send()
-        .map_err(|e| net_err("Could not reach GeoNames", e))?;
+        .map_err(gz_net)?;
     if !resp.status().is_success() {
         return Err(ApiError::new(
             ErrorCode::NotFound,
@@ -108,17 +131,17 @@ fn download_to(cc: &str, part: &Path, progress: &dyn Fn(GazetteerProgressDto)) -
     if total > MAX_BYTES {
         return Err(ApiError::new(ErrorCode::Invalid, "That file is larger than expected."));
     }
-    let mut file = std::fs::File::create(part).map_err(|e| io_err("Could not write the download", e))?;
+    let mut file = std::fs::File::create(part).map_err(gz_disk)?;
     let mut buf = vec![0u8; 64 * 1024];
     let mut done = 0u64;
     let mut last = Instant::now() - Duration::from_secs(1);
     loop {
-        let n = resp.read(&mut buf).map_err(|e| net_err("The download stopped", e))?;
+        let n = resp.read(&mut buf).map_err(gz_net)?;
         if n == 0 {
             break;
         }
         file.write_all(buf.get(..n).unwrap_or_default())
-            .map_err(|e| io_err("Could not write the download", e))?;
+            .map_err(gz_disk)?;
         done += n as u64;
         if done > MAX_BYTES {
             return Err(ApiError::new(ErrorCode::Invalid, "That file is larger than expected."));
@@ -133,7 +156,7 @@ fn download_to(cc: &str, part: &Path, progress: &dyn Fn(GazetteerProgressDto)) -
             });
         }
     }
-    file.flush().map_err(|e| io_err("Could not write the download", e))?;
+    file.flush().map_err(gz_disk)?;
     progress(GazetteerProgressDto {
         country: cc.to_string(),
         phase: "download".into(),
@@ -156,7 +179,7 @@ pub fn index_zip(
         done: 0,
         total: 1,
     });
-    let file = std::fs::File::open(zip_path).map_err(|e| io_err("Could not read the download", e))?;
+    let file = std::fs::File::open(zip_path).map_err(gz_disk)?;
     let index = Index::from_zip(cc, file).map_err(|e| {
         ApiError::new(
             ErrorCode::Invalid,
@@ -166,7 +189,7 @@ pub fn index_zip(
     let path = index_path(folder, cc);
     index
         .save(&path)
-        .map_err(|e| io_err("Could not save the place data", e))?;
+        .map_err(gz_disk)?;
     progress(GazetteerProgressDto {
         country: cc.to_string(),
         phase: "index".into(),
@@ -186,7 +209,7 @@ pub fn remove(config_dir: &Path, cc: &str) -> Result<(), ApiError> {
     match std::fs::remove_file(index_path(&dir(config_dir), &cc)) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(io_err("Could not remove the place data", e)),
+        Err(e) => Err(gz_disk(e)),
     }
 }
 

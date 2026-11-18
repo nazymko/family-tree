@@ -40,6 +40,8 @@ const EDIT_KEYS: Record<string, [label: MessageKey, done: MessageKey]> = {
   'Delete clip': ['edit.deleteClip', 'edit.doneClipDeleted'],
   'Correct date': ['edit.correctDate', 'edit.doneDateCorrected'],
   'Record number': ['edit.recordNumber', 'edit.doneNumberRecorded'],
+  'Set place coordinates': ['edit.setPlaceCoordinates', 'edit.donePlaceCoordinatesSet'],
+  'Clear place coordinates': ['edit.clearPlaceCoordinates', 'edit.donePlaceCoordinatesCleared'],
   'Link media files': ['edit.linkMediaFiles', 'edit.doneMediaFilesLinked'],
   'Add father': ['edit.addFather', 'edit.doneFatherAdded'],
   'Add mother': ['edit.addMother', 'edit.doneMotherAdded'],
