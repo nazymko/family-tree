@@ -64,6 +64,13 @@ pub const INSTRUCTIONS: &str = concat!(
      birth or death event, with the reason (who confirmed it or which source says so). Add a \
      citation for the new date too. Disagreeing sources with nobody confirming are a note, not a \
      correction. It never changes whether someone counts as alive or dead.\n\n\
+     Places on the map: set_place_coordinates gives a place with no coordinates its point (lat \
+     and lon in decimal degrees, north and east positive) and the source you took it from, such \
+     as GeoNames 702550 or a Wikipedia article; a research note on the place keeps the source. \
+     Use it only for the very place of the records: the historical village in its district and \
+     parish, not a namesake. When you are not sure, give no coordinates: write a note with the \
+     candidates and list it in your report. You may correct a point you set yourself; a point \
+     the owner or anyone else set is refused and stays.\n\n\
      Rewriting a note: rewrite_note replaces the text of any note, the owner's too, when the \
      owner asked for a rewrite; give the reason. Keep every fact, name, date and doubt. The old \
      text stays in the history and the owner can undo it. Your own notes: update_own_note.\n\n\

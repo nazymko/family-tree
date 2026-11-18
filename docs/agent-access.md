@@ -53,6 +53,8 @@ It can add:
 - one **marker** for brothers and sisters a source mentions without names (the app draws it as a label reading "Some more
   Sisters/Brothers" in the current language, and it has no name or date);
 - the file number of a person, so that a second run finds them again;
+- **coordinates of a place** that has none yet, with their source, so that its events show on the Map (see
+  [Places on the map](#places-on-the-map));
 - **pictures and PDF documents** from a file on this computer, on a person, family, event, source or citation (see
   [Photographed documents](#photographed-documents));
 - the **transcription** of a picture: what is written on it, piece by piece, with where each piece is;
@@ -126,6 +128,30 @@ child to the right family with `link_people`.
   family's history. **Undo** puts the link back and takes the note away.
 - It never changes whether someone counts as alive or dead: a removal that would is refused.
 - Asking again after the link is gone answers that it is already so; a person who was never a child of that family is refused.
+
+### Places on the map
+
+The Map shows an event only when its place has coordinates. An agent can give a place its point with the tool
+`set_place_coordinates` (inputs: the batch, the place, `lat` and `lon` in decimal degrees, north and east positive, the
+`source`, and optionally a `note`). For example:
+`{"batch": "…", "place": "…", "lat": 46.6333, "lon": 32.6167, "source": "GeoNames 702550", "note": "The parish named in the birth records is in this district."}`.
+
+- Only on a place with **no coordinates yet**. Coordinates you set, or anyone else did (an import, another connection), are
+  refused and stay as they are: the agent writes a note instead and lists the place in its report. The one exception is
+  its own: it may correct a point it set itself, in this batch or an earlier one, as long as nobody has moved or cleared
+  it since. Once you change the point, it is yours. A point you cleared is empty again, and an agent may fill it.
+- `lat` must be from -90 to 90 and `lon` from -180 to 180; the point is kept to a millionth of a degree, as when you set it
+  on the Map yourself. `source` is required (up to 1000 characters): where the coordinates come from, such as
+  `GeoNames 702550` or `Wikipedia: Новотроїцьке (Херсонська обл.)`.
+- The source is kept as a research note on the place, added in the same change: *"Coordinates 46.633300, 32.616700
+  (latitude, longitude). Source: GeoNames 702550"*, followed by the agent's note if it gave one; a correction reads
+  *"Coordinates corrected from ... to ..."*. `get_place` shows the note with the point.
+- It is the same point the Map's own *Set coordinates* stores, so the Map shows it at once. It is in the **Change log**
+  under the agent's name ("Set place coordinates"), and **Undo** takes back the point and the note together.
+- The agent is told to set coordinates only when it is sure the place is the very one in the records: the historical
+  village in its district and parish, not a namesake elsewhere. When it is not sure, it gives no coordinates and writes a
+  note with the candidates instead.
+- The same point again answers `alreadyThere` and adds nothing.
 
 ### Rewriting a note at your request
 

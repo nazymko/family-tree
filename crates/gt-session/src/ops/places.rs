@@ -122,3 +122,32 @@ pub(super) fn set_coordinates(
     p.put(place);
     Ok(None)
 }
+
+/// An agent's point for a place, with where it comes from: the point is set and a research note on
+/// the place gives the source, in one change set the owner can undo. The note is how a place keeps
+/// its provenance; the point itself is the one the Map reads, as for the owner's own.
+pub(crate) fn plan_agent_coordinates(
+    tree: &Tree,
+    id: Uuid,
+    lat_e6: i32,
+    lon_e6: i32,
+    note: &str,
+    now: i64,
+    order: gt_core::date::DayOrder,
+) -> Result<(gt_store::ChangeSet, Option<Uuid>), ApiError> {
+    let mut p = Planner::new(tree, now, order);
+    set_coordinates(&mut p, id, Some(lat_e6), Some(lon_e6))?;
+    let n = gt_core::model::Note {
+        common: new_common(now),
+        kind: gt_core::model::NoteKind::Research,
+        text: note.to_string(),
+        lang: None,
+        shared: false,
+    };
+    let note_id = n.common.id;
+    let mut place: Place = p.get(id)?;
+    place.common.notes.push(note_id);
+    p.put(place);
+    p.put(n);
+    Ok((p.finish("Set place coordinates".into()), Some(id)))
+}
