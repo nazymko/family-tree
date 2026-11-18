@@ -9,7 +9,7 @@
   import Button from '../ui/Button.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
   import DirectionControl from '../ui/DirectionControl.svelte';
-  import { DEFAULT_DIRECTIONS, arrowStep, camAtSide, edgeStrip, isHorizontal, opposite, rootSide, type ChartDirection } from './direction';
+  import { DEFAULT_DIRECTIONS, DIRECTIONS, arrowStep, camAtSide, edgeStrip, isHorizontal, opposite, rootSide, type ChartDirection } from './direction';
   import IconButton from '../ui/IconButton.svelte';
   import Menu, { type MenuItem } from '../ui/Menu.svelte';
   import { compact } from '../ui/compact.svelte';
@@ -23,8 +23,11 @@
   import ChartPictureMenu from './ChartPictureMenu.svelte';
   import { createDoubleTap, createLongPress, isTouchPointer } from '../ui/longPress';
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
-  import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
-  import { t, plural, localeStore } from '../i18n';
+  import { captionText, chartTitle, later, printPicture, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
+  import { A3_SUB_PT, A3_TITLE_PT, PT_PX, bestDirection, ellipsize, mmToPx, type A3Choice } from './a3';
+  import { sceneBounds, pictureFileName } from './picture';
+  import { settings } from '../state/settings.svelte';
+  import { t, plural, localeStore, currentTag } from '../i18n';
   import { nodeLabel, relationText } from '../i18n/relation';
   import { agentChanges } from '../state/agentChanges.svelte';
 
@@ -294,6 +297,12 @@
     return typeof e === 'object' && e !== null && (e as { code?: string }).code === 'stale';
   }
 
+  function chartRequest(direction?: ChartDirection, print = false): ChartRequest {
+    const req: ChartRequest =
+      kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? (many ? { kind, root, generations, kin, roots } : { kind, root, generations, kin }) : { kind, root, generations };
+    return direction ? { ...req, direction, ...(print ? { print } : {}) } : req;
+  }
+
   /** `keepView`: reopened after an edit. The camera stays where it was and the selected person stays selected. */
   async function open(keepView = false): Promise<void> {
     const seq = ++openSeq;
@@ -307,9 +316,7 @@
     if (!keepCam) selNode = null;
     let m: ChartMeta;
     try {
-      const req: ChartRequest =
-        kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? (many ? { kind, root, generations, kin, roots } : { kind, root, generations, kin }) : { kind, root, generations };
-      m = await api.chartOpen(req);
+      m = await api.chartOpen(chartRequest());
     } catch (e) {
       if (seq !== openSeq) return;
       // The person was deleted while the screen was open: leave it quietly instead of showing an error.
@@ -922,8 +929,7 @@
   // ------------------------------------------------------------ pictures
 
   /** Every node and line of the open chart, fetched in tiles at 100% so names and dates are full. */
-  async function wholeScene(): Promise<Scene> {
-    const m = meta;
+  async function wholeScene(m: ChartMeta | null = meta): Promise<Scene> {
     if (!m) return { nodes: [], edges: [] };
     const parts: Scene[] = [];
     for (const r of tileRects({ x: -1, y: -1, w: m.bounds.w + 2, h: m.bounds.h + 2 })) {
@@ -953,6 +959,95 @@
       paint: (ctx, p) =>
         draw(ctx, scene, p.cam, { w: p.view.w, h: p.view.h, dpr: p.scale }, { selected: scope === 'screen' ? sel : null, focus, focusMore, theme: th, kind, dir: dirNow, handles: scope === 'screen' }),
     };
+  }
+
+  /** The whole chart laid out on one A3 page: title block on top, the chart scaled to fill the rest. */
+  async function buildA3(choice: A3Choice, format: PictureFormat): Promise<BuiltPicture | null> {
+    if (!meta || !cache?.current()) return null;
+    theme ??= themeFromCss();
+    const th = theme;
+    // A print lays the chart out in every direction and keeps the one that prints largest; the screen's direction is not changed.
+    // The layouts are print charts: compact, outside the two-chart limit, so no chart the person has open is closed. Each is
+    // closed as soon as its boxes are read, whatever happens.
+    const found: { direction: ChartDirection; scene: Scene; meta: ChartMeta; bounds: Rect }[] = [];
+    for (const d of DIRECTIONS) {
+      const probe = await api.chartOpen(chartRequest(d, true));
+      try {
+        const sc = await wholeScene(probe);
+        found.push({ direction: d, scene: sc, meta: probe, bounds: sceneBounds(sc) });
+      } finally {
+        try {
+          await api.chartClose(probe.chartId);
+        } catch {
+          // The engine keeps at most six print charts and drops the oldest, so a close that failed cannot pile up.
+        }
+      }
+    }
+    const pick = bestDirection(found, dirNow, choice);
+    const chosen = found.find((f) => f.direction === pick.direction)!;
+    const scene = chosen.scene;
+    if (scene.nodes.length === 0) return null;
+    // The centre person (and the others it is built around) are the ones of the print chart, not the screen's box numbers.
+    const printFocus = chosen.meta.rootNode;
+    const printMore = new Set(chosen.meta.chosenNodes ?? []);
+    const lay = pick.layout;
+    const pxScale = format === 'svg' ? 1 : lay.pngScale;
+    const title = chartTitle(kind, rootName);
+    const treeName = settings.value.treeName.trim();
+    const date = new Date().toLocaleDateString(currentTag(), { year: 'numeric', month: 'long', day: 'numeric' });
+    const sub = treeName ? `${treeName} · ${date}` : date;
+    const plan = {
+      cam: lay.cam,
+      view: { ...lay.px },
+      scale: pxScale,
+      width: format === 'svg' ? lay.px.w : lay.png.w,
+      height: format === 'svg' ? lay.px.h : lay.png.h,
+      reduced: false,
+      percent: 100,
+    };
+    return {
+      plan,
+      theme: { paper: th.paper, ink2: th.ink2, font: th.font },
+      caption: '',
+      pageMm: { ...lay.mm, orientation: lay.orientation },
+      warning: lay.tooSmall ? t('picture.a3Small', { pt: Math.round(lay.namePt * 10) / 10 }) : undefined,
+      paint: (ctx, p) => {
+        draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: printFocus, focusMore: printMore, theme: th, kind, dir: pick.direction, handles: false, lod: 'full', compact: true });
+        // Title block: the chart name on the left, the tree name and date on the right, a rule under both.
+        const left = lay.area.x;
+        const right = lay.px.w - lay.area.x;
+        const top = lay.area.y;
+        ctx.setTransform(p.scale, 0, 0, p.scale, 0, 0);
+        ctx.textBaseline = 'alphabetic';
+        // The tree name and date go to the right (at most 45% of the width); the chart name gets the rest. Long ones end in an ellipsis.
+        ctx.font = `${A3_SUB_PT * PT_PX}px ${th.font}`;
+        const subText = ellipsize((x) => ctx.measureText(x).width, sub, (right - left) * 0.45);
+        const subW = ctx.measureText(subText).width;
+        ctx.font = `600 ${A3_TITLE_PT * PT_PX}px ${th.serif}`;
+        const titleText = ellipsize((x) => ctx.measureText(x).width, title, right - left - subW - mmToPx(8));
+        ctx.textAlign = 'left';
+        ctx.fillStyle = th.ink;
+        ctx.fillText(titleText, left, top - mmToPx(6));
+        ctx.textAlign = 'right';
+        ctx.fillStyle = th.ink2;
+        ctx.font = `${A3_SUB_PT * PT_PX}px ${th.font}`;
+        ctx.fillText(subText, right, top - mmToPx(6));
+        ctx.beginPath();
+        ctx.moveTo(left, top - mmToPx(3));
+        ctx.lineTo(right, top - mmToPx(3));
+        ctx.strokeStyle = th.rule;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      },
+    };
+  }
+
+  function pictureA3(choice: A3Choice, print: boolean): void {
+    if (savingPicture) return;
+    const setBusy = (b: boolean) => (savingPicture = b);
+    if (print) return void printPicture({ build: (f) => buildA3(choice, f), setBusy });
+    const name = pictureFileName(`${chartTitle(kind, rootName)} (A3)`);
+    void savePicture({ api, platform }, { fileName: name, build: (f) => buildA3(choice, f), setBusy });
   }
 
   function savePictureAs(scope: PictureScope): void {
@@ -1135,7 +1230,7 @@
         />
       </div>
     {/if}
-    <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
+    <ChartPictureMenu bind:this={pictureMenu} ona3={pictureA3} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
     <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
     {#if onGenerations}
       <div class="gens">

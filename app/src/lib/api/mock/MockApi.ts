@@ -1217,7 +1217,20 @@ export class MockApi implements Api {
           ? layoutDescendants(req.root, generations, src)
           : layoutRelatives(req.root, Math.min(generations, 6), req.auntsUncles ?? true, src);
     // The side the ancestors are drawn on, for this kind of chart.
-    const layout = orientLayout(laid, req.kind, this.settings.chartDirections[req.kind]);
+    const layout = orientLayout(laid, req.kind, req.direction ?? this.settings.chartDirections[req.kind]);
+    if (req.print) {
+      // Compact cards for a print, like the engine's: narrower and a little lower, the gaps in the same proportion.
+      const fx = 0.7;
+      const fy = 0.85;
+      for (const n of layout.nodes) {
+        n.x *= fx;
+        n.w *= fx;
+        n.y *= fy;
+        n.h *= fy;
+      }
+      for (const e of layout.edges) e.pts = e.pts.map((v, i) => v * (i % 2 === 0 ? fx : fy));
+      layout.bounds = { w: layout.bounds.w * fx, h: layout.bounds.h * fy };
+    }
     const chartId = this.nextChart++;
     this.charts.set(chartId, { kind: req.kind, layout, version: this.version, reference: req.root });
     return {

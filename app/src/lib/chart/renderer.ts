@@ -44,6 +44,10 @@ export interface DrawOpts {
   focusMore?: ReadonlySet<number>;
   /** People marked with Shift+click (to build the next chart around them): a check badge and a frame. */
   marked?: ReadonlySet<string>;
+  /** Forces the level of detail (a print draws full text at any scale). */
+  lod?: Lod;
+  /** Compact cards (a print): two-line names, no birth-surname row, the relationship only when it fits. */
+  compact?: boolean;
 }
 
 /** The check-mark badge and frame of the boxes marked with Shift+click. */
@@ -278,7 +282,7 @@ export function draw(
   const { theme, selected, focus } = opts;
   const kind = opts.kind ?? 'pedigree';
   const z = cam.zoom;
-  const lod = lodFor(z);
+  const lod = opts.lod ?? lodFor(z);
 
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   ctx.clearRect(0, 0, view.w, view.h);
@@ -396,10 +400,21 @@ export function draw(
       ctx.font = `600 13px ${theme.serif}`;
       const sub = isDup ? t('role.shownElsewhere') : (n.person?.lifespan ?? '');
       // How this person is related to the centred one, at the right of the second line.
-      const rel = isDup || isFocus(n.id) ? '' : kind === 'relatives' || kind === 'around' ? relationText(n) : kinshipText(n.kinship);
-      const maiden = birthSurnameText(n.person);
-      const rows = cardRows(maiden !== '');
-      const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '' || rel !== '' || maiden !== '');
+      let rel = isDup || isFocus(n.id) ? '' : kind === 'relatives' || kind === 'around' ? relationText(n) : kinshipText(n.kinship);
+      // A compact card (made for a print) has no row for the birth surname; the name may take two lines.
+      const compact = opts.compact === true;
+      const maiden = compact ? '' : birthSurnameText(n.person);
+      const measure = (t: string) => ctx.measureText(t).width;
+      const lines = nameLines(measure, n.person?.name ?? '', maxW, !compact && (sub !== '' || rel !== '' || maiden !== ''));
+      const rows = compact ? (lines.length > 1 ? { name: 16, maiden: 0, sub: 47, step: 15 } : { name: 23, maiden: 0, sub: 43, step: 15 }) : cardRows(maiden !== '');
+      if (compact && rel) {
+        // The relationship goes under the dates in small type only when it fits next to them.
+        ctx.font = `11px ${theme.font}`;
+        const subW = sub ? measure(sub) : 0;
+        ctx.font = `italic 11px ${theme.font}`;
+        if (subW + measure(rel) + 28 > n.w) rel = '';
+        ctx.font = `600 13px ${theme.serif}`;
+      }
       lines.forEach((line, i) => ctx.fillText(line, left, n.y + rows.name + i * rows.step));
       ctx.fillStyle = theme.ink2;
       if (maiden) {

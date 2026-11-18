@@ -72,7 +72,7 @@ afterEach(() => {
 });
 
 describe('picture menu on a chart', () => {
-  it('right_click_on_empty_space_opens_a_menu_with_only_the_three_save_items', async () => {
+  it('right_click_on_empty_space_opens_a_menu_with_only_the_save_items', async () => {
     const s = await setupChart();
     expect(screen.queryByRole('menu')).toBeNull();
     await rightClick(s.canvas, { clientX: 5, clientY: 5 });
@@ -81,6 +81,10 @@ describe('picture menu on a chart', () => {
       'Save the whole chart as a picture…',
       "Save the selected person's branch as a picture…",
       'Save what is on the screen as a picture…',
+      'Save for A3 print…',
+      'Save for A3 print, landscape…',
+      'Save for A3 print, portrait…',
+      'Print on A3…',
     ]);
     expect(items.every((i) => i.getAttribute('aria-disabled') !== 'true')).toBe(true);
   });
@@ -102,7 +106,7 @@ describe('picture menu on a chart', () => {
     const s = await setupChart();
     const button = screen.getByRole('button', { name: 'Save as picture' });
     await fireEvent.click(button);
-    expect(within(menu()).getAllByRole('menuitem')).toHaveLength(3);
+    expect(within(menu()).getAllByRole('menuitem')).toHaveLength(7);
     // The button also closes it.
     await fireEvent.mouseDown(button);
     await fireEvent.click(button);
@@ -167,6 +171,56 @@ describe('picture menu on a chart', () => {
     expect(shot.ctx.calls.some((c) => c.op === 'fillText' && /Pedigree/.test(String(c.args[0])))).toBe(true); // the caption
     await waitFor(() => expect(notices.current?.message).toBe('Picture saved'));
     expect((s.platform.calls.find((c) => c.method === 'pickSavePath')!.args[0] as { extensions: string[] }).extensions).toEqual(['png', 'svg']);
+  });
+
+  it('an_a3_save_lays_out_print_charts_only_and_closes_them_without_touching_the_open_chart', async () => {
+    stubOffscreen();
+    const s = await setupChart('around');
+    const closeSpy = vi.spyOn(s.api, 'chartClose');
+    const screenChart = (await s.openSpy.mock.results[0].value).chartId;
+    const before = s.openSpy.mock.calls.length;
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, portrait/ }));
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled());
+    const probes = s.openSpy.mock.calls.slice(before).map((c) => c[0]);
+    // One layout per direction; every one a print chart that sets its own direction.
+    expect(probes.length).toBe(4);
+    expect(probes.every((r) => r.print === true && r.direction !== undefined)).toBe(true);
+    // Each was closed, and the chart on screen was not.
+    expect(closeSpy.mock.calls.length).toBe(4);
+    expect(closeSpy.mock.calls.some((c) => c[0] === screenChart)).toBe(false);
+    expect(s.saveSpy.mock.calls[0][0]).toMatch(/\(A3\)\.png$/);
+  });
+
+  it('an_error_in_the_middle_of_the_probes_still_closes_every_print_chart', async () => {
+    stubOffscreen();
+    const s = await setupChart('around');
+    const closeSpy = vi.spyOn(s.api, 'chartClose');
+    const before = s.openSpy.mock.calls.length;
+    // The window read of the third print chart fails.
+    let reads = 0;
+    s.winSpy.mockImplementation(async (id, rect, zoom) => {
+      const printCharts = s.openSpy.mock.calls.length - before;
+      if (printCharts === 3) {
+        reads++;
+        throw new Error('window failed');
+      }
+      return MockApi.prototype.chartWindow.call(s.api, id, rect, zoom);
+    });
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, landscape/ }));
+    await waitFor(() => expect(reads).toBeGreaterThan(0));
+    await waitFor(() => expect(closeSpy.mock.calls.length).toBe(s.openSpy.mock.calls.length - before));
+    expect(s.saveSpy).not.toHaveBeenCalled();
+  });
+
+  it('a_close_that_fails_does_not_stop_the_a3_save', async () => {
+    stubOffscreen();
+    const s = await setupChart('around');
+    vi.spyOn(s.api, 'chartClose').mockRejectedValue(new Error('gone'));
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, portrait/ }));
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled());
   });
 
   it('the_branch_item_saves_the_selected_person_and_the_people_behind_them_only', async () => {

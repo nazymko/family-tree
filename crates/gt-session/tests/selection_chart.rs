@@ -280,6 +280,8 @@ fn the_chart_of_everyone_is_not_touched_by_a_selection_chart() {
             aunts_uncles: None,
             kin: None,
             roots: None,
+            direction: None,
+            print: None,
         })
         .unwrap();
     }

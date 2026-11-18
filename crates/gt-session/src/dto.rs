@@ -605,6 +605,15 @@ pub struct ChartRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub roots: Option<Vec<Uuid>>,
+    /// Lays the chart out in this direction instead of the one in the settings (a print picks the best fit; the
+    /// screen setting stays as it is).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub direction: Option<ChartDirection>,
+    /// A chart for a print: compact cards, and it stays out of the two-chart limit (close it when done).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub print: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]

@@ -808,6 +808,8 @@ fn get_around_chart<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult
             aunts_uncles: None,
             kin: Some(kin),
             roots: Some(people.clone()),
+            direction: None,
+            print: None,
         })?;
         let items: Vec<Value> = rows
             .people

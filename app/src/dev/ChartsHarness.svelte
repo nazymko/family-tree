@@ -1,6 +1,6 @@
 <script lang="ts">
   // Dev-only page (charts.html): the pedigree and descendant views on MockApi, no shell.
-  // Query: ?view=pedigree|descendants|whole &lang=uk|en &mode=chart|outline &theme=dark &root=cycle|many
+  // Query: ?view=pedigree|descendants|around|whole &lang=uk|en &mode=chart|outline &theme=dark &root=cycle|many
   import { setApi } from '../lib/api/context';
   import { MockApi } from '../lib/api/mock/MockApi';
   import { MockPlatform } from '../lib/api/mock/MockPlatform';
@@ -8,6 +8,7 @@
   import { applyTheme } from '../lib/state/theme';
   import { nav } from '../lib/state/nav.svelte';
   import Pedigree from '../lib/views/Pedigree.svelte';
+  import Around from '../lib/views/Around.svelte';
   import Descendants from '../lib/views/Descendants.svelte';
   import WholeCanvas from '../lib/chart/WholeCanvas.svelte';
   import { setLanguage } from '../lib/i18n';
@@ -15,7 +16,9 @@
   const q = new URLSearchParams(location.search);
   const fx = fixtureTree(500);
   const api = new MockApi(fx);
-  setApi(api, new MockPlatform());
+  const platform = new MockPlatform();
+  setApi(api, platform);
+  Object.assign(window, { __api: api, __platform: platform });
   document.documentElement.lang = 'en';
   if (q.get('lang') === 'uk' || q.get('lang') === 'en') { setLanguage(q.get('lang') as 'uk' | 'en'); void api.setSettings({ language: q.get('lang') as 'uk' | 'en' }); }
   if (q.get('theme') === 'dark' || q.get('theme') === 'light') applyTheme(q.get('theme') as 'dark' | 'light');
@@ -29,7 +32,7 @@
   let ready = $state(false);
   void (async () => {
     // The mock tree is shallow: pick the person with the biggest chart for the requested view.
-    const kind = view === 'descendants' ? 'descendants' : 'pedigree';
+    const kind = view === 'descendants' ? 'descendants' : view === 'around' ? 'around' : 'pedigree';
     let best = (await api.getSettings()).homePerson ?? fx.persons[0].id;
     const special = q.get('root');
     if (special === 'cycle') best = fx.specials.cycleA!;
@@ -52,7 +55,7 @@
 
 <main>
   {#if ready}
-    {#if view === 'whole'}<WholeCanvas onOpenPerson={() => {}} onOpenInPedigree={() => {}} />{:else if view === 'descendants'}<Descendants />{:else}<Pedigree />{/if}
+    {#if view === 'whole'}<WholeCanvas onOpenPerson={() => {}} onOpenInPedigree={() => {}} />{:else if view === 'around'}<Around />{:else if view === 'descendants'}<Descendants />{:else}<Pedigree />{/if}
   {/if}
 </main>
 

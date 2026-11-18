@@ -9,6 +9,7 @@
   import { parentFacts, type ParentFacts } from '../family/addOptions';
   import { t } from '../i18n';
   import type { PictureScope } from './picture';
+  import type { A3Choice } from './a3';
   import { relativeItems } from './relativeItems';
 
   /**
@@ -20,12 +21,15 @@
     hasSelection,
     busy = false,
     onpick,
+    ona3,
     restoreFocus,
     onOpenPerson,
   }: {
     hasSelection: boolean;
     busy?: boolean;
     onpick: (scope: PictureScope) => void;
+    /** The A3 print page: save it (PNG or SVG) or print it, in the chosen orientation. */
+    ona3?: (choice: A3Choice, print: boolean) => void;
     /** Gives focus back to the chart when the menu closes after being opened from the chart. */
     restoreFocus: () => void;
     /** Shows "Open person" in the person section when given. */
@@ -86,6 +90,14 @@
       title: hasSelection ? undefined : t('picture.selectFirst'),
     },
     { label: t('picture.screen'), onselect: () => onpick('screen') },
+    ...(ona3
+      ? [
+          { label: t('picture.a3'), onselect: () => ona3('auto', false), separatorBefore: true },
+          { label: t('picture.a3Landscape'), onselect: () => ona3('landscape', false) },
+          { label: t('picture.a3Portrait'), onselect: () => ona3('portrait', false) },
+          { label: t('picture.a3Print'), onselect: () => ona3('auto', true) },
+        ]
+      : []),
   ]);
 
   const items = $derived<MenuItem[]>(personItems.length ? [...personItems, ...saveItems.map((i, k) => (k === 0 ? { ...i, separatorBefore: true } : i))] : saveItems);

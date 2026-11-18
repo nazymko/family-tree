@@ -1535,6 +1535,11 @@ export const en = {
     kindWhole: 'Whole tree',
     branchSuffix: ' (branch)',
     screenSuffix: ' (screen)',
+    a3: 'Save for A3 print…',
+    a3Landscape: 'Save for A3 print, landscape…',
+    a3Portrait: 'Save for A3 print, portrait…',
+    a3Print: 'Print on A3…',
+    a3Small: 'The names print at only {pt} pt, which is hard to read. For a larger print, show fewer generations.',
   },
   chartCanvas: {
     pedigreeChart: 'Pedigree chart',
