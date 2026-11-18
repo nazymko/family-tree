@@ -297,10 +297,10 @@
     return typeof e === 'object' && e !== null && (e as { code?: string }).code === 'stale';
   }
 
-  function chartRequest(direction?: ChartDirection): ChartRequest {
+  function chartRequest(direction?: ChartDirection, print = false): ChartRequest {
     const req: ChartRequest =
       kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? (many ? { kind, root, generations, kin, roots } : { kind, root, generations, kin }) : { kind, root, generations };
-    return direction ? { ...req, direction } : req;
+    return direction ? { ...req, direction, ...(print ? { print } : {}) } : req;
   }
 
   /** `keepView`: reopened after an edit. The camera stays where it was and the selected person stays selected. */
@@ -967,19 +967,30 @@
     theme ??= themeFromCss();
     const th = theme;
     // A print lays the chart out in every direction and keeps the one that prints largest; the screen's direction is not changed.
-    const sizes: { direction: ChartDirection; bounds: Rect }[] = [];
-    for (const d of DIRECTIONS) {
-      const probe = await api.chartOpen(chartRequest(d));
-      await api.chartClose(probe.chartId).catch(() => {});
-      sizes.push({ direction: d, bounds: { x: 0, y: 0, w: probe.bounds.w, h: probe.bounds.h } });
-    }
-    const pick = bestDirection(sizes, dirNow, choice);
-    const chart = await api.chartOpen(chartRequest(pick.direction));
+    // The probes are print charts: compact, outside the two-chart limit, so no chart the person has open is closed. A chart built
+    // around several people has no direction of its own, so it is printed as it is on screen.
+    let pick: { direction: ChartDirection };
     let scene: Scene;
-    try {
-      scene = await wholeScene(chart);
-    } finally {
-      await api.chartClose(chart.chartId).catch(() => {});
+    if (many) {
+      pick = { direction: dirNow };
+      scene = await wholeScene();
+    } else {
+      const sizes: { direction: ChartDirection; bounds: Rect }[] = [];
+      for (const d of DIRECTIONS) {
+        const probe = await api.chartOpen(chartRequest(d, true));
+        try {
+          sizes.push({ direction: d, bounds: { x: 0, y: 0, w: probe.bounds.w, h: probe.bounds.h } });
+        } finally {
+          await api.chartClose(probe.chartId).catch(() => {});
+        }
+      }
+      pick = bestDirection(sizes, dirNow, choice);
+      const chart = await api.chartOpen(chartRequest(pick.direction, true));
+      try {
+        scene = await wholeScene(chart);
+      } finally {
+        await api.chartClose(chart.chartId).catch(() => {});
+      }
     }
     if (scene.nodes.length === 0) return null;
     const lay = layoutA3(sceneBounds(scene), choice);

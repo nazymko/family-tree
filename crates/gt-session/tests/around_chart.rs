@@ -49,6 +49,7 @@ fn request(s: &Session, given: &str, generations: u32) -> ChartRequest {
         kin: None,
         roots: None,
         direction: None,
+        print: None,
     }
 }
 
@@ -231,4 +232,34 @@ fn a_direction_in_the_request_turns_that_chart_only() {
     // The settings are not touched: the next chart without a direction comes out like the first.
     let again = s.chart_open(&request(&s, "Ivan Petrovych", 3)).unwrap();
     assert_eq!(again.bounds, base.bounds);
+}
+
+#[test]
+fn a_print_chart_is_compact_and_never_closes_the_charts_that_are_open() {
+    let (_d, mut s) = open_tree(&tree_of(KOVAL));
+    let a = s.chart_open(&request(&s, "Ivan Petrovych", 3)).unwrap();
+    let b = s.chart_open(&request(&s, "Olena", 3)).unwrap();
+    let mut req = request(&s, "Ivan Petrovych", 3);
+    req.print = Some(true);
+    let mut sizes = Vec::new();
+    for d in [
+        ChartDirection::Top,
+        ChartDirection::Left,
+        ChartDirection::Right,
+    ] {
+        req.direction = Some(d);
+        let p = s.chart_open(&req).unwrap();
+        sizes.push(p.bounds);
+        // Both charts of the person are still there while the print chart is open, and after it is closed.
+        assert!(s.chart_window(a.chart_id, &everything(), 1.0).is_ok());
+        assert!(s.chart_window(b.chart_id, &everything(), 1.0).is_ok());
+        s.chart_close(p.chart_id);
+    }
+    assert!(s.chart_window(a.chart_id, &everything(), 1.0).is_ok());
+    assert!(s.chart_window(b.chart_id, &everything(), 1.0).is_ok());
+    // The cards are narrower than on screen.
+    assert!(
+        sizes[0].w < a.bounds.w,
+        "compact cards make the same chart narrower"
+    );
 }

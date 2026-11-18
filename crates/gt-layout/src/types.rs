@@ -45,6 +45,19 @@ impl Default for Metrics {
     }
 }
 
+impl Metrics {
+    /// Narrower cards and tighter gaps for a chart printed on paper.
+    pub fn compact() -> Self {
+        Self {
+            node_w: 124.0,
+            node_h: 56.0,
+            gap_x: 28.0,
+            gap_y: 8.0,
+            couple_gap: 6.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Rect {
     pub x: f32,

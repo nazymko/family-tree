@@ -261,6 +261,7 @@ fn chart_windows_carry_kinship_for_the_reference_person() {
             kin: None,
             roots: None,
             direction: None,
+            print: None,
         })
         .unwrap();
     let all = Rect {

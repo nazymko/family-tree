@@ -150,6 +150,7 @@ fn run(people: usize, families: usize, writes: usize, notes: usize) {
                 kin: None,
                 roots: None,
                 direction: None,
+                print: None,
             })
             .unwrap()
         }),

@@ -173,6 +173,25 @@ describe('picture menu on a chart', () => {
     expect((s.platform.calls.find((c) => c.method === 'pickSavePath')!.args[0] as { extensions: string[] }).extensions).toEqual(['png', 'svg']);
   });
 
+  it('an_a3_save_lays_out_print_charts_only_and_closes_them_without_touching_the_open_chart', async () => {
+    stubOffscreen();
+    const s = await setupChart('around');
+    const closeSpy = vi.spyOn(s.api, 'chartClose');
+    const screenChart = (await s.openSpy.mock.results[0].value).chartId;
+    const before = s.openSpy.mock.calls.length;
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, portrait/ }));
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled());
+    const probes = s.openSpy.mock.calls.slice(before).map((c) => c[0]);
+    // One layout per direction, then the one that is printed; every one a print chart that sets its own direction.
+    expect(probes.length).toBe(5);
+    expect(probes.every((r) => r.print === true && r.direction !== undefined)).toBe(true);
+    // Each was closed, and the chart on screen was not.
+    expect(closeSpy.mock.calls.length).toBe(5);
+    expect(closeSpy.mock.calls.some((c) => c[0] === screenChart)).toBe(false);
+    expect(s.saveSpy.mock.calls[0][0]).toMatch(/\(A3\)\.png$/);
+  });
+
   it('the_branch_item_saves_the_selected_person_and_the_people_behind_them_only', async () => {
     const made = stubOffscreen();
     const s = await setupChart();

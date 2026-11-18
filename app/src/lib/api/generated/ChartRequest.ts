@@ -21,4 +21,8 @@ roots?: Array<string>,
  * Lays the chart out in this direction instead of the one in the settings (a print picks the best fit; the
  * screen setting stays as it is).
  */
-direction?: ChartDirection, };
+direction?: ChartDirection, 
+/**
+ * A chart for a print: compact cards, and it stays out of the two-chart limit (close it when done).
+ */
+print?: boolean, };

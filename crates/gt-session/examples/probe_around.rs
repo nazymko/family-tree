@@ -29,6 +29,7 @@ fn main() {
             kin: Some(AroundKin::All),
             roots: Some(ids.clone()),
             direction: None,
+            print: None,
         })
         .expect("open the chart");
     println!(

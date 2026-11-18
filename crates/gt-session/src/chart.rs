@@ -359,6 +359,8 @@ struct OpenChart {
     whole: Option<Whole>,
     /// Chart built around several people: the boxes of all of them, the first being the root. Empty otherwise.
     chosen: Vec<u32>,
+    /// A short-lived chart made for a print: it never counts toward the two-chart limit and never closes another chart.
+    transient: bool,
 }
 
 /// How many different people a layout draws: a person placed twice counts once, unnamed-siblings markers never.
@@ -413,12 +415,18 @@ pub struct Charts {
 impl Charts {
     /// Closes the least recently used chart while two (not counting the whole tree) are open.
     fn make_room(&mut self) {
-        while self.open.iter().filter(|c| c.whole.is_none()).count() >= MAX_CHARTS {
+        while self
+            .open
+            .iter()
+            .filter(|c| c.whole.is_none() && !c.transient)
+            .count()
+            >= MAX_CHARTS
+        {
             let oldest = self
                 .open
                 .iter()
                 .enumerate()
-                .filter(|(_, c)| c.whole.is_none())
+                .filter(|(_, c)| c.whole.is_none() && !c.transient)
                 .min_by_key(|(_, c)| c.last_used.get())
                 .map_or(0, |(i, _)| i);
             self.open.remove(oldest);
@@ -631,7 +639,13 @@ impl Session {
             .direction
             .map_or_else(|| self.direction_of(req.kind), Into::into);
         let native = native_direction(req.kind);
-        let m = Metrics::default().for_direction(native, direction);
+        let print = req.print.unwrap_or(false);
+        let base = if print {
+            Metrics::compact()
+        } else {
+            Metrics::default()
+        };
+        let m = base.for_direction(native, direction);
         let mut layout = match req.kind {
             ChartKind::Pedigree => {
                 // No lower limit than the type's: "Show all" asks for u8::MAX. Each person is expanded once, so
@@ -661,7 +675,9 @@ impl Session {
         };
         layout.orient(native, direction);
         let charts = &mut self.charts;
-        charts.make_room();
+        if !print {
+            charts.make_room();
+        }
         charts.next_id += 1;
         let meta = ChartMeta {
             chart_id: charts.next_id,
@@ -700,6 +716,7 @@ impl Session {
             kin: RefCell::new(Some(KinMemo::new(root))),
             whole: None,
             chosen: Vec::new(),
+            transient: print,
         };
         charts.touch(&chart);
         charts.open.push(chart);
@@ -802,6 +819,7 @@ impl Session {
             kin: RefCell::new(Some(KinMemo::new(root_slot))),
             whole: None,
             chosen: chosen_nodes,
+            transient: false,
         };
         charts.touch(&chart);
         charts.open.push(chart);
@@ -1281,6 +1299,7 @@ impl Session {
                 selection,
             }),
             chosen: Vec::new(),
+            transient: false,
         };
         charts.touch(&chart);
         let meta = whole_meta(&chart);
