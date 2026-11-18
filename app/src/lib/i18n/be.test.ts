@@ -41,6 +41,7 @@ const sources: RustSource[] = [...walk(join(repo, 'crates'), []), ...walk(join(r
  */
 const EXCLUDED_FILES: Record<string, string> = {
   'crates/gt-session/src/agent.rs': 'answers only MCP agents (the sentences tell an agent what to do next); agents are served in English',
+  'crates/gt-session/src/agent/': 'the parts of agent.rs: answers only MCP agents, in English',
   'crates/gt-mcp/': 'the MCP server talks to agents, in English',
   'crates/gt-cli/': 'the command line tool prints for a terminal, in English',
   'app/src-tauri/src/agent_access.rs': 'agent-access settings: translated through the `agent.err*` entries and checked by agent-errors.test.ts',

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import type { EditResult, EventDto, EventInput, Id, PersonRef, PlaceOption } from '../api/types';
+  import type { EditResult, EventDto, EventInput, GodparentInput, Id, PersonRef, PlaceOption } from '../api/types';
   import { getApi } from '../api/context';
   import { settings } from '../state/settings.svelte';
   import Select from '../ui/Select.svelte';
@@ -15,6 +15,7 @@
   import { errMessage, opt } from './errors';
   import { t, type MessageKey } from '../i18n';
   import { eventKindLabel } from '../i18n/backend';
+  import { takesGodparents } from '../ui/godparents';
 
   let {
     owner,
@@ -105,8 +106,20 @@
     isPrivate: event?.private ?? false,
     preferred: event?.preferred ?? false,
     participants: (event?.participants ?? []).map((p) => ({ person: p.person, role: p.role })),
+    godparents: (event?.godparents ?? []).map((g) => ({
+      key: g.id,
+      id: g.id as Id | undefined,
+      person: g.person ?? null,
+      name: g.name ?? '',
+      role: g.role,
+      note: g.note ?? '',
+    })),
   };
-  let f = $state({ ...init, participants: init.participants.map((p) => ({ ...p })) });
+  let f = $state({
+    ...init,
+    participants: init.participants.map((p) => ({ ...p })),
+    godparents: init.godparents.map((g) => ({ ...g })),
+  });
   // svelte-ignore state_referenced_locally
   const startPlace: PlaceOption | null = event?.place ?? null;
   let saving = $state(false);
@@ -117,6 +130,30 @@
   const showCause = $derived(f.kind === 'death' || f.kind === 'burial');
   const kindValue = $derived(f.kind === 'custom' ? `custom:${f.custom.trim()}` : f.kind);
   const canSave = $derived(f.kind !== 'custom' || f.custom.trim().length > 0);
+
+  const showGodparents = $derived(takesGodparents(f.kind) || f.godparents.length > 0);
+  const GOD_ROLES = $derived(
+    (['godfather', 'godmother', 'godparent'] as const).map((r) => ({ value: r, label: t(`godparentRole.${r}Title` as MessageKey) })),
+  );
+  let godPickerKey = $state(0);
+  let newGodKey = 0;
+  /** A new godparent's role: by the person's sex, else the one the list still lacks. */
+  function nextRole(p?: PersonRef | null): string {
+    if (p?.sex === 'male') return 'godfather';
+    if (p?.sex === 'female') return 'godmother';
+    return f.godparents.some((g) => g.role === 'godfather') ? 'godmother' : 'godfather';
+  }
+  function addGodPerson(p: PersonRef | null) {
+    if (!p) return;
+    if (!f.godparents.some((g) => g.person?.id === p.id))
+      f.godparents.push({ key: `new-${++newGodKey}`, id: undefined, person: p, name: '', role: nextRole(p), note: '' });
+    godPickerKey += 1;
+  }
+  function addGodName() {
+    f.godparents.push({ key: `new-${++newGodKey}`, id: undefined, person: null, name: '', role: nextRole(), note: '' });
+  }
+  const godLabel = (g: { person: PersonRef | null; name: string }, i: number) =>
+    g.person?.name ?? (g.name.trim() || t('editor.godparentNameOf', { n: i + 1 }));
 
   function addParticipant(p: PersonRef | null) {
     if (!p) return;
@@ -147,6 +184,18 @@
     if (cause) input.cause = cause;
     if (f.participants.length > 0 || (event?.participants.length ?? 0) > 0) {
       input.participants = f.participants.map((p) => ({ person: p.person.id, role: p.role }));
+    }
+    if (f.godparents.length > 0 || (event?.godparents?.length ?? 0) > 0) {
+      input.godparents = f.godparents
+        .filter((g) => g.person || g.name.trim())
+        .map((g) => {
+          const out: GodparentInput = { role: g.role };
+          if (g.id) out.id = g.id;
+          if (g.person) out.person = g.person.id;
+          else out.name = g.name.trim();
+          if (g.note.trim()) out.note = g.note.trim();
+          return out;
+        });
     }
     try {
       onSaved(await api.apply({ type: 'saveEvent', owner, event: input }));
@@ -185,7 +234,7 @@
   {#if f.kind === 'custom'}
     <TextField label={t('editor.customName')} bind:value={f.custom} />
   {/if}
-  {#if f.kind === 'birth'}
+  {#if f.kind === 'birth' || takesGodparents(f.kind)}
     <DatePartsField label={t('editor.date')} value={f.date} onChange={(raw) => (f.date = raw)} order={settings.value.dayOrder} />
   {:else}
     <DateField label={t('editor.date')} value={f.date} onChange={(raw) => (f.date = raw)} order={settings.value.dayOrder} />
@@ -235,6 +284,38 @@
     {/key}
   </fieldset>
 
+  {#if showGodparents}
+    <fieldset class="parts godparents" data-godparents>
+      <legend>{t('editor.godparents')}</legend>
+      <p class="hint">{t('editor.godparentsHint')}</p>
+      {#each f.godparents as g, i (g.key)}
+        <div class="godrow" data-godparent>
+          {#if g.person}
+            <span class="who"><bdi dir="auto">{g.person.name}</bdi></span>
+          {:else}
+            <TextField label={t('editor.godparentNameOf', { n: i + 1 })} bind:value={g.name} />
+          {/if}
+          <Select label={t('editor.godparentRoleOf', { name: godLabel(g, i) })} options={GOD_ROLES} bind:value={g.role} />
+          <TextField label={t('editor.godparentNoteOf', { name: godLabel(g, i) })} bind:value={g.note} />
+          <Button variant="quiet" aria-label={t('editor.removeNamed', { name: godLabel(g, i) })} onclick={() => f.godparents.splice(i, 1)}
+            >{t('common.remove')}</Button
+          >
+        </div>
+      {/each}
+      <div class="godadd">
+        {#key godPickerKey}
+          <PersonPicker
+            label={t('editor.addGodparentPerson')}
+            value={null}
+            exclude={f.godparents.flatMap((g) => (g.person ? [g.person.id] : [])).concat(owner.kind === 'person' ? [owner.id] : [])}
+            onPick={addGodPerson}
+          />
+        {/key}
+        <Button onclick={addGodName}>{t('editor.addGodparentName')}</Button>
+      </div>
+    </fieldset>
+  {/if}
+
   <Checkbox
     label={t('editor.negative')}
     hint={t('editor.negativeHint')}
@@ -279,6 +360,34 @@
     padding: var(--s-2) var(--s-3) var(--s-2) 0;
     border-top: 1px solid var(--rule);
     vertical-align: middle;
+  }
+  .hint {
+    margin: 0;
+    color: var(--ink-1);
+    font-size: var(--t-sm);
+  }
+  .godrow {
+    display: grid;
+    grid-template-columns: minmax(10rem, 1.4fr) minmax(8rem, 1fr) minmax(8rem, 1fr) auto;
+    gap: var(--s-3);
+    align-items: end;
+    padding-top: var(--s-2);
+    border-top: 1px solid var(--rule);
+  }
+  .godrow .who {
+    align-self: center;
+    font-weight: 500;
+  }
+  .godadd {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    align-items: end;
+  }
+  @media (max-width: 640px) {
+    .godrow {
+      grid-template-columns: 1fr;
+    }
   }
   .sr {
     position: absolute;

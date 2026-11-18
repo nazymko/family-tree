@@ -21,15 +21,22 @@ fn role(id: &str) -> Result<GodparentRole, ApiError> {
     })
 }
 
-fn short(what: &str, t: Option<&str>) -> Result<Option<String>, ApiError> {
+fn short(is_name: bool, t: Option<&str>) -> Result<Option<String>, ApiError> {
     let t = text(t);
     if t.as_ref()
         .is_some_and(|t| t.chars().count() > GODPARENT_TEXT_MAX)
     {
-        return Err(invalid(format!(
-            "A godparent's {what} holds up to {GODPARENT_TEXT_MAX} characters. Put the rest in a \
-             note on the event."
-        )));
+        return Err(if is_name {
+            invalid(format!(
+                "A godparent's name holds up to {GODPARENT_TEXT_MAX} characters. Put the rest in \
+                 the godparent's note."
+            ))
+        } else {
+            invalid(format!(
+                "A godparent's note holds up to {GODPARENT_TEXT_MAX} characters. Put the rest in a \
+                 note on the event."
+            ))
+        });
     }
     Ok(t)
 }
@@ -64,7 +71,7 @@ fn godparent(
     old: &[Godparent],
     g: &GodparentInput,
 ) -> Result<Godparent, ApiError> {
-    let name = short("name", g.name.as_deref())?;
+    let name = short(true, g.name.as_deref())?;
     let person = g.person;
     match (person, &name) {
         (Some(_), Some(_)) | (None, None) => {
@@ -93,7 +100,7 @@ fn godparent(
         person,
         name,
         role: role(&g.role)?,
-        note: short("note", g.note.as_deref())?,
+        note: short(false, g.note.as_deref())?,
     })
 }
 

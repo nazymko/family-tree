@@ -203,6 +203,7 @@ export const KIND_KEYS: Record<string, keyof typeof en.be.kind> = {
   'media link': 'mediaLink',
   'piece of transcription': 'textPiece',
   clip: 'clip',
+  godparent: 'godparent',
 };
 
 /** The heading of a group of repairs in the import report ("dangling_pointer" as words); an unknown kind reads as its name. */

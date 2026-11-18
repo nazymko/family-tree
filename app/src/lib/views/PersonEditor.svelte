@@ -50,6 +50,7 @@
   import { agentLabel, editLabel, eventKindLabel } from '../i18n/backend';
   import { withSexIcon } from '../ui/sex';
   import { birthSurnameText } from '../ui/birthSurname';
+  import { baptismOf, godparentFull, godparentRoleText, shortGodparentName } from '../ui/godparents';
 
   let {
     id,
@@ -318,6 +319,21 @@
 
   const birthEvent = $derived(detail?.events.find((x) => x.kind === 'birth'));
   const deathEvent = $derived(detail?.events.find((x) => x.kind === 'death'));
+  const baptismEvent = $derived(baptismOf(detail?.events));
+  /** "bap. 6 Feb 1906", with the place when it is not the birth place. Empty with neither. */
+  const baptismText = $derived.by(() => {
+    const b = baptismEvent;
+    if (!b) return '';
+    const samePlace = !!b.place && b.place.id === birthEvent?.place?.id;
+    const what = [b.date?.display, samePlace ? '' : b.place?.full].filter(Boolean).join(', ');
+    return what ? t('person.baptismShort', { date: what }) : '';
+  });
+  const godparents = $derived(baptismEvent?.godparents ?? []);
+  const godparentsTitle = $derived(godparents.map(godparentFull).join('\n'));
+  const godchildren = $derived(detail?.godchildren ?? []);
+  const godForKey = $derived(
+    detail?.sex === 'male' ? 'person.godfatherFor' : detail?.sex === 'female' ? 'person.godmotherFor' : 'person.godparentFor',
+  );
   const maiden = $derived(birthSurnameText(detail?.ref));
   const preferredName = $derived(detail ? (detail.names.find((n) => n.preferred) ?? detail.names[0]) : undefined);
   /** Shown on the card only when the surname changed with marriage. */
@@ -338,7 +354,10 @@
           ...surnameLines,
           ...(['birth', 'death'] as const).flatMap((k) => {
             const e = k === 'birth' ? birthEvent : deathEvent;
-            return e ? [{ label: k === 'birth' ? t('person.born') : t('person.died'), text: eventLine(e) || t('person.noDateOrPlace') }] : [];
+            if (k === 'birth' && !e && baptismEvent)
+              return [{ label: t('person.baptized'), text: eventLine(baptismEvent) || t('person.noDateOrPlace'), extra: '' }];
+            const extra = k === 'birth' ? baptismText : '';
+            return e ? [{ label: k === 'birth' ? t('person.born') : t('person.died'), text: eventLine(e) || t('person.noDateOrPlace'), extra }] : [];
           }),
         ]
       : [],
@@ -469,6 +488,9 @@
           <Button onclick={() => (dialog = { kind: 'event', event: birthEvent, newKind: 'birth' })}>
             {birthEvent ? t('person.editBirth') : t('person.addBirth')}
           </Button>
+          <Button onclick={() => (dialog = { kind: 'event', event: baptismEvent, newKind: 'baptism' })}>
+            {baptismEvent ? t('person.editBaptism') : t('person.addBaptism')}
+          </Button>
           <Button onclick={() => (dialog = { kind: 'event', event: deathEvent, newKind: 'death' })}>
             {deathEvent ? t('person.editDeath') : t('person.addDeath')}
           </Button>
@@ -478,8 +500,18 @@
       </div>
       {#snippet body()}
         {#each cardLines as l (l.label)}
-          <p class="card-line"><span class="card-label" class:wide={surnameLines.length > 0}>{l.label}</span> {l.text}</p>
+          <p class="card-line"><span class="card-label" class:wide={surnameLines.length > 0}>{l.label}</span> {l.text}{#if 'extra' in l && l.extra}<span class="bap" data-baptism> · {l.extra}</span>{/if}</p>
         {/each}
+        {#if godparents.length > 0}
+          <p class="card-line" data-godparents title={godparentsTitle}>
+            <span class="card-label" class:wide={surnameLines.length > 0}>{t('person.godparents')}</span>
+            {#each godparents as g, i (g.id)}{#if i > 0}, {/if}{#if g.person}<button
+                  type="button"
+                  class="godlink"
+                  onclick={() => open(g.person!)}><bdi dir="auto">{g.person.name}</bdi></button
+                >{:else}<bdi dir="auto">{shortGodparentName(g.name)}</bdi>{/if}{/each}
+          </p>
+        {/if}
       {/snippet}
     </IndexCard>
     </div>
@@ -666,6 +698,23 @@
         <Button onclick={() => (dialog = { kind: 'family' })}>{t('person.addFamily')}</Button>
       </div>
     </section>
+
+    {#if godchildren.length > 0}
+      <section aria-labelledby="h-godchildren" data-godchildren>
+        <h2 id="h-godchildren">{t('person.godchildren')}</h2>
+        <p class="meta">{t(godForKey as MessageKey)}</p>
+        <ul class="rows">
+          {#each godchildren as gc (gc.event + gc.person.id)}
+            <li>
+              <span class="grow"><Button variant="quiet" onclick={() => open(gc.person)}><bdi dir="auto">{gc.person.name}</bdi></Button></span>
+              <span class="meta"
+                >{godparentRoleText(gc.role, detail.sex)}{#if gc.date}, {t('person.godchildBaptism', { date: gc.date.display })}{/if}</span
+              >
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
 
     <section aria-labelledby="h-notes">
       <div class="sec-head">
@@ -907,6 +956,19 @@
   /* With the surname lines the labels are longer; keep one aligned column. */
   .card-label.wide {
     min-width: 12rem;
+  }
+  .bap {
+    color: var(--ink-1);
+  }
+  .godlink {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: var(--verdigris);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
   }
   section {
     display: grid;
