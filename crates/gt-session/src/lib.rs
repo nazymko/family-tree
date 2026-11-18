@@ -54,6 +54,7 @@ pub use log::{
     ReviewScopeDto,
 };
 pub use map::{
+    GazetteerCandidateDto, GazetteerCountryDto, GazetteerProgressDto, GazetteerStatusDto,
     MapDataDto, MapEventDto, MapLinkDto, MapPersonDto, MapPlaceDto, MapScope, MapScopeKind,
 };
 pub use names::{display_name, lifespan};

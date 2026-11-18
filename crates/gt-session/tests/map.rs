@@ -41,7 +41,12 @@ fn person(s: &Session, given: &str) -> Uuid {
     *s.tree()
         .persons
         .iter()
-        .find(|(_, p)| p.names.first().and_then(|n| n.given.as_deref()).is_some_and(|g| g.starts_with(given)))
+        .find(|(_, p)| {
+            p.names
+                .first()
+                .and_then(|n| n.given.as_deref())
+                .is_some_and(|g| g.starts_with(given))
+        })
         .unwrap()
         .0
 }
@@ -68,7 +73,14 @@ fn whole_tree_has_every_event_with_a_place() {
     let berezivka = m.places.iter().find(|p| p.name == "Berezivka").unwrap();
     assert_eq!(berezivka.label, "Berezivka, Zelena oblast");
     assert!((berezivka.lat.unwrap() - 50.5).abs() < 1e-9);
-    assert!(m.places.iter().find(|p| p.name == "Dubky").unwrap().lat.is_none());
+    assert!(
+        m.places
+            .iter()
+            .find(|p| p.name == "Dubky")
+            .unwrap()
+            .lat
+            .is_none()
+    );
     // Events are in year order, undated first.
     let years: Vec<Option<i32>> = m.events.iter().map(|e| e.year).collect();
     assert_eq!(years.first(), Some(&None));
@@ -82,14 +94,33 @@ fn ancestors_walk_generations_and_link_births() {
     let ivan = person(&s, "Ivan");
     let all = s.map_data(&scope(MapScopeKind::Ancestors, Some(ivan), None));
     let gens: Vec<(String, i32)> = {
-        let mut v: Vec<_> = all.people.iter().map(|p| (p.name.clone(), p.generation)).collect();
+        let mut v: Vec<_> = all
+            .people
+            .iter()
+            .map(|p| (p.name.clone(), p.generation))
+            .collect();
         v.sort();
         v
     };
-    assert_eq!(gens.iter().find(|(n, _)| n.starts_with("Ivan")).unwrap().1, 0);
-    assert_eq!(gens.iter().find(|(n, _)| n.starts_with("Petro")).unwrap().1, 1);
-    assert_eq!(gens.iter().find(|(n, _)| n.starts_with("Maria")).unwrap().1, 1);
-    assert_eq!(gens.iter().find(|(n, _)| n.starts_with("Hryhorii")).unwrap().1, 2);
+    assert_eq!(
+        gens.iter().find(|(n, _)| n.starts_with("Ivan")).unwrap().1,
+        0
+    );
+    assert_eq!(
+        gens.iter().find(|(n, _)| n.starts_with("Petro")).unwrap().1,
+        1
+    );
+    assert_eq!(
+        gens.iter().find(|(n, _)| n.starts_with("Maria")).unwrap().1,
+        1
+    );
+    assert_eq!(
+        gens.iter()
+            .find(|(n, _)| n.starts_with("Hryhorii"))
+            .unwrap()
+            .1,
+        2
+    );
     assert_eq!(all.people.len(), 4);
     assert_eq!(all.links.len(), 3);
     let one = s.map_data(&scope(MapScopeKind::Ancestors, Some(ivan), Some(1)));
@@ -127,7 +158,11 @@ fn private_people_and_events_stay_out() {
         private: Some(true),
     })
     .unwrap();
-    let m = s.map_data(&scope(MapScopeKind::Ancestors, Some(person(&s, "Ivan")), None));
+    let m = s.map_data(&scope(
+        MapScopeKind::Ancestors,
+        Some(person(&s, "Ivan")),
+        None,
+    ));
     assert!(m.people.iter().all(|p| p.id != petro));
     // The walk does not pass through a private person: his father is not reached either.
     assert_eq!(m.people.len(), 2);
@@ -167,7 +202,12 @@ fn bad_coordinates_are_refused() {
     let (_d, mut s) = open_ged(GED);
     let m = s.map_data(&scope(MapScopeKind::All, None, None));
     let id = m.places[0].id;
-    for (la, lo) in [(Some(91_000_000), Some(0)), (Some(0), Some(181_000_000)), (Some(1), None), (None, Some(1))] {
+    for (la, lo) in [
+        (Some(91_000_000), Some(0)),
+        (Some(0), Some(181_000_000)),
+        (Some(1), None),
+        (None, Some(1)),
+    ] {
         let e = s
             .apply(EditCommand::SetPlaceCoordinates {
                 place: id,

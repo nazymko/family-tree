@@ -113,7 +113,10 @@ impl Session {
                 .get(id)
                 .is_some_and(|p| !p.common.private && !p.sibling_marker)
         };
-        let limit = scope.generations.unwrap_or(MAX_GENERATIONS).min(MAX_GENERATIONS);
+        let limit = scope
+            .generations
+            .unwrap_or(MAX_GENERATIONS)
+            .min(MAX_GENERATIONS);
         match scope.kind {
             MapScopeKind::All => self
                 .tree
@@ -199,9 +202,17 @@ impl Session {
         let mut without_place = 0u32;
         let mut seen: HashSet<(Uuid, Uuid)> = HashSet::new();
         for (id, _) in &scoped {
-            let mut event_ids: Vec<Uuid> = self.links.events_of.get(id).cloned().unwrap_or_default();
+            let mut event_ids: Vec<Uuid> =
+                self.links.events_of.get(id).cloned().unwrap_or_default();
             for fid in self.links.partner_in.get(id).into_iter().flatten() {
-                event_ids.extend(self.links.events_of_family.get(fid).into_iter().flatten().copied());
+                event_ids.extend(
+                    self.links
+                        .events_of_family
+                        .get(fid)
+                        .into_iter()
+                        .flatten()
+                        .copied(),
+                );
             }
             for eid in event_ids {
                 let Some(e) = self.tree.events.get(&eid) else {
@@ -249,7 +260,12 @@ impl Session {
             })
             .collect();
         places.sort_by(|a, b| a.label.cmp(&b.label).then(a.id.cmp(&b.id)));
-        events.sort_by(|a, b| a.year.cmp(&b.year).then(a.id.cmp(&b.id)).then(a.person.cmp(&b.person)));
+        events.sort_by(|a, b| {
+            a.year
+                .cmp(&b.year)
+                .then(a.id.cmp(&b.id))
+                .then(a.person.cmp(&b.person))
+        });
         let mut links = Vec::new();
         let mut linked: HashSet<(Uuid, Uuid)> = HashSet::new();
         for (child, _) in &scoped {
@@ -269,5 +285,120 @@ impl Session {
             links,
             events_without_place: without_place,
         }
+    }
+}
+
+/// One downloaded country of the offline gazetteer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GazetteerCountryDto {
+    pub country: String,
+    pub rows: u32,
+    #[ts(type = "number")]
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GazetteerStatusDto {
+    pub countries: Vec<GazetteerCountryDto>,
+    /// The attribution GeoNames asks for.
+    pub attribution: String,
+}
+
+/// A GeoNames place that might be the one a tree place means.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GazetteerCandidateDto {
+    pub geoname_id: u32,
+    pub country: String,
+    pub name: String,
+    /// A Ukrainian (or other Cyrillic) name; empty when none is known.
+    pub local: String,
+    pub lat: f64,
+    pub lon: f64,
+    /// GeoNames feature code: PPL, PPLA, PPLH (historical), ADM2, ...
+    pub code: String,
+    pub population: u32,
+    /// "District, Region" as the dump names them.
+    pub region: String,
+    pub region_local: String,
+    pub score: u32,
+    /// The other parts of the typed place agree with the candidate's regions.
+    pub region_match: bool,
+}
+
+impl From<gt_gazetteer::Candidate> for GazetteerCandidateDto {
+    fn from(c: gt_gazetteer::Candidate) -> Self {
+        let join = |a: &str, b: &str| {
+            [a, b]
+                .iter()
+                .filter(|s| !s.is_empty())
+                .copied()
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        GazetteerCandidateDto {
+            geoname_id: c.geoname_id,
+            country: c.country,
+            region: join(&c.admin2, &c.admin1),
+            region_local: join(
+                if c.admin2_local.is_empty() {
+                    &c.admin2
+                } else {
+                    &c.admin2_local
+                },
+                if c.admin1_local.is_empty() {
+                    &c.admin1
+                } else {
+                    &c.admin1_local
+                },
+            ),
+            name: c.name,
+            local: c.local,
+            lat: c.lat,
+            lon: c.lon,
+            code: c.code,
+            population: c.population,
+            score: c.score,
+            region_match: c.region_match,
+        }
+    }
+}
+
+/// Progress of a gazetteer download, emitted by the app while it works.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GazetteerProgressDto {
+    pub country: String,
+    /// `download` or `index`.
+    pub phase: String,
+    #[ts(type = "number")]
+    pub done: u64,
+    #[ts(type = "number")]
+    pub total: u64,
+}
+
+impl Session {
+    /// The names of a place, leaf first ("Village", "District", "Oblast"): what the gazetteer matches.
+    pub fn place_parts(&self, id: Uuid) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut next = Some(id);
+        for _ in 0..16 {
+            let Some(p) = next.and_then(|i| self.tree.places.get(&i)) else {
+                break;
+            };
+            let name = p
+                .names
+                .first()
+                .map(|n| n.name.clone())
+                .or_else(|| p.raw.clone())
+                .unwrap_or_default();
+            if !name.trim().is_empty() {
+                out.push(name);
+            }
+            next = p.parent;
+        }
+        out
     }
 }

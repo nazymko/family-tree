@@ -84,6 +84,12 @@ command_list!(
     parse_date,
     suggest_places,
     suggest_sources,
+    map_data,
+    gazetteer_status,
+    gazetteer_remote_size,
+    gazetteer_download,
+    gazetteer_remove,
+    gazetteer_suggest,
     last_citation,
     chart_open,
     chart_open_whole,
@@ -580,6 +586,67 @@ pub fn suggest_places(
     limit: usize,
 ) -> ApiResult<Vec<PlaceOption>> {
     state.with_session(|s| Ok(s.suggest_places(&prefix, limit)))
+}
+
+/// Everything the Map view draws, for one scope.
+#[tauri::command(async)]
+pub fn map_data(state: State<'_, AppState>, scope: gt_session::MapScope) -> ApiResult<gt_session::MapDataDto> {
+    state.with_session(|s| Ok(s.map_data(&scope)))
+}
+
+/// The event `gazetteer_download` emits while it works.
+pub const GAZETTEER_PROGRESS_EVENT: &str = "gazetteer-progress";
+
+/// Which countries of the offline place data are on this computer.
+#[tauri::command(async)]
+pub fn gazetteer_status(state: State<'_, AppState>) -> gt_session::GazetteerStatusDto {
+    crate::gazetteer::status(&state.config_dir)
+}
+
+/// The download size of a country (bytes), asked of GeoNames when the person chooses the country.
+#[tauri::command]
+pub async fn gazetteer_remote_size<R: Runtime>(app: AppHandle<R>, country: String) -> ApiResult<Option<u64>> {
+    blocking(&app, move |_| crate::gazetteer::remote_size(&country)).await
+}
+
+/// Downloads and indexes one country. Only ever runs from the person's click; the one network use of the place data.
+#[tauri::command]
+pub async fn gazetteer_download<R: Runtime>(
+    app: AppHandle<R>,
+    country: String,
+) -> ApiResult<gt_session::GazetteerCountryDto> {
+    let emitter = app.clone();
+    blocking(&app, move |s| {
+        let done = crate::gazetteer::download(&s.config_dir, &country, &|p| {
+            let _ = emitter.emit(GAZETTEER_PROGRESS_EVENT, p);
+        })?;
+        *AppState::lock(&s.gazetteer) = None;
+        Ok(done)
+    })
+    .await
+}
+
+#[tauri::command(async)]
+pub fn gazetteer_remove(state: State<'_, AppState>, country: String) -> ApiResult<()> {
+    crate::gazetteer::remove(&state.config_dir, &country)?;
+    *AppState::lock(&state.gazetteer) = None;
+    Ok(())
+}
+
+/// Candidates for a place of the tree from the downloaded place data; empty when nothing is downloaded.
+#[tauri::command(async)]
+pub fn gazetteer_suggest(
+    state: State<'_, AppState>,
+    place: Uuid,
+    limit: usize,
+) -> ApiResult<Vec<gt_session::GazetteerCandidateDto>> {
+    let parts = state.with_session(|s| Ok(s.place_parts(place)))?;
+    let gz = {
+        let mut slot = AppState::lock(&state.gazetteer);
+        slot.get_or_insert_with(|| crate::gazetteer::load(&state.config_dir)).clone()
+    };
+    let refs: Vec<&str> = parts.iter().map(String::as_str).collect();
+    Ok(gz.search(&refs, limit.clamp(1, 20)).into_iter().map(Into::into).collect())
 }
 
 #[tauri::command(async)]

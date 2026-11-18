@@ -6,6 +6,7 @@ pub mod ai;
 pub mod commands;
 #[cfg(debug_assertions)]
 pub mod e2e_hooks;
+pub mod gazetteer;
 pub mod mobile;
 pub mod protocol;
 pub mod settings_file;

@@ -104,7 +104,9 @@ pub(super) fn set_coordinates(
     let point = match (lat_e6, lon_e6) {
         (None, None) => None,
         (Some(la), Some(lo)) => {
-            if !(-90_000_000..=90_000_000).contains(&la) || !(-180_000_000..=180_000_000).contains(&lo) {
+            if !(-90_000_000..=90_000_000).contains(&la)
+                || !(-180_000_000..=180_000_000).contains(&lo)
+            {
                 return Err(invalid(
                     "Latitude must be between -90 and 90 and longitude between -180 and 180.",
                 ));

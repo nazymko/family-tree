@@ -18,6 +18,8 @@ pub struct AppState {
     pub agent: AgentAccess,
     /// Where the Anthropic key is kept: the OS keychain, or (test runs) a file in the config folder.
     pub keys: Arc<dyn KeyStore>,
+    /// The offline place index, loaded on first use and dropped when a country is added or removed.
+    pub gazetteer: Mutex<Option<Arc<gt_gazetteer::Gazetteer>>>,
 }
 
 impl AppState {
@@ -46,6 +48,7 @@ impl AppState {
             clock,
             agent: AgentAccess::new(hashes),
             keys: Arc::new(Keychain),
+            gazetteer: Mutex::new(None),
         }
     }
 

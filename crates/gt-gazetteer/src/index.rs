@@ -367,6 +367,20 @@ impl Gazetteer {
     }
 }
 
+/// The number of rows an index file holds, from its first bytes alone.
+pub fn peek_rows(path: &Path) -> Option<usize> {
+    let mut head = [0u8; 24];
+    let n = std::fs::File::open(path).ok()?.read(&mut head).ok()?;
+    if head.get(..4) != Some(&MAGIC[..]) || head.get(4) != Some(&VERSION) {
+        return None;
+    }
+    let mut r = Reader {
+        b: head.get(..n)?,
+        at: 7,
+    };
+    usize::try_from(r.varint().ok()?).ok()
+}
+
 /// The path of a country's index inside the gazetteer folder.
 pub fn index_path(dir: &Path, country: &str) -> std::path::PathBuf {
     dir.join(format!("{}.gtgz", country.to_ascii_uppercase()))
