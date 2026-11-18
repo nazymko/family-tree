@@ -31,7 +31,8 @@
   import Tooltip from '../ui/Tooltip.svelte';
   import { getApi } from '../api/context';
   import type { MediaLinkDto, OwnerRef } from '../api/api';
-  import { t } from '../i18n';
+  import { plural, t } from '../i18n';
+  import { versionCount } from './versions';
 
   let { items, onOpen }: { items: MediaLinkDto[]; /** Reserved for the owner of the items. */ target?: OwnerRef; onOpen: (i: number) => void } = $props();
   const api = getApi();
@@ -48,6 +49,7 @@
             <span>{mediaKind(m)}</span>
             {#if m.date?.display || m.place}<span>{[m.date?.display, m.place?.full].filter(Boolean).join(' · ')}</span>{/if}
             {#if m.description?.trim()}<span class="desc">{m.description.trim()}</span>{/if}
+            {#if versionCount(m) > 1}<span>{plural('media.versions', versionCount(m))}</span>{/if}
             {#if hasTranscript(m)}<span class="has"><Icon name="file" size="0.9rem" /> {t('media.hasTranscript')}</span>{/if}
           </div>
         {/snippet}
@@ -72,6 +74,9 @@
       </Tooltip>
       {#if hasTranscript(m)}
         <span class="txt" title={t('media.hasTranscript')} role="img" aria-label={t('media.hasTranscript')} data-testid="has-transcript">T</span>
+      {/if}
+      {#if versionCount(m) > 1}
+        <span class="ver" data-testid="versions-badge">{plural('media.versions', versionCount(m))}</span>
       {/if}
       {#if link.primary}
         <span class="rib"><Ribbon title={t('media.primaryPhoto')} size="1.5rem" /></span>
@@ -146,6 +151,19 @@
     line-height: 1.3;
     color: var(--paper-0);
     background: var(--focus);
+    border-radius: var(--r-1);
+    pointer-events: none;
+  }
+  /* The page is kept in several files: the tile shows the primary, the badge says how many. */
+  .ver {
+    position: absolute;
+    inset-block-end: var(--s-2);
+    inset-inline-end: var(--s-2);
+    padding: 0 var(--s-2);
+    font-size: var(--t-sm);
+    line-height: 1.4;
+    color: var(--paper-0);
+    background: var(--ink-0);
     border-radius: var(--r-1);
     pointer-events: none;
   }

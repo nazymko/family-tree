@@ -37,6 +37,7 @@
   const loadPlayer = () => import('../media/RecordingPlayer.svelte');
   import { recordingView } from '../state/recording.svelte';
   import { isSound } from '../media/sound';
+  import { collapseVersions } from '../media/versions';
   import People from './People.svelte';
   import FamilyView from './FamilyView.svelte';
   import type { IconName } from '../ui/icons';
@@ -301,7 +302,7 @@
 
 {#snippet mediaSection(d: PersonDetail)}
   {#if d.media.length > 0}
-    {@const pictures = d.media.filter((l) => !isSound(l.media))}
+    {@const pictures = collapseVersions(d.media.filter((l) => !isSound(l.media)))}
     {#if pictures.length > 0}
       <MediaGrid items={pictures} target={{ kind: 'person', id: d.ref.id }} onOpen={() => openMedia(d.ref.id)} />
     {/if}

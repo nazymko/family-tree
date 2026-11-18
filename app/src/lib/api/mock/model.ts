@@ -74,6 +74,8 @@ export interface Db {
   places: Map<Id, PlaceOption>;
   sources: Map<Id, SourceDto>;
   media: Map<Id, MediaDto>;
+  /** Versions of one page: media id to the id of its group's primary (absent: no group). */
+  versionOf?: Map<Id, Id>;
   /** Place coordinates (lat, lon) set by the person; the places themselves carry none. */
   coords?: Map<Id, [number, number]>;
 }

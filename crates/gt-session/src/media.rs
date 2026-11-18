@@ -506,6 +506,46 @@ impl Session {
         loose.into_iter().map(|l| l.media).collect()
     }
 
+    /// Every picture and document of the tree, one per version group (its primary, with the group
+    /// in `versions`), by title or file name: what the owner picks another version of a page from.
+    /// Sound recordings are left out, and so are the transcriptions, which a picker does not show.
+    pub fn all_pictures(&self) -> Vec<MediaDto> {
+        let links: Vec<MediaLink> = self
+            .tree
+            .media
+            .iter()
+            .filter(|(_, m)| m.version_of.is_none())
+            .filter(|(_, m)| !m.mime.as_deref().is_some_and(|t| t.starts_with("audio/")))
+            .map(|(id, _)| MediaLink {
+                media: *id,
+                region: None,
+                primary: false,
+                clip: None,
+            })
+            .collect();
+        let mut out: Vec<MediaDto> = self
+            .media_dtos(&links)
+            .into_iter()
+            .map(|l| {
+                let mut m = l.media;
+                m.transcription.clear();
+                for v in &mut m.versions {
+                    v.transcription.clear();
+                }
+                m
+            })
+            .collect();
+        let key = |m: &MediaDto| {
+            m.title
+                .clone()
+                .or_else(|| m.original_name.clone())
+                .unwrap_or_default()
+                .to_lowercase()
+        };
+        out.sort_by(|a, b| key(a).cmp(&key(b)).then(a.id.cmp(&b.id)));
+        out
+    }
+
     /// Copies the files into the project and links them to `target` as ONE undoable change set
     /// ("Attach media"). Files that cannot be attached are listed with a reason; the rest still
     /// go through. A very large image is stored and attached but also listed as having no

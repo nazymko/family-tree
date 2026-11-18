@@ -219,3 +219,14 @@ fn grouping_keeps_transcriptions_and_refuses_odd_requests() {
     assert!(f.s.apply(group(f.mid, &[f.mid])).is_err());
     assert!(f.s.apply(group(f.mid, &[Uuid::from_u128(99)])).is_err());
 }
+
+#[test]
+fn the_picker_lists_one_entry_per_page() {
+    let mut f = fixture();
+    assert_eq!(f.s.all_pictures().len(), 3);
+    f.s.apply(group(f.big, &[f.small, f.mid])).unwrap();
+    let listed = f.s.all_pictures();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, f.big);
+    assert_eq!(listed[0].versions.len(), 3);
+}

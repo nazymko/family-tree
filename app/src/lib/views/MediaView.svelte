@@ -6,6 +6,7 @@
   import MediaViewer from '../media/MediaViewer.svelte';
   import VoiceSamples, { voiceSamples } from '../media/VoiceSamples.svelte';
   import { isSound } from '../media/sound';
+  import { collapseVersions } from '../media/versions';
   import { getApi } from '../api/context';
   import { project } from '../state/project.svelte';
   import Button from '../ui/Button.svelte';
@@ -25,7 +26,7 @@
   let name = $state('');
   let all = $state<MediaLinkDto[]>([]);
   /** Pictures and documents, for the grid and the viewer. */
-  const items = $derived(all.filter((l) => !isSound(l.media)));
+  const items = $derived(collapseVersions(all.filter((l) => !isSound(l.media))));
   /** Recordings attached to the person: a row and a player each, never a thumbnail. */
   const sounds = $derived(voiceSamples(all));
   let loaded = $state(false);
