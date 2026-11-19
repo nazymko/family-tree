@@ -71,7 +71,7 @@
   const ROLES = ['principal', 'witness', 'godparent', 'clergy', 'officiator', 'informant', 'parent', 'father', 'mother', 'child', 'spouse', 'husband', 'wife', 'friend', 'neighbor', 'multiple'];
 
   const SOURCE_KINDS = Object.fromEntries(SOURCE_KIND_IDS.map((k) => [k, true]));
-  const KINDS = ['birth', 'married', 'aka', 'religious', 'nickname', 'immigrant', 'professional'];
+  const KINDS = ['birth', 'married', 'aka', 'religious', 'nickname', 'immigrant', 'professional', 'as_recorded'];
   const SEXES = ['male', 'female', 'intersex', 'unknown'];
 
   /** Singular `Surname` unless either side holds several surnames (joined with a comma). */

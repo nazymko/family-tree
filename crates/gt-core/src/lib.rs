@@ -5,6 +5,7 @@ pub mod date;
 pub mod ids;
 pub mod living;
 pub mod model;
+pub mod orthography;
 pub mod phonetic;
 pub mod privacy;
 pub mod raw;

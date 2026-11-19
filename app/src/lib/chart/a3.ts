@@ -461,13 +461,18 @@ export function printStretch(bounds: Rect, need: number, choice: A3Choice = 'aut
   return lo;
 }
 
-/** The HTML the print dialog gets: one A3 page holding the SVG, no browser margins, nothing that could add a second page. */
-export function printDocument(svg: string, orientation: A3Orientation): string {
+/**
+ * The HTML the print dialog gets: one A3 page holding the SVG, no browser margins, nothing that could add a second page.
+ * `fontCss` is the app's `@font-face` rules: the frame is a document of its own, and without them the names print in
+ * a system font (Georgia has no ѣ, ѳ, ѵ).
+ */
+export function printDocument(svg: string, orientation: A3Orientation, fontCss = ''): string {
   const body = svg.replace(/^<\?xml[^>]*\?>\s*/, '');
   const w = orientation === 'landscape' ? A3_LONG_MM : A3_SHORT_MM;
   const h = orientation === 'landscape' ? A3_SHORT_MM : A3_LONG_MM;
   return (
     `<!doctype html><html><head><meta charset="utf-8"><style>` +
+    (fontCss ? `${fontCss.replaceAll('</', '<\\/')}\n` : '') +
     `@page{size:A3 ${orientation};margin:0}` +
     `html,body{margin:0;padding:0;width:${w}mm;height:${h}mm;overflow:hidden}` +
     `svg{display:block;page-break-after:avoid;break-after:avoid}` +

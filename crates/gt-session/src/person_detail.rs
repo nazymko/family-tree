@@ -417,6 +417,7 @@ impl Session {
             NameKind::Nickname => (NameKindDto::Nickname, None),
             NameKind::Immigrant => (NameKindDto::Immigrant, None),
             NameKind::Professional => (NameKindDto::Professional, None),
+            NameKind::AsRecorded => (NameKindDto::AsRecorded, None),
             NameKind::Other(t) => (NameKindDto::Other, Some(t.clone())),
         };
         NameDto {

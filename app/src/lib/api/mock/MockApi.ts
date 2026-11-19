@@ -94,6 +94,7 @@ import type {
 } from '../types';
 import { personFieldChanges } from './fieldDiff';
 import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } from './build';
+import { modernVariants } from './orthography';
 import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
 import { orientLayout, type Layout } from './mockLayout';
@@ -2181,7 +2182,7 @@ export class MockApi implements Api {
       for (const p of this.db.persons.values()) {
         const r = this.row(p);
         rows.push(r);
-        folded.set(p.id, fold(p.names.map((n) => n.display).join(' ')));
+        folded.set(p.id, fold(p.names.flatMap((n) => [n.display, ...modernVariants(n.display)]).join(' ')));
       }
       this.rowCache = { version: this.version, rows, folded };
     }

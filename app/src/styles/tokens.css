@@ -31,8 +31,8 @@
   --font-script-fallback: 'Segoe UI', 'Noto Sans', 'Nirmala UI', 'Noto Sans Devanagari', 'Noto Sans Bengali', 'Noto Sans Telugu',
     'Noto Sans Tamil', 'Noto Sans Arabic', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', 'Noto Sans SC', 'Yu Gothic',
     'Noto Sans JP';
-  --font-serif: 'Source Serif 4 Variable', Georgia, 'Noto Serif', var(--font-script-fallback), serif;
-  --font-sans: 'Atkinson Hyperlegible Next', system-ui, var(--font-script-fallback), sans-serif;
+  --font-serif: 'Source Serif 4 Variable', 'GT Old Cyrillic', Georgia, 'Noto Serif', var(--font-script-fallback), serif;
+  --font-sans: 'Atkinson Hyperlegible Next', 'GT Old Cyrillic', system-ui, var(--font-script-fallback), sans-serif;
 
   --t-xs: 0.75rem;
   --t-xs-lh: 1rem;

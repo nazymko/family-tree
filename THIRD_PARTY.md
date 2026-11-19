@@ -8,6 +8,7 @@ Font files are assets, not code. They ship inside the desktop app and are never 
 |---|---|---|
 | Source Serif 4 (variable) | `@fontsource-variable/source-serif-4` | OFL-1.1 |
 | Atkinson Hyperlegible Next | `@fontsource/atkinson-hyperlegible-next` | OFL-1.1 |
+| Noto Sans (only its Cyrillic Extended files: the old letters ѣ, ѳ, ѵ in the sans text) | `@fontsource/noto-sans` | OFL-1.1 |
 
 ## Map data
 

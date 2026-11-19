@@ -93,6 +93,21 @@ agent's own report: what it added, what it left unsettled, and questions for the
 - **Connect people a source says are not related.** They stay apart, and the agent lists them in its report.
 - **Open the tree file, or change settings, other connections or the rules.**
 
+### Names as a record writes them
+
+A church metric book of the 19th or early 20th century writes names in the old spelling, «Ѳеодоръ Петровъ Вигаданенко»
+for a man whose main name in the tree is «Федір Петрович Вигаданенко». An agent that read such a record keeps the
+spelling with `add_name` and `kind: "as_recorded"`: given name, patronymic and surname in their own fields, letter for
+letter as written (ѣ, ѳ, ѵ, і and the final ъ stay). It never becomes the main name. Then it cites the record on that
+name: `add_citation` with `target: {kind: "name", id: <the id add_name returned>}`, the source of the book and the page
+or entry. A reading it is not sure of (a smudged letter, two possible surnames) does not go in the name: it goes in a
+note, with the reasons.
+
+The person page shows such a name under the main name («Як записано: …», with the source and year), GEDCOM writes it
+as a `NAME` with `TYPE as recorded` (5.5.1) or `TYPE OTHER` + `PHRASE as recorded` (7.0), and search finds the person
+by it typed in today's letters (`Феодор Петров` finds `Ѳеодоръ Петровъ`). Only letters are mapped, there is no
+dictionary of names: `Іоаннъ` is found by `Иоанн` or `Іоанн`, not by `Іван`.
+
 ### Correcting a birth or death date
 
 When you, or a source, have confirmed the exact date of a birth or a death, an agent may set it with the tool

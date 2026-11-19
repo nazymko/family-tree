@@ -384,6 +384,11 @@ fn summarize(
         for part in [&compose(n, NameOrder::GivenFirst, true), &surname_of(n)] {
             folded.push_str(&fold(part));
             folded.push(' ');
+            // A name in the old spelling ("Ѳеодоръ") is found by today's letters too.
+            for v in gt_core::orthography::modern_variants(part) {
+                folded.push_str(&fold(&v));
+                folded.push(' ');
+            }
         }
         for part in [&n.nickname, &n.patronymic, &n.call].into_iter().flatten() {
             folded.push_str(&fold(part));

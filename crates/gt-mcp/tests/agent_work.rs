@@ -1244,3 +1244,79 @@ fn a_death_on_someone_already_counted_dead_stays_allowed() {
     );
     assert!(message.contains("alive or dead"), "{message}");
 }
+
+// ---- a name as the record writes it
+
+#[test]
+fn a_name_as_recorded_takes_the_citation_of_its_record_and_is_found_by_todays_letters() {
+    let host = empty_host();
+    let fedir = with(&host, |s| {
+        add_person(
+            s,
+            draft("Федір", "Вигаданенко", Some("Петрович"), Some("1885")),
+        )
+    });
+    let batch = begin(&host);
+    let source = call(
+        &host,
+        "add_source",
+        json!({"batch": batch, "title": "Метрична книга вигаданої церкви", "kind": "metric_book"}),
+    )["id"]
+        .clone();
+    let name = call(
+        &host,
+        "add_name",
+        json!({"batch": batch, "person": fedir, "kind": "as_recorded", "given": "Ѳеодоръ",
+               "patronymic": "Петровъ", "surnames": ["Вигаданенко"], "date": "1885"}),
+    )["id"]
+        .clone();
+    call(
+        &host,
+        "add_citation",
+        json!({"batch": batch, "target": {"kind": "name", "id": name}, "source": source,
+               "page": "арк. 12 зв., № 34", "text": "Ѳеодоръ, сынъ Петра Вигаданенка"}),
+    );
+    call(
+        &host,
+        "end_batch",
+        json!({"batch": batch, "report": "Done."}),
+    );
+
+    let name_id: Uuid = name.as_str().unwrap().parse().unwrap();
+    with(&host, |s| {
+        let p = &s.tree().persons[&fedir];
+        assert_eq!(p.names.len(), 2);
+        assert!(p.names[0].assertion.preferred, "the main name stays main");
+        let n = p.names.iter().find(|n| n.id == name_id).unwrap();
+        assert_eq!(n.kind, gt_core::model::NameKind::AsRecorded);
+        assert!(!n.assertion.preferred);
+        assert_eq!(n.given.as_deref(), Some("Ѳеодоръ"));
+        assert_eq!(n.citations.len(), 1);
+        let c = &s.tree().citations[&n.citations[0]];
+        assert_eq!(c.page.as_deref(), Some("арк. 12 зв., № 34"));
+    });
+    // The agent reads it back with its kind.
+    let person = call(&host, "get_person", json!({"id": fedir}));
+    assert!(person.to_string().contains("as_recorded"), "{person}");
+    // The people list finds him by «Феодор Петров»: the old letters read in today's ones.
+    let found = with(&host, |s| {
+        let q = gt_session::PersonQuery {
+            text: "феодор петров".into(),
+            ..Default::default()
+        };
+        s.list_persons(&q, 0, 10)
+            .items
+            .iter()
+            .map(|r| r.person.id)
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(found, vec![fedir]);
+    // An unknown kind is refused with the list, which names as_recorded.
+    let batch = begin(&host);
+    let message = call_err(
+        &host,
+        "add_name",
+        json!({"batch": batch, "person": fedir, "kind": "recorded", "given": "Ѳеодоръ"}),
+    );
+    assert!(message.contains("as_recorded"), "{message}");
+}

@@ -106,6 +106,9 @@ pub enum NameKind {
     Nickname,
     Immigrant,
     Professional,
+    /// The name exactly as a record writes it (a metric book's old spelling, such as
+    /// «Ѳеодоръ Петровъ»), next to the modern main name. Its citation says which record.
+    AsRecorded,
     Other(String),
 }
 

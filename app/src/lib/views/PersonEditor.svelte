@@ -45,6 +45,8 @@
   import SurnamesEditor from '../editors/SurnamesEditor.svelte';
   import FamilyEditor from '../editors/FamilyEditor.svelte';
   import CitationEditor from '../editors/CitationEditor.svelte';
+  import CitationList from '../editors/CitationList.svelte';
+  import { asRecordedLines } from './asRecorded';
   import { errMessage } from '../editors/errors';
   import { t, plural, currentTag, type MessageKey } from '../i18n';
   import { agentLabel, editLabel, eventKindLabel } from '../i18n/backend';
@@ -335,6 +337,8 @@
     detail?.sex === 'male' ? 'person.godfatherFor' : detail?.sex === 'female' ? 'person.godmotherFor' : 'person.godparentFor',
   );
   const maiden = $derived(birthSurnameText(detail?.ref));
+  /** Names as a metric book or another record writes them (old spelling), shown under the main name. */
+  const recorded = $derived(asRecordedLines(detail?.names ?? []));
   const preferredName = $derived(detail ? (detail.names.find((n) => n.preferred) ?? detail.names[0]) : undefined);
   /** Shown on the card only when the surname changed with marriage. */
   const surnameLines = $derived.by(() => {
@@ -479,6 +483,15 @@
       <div class="head">
         <h1 tabindex="-1" bind:this={title} data-person-id={id}><bdi dir="auto">{detail.ref.name}</bdi>{#if agentChanges.unreviewed.has(id)} <AgentBadge />{/if}</h1>
         {#if maiden}<p class="maiden">{maiden}</p>{/if}
+        {#each recorded as r (r.name.id)}
+          <p class="recorded" data-as-recorded={r.name.id}>
+            <button type="button" class="recorded-btn" title={[t('person.asRecordedTitle'), r.detail].filter(Boolean).join('\n')} onclick={() => (dialog = { kind: 'name', name: r.name })}
+              ><span class="recorded-label">{t('person.asRecorded')}</span> <bdi dir="auto" class="recorded-name">{r.name.display}</bdi><span class="recorded-src"
+                >{` · ${r.source ? [r.source, r.year].filter(Boolean).join(', ') : t('person.asRecordedNoSource')}`}</span
+              ></button
+            >
+          </p>
+        {/each}
         <p class="life">{detail.ref.lifespan || t('person.noDates')}</p>
         <div class="head-actions" role="group" aria-label={t('person.quickEdit')}>
           <Button
@@ -588,6 +601,11 @@
               onclick={() => remove({ type: 'deleteName', person: id, name: n.id })}>{t('common.delete')}</Button
             >
           </li>
+          {#if n.kind === 'as_recorded' || n.citations.length > 0}
+            <li class="name-sources" data-name-sources={n.id} aria-label={t('person.nameSources')}>
+              <CitationList target={{ kind: 'name', id: n.id }} citations={n.citations} onChanged={() => {}} />
+            </li>
+          {/if}
         {/each}
       </ul>
     </section>
@@ -993,6 +1011,34 @@
     gap: var(--s-3);
     min-height: 2.5rem;
     border-top: 1px solid var(--rule);
+  }
+  .rows li.name-sources {
+    display: block;
+    border-top: 0;
+    padding: 0 0 var(--s-3) var(--s-5);
+    font-size: var(--t-sm);
+  }
+  .recorded {
+    margin: 0;
+  }
+  .recorded-btn {
+    all: unset;
+    cursor: pointer;
+    color: var(--ink-1);
+    font-size: var(--t-sm);
+  }
+  .recorded-btn:hover .recorded-name,
+  .recorded-btn:focus-visible .recorded-name {
+    text-decoration: underline;
+  }
+  .recorded-btn:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .recorded-name {
+    font-family: var(--font-serif);
+    font-style: italic;
+    color: var(--ink-0);
   }
   .rows li:has(.changed) {
     flex-wrap: wrap;

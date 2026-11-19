@@ -214,13 +214,16 @@ fn place_text(tree: &Tree, id: Uuid) -> String {
     tree.places.get(&id).map(place_text_of).unwrap_or_default()
 }
 
-/// Label and body text of a person: every name variant and the places of their events.
+/// Label and body text of a person: every name variant (one in the old spelling also in
+/// today's letters) and the places of their events.
 pub(crate) fn person_search(names: &[NameText], place_texts: Vec<String>) -> (String, String) {
     let preferred = names.iter().find(|n| n.preferred).or(names.first());
     let label = preferred.map(display_name).unwrap_or_default();
     let mut body: Vec<String> = Vec::new();
     for n in names {
-        body.push(display_name(n));
+        let shown = display_name(n);
+        body.extend(gt_core::orthography::modern_variants(&shown));
+        body.push(shown);
         body.extend(n.raw.clone());
         body.extend(n.call.clone());
         body.extend(n.nickname.clone());

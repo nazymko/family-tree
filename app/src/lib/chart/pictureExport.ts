@@ -5,6 +5,7 @@ import { notices } from '../ui/notices.svelte';
 import { CAPTION_H, MARGIN, formatOf, pictureFileName, scalePlan, type PictureFormat, type PicturePlan, type PictureScope } from './picture';
 import { printDocument, printHtml, type A3Orientation } from './a3';
 import { SvgContext, escapeXml, parseFont } from './svgContext';
+import { fontFaceCss, loadChartFonts } from '../ui/fonts';
 
 /** Everything needed to paint one picture. */
 export interface BuiltPicture {
@@ -209,6 +210,7 @@ export async function savePicture(
       return;
     }
     await later();
+    await loadChartFonts();
     let plan = built.plan;
     let bytes: Uint8Array;
     if (format === 'svg') {
@@ -242,8 +244,9 @@ export async function printPicture(args: { build: (format: PictureFormat) => Pro
       return;
     }
     await later();
+    await loadChartFonts();
     const svg = new TextDecoder().decode(renderSvg(built));
-    await printHtml(printDocument(svg, built.pageMm.orientation));
+    await printHtml(printDocument(svg, built.pageMm.orientation, fontFaceCss()));
     if (built.warning) notices.show({ message: built.warning });
   } catch (e) {
     notices.show({ message: messageOf(e) });

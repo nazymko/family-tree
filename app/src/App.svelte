@@ -46,6 +46,11 @@
           await showRecording(api, info.homePerson);
           return;
         }
+        if (wanted === 'asRecorded') {
+          const { showAsRecorded } = await import('./lib/dev/asRecordedSample');
+          await showAsRecorded(api);
+          return;
+        }
         if (wanted === 'person' && info.homePerson) nav.go({ name: 'person', id: info.homePerson });
         else if (wanted === 'export') {
           nav.go({ name: 'family' });

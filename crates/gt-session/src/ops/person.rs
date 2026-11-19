@@ -109,6 +109,7 @@ fn name_kind(input: &NameInput, keep: Option<&NameKind>) -> NameKind {
         NameKindDto::Nickname => NameKind::Nickname,
         NameKindDto::Immigrant => NameKind::Immigrant,
         NameKindDto::Professional => NameKind::Professional,
+        NameKindDto::AsRecorded => NameKind::AsRecorded,
         NameKindDto::Other => NameKind::Other(
             text(input.kind_text.as_deref())
                 .or_else(|| match keep {

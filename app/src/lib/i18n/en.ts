@@ -982,6 +982,7 @@ export const en = {
     nickname: 'Nickname',
     immigrant: 'Immigrant name',
     professional: 'Professional name',
+    as_recorded: 'As recorded in the source',
     other: 'Other',
   },
   noteKind: {
@@ -1108,6 +1109,10 @@ export const en = {
     makeHome: 'Make home person',
     names: 'Names',
     preferredSuffix: '{kind}, preferred',
+    asRecorded: 'As recorded:',
+    asRecordedTitle: 'The name as the record writes it. Click to see or add the record it comes from.',
+    asRecordedNoSource: 'no source cited yet',
+    nameSources: 'Sources of this name',
     editNameNamed: 'Edit name {name}',
     deleteNameNamed: 'Delete name {name}',
     basics: 'Basics',

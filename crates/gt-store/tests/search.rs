@@ -230,3 +230,34 @@ fn marriage_place_is_searchable_on_both_spouses() {
         .collect();
     assert!(ids.contains(&a) && ids.contains(&b), "{ids:?}");
 }
+
+/// A name as a metric book writes it: stored with its kind, and found by today's letters.
+#[test]
+fn as_recorded_name_is_stored_and_found_by_todays_letters() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut p = Project::create(&tmp.path().join("t.genetree")).unwrap();
+    let mut tree = Tree::new();
+    let mut who = person("Федір", "Вигаданенко");
+    who.names[0].assertion.preferred = true;
+    let mut old = name("Ѳеодоръ", "Вигаданенко");
+    old.kind = NameKind::AsRecorded;
+    old.patronymic = Some("Петровъ".into());
+    old.raw = None;
+    who.names.push(old);
+    let id = add_person(&mut tree, who);
+    add_person(&mut tree, person("Anna", "Smith"));
+    p.save_tree(&tree, TODAY).unwrap();
+
+    let back = p.load_tree().unwrap();
+    assert_eq!(back.persons[&id].names[1].kind, NameKind::AsRecorded);
+    assert_eq!(back.persons[&id], tree.persons[&id]);
+
+    // «Феодор Петров» finds «Ѳеодоръ Петровъ»; the old letters typed as written find it too.
+    for q in ["Феодор", "феодор петров", "Ѳеодоръ"] {
+        let hits = p.search(q, 10).unwrap();
+        assert!(hits.iter().any(|h| h.id == id), "{q}: {hits:?}");
+    }
+    // The label stays the main name.
+    let hits = p.search("Феодор", 10).unwrap();
+    assert_eq!(hits[0].label, "Федір Вигаданенко");
+}

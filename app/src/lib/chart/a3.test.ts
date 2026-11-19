@@ -206,6 +206,14 @@ describe('A3 page text and print frame', () => {
     expect(html).toContain('page-break-after:avoid');
     expect(html).toContain('display:block');
   });
+
+  it('carries_the_app_fonts_so_old_letters_print_in_them', () => {
+    const face = "@font-face { font-family: 'GT Old Cyrillic'; src: url(/assets/x.woff2); unicode-range: U+460-52F; }";
+    const html = printDocument('<svg><text>Ѳеодоръ</text></svg>', 'portrait', `${face}</style><script>`);
+    expect(html).toContain("font-family: 'GT Old Cyrillic'");
+    expect(html).not.toContain('</style><script>');
+    expect(html.indexOf('GT Old Cyrillic')).toBeLessThan(html.indexOf('@page'));
+  });
 });
 
 describe('printHtml', () => {

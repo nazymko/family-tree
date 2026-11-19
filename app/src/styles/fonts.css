@@ -4,3 +4,31 @@
 @import '@fontsource/atkinson-hyperlegible-next/400-italic.css';
 @import '@fontsource/atkinson-hyperlegible-next/500.css';
 @import '@fontsource/atkinson-hyperlegible-next/700.css';
+
+/* Atkinson Hyperlegible Next has no Cyrillic. Ordinary Cyrillic falls through to the system font, which every system has;
+   the old letters of 19th-century records (ѣ, ѳ, ѵ, ѡ; Cyrillic Extended) are missing from some system fonts (Georgia),
+   so they come from these bundled Noto Sans files. The unicode range keeps every other letter as it was. */
+@font-face {
+  font-family: 'GT Old Cyrillic';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 549;
+  src: url(@fontsource/noto-sans/files/noto-sans-cyrillic-ext-400-normal.woff2) format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+A640-A69F;
+}
+@font-face {
+  font-family: 'GT Old Cyrillic';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 550 900;
+  src: url(@fontsource/noto-sans/files/noto-sans-cyrillic-ext-700-normal.woff2) format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+A640-A69F;
+}
+@font-face {
+  font-family: 'GT Old Cyrillic';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(@fontsource/noto-sans/files/noto-sans-cyrillic-ext-400-italic.woff2) format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+A640-A69F;
+}

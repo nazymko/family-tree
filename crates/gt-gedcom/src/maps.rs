@@ -79,6 +79,9 @@ pub fn role_text(r: &Role, v70: bool) -> (String, Option<String>) {
     }
 }
 
+/// The name `TYPE` (GEDCOM 5.5.1) or `TYPE OTHER` + `PHRASE` (7.0) of a name as a record writes it.
+pub const AS_RECORDED_TYPE: &str = "as recorded";
+
 pub fn name_kind_from_text(t: &str) -> NameKind {
     match t.trim().to_ascii_lowercase().as_str() {
         "birth" | "maiden" => NameKind::Birth,
@@ -88,6 +91,7 @@ pub fn name_kind_from_text(t: &str) -> NameKind {
         "nickname" => NameKind::Nickname,
         "immigrant" => NameKind::Immigrant,
         "professional" => NameKind::Professional,
+        AS_RECORDED_TYPE | "as_recorded" | "asrecorded" | "as-recorded" => NameKind::AsRecorded,
         _ => NameKind::Other(t.trim().to_string()),
     }
 }
@@ -116,6 +120,7 @@ pub fn name_kind_text(k: &NameKind, v70: bool) -> Option<(String, Option<String>
         NameKind::Professional => std("professional"),
         NameKind::Religious => other("religious"),
         NameKind::Nickname => other("nickname"),
+        NameKind::AsRecorded => other(AS_RECORDED_TYPE),
         NameKind::Other(s) => other(s),
     })
 }

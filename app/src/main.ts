@@ -11,6 +11,8 @@ async function boot() {
   } else {
     const { default: App } = await import('./App.svelte');
     mount(App, { target });
+    // The chart canvas paints names before the browser would fetch the old-letter parts of the fonts.
+    void import('./lib/ui/fonts').then((f) => f.loadChartFonts());
   }
 }
 

@@ -72,6 +72,7 @@ fn kind_token(k: &NameKind) -> String {
         NameKind::Nickname => "nickname".into(),
         NameKind::Immigrant => "immigrant".into(),
         NameKind::Professional => "professional".into(),
+        NameKind::AsRecorded => "as_recorded".into(),
         NameKind::Other(t) => format!("other:{t}"),
     }
 }

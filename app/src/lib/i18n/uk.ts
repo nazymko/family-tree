@@ -991,6 +991,7 @@ export const uk: Messages = {
     nickname: 'Прізвисько',
     immigrant: 'Ім’я іммігранта',
     professional: 'Професійне ім’я',
+    as_recorded: 'Як записано в джерелі',
     other: 'Інше',
   },
   noteKind: {
@@ -1117,6 +1118,10 @@ export const uk: Messages = {
     makeHome: 'Зробити основною для дослідження',
     names: 'Імена',
     preferredSuffix: '{kind}, основне',
+    asRecorded: 'Як записано:',
+    asRecordedTitle: 'Ім’я так, як його пише запис. Натисніть, щоб побачити або додати запис, з якого воно.',
+    asRecordedNoSource: 'джерело ще не вказано',
+    nameSources: 'Джерела цього імені',
     editNameNamed: 'Змінити ім’я: {name}',
     deleteNameNamed: 'Видалити ім’я: {name}',
     basics: 'Основне',

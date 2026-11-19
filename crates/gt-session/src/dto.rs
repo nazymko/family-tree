@@ -54,9 +54,21 @@ wire_enum!(ChartDirection, "lowercase", { Top, Bottom, Left, Right });
 wire_enum!(DateStatus, "lowercase", { Ok, Phrase, Unparsed });
 wire_enum!(HitKindDto, "lowercase", { Person, Place, Source, Note });
 wire_enum!(LivingOverrideDto, "lowercase", { Living, Deceased });
-wire_enum!(NameKindDto, "lowercase", {
-    Birth, Married, Aka, Religious, Nickname, Immigrant, Professional, Other
-});
+/// The kind of a name. `as_recorded` is the name exactly as a record writes it (old spelling).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum NameKindDto {
+    Birth,
+    Married,
+    Aka,
+    Religious,
+    Nickname,
+    Immigrant,
+    Professional,
+    #[serde(rename = "as_recorded")]
+    AsRecorded,
+    Other,
+}
 wire_enum!(NoteKindDto, "lowercase", {
     General, Story, Research, Transcription, Conclusion, Other
 });

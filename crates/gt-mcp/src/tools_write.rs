@@ -27,7 +27,8 @@ const SEXES: &str = "male, female, intersex, unknown, other";
 const RELATIONS: &str = "father, mother, partner, child, sibling";
 const LINKS: &str = "birth, adopted, step, foster, guardian, sealed, unknown, other";
 const UNIONS: &str = "married, civil_union, unmarried, unknown, other";
-const NAME_KINDS: &str = "birth, married, aka, religious, nickname, immigrant, professional, other";
+const NAME_KINDS: &str =
+    "birth, married, aka, religious, nickname, immigrant, professional, as_recorded, other";
 const NOTE_KINDS: &str = "general, story, research, transcription, conclusion, other";
 /// What `kind` of a source may be. `other:<label>` takes a free label.
 const SOURCE_KINDS: &str = "civil_registry_extract (an extract from a civil registry, such as from a CNAP or a RACS), civil_certificate (a birth, marriage or death certificate), metric_book (a parish or metric book record), census (a census, revision list or confession list), household_book (a household book), military_record (a military record or archive, awards, notices), archive_document (another archive document), personal_document (a passport, work book, diploma or letter), photo, gravestone (a gravestone or cemetery), oral_testimony (a family story, interview or recording), book_or_article (a book, article or newspaper), website_or_database, genealogy_tree (a chart or tree made by someone else, or a GEDCOM), research_analysis, other, or other:<label> for your own label";
@@ -180,7 +181,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "add_name",
-            description: "Adds another name to a person, such as a married name or another spelling. It never takes over as their main name. A name may hold only a nickname (kind nickname, nickname set): do not invent a given name for it. A spelling you are unsure of goes in a note instead.",
+            description: "Adds another name to a person, such as a married name or another spelling. It never takes over as their main name. A name may hold only a nickname (kind nickname, nickname set): do not invent a given name for it. A spelling you are unsure of goes in a note instead. kind as_recorded is the name letter for letter as a record you read writes it (old spelling such as «Ѳеодоръ Петровъ» kept as is, patronymic and surname in their own fields): then cite that record on the new name with add_citation, target kind name and the id this returns.",
             schema: name_fields(&["person", "kind"], json!({})),
             call: add_name::<H>,
         },
@@ -1219,6 +1220,7 @@ fn name_kind(kind: &NameKind) -> NameKindDto {
         NameKind::Nickname => NameKindDto::Nickname,
         NameKind::Immigrant => NameKindDto::Immigrant,
         NameKind::Professional => NameKindDto::Professional,
+        NameKind::AsRecorded => NameKindDto::AsRecorded,
         NameKind::Other(_) => NameKindDto::Other,
     }
 }

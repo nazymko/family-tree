@@ -20,7 +20,7 @@
 
   const api = getApi();
   const KINDS = $derived(
-    (['birth', 'married', 'aka', 'religious', 'nickname', 'immigrant', 'professional', 'other'] as const).map((value) => ({
+    (['birth', 'married', 'aka', 'religious', 'nickname', 'immigrant', 'professional', 'as_recorded', 'other'] as const).map((value) => ({
       value,
       label: t(`nameKind.${value}`),
     })),
