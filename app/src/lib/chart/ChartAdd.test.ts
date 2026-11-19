@@ -90,7 +90,8 @@ describe('add a relative from a chart', () => {
       'Save for A3 print, portrait…',
       'Print on A3…',
     ]);
-    expect(menu().querySelectorAll('hr')).toHaveLength(2);
+    // Rules: before the save items, before the direction choice, before the title block and before the background choice.
+    expect(menu().querySelectorAll('hr')).toHaveLength(4);
   });
 
   it('empty_space_shows_only_the_save_items', async () => {
