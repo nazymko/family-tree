@@ -117,8 +117,10 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         C::ReorderMapLayers { .. } => Err(refused(
             "Only the owner orders the maps on the Map. Say in your report which map should lie over which.",
         )),
+        // Agents fill an empty point through `set_place_coordinates_as_agent`, with a source.
         C::SetPlaceCoordinates { .. } => Err(refused(
-            "Only the owner sets where a place is. Add a note with the coordinates and the              source instead.",
+            "Give a place its coordinates with set_place_coordinates, with the source. Only the \
+             owner clears a place's point or moves one somebody else set.",
         )),
         C::AddCitation { citation, .. } => match citation {
             CitationArg::Reuse(_) => Err(refused(
@@ -553,6 +555,24 @@ fn layer_is_own(rows: &[Written], me: Uuid) -> bool {
         && after.all(|(by, c)| {
             *by == Some(me) || layer(c.before.as_ref()) == layer(c.after.as_ref())
         })
+}
+
+/// Whether this connection set the point a place has now, from no point, and nobody else has
+/// moved or cleared it since. The rest of the place (its names, its notes) may have other writers.
+fn point_is_own(rows: &[Written], me: Uuid) -> bool {
+    let point = |r: &Option<Record>| match r {
+        Some(Record::Place(p)) => (p.lat, p.lon),
+        _ => (None, None),
+    };
+    let mut own = false;
+    for (by, c) in rows {
+        let (was, now) = (point(&c.before), point(&c.after));
+        if was == now {
+            continue;
+        }
+        own = *by == Some(me) && (own || was == (None, None));
+    }
+    own
 }
 
 fn at_path<'a>(mut v: &'a Value, path: &[String]) -> Option<&'a Value> {
@@ -1598,6 +1618,108 @@ impl Session {
         self.store(cs, focus, ctx, batch)
     }
 
+    /// Gives a place its point on the map, with where it comes from. Allowed when the place has
+    /// no point yet, or when this connection set the point there now and nobody has changed it
+    /// since (its own correction). The point is set as the owner's Map sets it, and a research
+    /// note on the place records the point and `source` (and `note`), in one change set the
+    /// owner can undo. The same point again is [`AgentWrite::AlreadyThere`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_place_coordinates_as_agent(
+        &mut self,
+        place: Uuid,
+        lat: f64,
+        lon: f64,
+        source: &str,
+        note: Option<&str>,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        if !lat.is_finite() || !(-90.0..=90.0).contains(&lat) {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "lat must be a number from -90 to 90 (degrees north; south is negative).",
+            ));
+        }
+        if !lon.is_finite() || !(-180.0..=180.0).contains(&lon) {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "lon must be a number from -180 to 180 (degrees east; west is negative).",
+            ));
+        }
+        let source = source.trim();
+        if source.is_empty() {
+            return Err(refused(
+                "Give the source of the coordinates, such as GeoNames 702550 or the Wikipedia \
+                 article of the village.",
+            ));
+        }
+        if source.chars().count() > CORRECTION_REASON_MAX {
+            return Err(refused(
+                "The source holds up to 1000 characters: name it briefly, and put the rest in note.",
+            ));
+        }
+        let note = note.map(str::trim).filter(|n| !n.is_empty());
+        if note.is_some_and(|n| n.len() > TEXT_PIECE_NOTE_MAX) {
+            return Err(refused(
+                "The note holds up to 64 KiB. Put a longer text on a source.",
+            ));
+        }
+        let p = self
+            .tree
+            .places
+            .get(&place)
+            .ok_or_else(|| ApiError::not_found("place", place))?;
+        // Millionths of a degree, as the owner's Map stores them: about 11 cm.
+        let lat_e6 = (lat * 1e6).round() as i32;
+        let lon_e6 = (lon * 1e6).round() as i32;
+        let e6 = |v: f64| (v * 1e6).round() as i32;
+        let was = p.lat.zip(p.lon);
+        if was.is_some_and(|(la, lo)| e6(la) == lat_e6 && e6(lo) == lon_e6) {
+            return Ok((AgentWrite::AlreadyThere { record: place }, Vec::new()));
+        }
+        if p.lat.is_some() || p.lon.is_some() {
+            let writers = self.project.last_writers(place)?;
+            let rows: Vec<Written> = writers
+                .into_iter()
+                .map(|(by, _)| by)
+                .zip(self.project.rows_of(place)?)
+                .collect();
+            if !point_is_own(&rows, ctx.id) {
+                return Err(refused(
+                    "This place already has coordinates that the owner or someone else set, so \
+                     they stay as they are. Agents only add to the tree: put your coordinates and \
+                     their source in a note on an event at this place, and list it in your report.",
+                ));
+            }
+        }
+        let shown = |la: f64, lo: f64| format!("{la:.6}, {lo:.6}");
+        let point = shown(f64::from(lat_e6) / 1e6, f64::from(lon_e6) / 1e6);
+        let mut text = match was {
+            Some((la, lo)) => format!(
+                "Coordinates corrected from {} to {point} (latitude, longitude). Source: {source}",
+                shown(la, lo)
+            ),
+            None => format!("Coordinates {point} (latitude, longitude). Source: {source}"),
+        };
+        if let Some(n) = note {
+            text.push('\n');
+            text.push_str(n);
+        }
+        let (_, now) = (self.clock.0)();
+        let (cs, focus) = crate::ops::places::plan_agent_coordinates(
+            &self.tree,
+            place,
+            lat_e6,
+            lon_e6,
+            &text,
+            now,
+            self.day_order(),
+        )?;
+        self.check_living(&cs)?;
+        self.store(cs, focus, ctx, batch)
+    }
+
     /// A corrected birth date may not come surely after the same person's death, nor a death
     /// date surely before their birth. Dates that can still overlap ("about", "before") pass.
     fn check_life_order(
@@ -2457,6 +2579,8 @@ impl Session {
 const CORRECTION_DATE_MAX: usize = 100;
 /// Characters in the reason for a correction.
 const CORRECTION_REASON_MAX: usize = 1000;
+/// Bytes of the note beside an agent's coordinates: the size of any note.
+const TEXT_PIECE_NOTE_MAX: usize = 64 * 1024;
 
 /// The largest file an agent may attach.
 pub const AGENT_FILE_MAX: u64 = 50 * 1024 * 1024;

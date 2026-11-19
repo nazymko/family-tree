@@ -117,6 +117,10 @@ fn write_needs_batch() {
             json!({"event": id, "date": "1901", "reason": "x"}),
         ),
         (
+            "set_place_coordinates",
+            json!({"place": id, "lat": 1, "lon": 1, "source": "x"}),
+        ),
+        (
             "update_own_media_region",
             json!({"media": id, "region": id, "text": "x"}),
         ),
@@ -1409,6 +1413,8 @@ fn only_the_tools_named_here_can_write() {
             // The one change to what is there: a confirmed birth or death date, with a reason
             // kept in a note, and never one that changes who counts as alive or dead.
             "correct_event_date",
+            // A point for a place with none, with its source; the agent corrects only its own.
+            "set_place_coordinates",
             // Copies a checked picture or PDF in, through the same gate as a link.
             "add_media",
             // Pieces of text on a picture: the gate lets an agent change only its own.

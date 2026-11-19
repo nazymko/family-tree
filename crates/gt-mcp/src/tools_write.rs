@@ -391,6 +391,21 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             call: correct_event_date::<H>,
         },
         Tool {
+            name: "set_place_coordinates",
+            description: "Gives a place its point on the map, so the events there and their people show on the Map: lat and lon in decimal degrees (north and east positive), with the source you took them from. Only when you are sure it is this very place: the historical village of the records, in its district, not a namesake elsewhere; if you are not sure, add a note on an event there instead and give no coordinates. Allowed on a place with no coordinates yet, or to correct a point you set yourself that nobody has changed since; coordinates the owner or anyone else set are refused, and stay. A research note on the place keeps the point and the source (and your note); the change is in the log under your name, and the owner can undo it. The same point again answers alreadyThere. get_place and list_places show a place's coordinates.",
+            schema: with_batch(
+                &["place", "lat", "lon", "source"],
+                json!({
+                    "place": id("The place's id, from list_places or an event's place."),
+                    "lat": {"type": "number", "minimum": -90, "maximum": 90, "description": "Latitude in decimal degrees, south negative, such as 46.6333."},
+                    "lon": {"type": "number", "minimum": -180, "maximum": 180, "description": "Longitude in decimal degrees, west negative, such as 32.6167."},
+                    "source": short("Where the coordinates come from, briefly: GeoNames 702550, or Wikipedia: Новотроїцьке (Херсонська обл.)."),
+                    "note": writing("Optional: how you know it is this place, such as the district and parish the records name."),
+                }),
+            ),
+            call: set_place_coordinates::<H>,
+        },
+        Tool {
             name: "add_media",
             description: "Attaches a picture, PDF document or sound recording from a file on this computer, such as a photographed letter or register page, or a recorded interview. The file is copied into the tree; the original stays where it is. A picture (JPEG, PNG, WebP, GIF, TIFF) of at most 50 MiB that can be read, or a whole PDF of at most 8 MiB, goes on a person, family, event, source or citation. A sound recording (MP3, WAV, Ogg, M4A, AAC or FLAC, by its content, of at most 2 GiB) goes on its source only: make the source with add_source first, then link the stretches where a story is told to the note, citation, event, person or family with add_audio_clip. The file must be on a local drive: network shares, device paths and paths through a link are refused, and anything else is refused before it is recorded; the size limit holds while the file is copied. The batch, target and date are checked first. A photographed document usually goes on its source too: make the source with add_source first. The same file on the same record again answers alreadyThere with the media's id; a file already in the tree keeps its title. Then write what is on it with set_media_transcription.",
             schema: with_batch(
@@ -1758,6 +1773,50 @@ fn correct_event_date<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolRe
             Ok((write, reached, None))
         },
         |_, _| Some(event),
+    )
+}
+
+/// A number of degrees from `min` to `max` named `name`.
+fn degrees(args: &Value, name: &str, min: f64, max: f64) -> Result<f64, ApiError> {
+    args.get(name)
+        .and_then(Value::as_f64)
+        .filter(|v| v.is_finite() && (min..=max).contains(v))
+        .ok_or_else(|| {
+            invalid(format!(
+                "{name} must be a number of degrees from {min} to {max}"
+            ))
+        })
+}
+
+fn set_place_coordinates<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let place = uuid_arg(args, "place")?;
+    let lat = degrees(args, "lat", -90.0, 90.0)?;
+    let lon = degrees(args, "lon", -180.0, 180.0)?;
+    let source = short(args, "source")?
+        .filter(|t| !t.trim().is_empty())
+        .ok_or_else(|| {
+            invalid(
+                "source must say where the coordinates come from, such as GeoNames 702550.".into(),
+            )
+        })?;
+    let note = long(args, "note")?;
+    apply(
+        host,
+        ctx,
+        |s, _| {
+            let (write, reached) = s.set_place_coordinates_as_agent(
+                place,
+                lat,
+                lon,
+                &source,
+                note.as_deref(),
+                ctx,
+                batch,
+            )?;
+            Ok((write, reached, None))
+        },
+        |_, _| Some(place),
     )
 }
 
