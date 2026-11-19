@@ -2,7 +2,25 @@
 // under a point. Invented sheets only.
 import { describe, expect, it } from 'vitest';
 import type { MapLayerDto } from '../api/types';
-import { groupLayers, isNoChange, layersUnder, matches, onlyThis, seriesKey, setAll, toggleGroup, triState } from './layerGroups';
+import {
+  filterLayers,
+  groupByPlace,
+  groupLayers,
+  isNoChange,
+  layersUnder,
+  mapsByPlace,
+  matches,
+  noFilters,
+  onlyThese,
+  onlyThis,
+  placeOptions,
+  seriesKey,
+  setAll,
+  toggleGroup,
+  triState,
+  yearMatches,
+  yearSpan,
+} from './layerGroups';
 
 let n = 0;
 function layer(series: string | null, visible: boolean, title = `Sheet ${++n}`, corners: [number, number, number, number] | null = null): MapLayerDto {
@@ -65,5 +83,79 @@ describe('old map groups', () => {
     const unplaced = layer('A', true, 'Unplaced');
     expect(layersUnder([here, there, unplaced], 50.2, 30.5).map((l) => l.title)).toEqual(['Here']);
     expect(layersUnder([here, there, unplaced], 10, 10)).toEqual([]);
+  });
+});
+
+describe('old map years and places', () => {
+  const y = (year: string | null, title = 'Sheet') => yearSpan({ ...layer(null, true, title), year });
+
+  it('reads_a_year_a_range_and_a_century', () => {
+    expect(y('1648')).toEqual({ from: 1648, to: 1648 });
+    expect(y('1826–1840')).toEqual({ from: 1826, to: 1840 });
+    expect(y('1826-1840')).toEqual({ from: 1826, to: 1840 });
+    expect(y('1826—40')).toEqual({ from: 1826, to: 1840 });
+    expect(y('XIX ст.')).toEqual({ from: 1801, to: 1900 });
+    expect(y('XIX c.')).toEqual({ from: 1801, to: 1900 });
+    expect(y('19th c.')).toEqual({ from: 1801, to: 1900 });
+    expect(y('ХІХ ст.')).toEqual({ from: 1801, to: 1900 });
+    expect(y('XVII ст.')).toEqual({ from: 1601, to: 1700 });
+  });
+
+  it('falls_back_to_the_title_when_there_is_no_year', () => {
+    expect(y(null, 'Plan A 1648, sheet 1-1')).toEqual({ from: 1648, to: 1648 });
+    expect(y(null, 'Rizzi, sq. 16 (1772, approx.)')).toEqual({ from: 1772, to: 1772 });
+    expect(y(null, 'Schubert 10-verst, sheet 51 (1826–1840)')).toEqual({ from: 1826, to: 1840 });
+    expect(y(null, 'Three-verst 22-5 (XIX ст.)')).toEqual({ from: 1801, to: 1900 });
+    expect(y(null, 'Sheet 22-5')).toBeNull();
+    expect(y('')).toBeNull();
+  });
+
+  it('matches_years_by_overlap_and_keeps_or_drops_the_maps_without_a_year', () => {
+    const noYear = (title: string) => ({ ...layer(null, true, title), year: null });
+    const [a, b, c] = [noYear('A 1700'), noYear('B (1750–1850)'), noYear('C')];
+    const f = { ...noFilters, from: 1800, to: 1900 };
+    expect([a, b, c].map((l) => yearMatches(l, f))).toEqual([false, true, true]);
+    expect(yearMatches(c, { ...f, noYear: false })).toBe(false);
+    expect(yearMatches(a, { ...noFilters, to: 1700 })).toBe(true);
+    expect(yearMatches(a, { ...noFilters, from: 1701 })).toBe(false);
+  });
+
+  const place = (id: string, name: string, lat: number, lon: number, count = 1) => ({ id, name, label: name, lat, lon, count });
+  const places = [place('p1', 'Zelene', 50, 30, 5), place('p2', 'Bila', 50.5, 30.5, 9), place('p3', 'Daleke', 10, 10), { id: 'p4', name: 'Nowhere', label: 'Nowhere', lat: null, lon: null, count: 3 }];
+
+  it('indexes_maps_by_place_and_groups_them_by_place_with_the_rest_last', () => {
+    const wide = layer('S', true, 'Wide', [49, 29, 51, 31]);
+    const small = layer('S', false, 'Small', [49.9, 29.9, 50.1, 30.1]);
+    const none = layer('S', false, 'Elsewhere', [0, 0, 1, 1]);
+    const unplaced = layer('S', false, 'Unplaced');
+    const top = [wide, small, none, unplaced];
+    const idx = mapsByPlace(top, places);
+    expect(idx.get('p1')).toEqual([wide, small]);
+    expect(idx.get('p2')).toEqual([wide]);
+    expect(idx.has('p3')).toBe(false);
+    expect(placeOptions(idx, places).map((o) => [o.id, o.maps])).toEqual([
+      ['p2', 1],
+      ['p1', 2],
+    ]);
+    const g = groupByPlace(top, places, idx, noFilters);
+    // Most family events first, the maps covering no place last.
+    expect(g.map((x) => x.key)).toEqual(['p:p2', 'p:p1', 'other']);
+    expect(g.map((x) => x.layers.length)).toEqual([1, 2, 2]);
+    expect(g[2].layers).toEqual([none, unplaced]);
+    expect(g[1].shown).toBe(1);
+    // One place chosen: only that place's group.
+    expect(groupByPlace(top, places, idx, { ...noFilters, place: 'p1' }).map((x) => x.key)).toEqual(['p:p1']);
+    // Text filter narrows the maps inside the groups.
+    expect(groupByPlace(top, places, idx, { ...noFilters, text: 'small' }).map((x) => [x.key, x.layers.length])).toEqual([['p:p1', 1]]);
+  });
+
+  it('combines_text_years_and_place_and_shows_only_these', () => {
+    const a = { ...layer('S', true, 'Old', [49, 29, 51, 31]), year: '1700' };
+    const b = { ...layer('S', false, 'New', [49, 29, 51, 31]), year: '1850' };
+    const idx = mapsByPlace([a, b], places);
+    expect(filterLayers([a, b], idx, { ...noFilters, from: 1800 })).toEqual([b]);
+    expect(filterLayers([a, b], idx, { ...noFilters, from: 1800, text: 'old' })).toEqual([]);
+    expect(filterLayers([a, b], idx, { ...noFilters, place: 'p3' })).toEqual([]);
+    expect(onlyThese([a, b], [b])).toEqual({ shown: [b.media], hidden: [a.media] });
   });
 });

@@ -8,10 +8,28 @@
   import { t } from '../i18n';
   import type { Id, MapCorner, MapLayerDto, MapLayerInput } from '../api/types';
   import { parseDegrees, reordered } from './layers';
-  import { groupLayers, isNoChange, layersUnder, onlyThis, setAll, toggleGroup, triState, type LayerGroup, type VisibilityChange } from './layerGroups';
+  import {
+    filterLayers,
+    groupByPlace,
+    groupLayers,
+    isNoChange,
+    layersUnder,
+    mapsByPlace,
+    onlyThese,
+    onlyThis,
+    placeOptions,
+    setAll,
+    toggleGroup,
+    triState,
+    type LayerFilters,
+    type LayerGroup,
+    type PlaceRef,
+    type VisibilityChange,
+  } from './layerGroups';
 
   let {
     layers,
+    places = [],
     centre = null,
     onOpacity,
     onPlace,
@@ -21,6 +39,8 @@
   }: {
     /** Lowest first, as drawn. */
     layers: MapLayerDto[];
+    /** The places of the родовід with a point; `count` is the number of family events there. */
+    places?: PlaceRef[];
     /** The middle of the view, in degrees: the maps under it are offered first. */
     centre?: { lat: number; lon: number } | null;
     /** While the slider moves: the opacity to draw with, not saved yet. */
@@ -44,15 +64,45 @@
 
   let busy = $state(false);
   let error = $state('');
+  const STORE = 'oldMaps.filters';
+  const saved = (() => {
+    try {
+      return JSON.parse(localStorage.getItem(STORE) ?? '{}') as { mode?: string; from?: string; to?: string; noYear?: boolean };
+    } catch {
+      return {};
+    }
+  })();
   let filter = $state('');
-  const groups = $derived(groupLayers(top, filter));
-  const under = $derived(centre && layers.length > 1 && !filter.trim() ? layersUnder(top, centre.lat, centre.lon) : []);
+  /** Group by series or by place. */
+  let mode = $state<'series' | 'place'>(saved.mode === 'place' ? 'place' : 'series');
+  let fromYear = $state(typeof saved.from === 'string' ? saved.from : '');
+  let toYear = $state(typeof saved.to === 'string' ? saved.to : '');
+  let noYear = $state(saved.noYear !== false);
+  let placeId = $state('');
+  $effect(() => {
+    try {
+      localStorage.setItem(STORE, JSON.stringify({ mode, from: fromYear, to: toYear, noYear }));
+    } catch {
+      /* private window or blocked storage: the choice just is not kept */
+    }
+  });
+  const year = (s: string) => {
+    const n = Number.parseInt(s, 10);
+    return Number.isFinite(n) ? n : null;
+  };
+  const filters = $derived<LayerFilters>({ text: filter, from: year(fromYear), to: year(toYear), noYear, place: placeId || null });
+  /** The place -> maps index, rebuilt only when the maps or the places change. */
+  const byPlace = $derived(mapsByPlace(top, places));
+  const options = $derived(placeOptions(byPlace, places));
+  const filtering = $derived(!!filter.trim() || filters.from !== null || filters.to !== null || !!placeId);
+  const groups = $derived(mode === 'place' ? groupByPlace(top, places, byPlace, filters) : groupLayers(filterLayers(top, byPlace, filters)));
+  const under = $derived(centre && layers.length > 1 && !filtering ? layersUnder(top, centre.lat, centre.lon) : []);
   /** Series the owner opened or folded; the others follow OPEN_UP_TO. */
   let opened = $state<Record<string, boolean>>({});
   /** With many maps a row shows only its box and «Only this»; these are the rows opened for the rest. */
   let details = $state<Record<Id, boolean>>({});
-  const isOpen = (g: LayerGroup) => !!filter.trim() || (opened[g.key] ?? layers.length <= OPEN_UP_TO);
-  const groupName = (g: LayerGroup) => g.series ?? t('map.layers.noSeries');
+  const isOpen = (g: LayerGroup) => filtering || (opened[g.key] ?? layers.length <= OPEN_UP_TO);
+  const groupName = (g: LayerGroup) => (mode === 'place' ? (g.other ? t('map.layers.otherMaps') : (g.placeName ?? '')) : (g.series ?? t('map.layers.noSeries')));
 
   interface Form {
     media: Id | null;
@@ -106,7 +156,12 @@
   function toggleSeries(g: LayerGroup) {
     const change = toggleGroup(g.layers);
     const shown = change.shown.length > 0;
-    void choose(change, t(shown ? 'map.layers.seriesShown' : 'map.layers.seriesHidden', { series: groupName(g), n: g.layers.length }));
+    if (mode === 'place') void choose(change, t(shown ? 'map.layers.placeShown' : 'map.layers.placeHidden', { place: groupName(g), n: g.layers.length }));
+    else void choose(change, t(shown ? 'map.layers.seriesShown' : 'map.layers.seriesHidden', { series: groupName(g), n: g.layers.length }));
+  }
+
+  function showOnlyGroup(g: LayerGroup) {
+    void choose(onlyThese(layers, g.layers), t('map.layers.onlyTheseDone', { name: groupName(g), n: g.layers.length }));
   }
 
   function showOnly(l: MapLayerDto) {
@@ -295,6 +350,25 @@
           <span class="dim small">{t('map.layers.shownCount', { shown: layers.filter((l) => l.visible).length, n: layers.length })}</span>
         </div>
         <input class="filter" type="search" bind:value={filter} placeholder={t('map.layers.filter')} aria-label={t('map.layers.filter')} />
+        <div class="row years">
+          <input class="year" type="number" inputmode="numeric" min="1000" max="2100" bind:value={fromYear} placeholder={t('map.layers.yearFrom')} aria-label={t('map.layers.yearFrom')} />
+          <span aria-hidden="true">–</span>
+          <input class="year" type="number" inputmode="numeric" min="1000" max="2100" bind:value={toYear} placeholder={t('map.layers.yearTo')} aria-label={t('map.layers.yearTo')} />
+          <label class="check small"><input type="checkbox" bind:checked={noYear} />{t('map.layers.noYear')}</label>
+        </div>
+        {#if options.length > 0}
+          <select class="filter" bind:value={placeId} aria-label={t('map.layers.placeFilter')}>
+            <option value="">{t('map.layers.placeAny')}</option>
+            {#each options as o (o.id)}
+              <option value={o.id} title={o.label}>{t('map.layers.placeOption', { name: o.name, n: o.maps })}</option>
+            {/each}
+          </select>
+        {/if}
+        <div class="row" role="group" aria-label={t('map.layers.groupBy')}>
+          <span class="dim small">{t('map.layers.groupBy')}</span>
+          <Button variant={mode === 'series' ? 'primary' : undefined} aria-pressed={mode === 'series'} onclick={() => (mode = 'series')}>{t('map.layers.bySeries')}</Button>
+          <Button variant={mode === 'place' ? 'primary' : undefined} aria-pressed={mode === 'place'} onclick={() => (mode = 'place')}>{t('map.layers.byPlace')}</Button>
+        </div>
       {/if}
       {#if under.length > 0}
         <section class="under" aria-label={t('map.layers.underCentre')}>
@@ -316,12 +390,15 @@
         {@const state = triState(g.layers)}
         <section class="group" aria-label={groupName(g)}>
           <div class="ghead">
-            <input type="checkbox" use:tri={state} disabled={busy} aria-label={t('map.layers.seriesShow', { series: groupName(g) })} onclick={(e) => (e.preventDefault(), toggleSeries(g))} />
+            <input type="checkbox" use:tri={state} disabled={busy} aria-label={t(mode === 'place' ? 'map.layers.placeShow' : 'map.layers.seriesShow', mode === 'place' ? { place: groupName(g) } : { series: groupName(g) })} onclick={(e) => (e.preventDefault(), toggleSeries(g))} />
             <button type="button" class="gname" aria-expanded={isOpen(g)} onclick={() => (opened = { ...opened, [g.key]: !isOpen(g) })}>
               <span aria-hidden="true">{isOpen(g) ? '▾' : '▸'}</span>
               <span>{groupName(g)}</span>
             </button>
             <span class="dim small count">{t('map.layers.shownCount', { shown: g.shown, n: g.layers.length })}</span>
+            {#if layers.length > 1}
+              <Button onclick={() => showOnlyGroup(g)} disabled={busy} aria-label={t('map.layers.onlyTheseFor', { name: groupName(g) })}>{t('map.layers.onlyThese')}</Button>
+            {/if}
           </div>
           {#if isOpen(g)}
             <ul>
@@ -459,6 +536,21 @@
     color: var(--ink-0);
     border-radius: var(--r-1);
     font: inherit;
+  }
+  .year {
+    width: 5.5rem;
+    min-height: 2rem;
+    padding: 0 var(--s-2);
+    border: 1px solid var(--ink-2);
+    background: var(--paper-0, #fff);
+    color: var(--ink-0);
+    border-radius: var(--r-1);
+    font: inherit;
+  }
+  .check {
+    display: flex;
+    gap: var(--s-1, 4px);
+    align-items: center;
   }
   .under {
     border: 1px solid var(--rule);

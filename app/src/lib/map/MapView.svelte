@@ -126,6 +126,13 @@
   const events = $derived(data ? filterEvents(data.events, filter) : []);
   const points = $derived(data ? placePoints(data, events) : []);
   const heat = $derived(heatPoints(points));
+  /** The places with a point and how many family events happened at each: what the old-maps panel groups the maps by. */
+  const layerPlaces = $derived.by(() => {
+    if (!data) return [];
+    const n: Record<string, number> = {};
+    for (const e of data.events) n[e.place] = (n[e.place] ?? 0) + 1;
+    return data.places.map((p) => ({ id: p.id, name: p.name, label: p.label, lat: p.lat, lon: p.lon, count: n[p.id] ?? 0 }));
+  });
   const missing = $derived(data ? missingCoordinates(data, events) : { events: 0, places: [], noPlace: 0 });
   const scheme = $derived(data ? colorScheme(data.people, colorBy, t('map.legendOther')) : { color: () => '#888', legend: [] });
   const paths = $derived(data && mode === 'movement' ? buildPaths(data, events) : []);
@@ -754,6 +761,7 @@
           else next[media] = v;
           opacityNow = next;
         }}
+        places={layerPlaces}
         {centre}
         onPlace={(l) => startPlacing(l)}
         onAdded={layerAdded}
