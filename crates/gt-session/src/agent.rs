@@ -552,9 +552,8 @@ fn layer_is_own(rows: &[Written], me: Uuid) -> bool {
     };
     let mut after = rows.iter().skip(start);
     after.next().is_some_and(|(by, _)| *by == Some(me))
-        && after.all(|(by, c)| {
-            *by == Some(me) || layer(c.before.as_ref()) == layer(c.after.as_ref())
-        })
+        && after
+            .all(|(by, c)| *by == Some(me) || layer(c.before.as_ref()) == layer(c.after.as_ref()))
 }
 
 /// Whether this connection set the point a place has now, from no point, and nobody else has
@@ -1200,10 +1199,7 @@ impl Session {
             ));
         }
         let [prepared] = file.prepared.files.as_slice() else {
-            return Err(ApiError::new(
-                ErrorCode::Invalid,
-                "Add one file at a time.",
-            ));
+            return Err(ApiError::new(ErrorCode::Invalid, "Add one file at a time."));
         };
         if !prepared.mime.starts_with("image/") {
             return Err(refused(
@@ -1895,6 +1891,12 @@ impl Session {
             .find(|id| self.tree.persons.get(id).is_some_and(|p| p.sibling_marker))
     }
 
+    /// The batch is this connection's, in this tree, and open: checked before a tool touches a
+    /// file, so a refused call learns nothing about a path.
+    pub fn check_batch_open(&self, ctx: &AgentCtx, batch: Uuid) -> Result<(), ApiError> {
+        self.check_batch(ctx, batch)
+    }
+
     fn check_batch(&self, ctx: &AgentCtx, batch: Uuid) -> Result<(), ApiError> {
         let Some(b) = self.project.batch_get(batch)? else {
             return Err(refused(
@@ -2085,7 +2087,12 @@ impl Session {
             return Ok(());
         };
         // A record new with this write, or one not on the Map yet: the agent lays it there.
-        if self.tree.media.get(media).is_none_or(|m| m.map_layer.is_none()) {
+        if self
+            .tree
+            .media
+            .get(media)
+            .is_none_or(|m| m.map_layer.is_none())
+        {
             return Ok(());
         }
         if self.map_layer_is_own(*media, me)? {
@@ -2632,7 +2639,7 @@ fn check_path_form(path: &std::path::Path) -> Result<(), ApiError> {
 /// What an agent may read: the path's form, no link (symbolic link or junction) anywhere on the
 /// way, an ordinary file of 1 byte to [`AGENT_AUDIO_MAX`] (what it holds then decides how large it
 /// may be). Only the folders' and the file's own entries are read, and links are never followed.
-fn check_agent_path(path: &std::path::Path) -> Result<(), ApiError> {
+pub fn check_agent_path(path: &std::path::Path) -> Result<(), ApiError> {
     check_path_form(path)?;
     let missing = "There is no file at file_path, or it cannot be read.";
     let linked = "file_path goes through a link (a symbolic link or junction). Give the real \

@@ -60,6 +60,8 @@ import type {
   GazetteerStatusDto,
   MapDataDto,
   MapScope,
+  MapCorner,
+  MapLayerInput,
 } from './types';
 import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus } from './types';
 
@@ -159,6 +161,12 @@ export interface Api {
 
   // --- Map view: what the map draws, and the offline place data (the one download is the person's own click) ---
   mapData(scope: MapScope): Promise<MapDataDto>;
+  /** Copies a picture into the tree and lays it on the Map as an old map; corners from `layer.corners`, else from the OziExplorer .map file. Returns its media id. */
+  addMapLayerFile(path: string, title: string | null, layer: MapLayerInput, oziMapPath?: string | null): Promise<Id>;
+  /** The OziExplorer .map file next to a picture that names it, or null. */
+  findOziMap(path: string): Promise<string | null>;
+  /** The corners an OziExplorer .map file gives a picture already in the tree. */
+  oziCorners(mapPath: string, media: Id): Promise<MapCorner[]>;
   gazetteerStatus(): Promise<GazetteerStatusDto>;
   /** Download size in bytes of a country's place data, or null when unknown. */
   gazetteerRemoteSize(country: string): Promise<number | null>;

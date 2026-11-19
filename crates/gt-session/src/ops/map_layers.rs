@@ -12,11 +12,11 @@ use uuid::Uuid;
 pub const MAP_LAYERS_MAX: usize = 500;
 
 /// A short text of a layer: trimmed, empty is none, at most [`MAP_LAYER_TEXT_MAX`] bytes.
-fn layer_text(given: Option<&str>, what: &str) -> Result<Option<String>, ApiError> {
+fn layer_text(given: Option<&str>) -> Result<Option<String>, ApiError> {
     let t = text(given);
     if t.as_ref().is_some_and(|t| t.len() > MAP_LAYER_TEXT_MAX) {
         return Err(invalid(format!(
-            "The {what} of a map is at most {MAP_LAYER_TEXT_MAX} characters."
+            "The series, year and source of a map are at most {MAP_LAYER_TEXT_MAX} characters each."
         )));
     }
     Ok(t)
@@ -34,7 +34,7 @@ pub fn corners_of(given: &[MapCorner]) -> Result<[GeoPoint; 4], ApiError> {
         .collect();
     let Ok(four) = <[GeoPoint; 4]>::try_from(points) else {
         return Err(invalid(
-            "A map is placed by its four corners: top left, top right, bottom right, bottom left.",
+            "A map is placed by its four corners, from the top left clockwise.",
         ));
     };
     if !four.iter().all(GeoPoint::is_valid) {
@@ -61,14 +61,18 @@ pub fn next_pos(tree: &Tree) -> i32 {
 }
 
 /// A layer as the input says, keeping the place in the stack of `old` (or on top for a new one).
-pub fn layer_of(input: &MapLayerInput, old: Option<&MapLayer>, top: i32) -> Result<MapLayer, ApiError> {
+pub fn layer_of(
+    input: &MapLayerInput,
+    old: Option<&MapLayer>,
+    top: i32,
+) -> Result<MapLayer, ApiError> {
     if input.opacity > 100 {
         return Err(invalid("Opacity is 0 to 100."));
     }
     Ok(MapLayer {
-        series: layer_text(input.series.as_deref(), "series")?,
-        year: layer_text(input.year.as_deref(), "year")?,
-        source: layer_text(input.source.as_deref(), "source")?,
+        series: layer_text(input.series.as_deref())?,
+        year: layer_text(input.year.as_deref())?,
+        source: layer_text(input.source.as_deref())?,
         corners: match &input.corners {
             Some(c) => Some(corners_of(c)?),
             None => None,
@@ -97,7 +101,12 @@ pub(super) fn set_layer(
                 return Err(invalid("Only a picture can be laid on the Map."));
             }
             if m.map_layer.is_none() {
-                let layers = p.tree.media.values().filter(|m| m.map_layer.is_some()).count();
+                let layers = p
+                    .tree
+                    .media
+                    .values()
+                    .filter(|m| m.map_layer.is_some())
+                    .count();
                 if layers >= MAP_LAYERS_MAX {
                     return Err(invalid(format!(
                         "A tree holds at most {MAP_LAYERS_MAX} maps on the Map."

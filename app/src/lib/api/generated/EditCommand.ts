@@ -7,6 +7,7 @@ import type { EventInput } from "./EventInput";
 import type { EventOwner } from "./EventOwner";
 import type { GodparentInput } from "./GodparentInput";
 import type { LivingPatch } from "./LivingPatch";
+import type { MapLayerInput } from "./MapLayerInput";
 import type { NameInput } from "./NameInput";
 import type { NoteInput } from "./NoteInput";
 import type { OwnerRef } from "./OwnerRef";
@@ -41,4 +42,4 @@ placeId?: string, } | { "type": "setMediaTranscription", id: string, regions: Ar
  * meanwhile (by an agent, say) and stays, after the piece it followed. Absent: `regions`
  * is the whole transcription.
  */
-known?: Array<string>, } | { "type": "setMediaRotation", id: string, rotation: 0 | 90 | 180 | 270, } | { "type": "groupMediaVersions", primary: string, others: Array<string>, } | { "type": "ungroupMediaVersion", media: string, newPrimary?: string, } | { "type": "addAudioClip", target: OwnerRef, media: string, startMs: number, endMs: number, label?: string, } | { "type": "updateAudioClip", target: OwnerRef, clip: string, startMs: number, endMs: number, label?: string, moveTo?: OwnerRef, } | { "type": "deleteAudioClip", target: OwnerRef, clip: string, } | { "type": "importDraft", persons: Array<DraftPerson>, families: Array<DraftFamily>, attachPicture: boolean, } | { "type": "setPlaceCoordinates", place: string, latE6?: number, lonE6?: number, } | { "type": "addNumber", person: string, sourceFile: string, number: string, };
+known?: Array<string>, } | { "type": "setMediaRotation", id: string, rotation: 0 | 90 | 180 | 270, } | { "type": "groupMediaVersions", primary: string, others: Array<string>, } | { "type": "ungroupMediaVersion", media: string, newPrimary?: string, } | { "type": "addAudioClip", target: OwnerRef, media: string, startMs: number, endMs: number, label?: string, } | { "type": "updateAudioClip", target: OwnerRef, clip: string, startMs: number, endMs: number, label?: string, moveTo?: OwnerRef, } | { "type": "deleteAudioClip", target: OwnerRef, clip: string, } | { "type": "importDraft", persons: Array<DraftPerson>, families: Array<DraftFamily>, attachPicture: boolean, } | { "type": "setPlaceCoordinates", place: string, latE6?: number, lonE6?: number, } | { "type": "setMapLayer", media: string, layer?: MapLayerInput, title?: string, } | { "type": "reorderMapLayers", order: Array<string>, } | { "type": "addNumber", person: string, sourceFile: string, number: string, };

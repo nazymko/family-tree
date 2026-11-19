@@ -8,6 +8,7 @@ mod http;
 mod protocol;
 mod records;
 mod tools_godparent;
+mod tools_map;
 mod tools_read;
 mod tools_write;
 
@@ -28,6 +29,7 @@ pub const RULES: &str = include_str!("rules.md");
 pub const INSTRUCTIONS: &str = concat!(
     include_str!("rules.md"),
     include_str!("instructions_godparents.md"),
+    include_str!("instructions_maps.md"),
     "\n\nHow to work with these tools: give add_person your source_file and the person's number \
      every time, from a numbered file or a label of your own that stays the same. A second run \
      over the same file then gets {\"id\", \"alreadyThere\": true} and adds nobody; without the \
@@ -145,6 +147,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         tools_read::tools::<H>(),
         tools_write::tools::<H>(),
         tools_godparent::tools::<H>(),
+        tools_map::tools::<H>(),
     ]
     .into_iter()
     .flatten()

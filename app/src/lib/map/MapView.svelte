@@ -11,17 +11,19 @@
   import { notices } from '../ui/notices.svelte';
   import { currentTag, plural, t, type MessageKey } from '../i18n';
   import { en } from '../i18n/en';
-  import type { Id, MapDataDto, MapScope, MapScopeKind } from '../api/types';
+  import type { Id, MapCorner, MapDataDto, MapLayerDto, MapLayerInput, MapScope, MapScopeKind } from '../api/types';
   import { savePicture, type BuiltPicture } from '../chart/pictureExport';
   import { CAPTION_H, pictureFileName, type PicturePlan } from '../chart/picture';
   import { loadBasemap, type Basemap } from './basemap';
-  import { DARK, LIGHT, drawMap, themeFor, type Mode, type Scene } from './draw';
+  import { DARK, LIGHT, drawMap, themeFor, type DrawLayer, type Mode, type Scene } from './draw';
   import { filterEvents, kindsIn, missingCoordinates, yearRange, type MapFilter } from './filters';
   import { decades, heatPoints } from './heat';
   import { buildPaths, birthLinks, colorScheme, type ColorBy } from './paths';
   import { hitPoint, placePoints, type PlacePoint } from './places';
-  import { fitPoints, fromScreen, panBy, unmercator, zoomAt, type Camera } from './projection';
+  import { fitPoints, fromScreen, panBy, toScreen, unmercator, zoomAt, type Camera } from './projection';
   import CoordsHelper from './CoordsHelper.svelte';
+  import MapLayersPanel from './MapLayersPanel.svelte';
+  import { FULL_MAX, cornersToWorld, defaultCorners, moveAll, moveCorner, screenQuad, wantsMore } from './layers';
 
   let { onOpenPerson }: { onOpenPerson: (id: Id) => void } = $props();
 
@@ -52,6 +54,7 @@
   let picking = $state<{ id: Id; label: string } | null>(null);
   let playing = $state(false);
   let busy = $state(false);
+  let layersOpen = $state(false);
 
   let box: HTMLDivElement | undefined = $state();
   let canvas: HTMLCanvasElement | undefined = $state();
@@ -136,7 +139,166 @@
   });
   const lang = $derived<'en' | 'uk'>(currentTag().startsWith('uk') ? 'uk' : 'en');
 
-  const scene = $derived<Scene>({ basemap, mode, points, heat, paths, links, colorOf, legend, selected, lang, labels: true });
+  // ---------------------------------------------------------- old maps
+
+  const layerList = $derived<MapLayerDto[]>(data?.layers ?? []);
+  /** Opacity while its slider moves, before it is saved. */
+  let opacityNow = $state<Record<Id, number>>({});
+  /** The map being placed and where its corners are now (saved only on Save). */
+  let placing = $state<{ media: Id; title: string; corners: MapCorner[] } | null>(null);
+
+  interface Pic {
+    img: DrawLayer['img'];
+    w: number;
+    h: number;
+    full: boolean;
+  }
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const pics = new Map<Id, Pic>();
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const asking = new Set<string>();
+  let picsRev = $state(0);
+
+  function picture(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.decoding = 'async';
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('picture'));
+      img.src = src;
+    });
+  }
+
+  /** The preview first (quick); the original, at most FULL_MAX across, once the view needs more. */
+  async function loadPic(l: MapLayerDto, full: boolean) {
+    const key = `${l.media}:${full ? 'full' : 'preview'}`;
+    if (asking.has(key) || typeof Image === 'undefined') return;
+    asking.add(key);
+    try {
+      const img = await picture(api.mediaUrl(l.media, full ? 'original' : 'preview'));
+      let src: DrawLayer['img'] = img;
+      let w = img.naturalWidth;
+      let h = img.naturalHeight;
+      const big = Math.max(w, h);
+      if (full && big > FULL_MAX && typeof createImageBitmap === 'function') {
+        const k = FULL_MAX / big;
+        src = await createImageBitmap(img, { resizeWidth: Math.round(w * k), resizeHeight: Math.round(h * k), resizeQuality: 'high' });
+        w = Math.round(w * k);
+        h = Math.round(h * k);
+      }
+      const had = pics.get(l.media);
+      if (!had || !had.full) pics.set(l.media, { img: src, w, h, full });
+      picsRev++;
+    } catch {
+      // A picture with no preview (too large to make one) goes straight to the original.
+      if (!full) void loadPic(l, true);
+    }
+  }
+
+  $effect(() => {
+    for (const l of layerList) if ((l.visible || placing?.media === l.media) && !pics.has(l.media)) void loadPic(l, false);
+  });
+
+  const drawLayers = $derived.by<DrawLayer[]>(() => {
+    void picsRev;
+    const out: DrawLayer[] = [];
+    for (const l of layerList) {
+      const corners = placing?.media === l.media ? placing.corners : l.corners;
+      const pic = pics.get(l.media);
+      if (!corners || !pic || (!l.visible && placing?.media !== l.media)) continue;
+      const op = opacityNow[l.media] ?? l.opacity;
+      out.push({ world: cornersToWorld(corners), img: pic.img, iw: pic.w, ih: pic.h, opacity: Math.max(placing?.media === l.media ? 0.6 : 0, op / 100) });
+    }
+    return out;
+  });
+
+  // Zoomed in on a map: its original replaces the preview.
+  $effect(() => {
+    const scale = typeof window === 'undefined' ? 1 : Math.max(1, window.devicePixelRatio || 1);
+    for (const l of layerList) {
+      const pic = pics.get(l.media);
+      const corners = placing?.media === l.media ? placing.corners : l.corners;
+      if (!pic || pic.full || !corners) continue;
+      const q = screenQuad(cornersToWorld(corners), cam, size.w, size.h);
+      if (wantsMore(q, scale, Math.max(pic.w, pic.h), Math.max(l.width ?? 0, l.height ?? 0) || Infinity)) void loadPic(l, true);
+    }
+  });
+
+  function layerInput(l: MapLayerDto, corners: MapCorner[] | null): MapLayerInput {
+    return { series: l.series ?? undefined, year: l.year ?? undefined, source: l.source ?? undefined, corners: corners ?? undefined, opacity: l.opacity, visible: l.visible };
+  }
+
+  function fitCorners(c: MapCorner[]) {
+    cam = fitPoints(cornersToWorld(c), size.w, size.h, 48, 12);
+  }
+
+  function startPlacing(l: MapLayerDto) {
+    const pic = pics.get(l.media);
+    const corners = l.corners ?? defaultCorners(cam, size.w, size.h, l.width ?? pic?.w ?? 4, l.height ?? pic?.h ?? 3);
+    if (l.corners) fitCorners(l.corners);
+    placing = { media: l.media, title: l.title?.trim() || t('map.layers.untitled'), corners };
+    selected = null;
+  }
+
+  async function savePlacing() {
+    const p = placing;
+    const l = layerList.find((x) => x.media === p?.media);
+    if (!p || !l) return;
+    await api.apply({ type: 'setMapLayer', media: p.media, layer: $state.snapshot(layerInput(l, p.corners)) });
+    notices.show({ message: t('map.layers.saved', { title: p.title }) });
+    placing = null;
+    await load(true);
+  }
+
+  async function layerAdded(media: Id, placed: boolean) {
+    await load(true);
+    const l = (data?.layers ?? []).find((x) => x.media === media);
+    if (!l) return;
+    if (placed && l.corners) fitCorners(l.corners);
+    else startPlacing(l);
+  }
+
+  /** Corner handles (0 to 3) and the middle (4), on screen. */
+  const handles = $derived.by(() => {
+    if (!placing) return [];
+    const q = screenQuad(cornersToWorld(placing.corners), cam, size.w, size.h);
+    const mid: [number, number] = [(q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4, (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4];
+    return [...q, mid];
+  });
+  const handleNames = ['map.layers.tl', 'map.layers.tr', 'map.layers.br', 'map.layers.bl', 'map.layers.moveWhole'] as const;
+
+  let grab: { i: number; x: number; y: number } | null = null;
+  function grabDown(i: number, e: PointerEvent) {
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    grab = { i, x: e.clientX, y: e.clientY };
+  }
+  function grabMove(e: PointerEvent) {
+    if (!grab || !placing || !canvas) return;
+    const r = canvas.getBoundingClientRect();
+    if (grab.i === 4) placing.corners = moveAll(placing.corners, cam, size.w, size.h, e.clientX - grab.x, e.clientY - grab.y);
+    else placing.corners = moveCorner(placing.corners, grab.i, cam, size.w, size.h, e.clientX - r.left, e.clientY - r.top);
+    grab = { ...grab, x: e.clientX, y: e.clientY };
+  }
+  function grabUp() {
+    grab = null;
+  }
+  function grabKey(i: number, e: KeyboardEvent) {
+    if (!placing) return;
+    const step = e.shiftKey ? 10 : 1;
+    const d: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+    const m = d[e.key];
+    if (!m) return;
+    e.preventDefault();
+    if (i === 4) placing.corners = moveAll(placing.corners, cam, size.w, size.h, m[0], m[1]);
+    else {
+      const [x, y] = handles[i];
+      placing.corners = moveCorner(placing.corners, i, cam, size.w, size.h, x + m[0], y + m[1]);
+    }
+  }
+  void toScreen;
+
+  const scene = $derived<Scene>({ basemap, mode, points, heat, paths, links, colorOf, legend, selected, lang, labels: true, layers: drawLayers });
 
   const chosenPoint = $derived<PlacePoint | null>(points.find((p) => p.id === selected) ?? null);
   const peopleHere = $derived.by(() => {
@@ -436,7 +598,15 @@
     </p>
   {/if}
 
-  <div class="stage" class:withSide={helperOpen || chosenPoint}>
+  {#if placing}
+    <p class="notice placing" role="status">
+      <span>{t('map.layers.placing', { title: placing.title })}</span>
+      <Button variant="primary" onclick={savePlacing}>{t('map.layers.save')}</Button>
+      <Button onclick={() => (placing = null)}>{t('map.layers.cancel')}</Button>
+    </p>
+  {/if}
+
+  <div class="stage" class:withSide={helperOpen || chosenPoint || layersOpen}>
     <div class="canvasBox" bind:this={box}>
       {#if failed}
         <div class="over"><EmptyState title={t('map.loadFailed')} /></div>
@@ -463,9 +633,42 @@
         <Button onclick={fit} aria-label={t('map.fitAll')}>⤢</Button>
       </div>
       <p class="credit">{t('map.attribution')}</p>
+      {#if placing}
+        <svg class="outline" width={size.w} height={size.h} aria-hidden="true">
+          <polygon points={handles.slice(0, 4).map((h) => h.join(',')).join(' ')} />
+        </svg>
+        {#each handles as h, i (i)}
+          <button
+            type="button"
+            class="handle"
+            class:mid={i === 4}
+            style:left="{h[0]}px"
+            style:top="{h[1]}px"
+            aria-label={t(handleNames[i])}
+            onpointerdown={(e) => grabDown(i, e)}
+            onpointermove={grabMove}
+            onpointerup={grabUp}
+            onkeydown={(e) => grabKey(i, e)}
+          ></button>
+        {/each}
+      {/if}
     </div>
 
-    {#if helperOpen && data}
+    {#if layersOpen}
+      <MapLayersPanel
+        layers={layerList.map((l) => (opacityNow[l.media] === undefined ? l : { ...l, opacity: opacityNow[l.media] }))}
+        onOpacity={(media, v) => {
+          const next = { ...opacityNow };
+          if (v === null) delete next[media];
+          else next[media] = v;
+          opacityNow = next;
+        }}
+        onPlace={startPlacing}
+        onAdded={layerAdded}
+        onChanged={() => load(true)}
+        onClose={() => ((layersOpen = false), (placing = null))}
+      />
+    {:else if helperOpen && data}
       <CoordsHelper
         {missing}
         {picking}
@@ -498,7 +701,10 @@
     <Button onclick={savePng} disabled={busy || !data}>{t('map.savePicture')}</Button>
     <label class="f inline"><input type="checkbox" bind:checked={includeLiving} /> <span>{t('map.includeLiving')}</span></label>
     {#if !helperOpen}
-      <Button onclick={() => (helperOpen = true)}>{t('map.helper.title')}</Button>
+      <Button onclick={() => ((helperOpen = true), (layersOpen = false))}>{t('map.helper.title')}</Button>
+    {/if}
+    {#if !layersOpen}
+      <Button onclick={() => ((layersOpen = true), (helperOpen = false), (selected = null))}>{t('map.layers.open')}{layerList.length ? ` (${layerList.length})` : ''}</Button>
     {/if}
   </footer>
 </section>
@@ -656,6 +862,41 @@
   .loading {
     left: var(--s-3);
     top: var(--s-3);
+  }
+  .outline {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+  }
+  .outline polygon {
+    fill: none;
+    stroke: var(--focus);
+    stroke-width: 2;
+    stroke-dasharray: 6 4;
+  }
+  .handle {
+    position: absolute;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin: -0.625rem 0 0 -0.625rem;
+    padding: 0;
+    border: 2px solid var(--paper-1);
+    border-radius: 50%;
+    background: var(--focus);
+    box-shadow: 0 0 0 1px var(--ink-0);
+    cursor: move;
+    touch-action: none;
+  }
+  .handle.mid {
+    width: 1.75rem;
+    height: 1.75rem;
+    margin: -0.875rem 0 0 -0.875rem;
+    border-radius: var(--r-1);
+  }
+  .handle:focus-visible {
+    outline: 3px solid var(--ink-0);
+    outline-offset: 2px;
   }
   .side {
     padding: var(--s-4);

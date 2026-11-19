@@ -88,6 +88,9 @@ import type {
   MapPersonDto,
   MapPlaceDto,
   MapScope,
+  MapCorner,
+  MapLayerDto,
+  MapLayerInput,
 } from '../types';
 import { personFieldChanges } from './fieldDiff';
 import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } from './build';
@@ -283,9 +286,18 @@ const LABELS: Record<EditCommand['type'], string> = {
   deleteAudioClip: 'Delete clip',
   importDraft: 'Add traced people',
   setPlaceCoordinates: 'Set place coordinates',
+  setMapLayer: 'Change map layer',
+  reorderMapLayers: 'Reorder map layers',
   addNumber: 'Record number',
 };
 
+/** What a synthetic OziExplorer .map file gives in the mock: a sheet around 50.3 N, 30.6 E. */
+const MOCK_OZI_CORNERS: MapCorner[] = [
+  { latE6: 50_600_000, lonE6: 30_000_000 },
+  { latE6: 50_600_000, lonE6: 31_200_000 },
+  { latE6: 49_900_000, lonE6: 31_200_000 },
+  { latE6: 49_900_000, lonE6: 30_000_000 },
+];
 const missing = (what: string, id: Id) => new MockApiError('not_found', `No ${what} with id "${id}" in this project.`);
 const invalid = (message: string) => new MockApiError('invalid', message);
 const markerEntry = (id: Id) => new MockApiError('not_found', `"${id}" is the entry for unnamed brothers and sisters. It has no details.`);
@@ -2353,7 +2365,61 @@ export class MockApi implements Api {
       const n = p.names.find((x) => x.preferred) ?? p.names[0];
       return { id, name: n?.display ?? '', surname: n?.surnames[0] ?? '', generation: g, living: this.computeLiving(p) };
     });
-    return { places: [...places.values()], people, events, links, eventsWithoutPlace: without };
+    const layers = [...(this.db.layers?.values() ?? [])].map((l) => ({ ...l, title: this.db.media.get(l.media)?.title ?? l.title })).sort((a, b) => a.pos - b.pos);
+    return { places: [...places.values()], people, events, links, eventsWithoutPlace: without, layers: structuredClone(layers) };
+  }
+
+  async addMapLayerFile(path: string, title: string | null, layer: MapLayerInput, oziMapPath?: string | null): Promise<Id> {
+    const name = path.split(/[\\/]/).pop() ?? '';
+    if (!/\.(jpe?g|png|webp|gif|tiff?)$/i.test(name)) throw invalid('Only a picture (JPEG, PNG, WebP, GIF or TIFF) can be laid on the Map.');
+    const before = this.db;
+    this.db = structuredClone(before);
+    const id = this.ids.next();
+    const m: MediaDto = {
+      id,
+      title: title?.trim() || name.replace(/\.[^.]+$/, ''),
+      mime: mockMime(name),
+      originalName: name,
+      date: null,
+      description: null,
+      resolved: true,
+      width: 2000,
+      height: 1500,
+      sha256: null,
+      transcription: [],
+      rotation: 0,
+    };
+    this.db.media.set(id, m);
+    const layers = (this.db.layers ??= new Map());
+    const pos = Math.max(-1, ...[...layers.values()].map((l) => l.pos)) + 1;
+    const corners = layer.corners ?? (oziMapPath ? MOCK_OZI_CORNERS : null);
+    layers.set(id, {
+      media: id,
+      title: m.title,
+      series: layer.series ?? null,
+      year: layer.year ?? null,
+      source: layer.source ?? null,
+      corners: corners ? structuredClone(corners) : null,
+      opacity: layer.opacity,
+      visible: layer.visible,
+      pos,
+      width: 2000,
+      height: 1500,
+    });
+    this.undoStack.push({ label: 'Lay map on the Map', db: before });
+    this.redoStack = [];
+    this.touch();
+    return id;
+  }
+
+  async findOziMap(path: string): Promise<string | null> {
+    return /sheet/i.test(path) ? path.replace(/\.[^.]+$/, '_ozf.map') : null;
+  }
+
+  async oziCorners(mapPath: string, media: Id): Promise<MapCorner[]> {
+    if (!this.db.media.has(media)) throw missing('media', media);
+    if (!/\.map$/i.test(mapPath)) throw invalid('This is not an OziExplorer .map file.');
+    return structuredClone(MOCK_OZI_CORNERS);
   }
 
   private gaz = new Set<string>();
@@ -3133,6 +3199,42 @@ export class MockApi implements Api {
         else if (Math.abs(cmd.latE6) > 90_000_000 || Math.abs(cmd.lonE6) > 180_000_000) throw invalid('The latitude is within 90 degrees and the longitude within 180.');
         else coords.set(cmd.place, [cmd.latE6 / 1e6, cmd.lonE6 / 1e6]);
         return { focus: null, touched: [cmd.place] };
+      }
+
+      case 'setMapLayer': {
+        const m = this.db.media.get(cmd.media);
+        if (!m) throw missing('media', cmd.media);
+        const layers = (this.db.layers ??= new Map());
+        if (cmd.title !== undefined) m.title = cmd.title.trim() || null;
+        if (!cmd.layer) layers.delete(cmd.media);
+        else {
+          if (cmd.layer.opacity > 100) throw invalid('Opacity is 0 to 100.');
+          if (cmd.layer.corners && cmd.layer.corners.length !== 4) throw invalid('A map is placed by its four corners.');
+          const old = layers.get(cmd.media);
+          const pos = old?.pos ?? Math.max(-1, ...[...layers.values()].map((l) => l.pos)) + 1;
+          layers.set(cmd.media, {
+            media: cmd.media,
+            title: m.title,
+            series: cmd.layer.series ?? null,
+            year: cmd.layer.year ?? null,
+            source: cmd.layer.source ?? null,
+            corners: cmd.layer.corners ?? null,
+            opacity: cmd.layer.opacity,
+            visible: cmd.layer.visible,
+            pos,
+            width: m.width,
+            height: m.height,
+          });
+        }
+        return { focus: null, touched: [cmd.media] };
+      }
+
+      case 'reorderMapLayers': {
+        const layers = this.db.layers ?? new Map<Id, MapLayerDto>();
+        const all = [...layers.keys()].sort().join();
+        if ([...cmd.order].sort().join() !== all) throw invalid('Give every map on the Map once, from the lowest to the top.');
+        cmd.order.forEach((id, i) => (layers.get(id)!.pos = i));
+        return { focus: null, touched: [...cmd.order] };
       }
 
       case 'addNumber': {

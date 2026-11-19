@@ -401,3 +401,46 @@ fn versions_read_back_and_a_gone_or_chained_primary_is_mended() {
         vec![id(0xa1), id(0xa2), id(0xa3), id(0xa5)]
     );
 }
+
+#[test]
+fn schema_12_project_gains_the_map_layer_column_and_a_layer_reads_back() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // What a schema 12 app left behind: one picture, no map layer column.
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            "ALTER TABLE media DROP COLUMN map_layer_json; PRAGMA user_version = 12; \
+             INSERT INTO media(id, seq, private, path, mime) \
+             VALUES ('00000000-0000-0000-0000-0000000000b1', 0, 0, 'media/ab/ab.jpg', 'image/jpeg');",
+        )
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), 13);
+    assert_eq!(SCHEMA_VERSION, 13);
+    let tree = p.load_tree().unwrap();
+    assert!(tree.media.values().all(|m| m.map_layer.is_none()));
+    // A layer written by this version reads back; JSON that does not read is no layer.
+    p.conn()
+        .execute_batch(
+            "UPDATE media SET map_layer_json = '{\"series\":\"Three-verst map\",\"year\":\"1865\",\
+             \"corners\":[{\"lat_e6\":50600000,\"lon_e6\":30000000},{\"lat_e6\":50600000,\"lon_e6\":31200000},\
+             {\"lat_e6\":49900000,\"lon_e6\":31200000},{\"lat_e6\":49900000,\"lon_e6\":30000000}],\
+             \"opacity\":60,\"visible\":true,\"pos\":0}'; \
+             INSERT INTO media(id, seq, private, path, mime, map_layer_json) \
+             VALUES ('00000000-0000-0000-0000-0000000000b2', 1, 0, 'media/cd/cd.jpg', 'image/jpeg', 'not json');",
+        )
+        .unwrap();
+    let tree = p.load_tree().unwrap();
+    let laid: Vec<_> = tree
+        .media
+        .values()
+        .filter_map(|m| m.map_layer.as_ref())
+        .collect();
+    assert_eq!(laid.len(), 1);
+    assert_eq!(laid[0].year.as_deref(), Some("1865"));
+    assert_eq!(laid[0].opacity, 60);
+    assert_eq!(laid[0].corners.unwrap()[2].lon_e6, 31_200_000);
+}

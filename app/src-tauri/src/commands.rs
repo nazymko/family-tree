@@ -85,6 +85,9 @@ command_list!(
     suggest_places,
     suggest_sources,
     map_data,
+    add_map_layer_file,
+    find_ozi_map,
+    ozi_corners,
     gazetteer_status,
     gazetteer_remote_size,
     gazetteer_download,
@@ -596,6 +599,50 @@ pub fn map_data(
     scope: gt_session::MapScope,
 ) -> ApiResult<gt_session::MapDataDto> {
     state.with_session(|s| Ok(s.map_data(&scope)))
+}
+
+/// Copies a picture into the tree and lays it on the Map as an old map. Corners come from
+/// `layer.corners`, else from the OziExplorer `.map` file at `ozi_map_path`, else none (the
+/// owner places it). Returns the picture's media id.
+#[tauri::command]
+pub async fn add_map_layer_file<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    title: Option<String>,
+    mut layer: gt_session::MapLayerInput,
+    ozi_map_path: Option<String>,
+) -> ApiResult<Uuid> {
+    blocking(&app, move |s| {
+        let path = PathBuf::from(path);
+        if layer.corners.is_none()
+            && let Some(map) = ozi_map_path.filter(|p| !p.trim().is_empty())
+        {
+            let c = gt_session::map_layers::ozi_corners(Path::new(&map), &path)?;
+            layer.corners = Some(c.corners.to_vec());
+        }
+        let dir = s.with_session(|s| Ok(s.project_dir()))?;
+        let prepared = gt_session::prepare_map_file(&dir, &path)?;
+        s.with_session(|s| s.commit_map_layer(prepared, title, &layer))
+    })
+    .await
+}
+
+/// The OziExplorer `.map` file that lies next to a picture and names it, if any.
+#[tauri::command(async)]
+pub fn find_ozi_map(path: String) -> Option<String> {
+    gt_session::map_layers::find_ozi_map(Path::new(&path)).map(|p| p.to_string_lossy().into_owned())
+}
+
+/// The corners an OziExplorer `.map` file gives a picture already in the tree.
+#[tauri::command(async)]
+pub fn ozi_corners(
+    state: State<'_, AppState>,
+    map_path: String,
+    media: Uuid,
+) -> ApiResult<Vec<gt_session::MapCorner>> {
+    let picture = state.with_session(|s| s.media_original_path(media))?;
+    let c = gt_session::map_layers::ozi_corners(Path::new(&map_path), &picture)?;
+    Ok(c.corners.to_vec())
 }
 
 /// The event `gazetteer_download` emits while it works.

@@ -405,7 +405,20 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         rotation: _,
         place,
         version_of: _,
+        map_layer,
     } = media;
+    // An old map on the app's Map: what it is and where it lies (list_map_layers lists them all).
+    let on_map = map_layer.as_ref().map(|l| {
+        let deg = |v: i32| f64::from(v) / 1e6;
+        json!({
+            "series": l.series,
+            "year": l.year,
+            "source": l.source,
+            "corners": l.corners.map(|c| c.iter().map(|p| json!({"lat": deg(p.lat_e6), "lon": deg(p.lon_e6)})).collect::<Vec<_>>()),
+            "opacity": l.opacity,
+            "visible": l.visible,
+        })
+    });
     let rotation = media.shown_rotation();
     // The same page in other files: the group's primary first. Absent with no other versions.
     let group = s.tree().version_group(common.id);
@@ -437,6 +450,7 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         "rotation": rotation,
         "versionPrimary": versions.map(|g| g[0]),
         "versions": versions,
+        "mapLayer": on_map,
     }))
 }
 

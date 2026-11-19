@@ -130,6 +130,14 @@ fn write_needs_batch() {
             json!({"primary": id, "others": [id]}),
         ),
         ("update_own_media", json!({"media": id, "title": "x"})),
+        (
+            "add_map_layer",
+            json!({"file_path": "C:/x.jpg", "title": "x", "source": "x"}),
+        ),
+        (
+            "set_own_map_layer_corners",
+            json!({"media": id, "ozi_map_path": "C:/x.map"}),
+        ),
     ];
     for (tool, args) in writes {
         let message = call_err(&host, tool, args);
@@ -1432,6 +1440,9 @@ fn only_the_tools_named_here_can_write() {
             // Godparents of a baptism: added as items of the event; taken off only the agent's own.
             "add_godparent",
             "remove_own_godparent",
+            // Old maps on the Map: added with their placement; placed again only while the agent's own.
+            "add_map_layer",
+            "set_own_map_layer_corners",
         ]
     );
 }
