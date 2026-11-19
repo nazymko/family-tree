@@ -1792,6 +1792,10 @@ export const en = {
     a3SmallBestHint: 'The direction "best fit" may print it larger.',
     a3DirScreen: 'Direction: as on screen',
     a3DirBest: 'Direction: best fit',
+    a3Title: 'Title block',
+    a3BgPaper: 'Background: paper',
+    a3BgWhite: 'Background: white',
+    a3BgTransparent: 'Background: transparent',
   },
   chartCanvas: {
     pedigreeChart: 'Pedigree chart',

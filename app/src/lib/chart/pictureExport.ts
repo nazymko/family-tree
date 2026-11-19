@@ -16,6 +16,8 @@ export interface BuiltPicture {
   caption: string;
   /** Draws the chart area: a chart draw function called with `plan.cam`, `plan.view` and `plan.scale` as its dpr. */
   paint: (ctx: CanvasRenderingContext2D, plan: PicturePlan) => void;
+  /** No background at all: the PNG keeps alpha 0 where nothing is drawn and the SVG has no background rect. */
+  transparent?: boolean;
   /** A paper page: the SVG gets this size in millimetres (and a matching viewBox), and the PNG has no caption strip. */
   pageMm?: { w: number; h: number; orientation: A3Orientation };
   /** Shown after the picture is saved (for example, that the names are small). */
@@ -68,16 +70,21 @@ export async function renderPng(b: BuiltPicture): Promise<Uint8Array> {
   b.paint(ctx, plan);
   ctx.restore();
 
-  // The background goes behind what is drawn, so the picture is never transparent.
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.globalCompositeOperation = 'destination-over';
-  ctx.fillStyle = b.theme.paper;
-  ctx.fillRect(0, 0, plan.width, plan.height);
-  ctx.restore();
-  // A canvas bigger than the browser can hold may be made anyway and silently stay empty: the background just painted
-  // is missing then, so the picture is treated as failed (and tried again smaller).
-  if (!painted(ctx)) throw new Error(t('picture.failed'));
+  if (b.transparent) {
+    // Nothing goes behind the chart. A canvas that silently stayed empty is found by a probe instead of the background.
+    if (!alive(ctx)) throw new Error(t('picture.failed'));
+  } else {
+    // The background goes behind what is drawn, so the picture is never transparent.
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.fillStyle = b.theme.paper;
+    ctx.fillRect(0, 0, plan.width, plan.height);
+    ctx.restore();
+    // A canvas bigger than the browser can hold may be made anyway and silently stay empty: the background just painted
+    // is missing then, so the picture is treated as failed (and tried again smaller).
+    if (!painted(ctx)) throw new Error(t('picture.failed'));
+  }
 
   // The caption (a paper page has its title block inside the chart instead).
   if (b.pageMm || !b.caption) return toPng(canvas);
@@ -104,6 +111,30 @@ function painted(ctx: CanvasRenderingContext2D): boolean {
     return false;
   }
   return !px?.data || px.data.length < 4 || px.data[3] !== 0;
+}
+
+/**
+ * Whether a canvas that is meant to stay transparent really holds pixels. A canvas the browser could not allocate keeps
+ * reading and writing nothing. The top-left pixel is read; when it is clear, a nearly invisible dot is drawn behind it,
+ * read back, and cleared again, so the corner ends as it was. True when the context cannot tell, as in tests.
+ */
+function alive(ctx: CanvasRenderingContext2D): boolean {
+  try {
+    const before = ctx.getImageData(0, 0, 1, 1) as ImageData | undefined;
+    if (!before?.data || before.data.length < 4) return true;
+    if (before.data[3] !== 0) return true;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, 0, 1, 1);
+    ctx.restore();
+    const after = ctx.getImageData(0, 0, 1, 1) as ImageData | undefined;
+    ctx.clearRect(0, 0, 1, 1);
+    return !after?.data || after.data.length < 4 || after.data[3] !== 0;
+  } catch {
+    return false;
+  }
 }
 
 /** The PNG bytes of a canvas; an oversized canvas gives no blob or an empty one in Chromium, which counts as a failure. */
@@ -179,7 +210,7 @@ export function renderSvg(b: BuiltPicture): Uint8Array {
       : `<text x="${left}" y="${plan.view.h + CAPTION_H / 2}" font-family="${escapeXml(f.family)}" font-size="${f.size}" dominant-baseline="central" ` +
     `fill="${escapeXml(b.theme.ink2)}">${escapeXml(b.caption)}</text>\n`;
   const physical = b.pageMm ? { w: `${b.pageMm.w}mm`, h: `${b.pageMm.h}mm` } : undefined;
-  return new TextEncoder().encode(ctx.toSvg(b.theme.paper, plan.view, caption, physical));
+  return new TextEncoder().encode(ctx.toSvg(b.transparent ? null : b.theme.paper, plan.view, caption, physical));
 }
 
 /**
@@ -245,7 +276,9 @@ export async function printPicture(args: { build: (format: PictureFormat) => Pro
     }
     await later();
     await loadChartFonts();
-    const svg = new TextDecoder().decode(renderSvg(built));
+    // Paper has no transparency: a transparent picture prints on white.
+    const forPaper: BuiltPicture = built.transparent ? { ...built, transparent: false, theme: { ...built.theme, paper: '#FFFFFF' } } : built;
+    const svg = new TextDecoder().decode(renderSvg(forPaper));
     await printHtml(printDocument(svg, built.pageMm.orientation, fontFaceCss()));
     if (built.warning) notices.show({ message: built.warning });
   } catch (e) {

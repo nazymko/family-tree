@@ -234,8 +234,9 @@ export function planPicture(
   scene: Scene,
   screen: { cam: Camera; size: { w: number; h: number }; dpr: number } | null,
   extra: Rect[] = [],
-  opts: { dpr?: number; vector?: boolean } = {},
+  opts: { dpr?: number; vector?: boolean; caption?: boolean } = {},
 ): PicturePlan {
+  const strip = opts.caption === false ? 0 : CAPTION_H;
   let cam: Camera;
   let view: { w: number; h: number };
   const shot = scope === 'screen' ? screen : null;
@@ -248,12 +249,12 @@ export function planPicture(
     view = { w: Math.ceil(b.w + 2 * MARGIN), h: Math.ceil(b.h + 2 * MARGIN) };
   }
   if (opts.vector) {
-    return { cam, view, scale: 1, width: view.w, height: view.h + CAPTION_H, reduced: false, percent: 100 };
+    return { cam, view, scale: 1, width: view.w, height: view.h + strip, reduced: false, percent: 100 };
   }
   const dpr = Math.max(1, shot ? shot.dpr : (opts.dpr ?? 1));
   const base = shot ? dpr : Math.max(SHARP, dpr);
   // The limits are checked on the 1x size, so the scale is continuous: as large as fits, up to `base`.
-  const f = fitScale(view.w * base, (view.h + CAPTION_H) * base);
+  const f = fitScale(view.w * base, (view.h + strip) * base);
   const scale = base * f.scale;
   return { cam, view, scale, width: f.w, height: f.h, ...effective(scale) };
 }
