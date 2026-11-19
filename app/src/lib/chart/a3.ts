@@ -27,6 +27,8 @@ export const NAME_PX = 13;
 
 export type A3Orientation = 'landscape' | 'portrait';
 export type A3Choice = A3Orientation | 'auto';
+/** The page behind a picture: the app's paper tint, plain white, or nothing (a transparent PNG / SVG). */
+export type A3Background = 'paper' | 'white' | 'transparent';
 
 export interface A3Layout {
   orientation: A3Orientation;
@@ -54,14 +56,15 @@ export const pxToMm = (px: number): number => px / MM_PX;
 /** Printed height in points of text that is `px` high on screen, after scaling the chart by `scale`. */
 export const printedPt = (px: number, scale: number): number => px * scale * 0.75;
 
-function fitTo(b: Rect, o: A3Orientation) {
+function fitTo(b: Rect, o: A3Orientation, title = true) {
+  const titleMm = title ? A3_TITLE_MM : 0;
   const wMm = o === 'landscape' ? A3_LONG_MM : A3_SHORT_MM;
   const hMm = o === 'landscape' ? A3_SHORT_MM : A3_LONG_MM;
   const area: Rect = {
     x: mmToPx(A3_MARGIN_MM),
-    y: mmToPx(A3_MARGIN_MM + A3_TITLE_MM),
+    y: mmToPx(A3_MARGIN_MM + titleMm),
     w: mmToPx(wMm - 2 * A3_MARGIN_MM),
-    h: mmToPx(hMm - 2 * A3_MARGIN_MM - A3_TITLE_MM),
+    h: mmToPx(hMm - 2 * A3_MARGIN_MM - titleMm),
   };
   const scale = Math.min(A3_MAX_SCALE, area.w / Math.max(1, b.w), area.h / Math.max(1, b.h));
   return { wMm, hMm, area, scale };
@@ -70,13 +73,13 @@ function fitTo(b: Rect, o: A3Orientation) {
 /**
  * Lays a chart of the given bounds (world units) out on an A3 page: 10 mm margins, a title block on top, the chart
  * scaled uniformly (never above 1.5x its screen size) and centred in the rest. 'auto' takes the orientation that
- * allows the larger print (landscape on a tie).
+ * allows the larger print (landscape on a tie). Without the title block (`title` false) the chart gets its height too.
  */
-export function layoutA3(bounds: Rect, choice: A3Choice = 'auto'): A3Layout {
+export function layoutA3(bounds: Rect, choice: A3Choice = 'auto', title = true): A3Layout {
   let orientation: A3Orientation;
-  if (choice === 'auto') orientation = fitTo(bounds, 'portrait').scale > fitTo(bounds, 'landscape').scale + 1e-9 ? 'portrait' : 'landscape';
+  if (choice === 'auto') orientation = fitTo(bounds, 'portrait', title).scale > fitTo(bounds, 'landscape', title).scale + 1e-9 ? 'portrait' : 'landscape';
   else orientation = choice;
-  const { wMm, hMm, area, scale } = fitTo(bounds, orientation);
+  const { wMm, hMm, area, scale } = fitTo(bounds, orientation, title);
   const ox = area.x + (area.w - bounds.w * scale) / 2;
   const oy = area.y + (area.h - bounds.h * scale) / 2;
   const namePt = printedPt(NAME_PX, scale);
@@ -104,11 +107,11 @@ export interface DirectionFit {
  * `bounds` holds the size of the chart laid out in each direction. A direction only wins when it is clearly larger
  * (more than 0.1%), so on a tie the direction the person is looking at stays.
  */
-export function bestDirection(bounds: { direction: ChartDirection; bounds: Rect }[], current: ChartDirection, choice: A3Choice = 'auto'): DirectionFit {
+export function bestDirection(bounds: { direction: ChartDirection; bounds: Rect }[], current: ChartDirection, choice: A3Choice = 'auto', title = true): DirectionFit {
   let best: DirectionFit | null = null;
   const ordered = [...bounds].sort((a, b) => Number(b.direction === current) - Number(a.direction === current));
   for (const c of ordered) {
-    const layout = layoutA3(c.bounds, choice);
+    const layout = layoutA3(c.bounds, choice, title);
     if (!best || layout.scale > best.layout.scale * 1.001) best = { direction: c.direction, layout };
   }
   if (!best) throw new Error('no chart direction to choose from');
@@ -122,11 +125,11 @@ export type A3DirectionMode = 'screen' | 'best';
  * The direction and page layout of an A3 print. 'screen' keeps `current` (the page orientation still follows `choice`,
  * so 'auto' turns the page for that direction); 'best' is `bestDirection`. `bounds` must hold `current` for 'screen'.
  */
-export function printDirection(bounds: { direction: ChartDirection; bounds: Rect }[], current: ChartDirection, mode: A3DirectionMode, choice: A3Choice = 'auto'): DirectionFit {
-  if (mode === 'best') return bestDirection(bounds, current, choice);
+export function printDirection(bounds: { direction: ChartDirection; bounds: Rect }[], current: ChartDirection, mode: A3DirectionMode, choice: A3Choice = 'auto', title = true): DirectionFit {
+  if (mode === 'best') return bestDirection(bounds, current, choice, title);
   const own = bounds.find((b) => b.direction === current);
   if (!own) throw new Error('the chart was not laid out in its own direction');
-  return { direction: current, layout: layoutA3(own.bounds, choice) };
+  return { direction: current, layout: layoutA3(own.bounds, choice, title) };
 }
 
 /** How much of the printable area the chart fills (0..1 each way). */
@@ -446,10 +449,10 @@ export function stretchScene<S extends { nodes: { y: number; h: number }[]; edge
  * that room left empty (a wide chart on a page it fills across), else as much as fits without printing the chart any
  * smaller (the cards then fit their text by drawing it a little smaller, see planPrintCard).
  */
-export function printStretch(bounds: Rect, need: number, choice: A3Choice = 'auto'): number {
+export function printStretch(bounds: Rect, need: number, choice: A3Choice = 'auto', title = true): number {
   if (!(need > 1)) return 1;
-  const s1 = layoutA3(bounds, choice).scale;
-  const ok = (k: number) => layoutA3({ ...bounds, y: bounds.y * k, h: bounds.h * k }, choice).scale >= s1 * (1 - 1e-9);
+  const s1 = layoutA3(bounds, choice, title).scale;
+  const ok = (k: number) => layoutA3({ ...bounds, y: bounds.y * k, h: bounds.h * k }, choice, title).scale >= s1 * (1 - 1e-9);
   if (ok(need)) return need;
   let lo = 1;
   let hi = need;

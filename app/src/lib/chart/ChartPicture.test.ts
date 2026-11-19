@@ -9,7 +9,7 @@ import ChartCanvas from './ChartCanvas.svelte';
 import WholeCanvas from './WholeCanvas.svelte';
 import Host from './testing/Host.svelte';
 import type { ChartDirection } from './direction';
-import { A3_DIRECTION_KEY, a3Direction } from './a3Pref.svelte';
+import { A3_BACKGROUND_KEY, A3_DIRECTION_KEY, A3_TITLE_KEY, a3Background, a3Direction, a3Title } from './a3Pref.svelte';
 import { allNodes, attachContext, fakeRaf, lastCamera, makeApi, richestRoot } from './testing/helpers';
 
 const RECT = { left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON() {} };
@@ -72,6 +72,10 @@ beforeEach(() => {
   // Every case starts with the default A3 direction (as on screen).
   localStorage.removeItem(A3_DIRECTION_KEY);
   a3Direction.reload();
+  localStorage.removeItem(A3_TITLE_KEY);
+  localStorage.removeItem(A3_BACKGROUND_KEY);
+  a3Title.reload();
+  a3Background.reload();
 });
 
 afterEach(() => {
@@ -184,13 +188,13 @@ describe('picture menu on a chart', () => {
   it('the_menu_offers_the_a3_direction_as_on_screen_by_default_and_remembers_best_fit', async () => {
     const s = await setupChart();
     await rightClick(s.canvas);
-    const radios = within(menu()).getAllByRole('menuitemradio');
+    const radios = within(menu()).getAllByRole('menuitemradio').slice(0, 2);
     expect(radios.map((r) => r.textContent?.trim())).toEqual(['Direction: as on screen', 'Direction: best fit']);
     expect(radios.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false']);
     // Choosing one ticks it and leaves the menu open for the save.
     await fireEvent.click(radios[1]);
     expect(menu()).toBeTruthy();
-    const after = within(menu()).getAllByRole('menuitemradio');
+    const after = within(menu()).getAllByRole('menuitemradio').slice(0, 2);
     expect(after.map((r) => r.getAttribute('aria-checked'))).toEqual(['false', 'true']);
     expect(localStorage.getItem(A3_DIRECTION_KEY)).toBe('best');
     // The arrow keys reach the choices too.
@@ -202,6 +206,36 @@ describe('picture menu on a chart', () => {
     // Kept for the next menu.
     await rightClick(s.canvas);
     expect(within(menu()).getByRole('menuitemradio', { name: 'Direction: best fit' }).getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('the_menu_has_the_title_block_and_background_choices_and_remembers_them', async () => {
+    const s = await setupChart();
+    await rightClick(s.canvas);
+    const title = within(menu()).getByRole('menuitemradio', { name: 'Title block' });
+    expect(title.getAttribute('aria-checked')).toBe('true');
+    expect(within(menu()).getByRole('menuitemradio', { name: 'Background: paper' }).getAttribute('aria-checked')).toBe('true');
+    await fireEvent.click(title);
+    await fireEvent.click(within(menu()).getByRole('menuitemradio', { name: 'Background: transparent' }));
+    expect(localStorage.getItem(A3_TITLE_KEY)).toBe('0');
+    expect(localStorage.getItem(A3_BACKGROUND_KEY)).toBe('transparent');
+    expect(within(menu()).getByRole('menuitemradio', { name: 'Title block' }).getAttribute('aria-checked')).toBe('false');
+    expect(within(menu()).getByRole('menuitemradio', { name: 'Background: transparent' }).getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('an_a3_save_without_title_block_on_a_transparent_page_paints_no_background_and_no_title', async () => {
+    const made = stubOffscreen();
+    a3Title.set(false);
+    a3Background.set('transparent');
+    const s = await setupChart();
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled(), A3_WAIT);
+    const page = made[made.length - 1];
+    expect(page.canvas.width).toBeGreaterThan(4000);
+    const calls = page.ctx.calls;
+    expect(calls.some((c) => c.op === 'fillRect' && (c.args[2] as number) === page.canvas.width)).toBe(false);
+    // No title block: no 18 pt serif chart name and no rule under it.
+    expect(calls.some((c) => c.op === 'set:font' && /600 [\d.]+px/.test(String(c.args[0])) && Number(/([\d.]+)px/.exec(String(c.args[0]))![1]) > 23)).toBe(false);
   });
 
   it('a_default_a3_save_lays_the_chart_out_once_in_the_direction_on_screen', async () => {

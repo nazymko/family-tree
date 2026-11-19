@@ -17,7 +17,7 @@
   import Select from '../ui/Select.svelte';
   import { centerOn, fit, panBy, tween, viewRect, zoomAt, type Camera } from './camera';
   import { hitHandle, hitTest, neighbor, type Dir } from './hit';
-  import { draw, printCardsNeed, themeFromCss, type Theme } from './renderer';
+  import { draw, lightPrintTheme, printCardsNeed, themeFromCss, type Theme } from './renderer';
   import { SvgContext } from './svgContext';
   import { WindowCache } from './window';
   import AddRelativeMenu from './AddRelativeMenu.svelte';
@@ -26,7 +26,7 @@
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, chartTitle, later, printPicture, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
   import { A3_SUB_PT, A3_TITLE_PT, PT_PX, ellipsize, layoutA3, mmToPx, nameFloorPx, printDirection, printStretch, stretchScene, type A3Choice } from './a3';
-  import { a3Direction } from './a3Pref.svelte';
+  import { a3Background, a3Direction, a3Title } from './a3Pref.svelte';
   import { sceneBounds, pictureFileName } from './picture';
   import { settings } from '../state/settings.svelte';
   import { t, plural, localeStore, currentTag } from '../i18n';
@@ -944,7 +944,10 @@
   async function buildPicture(scope: PictureScope, format: PictureFormat): Promise<BuiltPicture | null> {
     if (!meta || !cache?.current()) return null;
     theme ??= themeFromCss();
-    const th = theme;
+    // White and transparent pages use the light colours whatever the app's theme is.
+    const bg = a3Background.value;
+    const th = bg === 'paper' ? theme : lightPrintTheme(theme);
+    const header = a3Title.value;
     const sel = selected;
     const focus = rootNodeId;
     const focusMore = chosenMore;
@@ -953,11 +956,12 @@
     const scene: Scene =
       scope === 'screen' ? await api.chartWindow(meta.chartId, viewRect(shot.cam, shot.size), shot.cam.zoom) : sceneFor(scope, kind, await wholeScene(), sel);
     if (scene.nodes.length === 0) return null;
-    const plan = planPicture(scope, scene, scope === 'screen' ? shot : null, [], { dpr, vector: format === 'svg' });
+    const plan = planPicture(scope, scene, scope === 'screen' ? shot : null, [], { dpr, vector: format === 'svg', caption: header });
     return {
       plan,
       theme: { paper: th.paper, ink2: th.ink2, font: th.font },
-      caption: captionText(kind, rootName),
+      transparent: bg === 'transparent',
+      caption: header ? captionText(kind, rootName) : '',
       paint: (ctx, p) =>
         draw(ctx, scene, p.cam, { w: p.view.w, h: p.view.h, dpr: p.scale }, { selected: scope === 'screen' ? sel : null, focus, focusMore, theme: th, kind, dir: dirNow, handles: scope === 'screen' }),
     };
@@ -967,7 +971,10 @@
   async function buildA3(choice: A3Choice, format: PictureFormat): Promise<BuiltPicture | null> {
     if (!meta || !cache?.current()) return null;
     theme ??= themeFromCss();
-    const th = theme;
+    // White and transparent pages use the light colours whatever the app's theme is; the paper tint keeps the app's colours.
+    const bg = a3Background.value;
+    const th = bg === 'paper' ? theme : lightPrintTheme(theme);
+    const header = a3Title.value;
     // A print keeps the direction on the screen; with "best fit" chosen it lays the chart out in every direction and keeps the
     // one that prints largest. The screen's direction is not changed either way.
     // The layouts are print charts: compact, outside the two-chart limit, so no chart the person has open is closed. Each is
@@ -982,9 +989,9 @@
         const laid = await wholeScene(probe);
         // Cards whose text needs more room (a long name on three lines, the relationship under the dates) make every card
         // taller: the chart's height is stretched, into the page's empty room only, so the print is never smaller.
-        const scale = layoutA3(sceneBounds(laid), choice).scale;
+        const scale = layoutA3(sceneBounds(laid), choice, header).scale;
         const need = printCardsNeed(meter, laid.nodes, { theme: th, kind, focus: probe.rootNode, focusMore: new Set(probe.chosenNodes ?? []), nameMinPx: nameFloorPx(scale) });
-        const sc = stretchScene(laid, printStretch(sceneBounds(laid), need, choice));
+        const sc = stretchScene(laid, printStretch(sceneBounds(laid), need, choice, header));
         found.push({ direction: d, scene: sc, meta: probe, bounds: sceneBounds(sc) });
       } finally {
         try {
@@ -994,7 +1001,7 @@
         }
       }
     }
-    const pick = printDirection(found, dirNow, mode, choice);
+    const pick = printDirection(found, dirNow, mode, choice, header);
     const chosen = found.find((f) => f.direction === pick.direction)!;
     const scene = chosen.scene;
     if (scene.nodes.length === 0) return null;
@@ -1019,6 +1026,7 @@
     return {
       plan,
       theme: { paper: th.paper, ink2: th.ink2, font: th.font },
+      transparent: bg === 'transparent',
       caption: '',
       pageMm: { ...lay.mm, orientation: lay.orientation },
       warning: lay.tooSmall
@@ -1026,6 +1034,7 @@
         : undefined,
       paint: (ctx, p) => {
         draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: printFocus, focusMore: printMore, theme: th, kind, dir: pick.direction, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(lay.scale) });
+        if (!header) return;
         // Title block: the chart name on the left, the tree name and date on the right, a rule under both.
         const left = lay.area.x;
         const right = lay.px.w - lay.area.x;

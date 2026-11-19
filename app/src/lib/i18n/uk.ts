@@ -1801,6 +1801,10 @@ export const uk: Messages = {
     a3SmallBestHint: 'Напрямок «найкраще вміщення» може дати більший друк.',
     a3DirScreen: 'Напрямок: як на екрані',
     a3DirBest: 'Напрямок: найкраще вміщення',
+    a3Title: 'Заголовок',
+    a3BgPaper: 'Фон: папір',
+    a3BgWhite: 'Фон: білий',
+    a3BgTransparent: 'Фон: прозорий',
   },
   chartCanvas: {
     pedigreeChart: 'Діаграма предків',

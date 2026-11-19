@@ -116,6 +116,14 @@ export function themeFromCss(el: Element = document.documentElement): Theme {
   };
 }
 
+/**
+ * The colours of a picture on a white or transparent page: the light reading-room tokens whatever the app's theme is, so
+ * a dark-theme chart still prints as dark ink on light cards. Fonts stay those of the app.
+ */
+export function lightPrintTheme(th: Theme): Theme {
+  return { ...th, paper: '#FFFFFF', rule: '#C6CABF', ink: '#1B2230', ink2: '#5A6272', ribbon: '#9B2C3F', wash: '#F1DDE0' };
+}
+
 /** The branches and crossings of one window's edges, worked out once per window, not once per frame. */
 const marksCache = new WeakMap<ChartEdge[], Marks>();
 

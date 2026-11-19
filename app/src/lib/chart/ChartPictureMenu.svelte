@@ -10,7 +10,7 @@
   import { t } from '../i18n';
   import type { PictureScope } from './picture';
   import type { A3Choice } from './a3';
-  import { a3Direction } from './a3Pref.svelte';
+  import { a3Background, a3Direction, a3Title } from './a3Pref.svelte';
   import { relativeItems } from './relativeItems';
 
   /**
@@ -96,6 +96,12 @@
           // The direction of the print: as on the screen (the default) or the one that prints largest. Kept for next time.
           { label: t('picture.a3DirScreen'), checked: a3Direction.value === 'screen', onselect: () => a3Direction.set('screen'), separatorBefore: true },
           { label: t('picture.a3DirBest'), checked: a3Direction.value === 'best', onselect: () => a3Direction.set('best') },
+          // The title block (the caption strip of a saved picture, the header of an A3 page) and the background: kept for next time.
+          // They also apply to "Save as picture" above.
+          { label: t('picture.a3Title'), checked: a3Title.value, onselect: () => a3Title.set(!a3Title.value), separatorBefore: true },
+          { label: t('picture.a3BgPaper'), checked: a3Background.value === 'paper', onselect: () => a3Background.set('paper'), separatorBefore: true },
+          { label: t('picture.a3BgWhite'), checked: a3Background.value === 'white', onselect: () => a3Background.set('white') },
+          { label: t('picture.a3BgTransparent'), checked: a3Background.value === 'transparent', onselect: () => a3Background.set('transparent') },
           { label: t('picture.a3'), onselect: () => ona3('auto', false) },
           { label: t('picture.a3Landscape'), onselect: () => ona3('landscape', false) },
           { label: t('picture.a3Portrait'), onselect: () => ona3('portrait', false) },
