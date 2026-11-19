@@ -313,4 +313,31 @@ describe('Map view', () => {
     await waitFor(async () => expect((await api.mapData({ kind: 'all' })).layers[0].corners?.[0]).toEqual({ latE6: 50_600_000, lonE6: 30_000_000 }));
     expect((await api.mapData({ kind: 'all' })).layers[0].media).toBe(id);
   });
+
+  it('full_screen_hides_the_filters_and_escape_leaves_it_with_focus_on_the_button', async () => {
+    const { user } = await mount();
+    expect(screen.getByLabelText('Show')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Full screen' }));
+    // The filter rows are gone; the map, the zoom buttons and a clear way out stay.
+    expect(screen.queryByLabelText('Show')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Zoom in' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Exit full screen', pressed: true })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(await screen.findByLabelText('Show')).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: 'Full screen' });
+    await waitFor(() => expect(btn).toHaveFocus());
+    // A second Escape, outside full screen, does nothing to the map.
+    await user.keyboard('{Escape}');
+    expect(screen.getByLabelText('Show')).toBeInTheDocument();
+  });
+
+  it('full_screen_has_its_own_exit_button_and_keeps_the_old_maps_panel_reachable', async () => {
+    const { user } = await mount();
+    await user.click(screen.getByRole('button', { name: 'Full screen' }));
+    await user.click(screen.getByRole('button', { name: 'Old maps' }));
+    expect(screen.getByRole('complementary', { name: 'Old maps' })).toBeInTheDocument();
+    const exits = screen.getAllByRole('button', { name: 'Exit full screen' });
+    await user.click(exits[0]);
+    expect(await screen.findByLabelText('Show')).toBeInTheDocument();
+  });
 });
