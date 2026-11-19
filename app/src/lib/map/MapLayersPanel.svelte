@@ -538,7 +538,7 @@
     font: inherit;
   }
   .year {
-    width: 5.5rem;
+    width: 7rem;
     min-height: 2rem;
     padding: 0 var(--s-2);
     border: 1px solid var(--ink-2);

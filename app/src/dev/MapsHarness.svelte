@@ -28,6 +28,13 @@
 
   let ready = $state(false);
   void (async () => {
+    // Invented villages inside the region, so the panel can group the maps by place.
+    const VILLAGES: [string, number, number][] = [['Berezivka', 51.1, 27.5], ['Zelene', 50.6, 28.2], ['Bila Hora', 50.3, 29.4], ['Syniy Yar', 49.9, 27.9], ['Dalne', 51.3, 30.2]];
+    for (const [v, la, lo] of VILLAGES) {
+      await api.apply({ type: 'createPerson', draft: { given: 'Ivan', surnames: ['Koval'], sex: 'male', birthDateRaw: '1900', birthPlaceText: `${v}, Zelena oblast` } });
+      const place = (await api.mapData({ kind: 'all' })).places.find((p) => p.name === v);
+      if (place) await api.apply({ type: 'setPlaceCoordinates', place: place.id, latE6: Math.round(la * 1e6), lonE6: Math.round(lo * 1e6) });
+    }
     // Invented sheets in a grid over an invented region; each series a little offset from the others.
     for (let i = 0; i < count; i++) {
       const s = i % series;
