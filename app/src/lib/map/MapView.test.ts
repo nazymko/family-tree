@@ -234,6 +234,45 @@ describe('Map view', () => {
     expect(ids).toHaveLength(40);
   });
 
+  it('groups_maps_by_place_filters_them_by_years_and_place_and_shows_one_places_maps_in_one_step', async () => {
+    const api = new MockApi(fixtureTree(10));
+    const id = await koval(api, 'Berezivka, Zelena oblast');
+    await api.apply({ type: 'setPlaceCoordinates', place: (await api.mapData({ kind: 'person', person: id })).places[0].id, latE6: 50_520_000, lonE6: 30_280_000 });
+    const c = (la: number, lo: number) => ({ latE6: Math.round(la * 1e6), lonE6: Math.round(lo * 1e6) });
+    const box = (la: number, lo: number) => [c(la + 0.3, lo - 0.3), c(la + 0.3, lo + 0.3), c(la - 0.3, lo + 0.3), c(la - 0.3, lo - 0.3)];
+    await api.addMapLayerFile('C:/Maps/a.jpg', 'Plan one 1648, sheet 1-1', { series: 'Plans', opacity: 70, visible: false, corners: box(50.52, 30.28) });
+    await api.addMapLayerFile('C:/Maps/b.jpg', 'Schubert 10-verst, sheet 51 (1826–1840)', { series: 'Schubert', opacity: 70, visible: false, corners: box(50.6, 30.3) });
+    await api.addMapLayerFile('C:/Maps/c.jpg', 'Far sheet', { series: 'Schubert', opacity: 70, visible: false, corners: box(10, 10) });
+    renderWith(MapView, { onOpenPerson: vi.fn() }, { api });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Old maps (3)' }));
+    const panel = screen.getByRole('complementary', { name: 'Old maps' });
+    // The place list offers the place with its two maps.
+    expect(await within(panel).findByRole('option', { name: 'Berezivka (2)' })).toBeInTheDocument();
+
+    await user.click(within(within(panel).getByRole('group', { name: 'Group by' })).getByRole('button', { name: 'Place' }));
+    expect(within(panel).getByRole('button', { name: 'Berezivka' })).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Other maps' })).toBeInTheDocument();
+    expect(within(panel).getAllByRole('checkbox', { name: /^Show .*sheet(?!.*under the middle)/ })).toHaveLength(3);
+
+    // Years: 1800-1900 keeps the Schubert sheet, and the sheet with no year while the box is ticked.
+    await user.type(within(panel).getByLabelText('From year'), '1800');
+    await user.type(within(panel).getByLabelText('To year'), '1900');
+    await waitFor(() => expect(within(panel).getAllByRole('checkbox', { name: /^Show .*sheet(?!.*under the middle)/ })).toHaveLength(2));
+    await user.click(within(panel).getByRole('checkbox', { name: 'No year' }));
+    await waitFor(() => expect(within(panel).getAllByRole('checkbox', { name: /^Show .*sheet(?!.*under the middle)/ })).toHaveLength(1));
+    await user.click(within(panel).getByRole('checkbox', { name: 'No year' }));
+    await user.clear(within(panel).getByLabelText('From year'));
+    await user.clear(within(panel).getByLabelText('To year'));
+
+    // One place: only its group; "Only these" shows just its two maps, in one undo step.
+    await user.selectOptions(within(panel).getByLabelText('Place'), 'Berezivka (2)');
+    await waitFor(() => expect(within(panel).queryByRole('button', { name: 'Other maps' })).not.toBeInTheDocument());
+    await user.click(within(panel).getByRole('button', { name: 'Show only the maps of Berezivka' }));
+    await waitFor(async () => expect((await api.mapData({ kind: 'all' })).layers.filter((l) => l.visible)).toHaveLength(2));
+    expect((await api.undoState()).undoLabel).toBe('Show maps on the Map');
+  });
+
   it('a_map_file_that_does_not_fit_the_picture_opens_the_corners_instead_of_placing_it', async () => {
     const api = new MockApi(fixtureTree(10));
     const { platform } = renderWith(MapView, { onOpenPerson: vi.fn() }, { api });
