@@ -7,7 +7,7 @@ import { t } from '../i18n';
 import { birthSurnameText } from '../ui/birthSurname';
 import { relationText } from '../i18n/relation';
 import { kinshipText } from '../family/kinship';
-import { NAME_FLOOR_PX, NAME_MAX_LINES, NAME_PX, fitPrintName, nameBaselines } from './a3';
+import { CARD_TEXT_RIGHT, CARD_TEXT_X, NAME_FLOOR_PX, planPrintCard, printCardHeight, type CardMeasure, type PrintCardText } from './a3';
 
 export type Lod = 'full' | 'boxes' | 'dots';
 
@@ -47,7 +47,7 @@ export interface DrawOpts {
   marked?: ReadonlySet<string>;
   /** Forces the level of detail (a print draws full text at any scale). */
   lod?: Lod;
-  /** Compact cards (a print): two-line names, no birth-surname row, the relationship only when it fits. */
+  /** Compact cards (a print): no birth-surname row, nothing cut or overlapping (see planPrintCard). */
   compact?: boolean;
   /** Compact cards: the smallest size (px) a name line is shrunk to before it wraps (see `nameFloorPx`). */
   nameMinPx?: number;
@@ -195,6 +195,52 @@ export function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): 
  * Baselines (from the card's top) of the text rows. A card is tall enough for three rows: name, the surname at birth, then dates and
  * relationship. Without a birth surname the rows keep two-row spacing, centred in the same card.
  */
+/** Room (px) the ancestor number takes at the right of a card's first name line; it gets long many generations back. */
+function ahnenRoom(n: ChartNode): number {
+  return n.ahnen !== null ? Math.max(22, String(n.ahnen).length * 6 + 8) : 0;
+}
+
+/** A card's text beside the name: the dates (or "shown elsewhere") and how the person is related to the centred one. */
+function cardSubRel(n: ChartNode, kind: ChartKind, focused: boolean): { sub: string; rel: string } {
+  const isDup = n.dupOf !== null;
+  const sub = isDup ? t('role.shownElsewhere') : (n.person?.lifespan ?? '');
+  const rel = isDup || focused ? '' : kind === 'relatives' || kind === 'around' ? relationText(n) : kinshipText(n.kinship);
+  return { sub, rel };
+}
+
+/** What a print (compact) card shows: no birth-surname row, the name never cut. */
+function printCardText(n: ChartNode, kind: ChartKind, focused: boolean): PrintCardText {
+  return { name: n.person?.name ?? '', ...cardSubRel(n, kind, focused), w: n.w, left: focused ? 26 : 10, ahnenW: ahnenRoom(n) };
+}
+
+/** Measures print card text in the fonts the card draws it in. */
+function cardMeasure(ctx: CanvasRenderingContext2D, theme: Theme): CardMeasure {
+  return (s, font, px) => {
+    ctx.font = font === 'name' ? `600 ${px}px ${theme.serif}` : font === 'rel' ? `italic ${px}px ${theme.font}` : `${px}px ${theme.font}`;
+    return ctx.measureText(s).width;
+  };
+}
+
+/**
+ * How many times taller than now the print (compact) cards must be for all their text at full size: the largest
+ * ratio over the cards (1 when they all fit). A print stretches its chart's height by this (see printStretch).
+ */
+export function printCardsNeed(
+  ctx: CanvasRenderingContext2D,
+  nodes: ChartNode[],
+  opts: { theme: Theme; kind?: ChartKind; focus: number | null; focusMore?: ReadonlySet<number>; nameMinPx?: number },
+): number {
+  const kind = opts.kind ?? 'pedigree';
+  const measure = cardMeasure(ctx, opts.theme);
+  let need = 1;
+  for (const n of nodes) {
+    if (n.person?.siblingMarker || n.h <= 0) continue;
+    const focused = n.id === opts.focus || (opts.focusMore?.has(n.id) ?? false);
+    need = Math.max(need, printCardHeight(measure, printCardText(n, kind, focused), opts.nameMinPx ?? NAME_FLOOR_PX) / n.h);
+  }
+  return need;
+}
+
 export function cardRows(maiden: boolean): { name: number; maiden: number; sub: number; step: number } {
   return maiden ? { name: 21, maiden: 37, sub: 53, step: 18 } : { name: 28, maiden: 0, sub: 48, step: 18 };
 }
@@ -395,71 +441,58 @@ export function draw(
         continue;
       }
       const isDup = n.dupOf !== null;
-      const left = n.x + (isFocus(n.id) ? 26 : 10);
-      // Room for the ancestor number, which gets long many generations back.
-      const maxW = n.x + n.w - 10 - left - (n.ahnen !== null ? Math.max(22, String(n.ahnen).length * 6 + 8) : 0);
+      const focused = isFocus(n.id);
       ctx.textAlign = 'left';
       ctx.fillStyle = isDup ? theme.ink2 : theme.ink;
-      ctx.font = `600 13px ${theme.serif}`;
-      const sub = isDup ? t('role.shownElsewhere') : (n.person?.lifespan ?? '');
-      // How this person is related to the centred one, at the right of the second line.
-      let rel = isDup || isFocus(n.id) ? '' : kind === 'relatives' || kind === 'around' ? relationText(n) : kinshipText(n.kinship);
-      // A compact card (made for a print) has no row for the birth surname; the name may take two lines.
-      const compact = opts.compact === true;
-      const maiden = compact ? '' : birthSurnameText(n.person);
-      const measure = (t: string) => ctx.measureText(t).width;
-      // A print card never cuts a name: a line too wide is drawn smaller, or wraps (see fitPrintName).
-      const printLines = compact
-        ? fitPrintName(
-            (s, px) => {
-              ctx.font = `600 ${px}px ${theme.serif}`;
-              return ctx.measureText(s).width;
-            },
-            n.person?.name ?? '',
-            maxW,
-            NAME_PX,
-            opts.nameMinPx ?? NAME_FLOOR_PX,
-            NAME_MAX_LINES,
-            // The lines under the first are below the ancestor number: they may use the card's whole width.
-            n.x + n.w - 10 - left,
-          )
-        : [];
-      ctx.font = `600 13px ${theme.serif}`;
-      const lines = compact ? printLines.map((l) => l.text) : nameLines(measure, n.person?.name ?? '', maxW, sub !== '' || rel !== '' || maiden !== '');
-      const rows = compact ? (lines.length > 1 ? { name: 16, maiden: 0, sub: 47, step: 15 } : { name: 23, maiden: 0, sub: 43, step: 15 }) : cardRows(maiden !== '');
-      if (compact && rel) {
-        // The relationship goes under the dates in small type only when it fits next to them.
-        ctx.font = `11px ${theme.font}`;
-        const subW = sub ? measure(sub) : 0;
-        ctx.font = `italic 11px ${theme.font}`;
-        if (subW + measure(rel) + 28 > n.w) rel = '';
-        ctx.font = `600 13px ${theme.serif}`;
-      }
-      if (compact) {
-        const ys = nameBaselines(printLines, NAME_PX);
-        printLines.forEach((l, i) => {
+      if (opts.compact === true) {
+        // A print card: nothing overlaps and nothing is cut; the print made the card tall enough (see printCardsNeed).
+        const plan = planPrintCard(cardMeasure(ctx, theme), printCardText(n, kind, focused), n.h, opts.nameMinPx ?? NAME_FLOOR_PX);
+        const left = n.x + (focused ? 26 : 10);
+        plan.lines.forEach((l, i) => {
           ctx.font = `600 ${l.px}px ${theme.serif}`;
-          ctx.fillText(l.text, left, n.y + ys[i]);
+          ctx.fillText(l.text, left, n.y + plan.nameYs[i]);
         });
+        ctx.fillStyle = theme.ink2;
+        if (plan.sub) {
+          ctx.font = `${plan.sub.px}px ${theme.font}`;
+          ctx.fillText(plan.sub.text, n.x + CARD_TEXT_X, n.y + plan.sub.y);
+        }
+        if (plan.rel) {
+          ctx.font = `italic ${plan.rel.px}px ${theme.font}`;
+          ctx.textAlign = 'right';
+          ctx.fillText(plan.rel.text, n.x + n.w - CARD_TEXT_RIGHT, n.y + plan.rel.y);
+          ctx.textAlign = 'left';
+        }
+      } else {
+        const left = n.x + (focused ? 26 : 10);
+        // Room for the ancestor number, which gets long many generations back.
+        const maxW = n.x + n.w - 10 - left - ahnenRoom(n);
         ctx.font = `600 13px ${theme.serif}`;
-      } else lines.forEach((line, i) => ctx.fillText(line, left, n.y + rows.name + i * rows.step));
+        const { sub, rel } = cardSubRel(n, kind, focused);
+        const maiden = birthSurnameText(n.person);
+        const measure = (t: string) => ctx.measureText(t).width;
+        const lines = nameLines(measure, n.person?.name ?? '', maxW, sub !== '' || rel !== '' || maiden !== '');
+        const rows = cardRows(maiden !== '');
+        lines.forEach((line, i) => ctx.fillText(line, left, n.y + rows.name + i * rows.step));
+        ctx.fillStyle = theme.ink2;
+        if (maiden) {
+          ctx.font = `11px ${theme.font}`;
+          ctx.fillText(fit(ctx, maiden, n.x + n.w - 10 - left), left, n.y + rows.maiden);
+        }
+        ctx.font = `11px ${theme.font}`;
+        let relW = 0;
+        if (rel) {
+          ctx.font = `italic 11px ${theme.font}`;
+          const text = fit(ctx, rel, n.w * 0.5);
+          relW = ctx.measureText(text).width + 8;
+          ctx.textAlign = 'right';
+          ctx.fillText(text, n.x + n.w - 8, n.y + rows.sub);
+          ctx.textAlign = 'left';
+          ctx.font = `11px ${theme.font}`;
+        }
+        if (sub) ctx.fillText(fit(ctx, sub, n.w - 20 - relW), n.x + 10, n.y + rows.sub);
+      }
       ctx.fillStyle = theme.ink2;
-      if (maiden) {
-        ctx.font = `11px ${theme.font}`;
-        ctx.fillText(fit(ctx, maiden, n.x + n.w - 10 - left), left, n.y + rows.maiden);
-      }
-      ctx.font = `11px ${theme.font}`;
-      let relW = 0;
-      if (rel) {
-        ctx.font = `italic 11px ${theme.font}`;
-        const text = fit(ctx, rel, n.w * 0.5);
-        relW = ctx.measureText(text).width + 8;
-        ctx.textAlign = 'right';
-        ctx.fillText(text, n.x + n.w - 8, n.y + rows.sub);
-        ctx.textAlign = 'left';
-        ctx.font = `11px ${theme.font}`;
-      }
-      if (sub) ctx.fillText(fit(ctx, sub, n.w - 20 - relW), n.x + 10, n.y + rows.sub);
       if (n.ahnen !== null) {
         ctx.font = `10px ${theme.font}`;
         ctx.textAlign = 'right';
