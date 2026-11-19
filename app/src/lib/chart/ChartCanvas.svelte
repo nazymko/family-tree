@@ -24,7 +24,7 @@
   import { createDoubleTap, createLongPress, isTouchPointer } from '../ui/longPress';
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, chartTitle, later, printPicture, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
-  import { A3_SUB_PT, A3_TITLE_PT, PT_PX, ellipsize, mmToPx, printDirection, type A3Choice } from './a3';
+  import { A3_SUB_PT, A3_TITLE_PT, PT_PX, ellipsize, mmToPx, nameFloorPx, printDirection, type A3Choice } from './a3';
   import { a3Direction } from './a3Pref.svelte';
   import { sceneBounds, pictureFileName } from './picture';
   import { settings } from '../state/settings.svelte';
@@ -1017,7 +1017,7 @@
         ? t('picture.a3Small', { pt: Math.round(lay.namePt * 10) / 10 }) + (mode === 'screen' ? ` ${t('picture.a3SmallBestHint')}` : '')
         : undefined,
       paint: (ctx, p) => {
-        draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: printFocus, focusMore: printMore, theme: th, kind, dir: pick.direction, handles: false, lod: 'full', compact: true });
+        draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: printFocus, focusMore: printMore, theme: th, kind, dir: pick.direction, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(lay.scale) });
         // Title block: the chart name on the left, the tree name and date on the right, a rule under both.
         const left = lay.area.x;
         const right = lay.px.w - lay.area.x;

@@ -87,5 +87,12 @@ describe('helpers', () => {
     expect(parseFont('italic bold 14.5px Georgia, serif')).toEqual({ style: 'italic', weight: 'bold', size: 14.5, family: 'Georgia, serif' });
     expect(parseFont('10px sans-serif')).toEqual({ style: 'normal', weight: 'normal', size: 10, family: 'sans-serif' });
     expect(parseFont('nonsense').size).toBe(12);
+    // The app's font stacks come from CSS custom properties written over several lines.
+    expect(parseFont("600 9.5px 'Source Serif 4', Georgia, 'Segoe UI',\n    'Noto Sans', serif")).toEqual({
+      style: 'normal',
+      weight: '600',
+      size: 9.5,
+      family: "'Source Serif 4', Georgia, 'Segoe UI', 'Noto Sans', serif",
+    });
   });
 });

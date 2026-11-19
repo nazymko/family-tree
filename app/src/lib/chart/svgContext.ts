@@ -26,11 +26,14 @@ interface FontParts {
   family: string;
 }
 
-/** Splits a canvas font string such as `italic 600 13px "Segoe UI", sans-serif`. */
+/**
+ * Splits a canvas font string such as `italic 600 13px "Segoe UI", sans-serif`. The family may come from a CSS custom
+ * property written over several lines (the app's font stacks are), so line breaks count as spaces.
+ */
 export function parseFont(font: string): FontParts {
-  const m = /^\s*(?:(italic|oblique)\s+)?(?:(bold|bolder|lighter|normal|\d{3})\s+)?([\d.]+)px\s+(.+?)\s*$/i.exec(font);
+  const m = /^\s*(?:(italic|oblique)\s+)?(?:(bold|bolder|lighter|normal|\d{3})\s+)?([\d.]+)px\s+([\s\S]+?)\s*$/i.exec(font);
   if (!m) return { style: 'normal', weight: 'normal', size: 12, family: 'sans-serif' };
-  return { style: m[1] ?? 'normal', weight: m[2] ?? 'normal', size: Number(m[3]), family: m[4] };
+  return { style: m[1] ?? 'normal', weight: m[2] ?? 'normal', size: Number(m[3]), family: m[4].replace(/\s+/g, ' ') };
 }
 
 type Measure = (text: string, font: string) => number;

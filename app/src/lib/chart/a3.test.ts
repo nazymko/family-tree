@@ -1,5 +1,29 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { A3_MAX_SCALE, A3_MIN_PT, MM_PX, bestDirection, ellipsize, fillRatio, layoutA3, printDirection, printHtml, mmToPx, printDocument, printedPt, pxToMm } from './a3';
+import {
+  A3_MAX_SCALE,
+  A3_MIN_PT,
+  A3_NAME_FLOOR_PT,
+  MM_PX,
+  NAME_FLOOR_PX,
+  NAME_PX,
+  bestDirection,
+  ellipsize,
+  fillRatio,
+  fitPrintName,
+  layoutA3,
+  nameBaselines,
+  nameFloorPx,
+  printDirection,
+  printHtml,
+  mmToPx,
+  printDocument,
+  printedPt,
+  pxToMm,
+  type NameLine,
+} from './a3';
+import type { ChartNode } from '../api/types';
+import { draw } from './renderer';
+import { SvgContext, parseFont } from './svgContext';
 import { renderSvg } from './pictureExport';
 import type { PicturePlan } from './picture';
 
@@ -220,5 +244,134 @@ describe('printHtml', () => {
     vi.advanceTimersByTime(5_001);
     expect(await caught).toMatch(/did not load/);
     expect(frame.remove).toHaveBeenCalled();
+  });
+});
+
+describe('A3 card names fit without cutting', () => {
+  // A monospace stand-in for the print font: each letter is 0.6 of the size wide.
+  const m = (s: string, px: number) => s.length * px * 0.6;
+  const W = 104;
+  const fits = (lines: NameLine[]) => lines.every((l) => m(l.text, l.px) <= W + 1e-9);
+  const noEllipsis = (lines: NameLine[]) => lines.every((l) => !l.text.includes('…'));
+  const theme = { paper: '#fff', rule: '#ccc', ink: '#000', ink2: '#666', ribbon: '#f00', wash: '#fee', font: 'sans-serif', serif: 'serif' };
+  const svgMeasure = (s: string, font: string) => s.length * parseFont(font).size * 0.6;
+  const card = (name: string, w: number, h: number): ChartNode => ({
+    id: 0,
+    person: { id: 'p0', name, lifespan: '1850-1900', sex: 'male', living: false, private: false, siblingMarker: false },
+    x: 0,
+    y: 0,
+    w,
+    h,
+    gen: 0,
+    ahnen: null,
+    dupOf: null,
+    moreUp: false,
+    moreDown: false,
+    nav: { parent: null, child: null, prev: null, next: null },
+    label: '',
+  });
+  const texts = (svg: string) => [...svg.matchAll(/<text [^>]*font-size="([\d.]+)"[^>]*>([^<]*)<\/text>/g)].map((x) => ({ px: Number(x[1]), text: x[2] }));
+
+  it('keeps_a_short_name_on_one_line_at_the_normal_size', () => {
+    expect(fitPrintName(m, 'Anna Novak', W)).toEqual([{ text: 'Anna Novak', px: NAME_PX }]);
+  });
+
+  it('shrinks_only_the_long_surname_and_keeps_the_given_name_size', () => {
+    const lines = fitPrintName(m, 'Anna Dennelwenhoffmann', W, NAME_PX, 8);
+    expect(lines.map((l) => l.text)).toEqual(['Anna', 'Dennelwenhoffmann']);
+    expect(lines[0].px).toBe(NAME_PX);
+    expect(lines[1].px).toBeLessThan(NAME_PX);
+    expect(lines[1].px).toBeGreaterThanOrEqual(8);
+    // Just small enough: a quarter px bigger would not fit.
+    expect(m(lines[1].text, lines[1].px + 0.25)).toBeGreaterThan(W);
+    expect(fits(lines)).toBe(true);
+  });
+
+  it('shrinks_only_a_long_given_name', () => {
+    const lines = fitPrintName(m, 'Bartholomaeuswilhelm Novak', W, NAME_PX, 8);
+    expect(lines.map((l) => l.text)).toEqual(['Bartholomaeuswilhelm', 'Novak']);
+    expect(lines[0].px).toBeLessThan(NAME_PX);
+    expect(lines[1].px).toBe(NAME_PX);
+    expect(fits(lines)).toBe(true);
+  });
+
+  it('wraps_an_extreme_surname_at_the_floor_instead_of_cutting_it', () => {
+    const surname = 'Dennelwenhoffmannsdottirovich';
+    const lines = fitPrintName(m, `Anna ${surname}`, W, NAME_PX, 8);
+    expect(lines[0]).toEqual({ text: 'Anna', px: NAME_PX });
+    expect(lines.length).toBe(3);
+    expect(lines.slice(1).every((l) => l.px === 8)).toBe(true);
+    expect(lines.slice(1).map((l) => l.text).join('')).toBe(surname);
+    expect(fits(lines)).toBe(true);
+    expect(noEllipsis(lines)).toBe(true);
+  });
+
+  it('lets_the_lines_under_the_first_use_the_room_beside_the_ancestor_number', () => {
+    const narrow = fitPrintName(m, 'Anna Oberstrassenkehrer', 82, NAME_PX, 8, 3);
+    const wide = fitPrintName(m, 'Anna Oberstrassenkehrer', 82, NAME_PX, 8, 3, 104);
+    expect(wide.map((l) => l.text)).toEqual(['Anna', 'Oberstrassenkehrer']);
+    expect(wide[1].px).toBeGreaterThan(narrow[1].px);
+    expect(m(wide[1].text, wide[1].px)).toBeLessThanOrEqual(104);
+  });
+
+  it('breaks_a_wrapped_surname_after_its_hyphen', () => {
+    const lines = fitPrintName(m, 'Anna Zarzarbarkelmann-Dennelwenhoff', W, NAME_PX, 8);
+    expect(lines.slice(1).map((l) => l.text)).toEqual(['Zarzarbarkelmann-', 'Dennelwenhoff']);
+  });
+
+  it('never_needs_more_lines_than_the_card_has_and_never_cuts', () => {
+    const name = 'Bartholomaeus ' + 'Zarzarbarkelmann'.repeat(6);
+    const lines = fitPrintName(m, name, W, NAME_PX, 8, 3);
+    expect(lines.length).toBeLessThanOrEqual(3);
+    expect(lines.map((l) => l.text).join('').replace(/\s/g, '')).toBe(name.replace(/\s/g, ''));
+    expect(fits(lines)).toBe(true);
+    expect(noEllipsis(lines)).toBe(true);
+  });
+
+  it('keeps_the_floor_at_a_readable_printed_size', () => {
+    expect(A3_NAME_FLOOR_PT).toBeGreaterThan(A3_MIN_PT);
+    for (const scale of [A3_MAX_SCALE, 1, 0.9]) expect(printedPt(nameFloorPx(scale), scale)).toBeCloseTo(A3_NAME_FLOOR_PT, 9);
+    expect(NAME_FLOOR_PX).toBeCloseTo(nameFloorPx(1), 9);
+    // A chart printed so small its names are already under that size is never shrunk: long names wrap.
+    expect(nameFloorPx(0.4)).toBe(NAME_PX);
+  });
+
+  it('keeps_the_card_rows_for_plain_names_and_stacks_mixed_sizes', () => {
+    expect(nameBaselines([{ text: 'a', px: NAME_PX }])).toEqual([23]);
+    expect(nameBaselines([{ text: 'a', px: NAME_PX }, { text: 'b', px: NAME_PX }])).toEqual([16, 31]);
+    // The fullest card: the given name at full size and two surname lines at the floor of a print at screen size.
+    const f = NAME_FLOOR_PX;
+    const ys = nameBaselines([{ text: 'a', px: NAME_PX }, { text: 'b', px: f }, { text: 'c', px: f }]);
+    // Under the card's top, the second line under the ancestor number (baseline 14), no line touching the next.
+    expect(ys[0] - 0.75 * NAME_PX).toBeGreaterThanOrEqual(3);
+    expect(ys[1] - 0.75 * f).toBeGreaterThan(14);
+    expect(ys[1] - 0.75 * f).toBeGreaterThanOrEqual(ys[0] + 0.25 * NAME_PX);
+    expect(ys[2] - 0.75 * f).toBeGreaterThanOrEqual(ys[1] + 0.25 * f);
+    // The last line clears the dates row (baseline 47, 11 px type).
+    expect(ys[2] + 0.25 * f).toBeLessThan(47 - 0.75 * 11);
+  });
+
+  it('writes_each_name_line_of_a_print_card_with_its_own_size_in_the_svg', () => {
+    const ctx = new SvgContext(400, 200, svgMeasure);
+    const opts = { selected: null, focus: null, theme, lod: 'full' as const, compact: true, nameMinPx: 8 };
+    draw(ctx as unknown as CanvasRenderingContext2D, { nodes: [card('Bartholomaeus Zarzarbarkelmann', 124, 56)], edges: [] }, { x: 0, y: 0, zoom: 1 }, { w: 400, h: 200, dpr: 1 }, opts);
+    const svg = ctx.toSvg('#fff', { w: 400, h: 200 });
+    expect(svg).not.toContain('…');
+    const t = texts(svg);
+    const given = t.find((x) => x.text === 'Bartholomaeus')!;
+    const surname = t.find((x) => x.text === 'Zarzarbarkelmann')!;
+    expect(given.px).toBe(NAME_PX);
+    expect(surname.px).toBeLessThan(NAME_PX);
+    expect(surname.text.length * surname.px * 0.6).toBeLessThanOrEqual(104);
+    // The dates keep their own size.
+    expect(t.find((x) => x.text === '1850-1900')!.px).toBe(11);
+  });
+
+  it('leaves_the_screen_cards_as_they_were', () => {
+    const ctx = new SvgContext(400, 200, svgMeasure);
+    draw(ctx as unknown as CanvasRenderingContext2D, { nodes: [card('Anna Dennelwenhoffmannsdottir', 176, 66)], edges: [] }, { x: 0, y: 0, zoom: 1 }, { w: 400, h: 200, dpr: 1 }, { selected: null, focus: null, theme, lod: 'full' });
+    const svg = ctx.toSvg('#fff', { w: 400, h: 200 });
+    expect(svg).toContain('…');
+    expect(texts(svg).every((x) => x.px === NAME_PX || x.px === 11)).toBe(true);
   });
 });

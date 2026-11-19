@@ -7,6 +7,7 @@ import { t } from '../i18n';
 import { birthSurnameText } from '../ui/birthSurname';
 import { relationText } from '../i18n/relation';
 import { kinshipText } from '../family/kinship';
+import { NAME_FLOOR_PX, NAME_MAX_LINES, NAME_PX, fitPrintName, nameBaselines } from './a3';
 
 export type Lod = 'full' | 'boxes' | 'dots';
 
@@ -48,6 +49,8 @@ export interface DrawOpts {
   lod?: Lod;
   /** Compact cards (a print): two-line names, no birth-surname row, the relationship only when it fits. */
   compact?: boolean;
+  /** Compact cards: the smallest size (px) a name line is shrunk to before it wraps (see `nameFloorPx`). */
+  nameMinPx?: number;
 }
 
 /** The check-mark badge and frame of the boxes marked with Shift+click. */
@@ -405,7 +408,24 @@ export function draw(
       const compact = opts.compact === true;
       const maiden = compact ? '' : birthSurnameText(n.person);
       const measure = (t: string) => ctx.measureText(t).width;
-      const lines = nameLines(measure, n.person?.name ?? '', maxW, !compact && (sub !== '' || rel !== '' || maiden !== ''));
+      // A print card never cuts a name: a line too wide is drawn smaller, or wraps (see fitPrintName).
+      const printLines = compact
+        ? fitPrintName(
+            (s, px) => {
+              ctx.font = `600 ${px}px ${theme.serif}`;
+              return ctx.measureText(s).width;
+            },
+            n.person?.name ?? '',
+            maxW,
+            NAME_PX,
+            opts.nameMinPx ?? NAME_FLOOR_PX,
+            NAME_MAX_LINES,
+            // The lines under the first are below the ancestor number: they may use the card's whole width.
+            n.x + n.w - 10 - left,
+          )
+        : [];
+      ctx.font = `600 13px ${theme.serif}`;
+      const lines = compact ? printLines.map((l) => l.text) : nameLines(measure, n.person?.name ?? '', maxW, sub !== '' || rel !== '' || maiden !== '');
       const rows = compact ? (lines.length > 1 ? { name: 16, maiden: 0, sub: 47, step: 15 } : { name: 23, maiden: 0, sub: 43, step: 15 }) : cardRows(maiden !== '');
       if (compact && rel) {
         // The relationship goes under the dates in small type only when it fits next to them.
@@ -415,7 +435,14 @@ export function draw(
         if (subW + measure(rel) + 28 > n.w) rel = '';
         ctx.font = `600 13px ${theme.serif}`;
       }
-      lines.forEach((line, i) => ctx.fillText(line, left, n.y + rows.name + i * rows.step));
+      if (compact) {
+        const ys = nameBaselines(printLines, NAME_PX);
+        printLines.forEach((l, i) => {
+          ctx.font = `600 ${l.px}px ${theme.serif}`;
+          ctx.fillText(l.text, left, n.y + ys[i]);
+        });
+        ctx.font = `600 13px ${theme.serif}`;
+      } else lines.forEach((line, i) => ctx.fillText(line, left, n.y + rows.name + i * rows.step));
       ctx.fillStyle = theme.ink2;
       if (maiden) {
         ctx.font = `11px ${theme.font}`;

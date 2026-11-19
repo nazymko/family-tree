@@ -147,6 +147,156 @@ export function ellipsize(measure: (s: string) => number, text: string, maxW: nu
   return lo === 0 ? '' : text.slice(0, lo).trimEnd() + '\u2026';
 }
 
+/**
+ * Smallest printed size (points) a name line on a print card is shrunk to before it wraps instead: a point above
+ * A3_MIN_PT, the size below which names count as hard to read.
+ */
+export const A3_NAME_FLOOR_PT = A3_MIN_PT + 1;
+/** Name lines a print card has room for above the dates. */
+export const NAME_MAX_LINES = 3;
+
+/**
+ * The smallest size (px, card units) a name line may be shrunk to on a print laid out at `scale`: A3_NAME_FLOOR_PT on
+ * paper, and never above the normal name size (a chart printed so small that its names are already under that size
+ * does not shrink them at all; a long one wraps instead).
+ */
+export function nameFloorPx(scale: number): number {
+  return Math.min(NAME_PX, A3_NAME_FLOOR_PT / (0.75 * Math.max(1e-6, scale)));
+}
+/** The floor for a print at the size of the screen (scale 1). */
+export const NAME_FLOOR_PX = nameFloorPx(1);
+
+/** One line of a name on a print card and the size (px) it is drawn at. */
+export interface NameLine {
+  text: string;
+  px: number;
+}
+
+type Measure = (s: string, px: number) => number;
+/** The room of the n-th line of a part of a name (the first line may be shorter, beside the ancestor number). */
+type Room = (line: number) => number;
+
+/** Splits a word that is too wide at `px` into pieces that fit, after a hyphen when there is one, else between letters. */
+function breakWord(measure: Measure, word: string, room: Room, first: number, px: number): string[] {
+  const out: string[] = [];
+  let rest = word;
+  while (rest && measure(rest, px) > room(first + out.length)) {
+    const maxW = room(first + out.length);
+    // The longest start that fits (at least one letter, so this always ends).
+    let lo = 1;
+    let hi = rest.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (measure(rest.slice(0, mid), px) <= maxW) lo = mid;
+      else hi = mid - 1;
+    }
+    const hyphen = rest.lastIndexOf('-', lo - 1);
+    const at = hyphen > 0 ? hyphen + 1 : lo;
+    out.push(rest.slice(0, at));
+    rest = rest.slice(at);
+  }
+  if (rest) out.push(rest);
+  return out;
+}
+
+/** Lays `text` out in lines that fit at `px`: whole words where they fit, a too-long word broken. */
+function wrapAt(measure: Measure, text: string, room: Room, px: number): string[] {
+  const lines: string[] = [];
+  let cur = '';
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const joined = cur ? `${cur} ${word}` : word;
+    if (measure(joined, px) <= room(lines.length)) {
+      cur = joined;
+      continue;
+    }
+    if (cur) lines.push(cur);
+    const pieces = breakWord(measure, word, room, lines.length, px);
+    cur = pieces.pop() ?? '';
+    lines.push(...pieces);
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+/** One part of a name (the given names, or the surname) in as few lines as it needs, never cut. */
+function fitPart(measure: Measure, text: string, room: Room, basePx: number, minPx: number): NameLine[] {
+  const maxW = room(0);
+  const w = measure(text, basePx);
+  if (w <= maxW) return [{ text, px: basePx }];
+  // Text width grows with the font size, so the size that just fits is close to base * room / width; step down to be sure.
+  let px = Math.floor(((basePx * maxW) / w) * 4) / 4;
+  while (px >= minPx && measure(text, px) > maxW) px -= 0.25;
+  if (px >= minPx) return [{ text, px }];
+  return wrapAt(measure, text, room, minPx).map((t) => ({ text: t, px: minPx }));
+}
+
+/**
+ * The name lines of a print (compact) card, nothing ever cut with "…". A name that fits stays one line at `basePx`.
+ * Otherwise it goes on two lines as on the cards: the given names, then the rest (the surname); each line that is too
+ * wide is drawn smaller (that line only), down to `minPx`; a line still too wide at `minPx` wraps onto extra lines at
+ * `minPx` (at spaces, then after a hyphen, then between letters). When that needs more than `maxLines` lines the
+ * floor is lowered step by step, so an absurdly long name still prints whole.
+ * `measure(text, px)` is the text's width at that size in the card's font. The first line has `maxW`; the lines under
+ * it have `restW` (they are below the ancestor number, so they may use the whole card width).
+ */
+export function fitPrintName(
+  measure: Measure,
+  name: string,
+  maxW: number,
+  basePx = NAME_PX,
+  minPx = NAME_FLOOR_PX,
+  maxLines = NAME_MAX_LINES,
+  restW = maxW,
+): NameLine[] {
+  const text = name.trim().replace(/\s+/g, ' ');
+  if (!text) return [];
+  if (maxW <= 0) return [{ text, px: basePx }];
+  if (measure(text, basePx) <= maxW) return [{ text, px: basePx }];
+  const rest = Math.max(maxW, restW);
+  const words = text.split(' ');
+  const parts: string[] = [];
+  if (words.length > 1) {
+    // As many leading words as fit on the first line, at least the last word on the second (the cards' own split).
+    let i = 1;
+    while (i < words.length - 1 && measure(words.slice(0, i + 1).join(' '), basePx) <= maxW) i++;
+    parts.push(words.slice(0, i).join(' '), words.slice(i).join(' '));
+  } else {
+    parts.push(text);
+  }
+  let floor = Math.min(minPx, basePx);
+  for (;;) {
+    const lines: NameLine[] = [];
+    for (const p of parts) {
+      const at = lines.length;
+      lines.push(...fitPart(measure, p, (n) => (at + n === 0 ? maxW : rest), basePx, floor));
+    }
+    if (lines.length <= Math.max(1, maxLines) || floor <= 2) return lines;
+    floor = Math.max(2, floor * 0.85);
+  }
+}
+
+/**
+ * Baselines (from the card's top) of a print card's name lines. One or two lines at the normal size keep the card's
+ * own places (23; 16 and 31); other mixes are stacked (a quarter of the line above for its descenders, then 0.9 of the
+ * line itself: 1.15 times the size when both are equal) around the same middle, never above the card's top padding,
+ * and the second line starts below the ancestor number's row (baseline 14).
+ */
+export function nameBaselines(lines: NameLine[], basePx = NAME_PX): number[] {
+  if (lines.length === 0) return [];
+  const plain = lines.every((l) => l.px === basePx);
+  if (plain && lines.length === 1) return [23];
+  if (plain && lines.length === 2) return [16, 31];
+  const steps = lines.slice(1).map((l, i) => 0.25 * lines[i].px + 0.9 * l.px);
+  const span = steps.reduce((a, b) => a + b, 0);
+  let y = Math.max(23.5 - span / 2, 3 + 0.75 * lines[0].px);
+  const out = [y];
+  lines.slice(1).forEach((l, i) => {
+    y = i === 0 ? Math.max(y + steps[0], 15 + 0.8 * l.px) : y + steps[i];
+    out.push(y);
+  });
+  return out;
+}
+
 /** The HTML the print dialog gets: one A3 page holding the SVG, no browser margins, nothing that could add a second page. */
 export function printDocument(svg: string, orientation: A3Orientation): string {
   const body = svg.replace(/^<\?xml[^>]*\?>\s*/, '');
