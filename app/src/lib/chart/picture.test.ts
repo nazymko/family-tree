@@ -3,6 +3,8 @@ import type { ChartEdge, ChartNode } from '../api/types';
 import {
   CAPTION_H,
   MARGIN,
+  MAX_AREA,
+  MAX_SIDE,
   branchIds,
   compactX,
   formatOf,
@@ -125,23 +127,26 @@ describe('fitScale', () => {
     expect(fitScale(3000, 2000)).toEqual({ scale: 1, w: 3000, h: 2000, reduced: false, percent: 100 });
   });
 
-  it('keeps_each_side_within_16384', () => {
-    const f = fitScale(40960, 1000);
-    expect(f.w).toBeLessThanOrEqual(16384);
-    expect(f.h).toBeLessThanOrEqual(16384);
+  it('keeps_each_side_within_32000_below_the_32767_canvas_limit', () => {
+    expect(MAX_SIDE).toBeLessThanOrEqual(32767);
+    const f = fitScale(80000, 1000);
+    expect(f.w).toBeLessThanOrEqual(32000);
+    expect(f.h).toBeLessThanOrEqual(32000);
     expect(f.reduced).toBe(true);
     expect(f.percent).toBe(40);
   });
 
-  it('keeps_the_area_within_200_megapixels', () => {
+  it('keeps_the_area_within_160_megapixels', () => {
+    expect(MAX_AREA).toBe(160_000_000);
     const f = fitScale(16000, 16000);
-    expect(f.w * f.h).toBeLessThanOrEqual(200_000_000);
+    expect(f.w * f.h).toBeLessThanOrEqual(160_000_000);
     expect(f.reduced).toBe(true);
     expect(f.percent).toBeLessThan(100);
   });
 
   it('an_allowed_size_is_not_reduced', () => {
-    expect(fitScale(16384, 12000).reduced).toBe(false);
+    expect(fitScale(32000, 5000).reduced).toBe(false);
+    expect(fitScale(16384, 12000).reduced).toBe(true);
   });
 
   it('never_makes_a_picture_larger_or_empty', () => {
@@ -179,28 +184,47 @@ describe('mergeScenes', () => {
 describe('planPicture', () => {
   const scene: Scene = { nodes: [node(1, 1000, 500), node(2, 1300, 700)], edges: [] };
 
-  it('whole_and_branch_are_drawn_at_zoom_1_with_a_40_px_margin_and_a_caption_strip_at_twice_the_pixels', () => {
+  it('whole_and_branch_are_drawn_at_zoom_1_with_a_40_px_margin_and_a_caption_strip_at_three_times_the_pixels', () => {
     for (const scope of ['whole', 'branch'] as const) {
       const p = planPicture(scope, scene, null);
       expect(p.cam).toEqual({ x: 1000 - MARGIN, y: 500 - MARGIN, zoom: 1 });
       expect(p.view.w).toBe(400 + 2 * MARGIN);
       expect(p.view.h).toBe(250 + 2 * MARGIN);
-      expect(p.scale).toBe(2);
-      expect(p.width).toBe(p.view.w * 2);
-      expect(p.height).toBe((p.view.h + CAPTION_H) * 2);
+      expect(p.scale).toBe(3);
+      expect(p.width).toBe(p.view.w * 3);
+      expect(p.height).toBe((p.view.h + CAPTION_H) * 3);
       expect(p.reduced).toBe(false);
     }
   });
 
-  it('uses_the_screen_pixel_ratio_when_it_is_above_2', () => {
-    expect(planPicture('whole', scene, null, [], { dpr: 3 }).scale).toBe(3);
+  it('uses_the_screen_pixel_ratio_when_it_is_above_3', () => {
+    expect(planPicture('whole', scene, null, [], { dpr: 2 }).scale).toBe(3);
+    expect(planPicture('whole', scene, null, [], { dpr: 4 }).scale).toBe(4);
   });
 
-  it('falls_back_to_1x_before_scaling_below_1x', () => {
-    // 9000 px wide at 1x is fine, at 2x it is over 16384.
-    const wide: Scene = { nodes: [node(1, 0, 0), node(2, 8900, 0)], edges: [] };
+  it('a_whole_tree_of_10738_by_1906_px_at_1x_gets_the_largest_scale_that_fits_not_1x', () => {
+    // The size of a real export at 1x: 10738 x 1906 px, caption strip included.
+    const tree: Scene = { nodes: [node(1, 0, 0), node(2, 10738 - 2 * MARGIN - 100, 1906 - CAPTION_H - 2 * MARGIN - 50)], edges: [] };
+    const p = planPicture('whole', tree, null);
+    expect(p.view.w).toBe(10738);
+    expect(p.view.h + CAPTION_H).toBe(1906);
+    expect(p.scale).toBeGreaterThan(2.75);
+    expect(p.scale).toBeLessThanOrEqual(3);
+    expect(p.width).toBeLessThanOrEqual(MAX_SIDE);
+    expect(p.height).toBeLessThanOrEqual(MAX_SIDE);
+    expect(p.width * p.height).toBeLessThanOrEqual(MAX_AREA);
+    expect(p.reduced).toBe(false);
+    expect(p.percent).toBe(100);
+  });
+
+  it('takes_the_largest_scale_that_fits_and_goes_below_1x_only_when_1x_does_not_fit', () => {
+    const narrow: Scene = { nodes: [node(1, 0, 0), node(2, 8900, 0)], edges: [] };
+    expect(planPicture('whole', narrow, null).scale).toBe(3);
+    // 20080 px wide at 1x: 3x is over 32000, so about 1.59x (not a step back to 1x).
+    const wide: Scene = { nodes: [node(1, 0, 0), node(2, 19900, 0)], edges: [] };
     const p = planPicture('whole', wide, null);
-    expect(p.scale).toBe(1);
+    expect(p.scale).toBeCloseTo(MAX_SIDE / 20080, 5);
+    expect(p.width).toBeLessThanOrEqual(MAX_SIDE);
     expect(p.reduced).toBe(false);
     const huge: Scene = { nodes: [node(1, 0, 0), node(2, 60000, 0)], edges: [] };
     const q = planPicture('whole', huge, null);
@@ -219,12 +243,12 @@ describe('planPicture', () => {
 
   it('scalePlan_halves_the_size_for_a_retry', () => {
     const p = scalePlan(planPicture('whole', scene, null), 0.5);
-    expect(p.scale).toBe(1);
+    expect(p.scale).toBe(1.5);
     expect(p.reduced).toBe(false);
-    const q = scalePlan(p, 0.5);
-    expect(q.scale).toBe(0.5);
+    const q = scalePlan(scalePlan(p, 0.5), 0.5);
+    expect(q.scale).toBe(0.375);
     expect(q.reduced).toBe(true);
-    expect(q.percent).toBe(50);
+    expect(q.percent).toBe(38);
   });
 
   it('screen_is_exactly_the_viewport_at_the_current_zoom', () => {
@@ -240,8 +264,8 @@ describe('planPicture', () => {
     const wide: Scene = { nodes: [node(1, 0, 0), node(2, 60000, 0)], edges: [] };
     const p = planPicture('whole', wide, null);
     expect(p.reduced).toBe(true);
-    expect(p.width).toBeLessThanOrEqual(16384);
-    expect(p.height).toBeLessThanOrEqual(16384);
+    expect(p.width).toBeLessThanOrEqual(MAX_SIDE);
+    expect(p.height).toBeLessThanOrEqual(MAX_SIDE);
     expect(p.percent).toBe(Math.round(p.scale * 100));
   });
 });

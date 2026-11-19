@@ -171,11 +171,11 @@ describe('picture menu on a chart', () => {
     const shot = made.find((x) => !x.canvas.isConnected)!;
     expect(boxes(shot.ctx)).toBe(m.nodeCount);
     const tr = shot.ctx.calls.filter((c) => c.op === 'setTransform').map((c) => c.args as number[]);
-    // The world is drawn at 100% zoom with twice the pixels (a sharp picture), starting 40 px before the first box.
+    // The world is drawn at 100% zoom with three times the pixels (a sharp picture), starting 40 px before the first box.
     const all = await allNodes(s.api as MockApi, m.chartId);
     const x0 = Math.min(...all.map((n) => n.x));
     const y0 = Math.min(...all.map((n) => n.y));
-    expect(tr.some((a) => a[0] === 2 && a[3] === 2 && Math.abs(a[4] + (x0 - 40) * 2) < 1e-6 && Math.abs(a[5] + (y0 - 40) * 2) < 1e-6)).toBe(true);
+    expect(tr.some((a) => a[0] === 3 && a[3] === 3 && Math.abs(a[4] + (x0 - 40) * 3) < 1e-6 && Math.abs(a[5] + (y0 - 40) * 3) < 1e-6)).toBe(true);
     expect(shot.ctx.calls.some((c) => c.op === 'fillText' && /Pedigree/.test(String(c.args[0])))).toBe(true); // the caption
     await waitFor(() => expect(notices.current?.message).toBe('Picture saved'));
     expect((s.platform.calls.find((c) => c.method === 'pickSavePath')!.args[0] as { extensions: string[] }).extensions).toEqual(['png', 'svg']);

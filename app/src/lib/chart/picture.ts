@@ -14,10 +14,19 @@ export interface Scene {
 export const MARGIN = 40;
 /** Height (px, before scaling) of the strip with the chart name and the date. */
 export const CAPTION_H = 30;
-/** Largest side (px) of a picture. */
-export const MAX_SIDE = 16384;
-/** Largest area (px) of a picture. */
-export const MAX_AREA = 200_000_000;
+/**
+ * Largest side (px) of a picture. Chromium (WebView2) and WebKit refuse a canvas side above 32,767 px; a little is kept
+ * spare so rounding never reaches the edge.
+ */
+export const MAX_SIDE = 32_000;
+/**
+ * Largest area (px) of a picture. Chromium allows about 268 MP per canvas, but each pixel holds 4 bytes, so 160 MP is
+ * already 640 MB for the canvas alone, plus what the PNG encoder needs; more than that risks running out of memory on an
+ * ordinary computer. When the browser still cannot make the canvas, the picture is tried again at half the size.
+ */
+export const MAX_AREA = 160_000_000;
+/** Pixels per px a whole or branch picture aims for (or the screen's ratio when higher), so names stay sharp when zoomed in. */
+export const SHARP = 3;
 /** Side (world units) of one request when a whole chart is fetched in pieces. */
 export const TILE = 4000;
 
@@ -142,7 +151,7 @@ export interface Fit {
   percent: number;
 }
 
-/** Scales a picture of `w` x `h` px down so each side is at most 16,384 px and the area at most about 200 MP. */
+/** Scales a picture of `w` x `h` px down so each side is at most `MAX_SIDE` px and the area at most `MAX_AREA` px. */
 export function fitScale(w: number, h: number): Fit {
   const s = Math.min(1, MAX_SIDE / Math.max(1, w, h), Math.sqrt(MAX_AREA / Math.max(1, w * h)));
   const reduced = s < 1;
@@ -215,9 +224,10 @@ const effective = (scale: number) => ({ reduced: scale < 1, percent: scale < 1 ?
 
 /**
  * How a picture is laid out. Whole and branch pictures show the scene at zoom 1 with a margin and are cropped to it, at
- * twice the pixels (or the screen's ratio when higher) so text is sharp; when that is too big they fall back to 1x, and
- * only then go below 1x. A screen picture is exactly the viewport at its zoom, at the screen's pixel ratio. A vector
- * picture (SVG) has no size limit and is never scaled.
+ * `SHARP` times the pixels (or the screen's ratio when higher) so text is sharp; when that is too big they take the
+ * largest scale that still fits `MAX_SIDE` and `MAX_AREA` (2.8x, 1.5x, ...), and go below 1x (`reduced`) only when even
+ * 1x does not fit. A screen picture is exactly the viewport at its zoom, at the screen's pixel ratio. A vector picture
+ * (SVG) has no size limit and is never scaled.
  */
 export function planPicture(
   scope: PictureScope,
@@ -241,15 +251,11 @@ export function planPicture(
     return { cam, view, scale: 1, width: view.w, height: view.h + CAPTION_H, reduced: false, percent: 100 };
   }
   const dpr = Math.max(1, shot ? shot.dpr : (opts.dpr ?? 1));
-  const bases = shot ? [dpr] : [...new Set([Math.max(2, dpr), 1])];
-  let plan!: PicturePlan;
-  for (const base of bases) {
-    const f = fitScale(view.w * base, (view.h + CAPTION_H) * base);
-    const scale = base * f.scale;
-    plan = { cam, view, scale, width: f.w, height: f.h, ...effective(scale) };
-    if (!f.reduced) break;
-  }
-  return plan;
+  const base = shot ? dpr : Math.max(SHARP, dpr);
+  // The limits are checked on the 1x size, so the scale is continuous: as large as fits, up to `base`.
+  const f = fitScale(view.w * base, (view.h + CAPTION_H) * base);
+  const scale = base * f.scale;
+  return { cam, view, scale, width: f.w, height: f.h, ...effective(scale) };
 }
 
 /** The same picture at `factor` times the size (for a retry when the browser could not make the canvas). */

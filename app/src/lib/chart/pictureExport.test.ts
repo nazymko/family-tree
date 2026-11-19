@@ -134,6 +134,43 @@ describe('renderPng retries', () => {
     expect(notices.current?.message).toBe('The chart is very large, so the picture was saved at 50%.');
   });
 
+  it('an_empty_blob_or_a_canvas_that_stayed_blank_counts_as_a_failure_and_is_tried_again_at_half_the_size', async () => {
+    const sizes: number[] = [];
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      sizes.push(this.width * this.height);
+      return makeFakeContext() as never;
+    } as never);
+    // Chromium makes an oversized canvas but gives an empty blob for it.
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (this: HTMLCanvasElement, cb: BlobCallback) {
+      const bytes = this.width * this.height > 3_000_000 ? new Uint8Array(0) : new Uint8Array([...PNG_HEAD, 9]);
+      cb(Object.assign(new Blob([bytes], { type: 'image/png' }), { arrayBuffer: async () => bytes.buffer }));
+    } as never);
+    const api = new MockApi(fixtureTree(5));
+    await savePicture({ api, platform: new MockPlatform() }, { fileName: 'x.png', build: async () => built({ w: 3000, h: 3000 }), setBusy: () => {} });
+    expect(sizes).toHaveLength(2);
+    expect(api.savedPictures).toHaveLength(1);
+    expect(notices.current?.message).toBe('The chart is very large, so the picture was saved at 50%.');
+
+    // A canvas that was made but stayed transparent (the background is missing) also fails.
+    notices.dismiss();
+    sizes.length = 0;
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      sizes.push(this.width * this.height);
+      const ctx = makeFakeContext();
+      const blank = this.width * this.height > 3_000_000;
+      (ctx as unknown as Record<string, unknown>).getImageData = () => ({ data: new Uint8ClampedArray([0, 0, 0, blank ? 0 : 255]) });
+      return ctx as never;
+    } as never);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (cb: BlobCallback) {
+      const bytes = new Uint8Array([...PNG_HEAD, 9]);
+      cb(Object.assign(new Blob([bytes], { type: 'image/png' }), { arrayBuffer: async () => bytes.buffer }));
+    } as never);
+    await savePicture({ api, platform: new MockPlatform() }, { fileName: 'x.png', build: async () => built({ w: 3000, h: 3000 }), setBusy: () => {} });
+    expect(sizes).toHaveLength(2);
+    expect(api.savedPictures).toHaveLength(2);
+    expect(notices.current?.message).toBe('The chart is very large, so the picture was saved at 50%.');
+  });
+
   it('keeps_halving_twice_then_suggests_svg_and_gives_up_with_a_plain_message_after_that', async () => {
     const sizes = limitedCanvas(1_000_000);
     const api = new MockApi(fixtureTree(5));
@@ -185,7 +222,7 @@ describe('savePicture', () => {
     const s = setup();
     await savePicture(
       { api: s.api, platform: s.platform },
-      { fileName: 'Whole tree.png', build: async () => built({ w: 40960, h: 1000 }), setBusy: s.setBusy },
+      { fileName: 'Whole tree.png', build: async () => built({ w: 80000, h: 1000 }), setBusy: s.setBusy },
     );
     expect(notices.current?.message).toBe('The chart is very large, so the picture was saved at 40%. For a sharp picture, save it as SVG.');
   });
@@ -194,7 +231,7 @@ describe('savePicture', () => {
     const s = setup();
     await savePicture(
       { api: s.api, platform: s.platform },
-      { fileName: 'Whole tree.png', build: async () => built({ w: 24000, h: 1000 }), setBusy: s.setBusy },
+      { fileName: 'Whole tree.png', build: async () => built({ w: 47000, h: 1000 }), setBusy: s.setBusy },
     );
     expect(notices.current?.message).toBe('The chart is very large, so the picture was saved at 68%.');
   });

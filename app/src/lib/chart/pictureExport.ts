@@ -74,6 +74,9 @@ export async function renderPng(b: BuiltPicture): Promise<Uint8Array> {
   ctx.fillStyle = b.theme.paper;
   ctx.fillRect(0, 0, plan.width, plan.height);
   ctx.restore();
+  // A canvas bigger than the browser can hold may be made anyway and silently stay empty: the background just painted
+  // is missing then, so the picture is treated as failed (and tried again smaller).
+  if (!painted(ctx)) throw new Error(t('picture.failed'));
 
   // The caption (a paper page has its title block inside the chart instead).
   if (b.pageMm || !b.caption) return toPng(canvas);
@@ -91,10 +94,30 @@ export async function renderPng(b: BuiltPicture): Promise<Uint8Array> {
   return toPng(canvas);
 }
 
+/** Whether the top-left pixel holds the opaque background (true when the context cannot tell, as in tests). */
+function painted(ctx: CanvasRenderingContext2D): boolean {
+  let px: ImageData | undefined;
+  try {
+    px = ctx.getImageData(0, 0, 1, 1) as ImageData | undefined;
+  } catch {
+    return false;
+  }
+  return !px?.data || px.data.length < 4 || px.data[3] !== 0;
+}
+
+/** The PNG bytes of a canvas; an oversized canvas gives no blob or an empty one in Chromium, which counts as a failure. */
 async function toPng(canvas: HTMLCanvasElement): Promise<Uint8Array> {
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-  if (!blob) throw new Error(t('picture.failed'));
-  return new Uint8Array(await blob.arrayBuffer());
+  const blob = await new Promise<Blob | null>((resolve, reject) => {
+    try {
+      canvas.toBlob(resolve, 'image/png');
+    } catch (e) {
+      reject(e instanceof Error ? e : new Error(t('picture.failed')));
+    }
+  });
+  if (!blob || blob.size === 0) throw new Error(t('picture.failed'));
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  if (bytes.length === 0) throw new Error(t('picture.failed'));
+  return bytes;
 }
 
 function messageOf(e: unknown): string {
