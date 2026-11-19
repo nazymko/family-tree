@@ -121,6 +121,7 @@ export * from './OutlineGroupKind';
 export * from './OutlineItem';
 export * from './OwnerKind';
 export * from './OwnerRef';
+export * from './OziPlacementDto';
 export * from './Page';
 export * from './ParentRelId';
 export * from './ParentSetDto';

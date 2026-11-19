@@ -8,6 +8,7 @@ import { fixtureTree } from '../api/mock/fixtures';
 import { nav } from '../state/nav.svelte';
 import { project } from '../state/project.svelte';
 import { renderWith } from '../testing/renderWith';
+import { notices } from '../ui/notices.svelte';
 import MapView from './MapView.svelte';
 
 beforeEach(() => {
@@ -165,6 +166,91 @@ describe('Map view', () => {
     await user.click(within(panel).getAllByRole('button', { name: 'Remove from map' })[1]);
     await waitFor(async () => expect((await api.mapData({ kind: 'all' })).layers).toHaveLength(1));
     expect((await api.unlinkedMedia()).some((m) => m.id === media)).toBe(true);
+  });
+
+  it('groups_forty_maps_by_series_shows_a_series_in_one_undo_step_and_one_map_alone', async () => {
+    const api = new MockApi(fixtureTree(10));
+    const series = ['Three-verst map', 'Two-verst map', 'Schubert', 'Strelbitsky', 'Rizzi-Zannoni'];
+    const ids: string[] = [];
+    for (let i = 0; i < 40; i++) {
+      const s = series[i % 5];
+      const lat = 52 - Math.floor(i / 8) * 0.6;
+      const lon = 26 + (i % 8) * 0.8;
+      const c = (la: number, lo: number) => ({ latE6: Math.round(la * 1e6), lonE6: Math.round(lo * 1e6) });
+      ids.push(await api.addMapLayerFile(`C:/Maps/${s} ${i}.jpg`, `${s} sheet ${i}`, { series: s, opacity: 70, visible: false, corners: [c(lat, lon), c(lat, lon + 0.8), c(lat - 0.6, lon + 0.8), c(lat - 0.6, lon)] }));
+    }
+    const asked = vi.spyOn(api, 'mediaUrl');
+    const shown = vi.spyOn(notices, 'show');
+    renderWith(MapView, { onOpenPerson: vi.fn() }, { api });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Old maps (40)' }));
+    const panel = screen.getByRole('complementary', { name: 'Old maps' });
+    // Five series, folded (40 maps), each with its count; nothing hidden was ever asked for.
+    for (const s of series) expect(within(panel).getByRole('button', { name: s })).toHaveAttribute('aria-expanded', 'false');
+    expect(within(panel).getAllByText('0 of 8 shown')).toHaveLength(5);
+    expect(asked).not.toHaveBeenCalled();
+
+    // The Schubert series shown with its group checkbox: one change, one notice, one undo step.
+    const before = (await api.undoState()).undoLabel;
+    await user.click(within(panel).getByRole('checkbox', { name: 'Show the series Schubert' }));
+    await waitFor(async () => expect((await api.mapData({ kind: 'all' })).layers.filter((l) => l.visible)).toHaveLength(8));
+    expect(shown).toHaveBeenCalledTimes(1);
+    expect(shown).toHaveBeenLastCalledWith({ message: 'Schubert shown (8 maps).' });
+    expect((await api.undoState()).undoLabel).toBe('Show maps on the Map');
+    await waitFor(() => expect(within(panel).getByRole('checkbox', { name: 'Show the series Schubert' })).toBeChecked());
+    // Only the shown maps' pictures are asked for.
+    await waitFor(() => expect(asked).toHaveBeenCalled());
+    const schubert = new Set((await api.mapData({ kind: 'all' })).layers.filter((l) => l.series === 'Schubert').map((l) => l.media));
+    for (const [id] of asked.mock.calls) expect(schubert.has(id)).toBe(true);
+    await api.undo();
+    expect((await api.mapData({ kind: 'all' })).layers.filter((l) => l.visible)).toHaveLength(0);
+    expect((await api.undoState()).undoLabel).toBe(before);
+    await api.redo();
+    project.rev++;
+
+    // A partly shown series: its box is mixed, and a click shows the rest.
+    await user.click(within(panel).getByRole('button', { name: 'Two-verst map' }));
+    await user.click(within(panel).getByRole('checkbox', { name: 'Show Two-verst map sheet 1' }));
+    await waitFor(() => expect((within(panel).getByRole('checkbox', { name: 'Show the series Two-verst map' }) as HTMLInputElement).indeterminate).toBe(true));
+
+    // Only this one: every other map hidden, in one step.
+    shown.mockClear();
+    await user.click(within(panel).getByRole('button', { name: 'Show only Two-verst map sheet 6' }));
+    await waitFor(async () => expect((await api.mapData({ kind: 'all' })).layers.filter((l) => l.visible).map((l) => l.title)).toEqual(['Two-verst map sheet 6']));
+    expect(shown).toHaveBeenCalledTimes(1);
+    expect((await api.undoState()).undoLabel).toBe('Choose maps shown on the Map');
+    await api.undo();
+    expect((await api.mapData({ kind: 'all' })).layers.filter((l) => l.visible)).toHaveLength(9);
+    await api.redo();
+    project.rev++;
+
+    // The filter finds a sheet by its number; Show all and Hide all are one step each.
+    await user.type(within(panel).getByRole('searchbox', { name: 'Find a map by title or sheet' }), 'sheet 17');
+    await waitFor(() => expect(within(panel).getAllByRole('checkbox', { name: /^Show .* sheet/ })).toHaveLength(1));
+    await user.clear(within(panel).getByRole('searchbox', { name: 'Find a map by title or sheet' }));
+    await user.click(within(panel).getByRole('button', { name: 'Hide all' }));
+    await waitFor(async () => expect((await api.mapData({ kind: 'all' })).layers.every((l) => !l.visible)).toBe(true));
+    expect((await api.undoState()).undoLabel).toBe('Hide maps on the Map');
+    expect(ids).toHaveLength(40);
+  });
+
+  it('a_map_file_that_does_not_fit_the_picture_opens_the_corners_instead_of_placing_it', async () => {
+    const api = new MockApi(fixtureTree(10));
+    const { platform } = renderWith(MapView, { onOpenPerson: vi.fn() }, { api });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Old maps' }));
+    const panel = screen.getByRole('complementary', { name: 'Old maps' });
+    // In the mock, a picture named "crop" was cropped from the one its .map file was made for.
+    platform.next.file = 'C:/Maps/sheet 30-13 crop.jpg';
+    await user.click(within(panel).getByRole('button', { name: 'Add a map…' }));
+    await user.click(within(panel).getByRole('button', { name: 'Add to the map' }));
+    expect(await screen.findByText(/Drag the corners of “sheet 30-13 crop”/)).toBeInTheDocument();
+    expect(notices.current?.message).toMatch(/does not fit sheet 30-13 crop/);
+    // Laid on the Map but not placed: the corners wait for the owner's Save.
+    const l = (await api.mapData({ kind: 'all' })).layers[0];
+    expect(l.corners).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(async () => expect((await api.mapData({ kind: 'all' })).layers[0].corners?.[0]).toEqual({ latE6: 50_600_000, lonE6: 30_000_000 }));
   });
 
   it('edits_a_maps_corners_as_typed_degrees_and_refuses_a_wrong_one', async () => {

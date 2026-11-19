@@ -29,12 +29,12 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
     });
     let ozi = text(
-        "The full path of the OziExplorer .map file that came with the scan (as with the three-verst sheets): the corners are read from it, Pulkovo 1942 coordinates moved to WGS 84. Give this or corners, not both.",
+        "The full path of the OziExplorer .map file that came with the scan (as with the three-verst sheets): the corners are read from it, Pulkovo 1942 coordinates moved to WGS 84. The picture must be the one the .map file was made for, or that picture scaled: a picture of another shape (cropped or framed differently, such as a site's JPEG next to its .ozf2) is refused, because its corners would be kilometres off. Give this or corners, not both.",
     );
     vec![
         Tool {
             name: "add_map_layer",
-            description: "Adds an old scanned map (a two- or three-verst sheet, a square of an old atlas: a JPEG, PNG, WebP, GIF or TIFF picture of at most 50 MiB) to the tree and lays it on the app's Map under the places, so the owner can see where the ancestors lived. The file is copied in; the original stays. Give the title, where the scan comes from (source: a web address or an archive reference), and if known the series and year. Give the corners only when you know them: from the OziExplorer .map file that came with the scan (ozi_map_path), or as four points you have read off the map's frame; otherwise leave them out and the owner places it. A guess is never a corner. The same picture again answers alreadyThere. The answer's id is the picture's media id.",
+            description: "Adds an old scanned map (a two- or three-verst sheet, a square of an old atlas: a JPEG, PNG, WebP, GIF or TIFF picture of at most 50 MiB) to the tree and lays it on the app's Map under the places, so the owner can see where the ancestors lived. The file is copied in; the original stays. Give the title, where the scan comes from (source: a web address or an archive reference), and if known the series and year. Give the corners only when you know them: from the OziExplorer .map file that came with the scan (ozi_map_path), or as four points you have read off the map's frame; otherwise leave them out and the owner places it. A guess is never a corner. The map is laid hidden unless you give visible: true; the owner chooses which maps to show (a tree can hold dozens, and showing them all at once makes the Map slow). The same picture again answers alreadyThere. The answer's id is the picture's media id.",
             schema: with_batch(
                 &["file_path", "title", "source"],
                 json!({
@@ -45,6 +45,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
                     "source": text("Where the scan comes from: a web address or an archive reference."),
                     "corners": corners.clone(),
                     "ozi_map_path": ozi.clone(),
+                    "visible": {"type": "boolean", "default": false, "description": "Whether the map is shown on the Map at once. Leave it out (hidden) unless the owner asked to see this map: the owner shows it from the Map's Old maps panel."},
                 }),
             ),
             call: add_map_layer::<H>,
@@ -69,6 +70,16 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             call: set_own_map_layer_corners::<H>,
         },
     ]
+}
+
+/// The `visible` argument: hidden when left out, so a tree with dozens of agent-laid maps does
+/// not draw them all at once.
+fn visible_arg(args: &Value) -> Result<bool, gt_session::ApiError> {
+    match args.get("visible") {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::Bool(b)) => Ok(*b),
+        Some(_) => Err(invalid("visible is true or false.".into())),
+    }
 }
 
 /// Decimal degrees as the tree keeps them.
@@ -121,7 +132,7 @@ fn placement(args: &Value, picture: &Path) -> Result<Option<Vec<MapCorner>>, gt_
         (None, Some(path)) => {
             let path = PathBuf::from(path);
             check_agent_path(&path)?;
-            Ok(Some(ozi_corners(&path, picture)?.corners.to_vec()))
+            Ok(Some(ozi_corners(&path, picture)?.fitting()?.to_vec()))
         }
         (None, None) => Ok(None),
     }
@@ -149,7 +160,7 @@ fn add_map_layer<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult 
         source: Some(source),
         corners,
         opacity: 70,
-        visible: true,
+        visible: visible_arg(args)?,
     };
     // Checked, copied and hashed without the tree's lock; removed again if not recorded.
     let prepared = prepare_agent_file(&dir, &path, OwnerKind::Person)?;

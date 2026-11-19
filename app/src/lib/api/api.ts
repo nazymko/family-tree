@@ -60,8 +60,8 @@ import type {
   GazetteerStatusDto,
   MapDataDto,
   MapScope,
-  MapCorner,
   MapLayerInput,
+  OziPlacementDto,
 } from './types';
 import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus } from './types';
 
@@ -165,8 +165,10 @@ export interface Api {
   addMapLayerFile(path: string, title: string | null, layer: MapLayerInput, oziMapPath?: string | null): Promise<Id>;
   /** The OziExplorer .map file next to a picture that names it, or null. */
   findOziMap(path: string): Promise<string | null>;
-  /** The corners an OziExplorer .map file gives a picture already in the tree. */
-  oziCorners(mapPath: string, media: Id): Promise<MapCorner[]>;
+  /** The corners an OziExplorer .map file gives a picture already in the tree, and whether the file fits it. */
+  oziCorners(mapPath: string, media: Id): Promise<OziPlacementDto>;
+  /** The corners an OziExplorer .map file gives a picture about to be added, and whether the file fits it (not when the picture was cropped or framed otherwise). */
+  oziCheck(mapPath: string, picturePath: string): Promise<OziPlacementDto>;
   gazetteerStatus(): Promise<GazetteerStatusDto>;
   /** Download size in bytes of a country's place data, or null when unknown. */
   gazetteerRemoteSize(country: string): Promise<number | null>;

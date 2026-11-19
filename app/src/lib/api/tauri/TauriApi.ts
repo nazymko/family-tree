@@ -63,8 +63,8 @@ import type {
   GazetteerStatusDto,
   MapDataDto,
   MapScope,
-  MapCorner,
   MapLayerInput,
+  OziPlacementDto,
   WholeMeta,
 } from '../types';
 import { toApiError } from './errors';
@@ -280,7 +280,10 @@ export class TauriApi implements Api {
   findOziMap(path: string): Promise<string | null> {
     return call('find_ozi_map', { path });
   }
-  oziCorners(mapPath: string, media: Id): Promise<MapCorner[]> {
+  oziCheck(mapPath: string, picturePath: string): Promise<OziPlacementDto> {
+    return call('ozi_check', { mapPath, picturePath });
+  }
+  oziCorners(mapPath: string, media: Id): Promise<OziPlacementDto> {
     return call('ozi_corners', { mapPath, media });
   }
   gazetteerStatus(): Promise<GazetteerStatusDto> {

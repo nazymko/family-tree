@@ -95,6 +95,7 @@ export const commandFixtureMap = {
     },
   },
   reorderMapLayers: { type: 'reorderMapLayers', order: [`${ID}9`, `${ID}8`] },
+  setMapLayersVisible: { type: 'setMapLayersVisible', shown: [`${ID}9`], hidden: [`${ID}8`] },
   addNumber: { type: 'addNumber', person: `${ID}1`, sourceFile: 'recording2.txt', number: '12' },
   addGodparent: { type: 'addGodparent', event: `${ID}4`, godparent: { name: 'Ivan Petrovych Koval, a peasant', role: 'godfather', note: 'of Ivanivka' } },
   removeGodparent: { type: 'removeGodparent', event: `${ID}4`, godparent: `${ID}8` },

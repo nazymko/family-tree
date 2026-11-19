@@ -50,9 +50,29 @@ pub fn prepare_map_file(dir: &Path, path: &Path) -> Result<PreparedAttach, ApiEr
 }
 
 /// The corners an OziExplorer `.map` file gives a picture. The picture's own size is read when
-/// the file does not name it.
+/// the file does not name it, and compared with the size it names.
 pub fn ozi_corners(map: &Path, picture: &Path) -> Result<crate::ozi::OziCorners, ApiError> {
     crate::ozi::read_ozi_map_file(map, crate::thumbs::image_dims(picture))
+}
+
+/// What a `.map` file says of where the owner's picture lies.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OziPlacementDto {
+    /// Top left, top right, bottom right, bottom left.
+    pub corners: Vec<MapCorner>,
+    /// False when the picture has another shape than the one the file was made for (cropped or
+    /// framed differently): the corners are then only a first guess for the owner to correct.
+    pub fits: bool,
+}
+
+/// [`ozi_corners`] for the owner: the corners, and whether they can be trusted.
+pub fn ozi_placement(map: &Path, picture: &Path) -> Result<OziPlacementDto, ApiError> {
+    let o = ozi_corners(map, picture)?;
+    Ok(OziPlacementDto {
+        corners: o.corners.to_vec(),
+        fits: !o.mismatch,
+    })
 }
 
 /// The OziExplorer `.map` file lying next to a picture, if there is one: a `.map` in the same

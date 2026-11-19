@@ -114,6 +114,9 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         // An old map on the Map: an agent lays a picture on it, and changes or takes off only a
         // layer it laid itself that nobody has changed since (`check_map_layer`).
         C::SetMapLayer { .. } => Ok(()),
+        C::SetMapLayersVisible { .. } => Err(refused(
+            "Only the owner shows and hides maps on the Map. Lay a map hidden or shown with add_map_layer's visible.",
+        )),
         C::ReorderMapLayers { .. } => Err(refused(
             "Only the owner orders the maps on the Map. Say in your report which map should lie over which.",
         )),

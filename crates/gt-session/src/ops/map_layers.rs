@@ -171,6 +171,37 @@ pub(crate) fn plan_new_layer(
     Ok((p.finish("Lay map on the Map".into()), id))
 }
 
+pub(super) fn set_visible(
+    p: &mut Planner,
+    shown: &[Uuid],
+    hidden: &[Uuid],
+) -> Result<Option<Uuid>, ApiError> {
+    if shown.len().saturating_add(hidden.len()) > MAP_LAYERS_MAX {
+        return Err(invalid(format!(
+            "A tree holds at most {MAP_LAYERS_MAX} maps on the Map."
+        )));
+    }
+    if shown.iter().any(|id| hidden.contains(id)) {
+        return Err(invalid("A map is either shown or hidden, not both."));
+    }
+    let all = shown
+        .iter()
+        .map(|id| (id, true))
+        .chain(hidden.iter().map(|id| (id, false)));
+    for (id, visible) in all {
+        let mut m: Media = p.get(*id)?;
+        let Some(l) = m.map_layer.as_mut() else {
+            return Err(invalid("This picture is not on the Map."));
+        };
+        if l.visible != visible {
+            l.visible = visible;
+            m.common.changed = Some(p.now);
+            p.put(m);
+        }
+    }
+    Ok(None)
+}
+
 pub(super) fn reorder(p: &mut Planner, order: &[Uuid]) -> Result<Option<Uuid>, ApiError> {
     let mut layers: Vec<Uuid> = p
         .tree

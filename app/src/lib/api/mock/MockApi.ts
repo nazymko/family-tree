@@ -91,6 +91,7 @@ import type {
   MapCorner,
   MapLayerDto,
   MapLayerInput,
+  OziPlacementDto,
 } from '../types';
 import { personFieldChanges } from './fieldDiff';
 import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } from './build';
@@ -289,8 +290,16 @@ const LABELS: Record<EditCommand['type'], string> = {
   setPlaceCoordinates: 'Set place coordinates',
   setMapLayer: 'Change map layer',
   reorderMapLayers: 'Reorder map layers',
+  setMapLayersVisible: 'Show maps on the Map',
   addNumber: 'Record number',
 };
+
+/** The label the backend gives SetMapLayersVisible: show, hide, or both at once. */
+function visibilityLabel(cmd: Extract<EditCommand, { type: 'setMapLayersVisible' }>): string {
+  if (cmd.hidden.length === 0) return 'Show maps on the Map';
+  if (cmd.shown.length === 0) return 'Hide maps on the Map';
+  return 'Choose maps shown on the Map';
+}
 
 /** What a synthetic OziExplorer .map file gives in the mock: a sheet around 50.3 N, 30.6 E. */
 const MOCK_OZI_CORNERS: MapCorner[] = [
@@ -1181,7 +1190,7 @@ export class MockApi implements Api {
 
   async apply(cmd: EditCommand): Promise<EditResult> {
     const addedStep = (cmd.type === 'quickAdd' || cmd.type === 'linkExisting') && cmd.parentRel === 'step' && (cmd.relation === 'father' || cmd.relation === 'mother');
-    const label = addedStep ? `Add step${cmd.relation}` : cmd.type === 'quickAdd' || cmd.type === 'linkExisting' ? `Add ${cmd.relation}` : LABELS[cmd.type];
+    const label = addedStep ? `Add step${cmd.relation}` : cmd.type === 'quickAdd' || cmd.type === 'linkExisting' ? `Add ${cmd.relation}` : cmd.type === 'setMapLayersVisible' ? visibilityLabel(cmd) : LABELS[cmd.type];
     const before = this.db;
     this.db = structuredClone(before);
     let outcome: { focus: Id | null; touched: Id[] };
@@ -2417,10 +2426,16 @@ export class MockApi implements Api {
     return /sheet/i.test(path) ? path.replace(/\.[^.]+$/, '_ozf.map') : null;
   }
 
-  async oziCorners(mapPath: string, media: Id): Promise<MapCorner[]> {
+  async oziCorners(mapPath: string, media: Id): Promise<OziPlacementDto> {
     if (!this.db.media.has(media)) throw missing('media', media);
     if (!/\.map$/i.test(mapPath)) throw invalid('This is not an OziExplorer .map file.');
-    return structuredClone(MOCK_OZI_CORNERS);
+    return { corners: structuredClone(MOCK_OZI_CORNERS), fits: !/crop/i.test(mapPath) };
+  }
+
+  /** In the mock a picture whose name says "crop" does not fit its .map file. */
+  async oziCheck(mapPath: string, picturePath: string): Promise<OziPlacementDto> {
+    if (!/\.map$/i.test(mapPath)) throw invalid('This is not an OziExplorer .map file.');
+    return { corners: structuredClone(MOCK_OZI_CORNERS), fits: !/crop/i.test(picturePath) };
   }
 
   private gaz = new Set<string>();
@@ -3228,6 +3243,16 @@ export class MockApi implements Api {
           });
         }
         return { focus: null, touched: [cmd.media] };
+      }
+
+      case 'setMapLayersVisible': {
+        const layers = this.db.layers ?? new Map<Id, MapLayerDto>();
+        if (cmd.shown.some((id) => cmd.hidden.includes(id))) throw invalid('A map is either shown or hidden, not both.');
+        const all: [Id, boolean][] = [...cmd.shown.map((id): [Id, boolean] => [id, true]), ...cmd.hidden.map((id): [Id, boolean] => [id, false])];
+        for (const [id] of all) if (!layers.has(id)) throw invalid('This picture is not on the Map.');
+        const changed = all.filter(([id, v]) => layers.get(id)!.visible !== v);
+        for (const [id, v] of changed) layers.get(id)!.visible = v;
+        return { focus: null, touched: changed.map(([id]) => id) };
       }
 
       case 'reorderMapLayers': {

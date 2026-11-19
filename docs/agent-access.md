@@ -172,16 +172,31 @@ The Map shows an event only when its place has coordinates. An agent can give a 
 
 Scanned old maps (two- and three-verst sheets, squares of an atlas) can lie on the Map under the places. An agent can add
 one with `add_map_layer` (inputs: the batch, `file_path` of a JPEG, PNG, WebP, GIF or TIFF picture of at most 50 MiB, a
-`title`, the `source` it comes from, and optionally `series`, `year`, and the placement: four `corners` as
+`title`, the `source` it comes from, and optionally `series`, `year`, `visible`, and the placement: four `corners` as
 `{"lat": …, "lon": …}` in decimal degrees, top left, top right, bottom right, bottom left of the picture, or
 `ozi_map_path`, the OziExplorer `.map` file that came with the scan). `list_map_layers` lists every map on the Map with
 its corners and whether it is the agent's own (`yours`). `set_own_map_layer_corners` places one again.
 
 - The picture is copied into the tree's media like any other file and drawn at 70% opacity. Without corners it waits
   for you to place it: the Map's **Old maps** panel shows "not placed yet".
-- From a `.map` file the app reads the corner lines (`MMPLL`), or else the calibration points, and works out where the
-  picture's corners lie even when the picture has another size than the one the file was made for. A map drawn on the
-  Pulkovo 1942 datum is moved to WGS 84.
+- **An agent's map is laid hidden** unless the agent gives `visible: true` (it is told to do that only when you asked to
+  see that map). You choose what the Map shows in the **Old maps** panel: the maps are grouped by series, each series
+  folds and has one box that shows or hides all its maps, **Only this** shows one map and hides the others, **Show all**
+  and **Hide all** do what they say, a search box finds a map by title or sheet number, and the maps under the middle of
+  the view are listed first. Each of these is one change: one line in the **Change log** ("Show old maps", "Hide old
+  maps", "Choose the old maps shown") and one step of **Undo**. An agent cannot show or hide your maps.
+- The Map loads only what it shows: a hidden map, or one far off the screen, loads no picture at all; a shown one on
+  the screen loads its 1600-pixel preview; the original (at most 8192 pixels across) is loaded only for the two largest
+  maps on the screen once you zoom in past the preview. Pictures not shown for a while are let go again. While you pan
+  or zoom, the maps already drawn are moved as one picture and drawn afresh when the view rests.
+- From a `.map` file the app reads the corner lines (`MMPXY` with `MMPLL`), or else the calibration points
+  (`Point01`…), both in the datum the file names; a map drawn on the Pulkovo 1942 datum is moved to WGS 84. The picture
+  may be the one the file was made for or that picture at another size. **A picture of another shape** (cropped or
+  framed differently, such as a site's JPEG next to its `.ozf2`), or one the file's points fall outside of, would land
+  kilometres off: an agent is refused ("The .map file does not fit this picture…"), and when you add such a map
+  yourself the app says so and opens the corners at the file's guess for you to drag into place before saving.
+- A scanned sheet of up to 160 million pixels (a two-verst sheet is about 11 000 x 10 000) gets a preview; the original
+  is kept as it is.
 - An agent places only a map it added itself and nobody has changed since. Once you move, hide or fade it, it is
   yours. It never changes the order of the maps and never takes one off the Map.
 - The same picture again answers `alreadyThere`. It is in the **Change log** under the agent's name ("Lay map on the

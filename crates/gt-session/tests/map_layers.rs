@@ -259,3 +259,121 @@ fn an_agent_changes_only_the_layers_it_laid_and_nobody_changed_since() {
     s.undo_batch(b).unwrap();
     assert!(s.map_layers().iter().any(|l| l.media == owner_map));
 }
+
+/// A JPEG cropped from the picture the .map was made for has another shape: the corners are
+/// still worked out as a first guess, but the file is said not to fit and `fitting` refuses it.
+#[test]
+fn a_cropped_picture_does_not_fit_its_ozi_file() {
+    let (dir, s) = session();
+    let pic = write(dir.path(), "sheet-c.jpg", &jpeg(190, 100, 50));
+    let map = write(dir.path(), "sheet-c_ozf.map", OZI.as_bytes());
+    let c = map_layers::ozi_corners(&map, &pic).unwrap();
+    assert!(c.mismatch);
+    assert_eq!(c.fitting().unwrap_err().message, ozi::OZI_MISMATCH);
+    drop(s);
+}
+
+/// Showing or hiding a whole series is one change: one entry, one undo step, and maps already
+/// so are not touched.
+#[test]
+fn a_series_is_shown_or_hidden_in_one_step() {
+    let (dir, mut s) = session();
+    let ids: Vec<Uuid> = (0..4u8)
+        .map(|i| {
+            let p = write(
+                dir.path(),
+                &format!("sheet-{i}.jpg"),
+                &jpeg(30, 20, 10 + i * 40),
+            );
+            s.add_map_layer_file(&p, Some(format!("Sheet {i}")), &layer(None))
+                .unwrap()
+        })
+        .collect();
+    // One of them is hidden already.
+    let mut hidden = layer(None);
+    hidden.visible = false;
+    s.apply(EditCommand::SetMapLayer {
+        media: ids[3],
+        layer: Some(hidden),
+        title: None,
+    })
+    .unwrap();
+    let shown = |s: &Session| s.map_layers().iter().filter(|l| l.visible).count();
+    assert_eq!(shown(&s), 3);
+
+    let r = s
+        .apply(EditCommand::SetMapLayersVisible {
+            shown: vec![],
+            hidden: ids.clone(),
+        })
+        .unwrap();
+    assert_eq!(r.label, "Hide maps on the Map");
+    assert_eq!(shown(&s), 0);
+    // One undo brings all three back; the fourth stays hidden.
+    s.undo().unwrap().unwrap();
+    assert_eq!(shown(&s), 3);
+    assert!(
+        !s.map_layers()
+            .iter()
+            .find(|l| l.media == ids[3])
+            .unwrap()
+            .visible
+    );
+    s.redo().unwrap().unwrap();
+    assert_eq!(shown(&s), 0);
+
+    let r = s
+        .apply(EditCommand::SetMapLayersVisible {
+            shown: ids[..2].to_vec(),
+            hidden: vec![],
+        })
+        .unwrap();
+    assert_eq!(r.label, "Show maps on the Map");
+    assert_eq!(shown(&s), 2);
+
+    // Only this one: shown, every other hidden, one undo step.
+    let r = s
+        .apply(EditCommand::SetMapLayersVisible {
+            shown: vec![ids[2]],
+            hidden: vec![ids[0], ids[1], ids[3]],
+        })
+        .unwrap();
+    assert_eq!(r.label, "Choose maps shown on the Map");
+    let on: Vec<Uuid> = s
+        .map_layers()
+        .iter()
+        .filter(|l| l.visible)
+        .map(|l| l.media)
+        .collect();
+    assert_eq!(on, vec![ids[2]]);
+    s.undo().unwrap().unwrap();
+    assert_eq!(shown(&s), 2);
+
+    // A picture that is not on the Map, or one map in both lists, is refused; nothing changes.
+    for bad in [
+        EditCommand::SetMapLayersVisible {
+            shown: vec![ids[2], Uuid::from_u128(77)],
+            hidden: vec![],
+        },
+        EditCommand::SetMapLayersVisible {
+            shown: vec![ids[2]],
+            hidden: vec![ids[2]],
+        },
+    ] {
+        assert!(s.apply(bad).is_err());
+    }
+    assert_eq!(shown(&s), 2);
+    // An agent never shows or hides the owner's maps.
+    let b = s.begin_batch(&me(), "Sheets", None).unwrap();
+    assert!(
+        s.apply_as_agent(
+            EditCommand::SetMapLayersVisible {
+                shown: ids.clone(),
+                hidden: vec![],
+            },
+            &me(),
+            b
+        )
+        .is_err()
+    );
+}

@@ -4,8 +4,8 @@ import type { Basemap, Ring, Shape } from './basemap';
 import { heatStrength, rampTable, type HeatPoint } from './heat';
 import type { BirthLink, PersonPath } from './paths';
 import { pickLabels, radiusFor, type PlacePoint } from './places';
-import { drawWarped, onScreen as quadOnScreen, screenQuad, type WarpCtx } from './layers';
-import { worldPx, type Camera, type World } from './projection';
+import { paintLayers, type LayerPlane, type PlaneLayer } from './layerPlane';
+import { worldPx, type Camera } from './projection';
 
 export interface MapTheme {
   sea: string;
@@ -101,16 +101,14 @@ export interface Scene {
   labels: boolean;
   /** Old maps, lowest first, drawn over the land and under the labels and the data. */
   layers?: DrawLayer[];
+  /** The view's cache of the old maps; without one (a saved picture) they are painted directly. */
+  plane?: LayerPlane;
+  /** The view is being panned or zoomed: the old maps are moved, not drawn again. */
+  moving?: boolean;
 }
 
 /** An old map ready to draw: its corners in world points, its picture, and how opaque (0 to 1). */
-export interface DrawLayer {
-  world: World[];
-  img: CanvasImageSource;
-  iw: number;
-  ih: number;
-  opacity: number;
-}
+export type DrawLayer = PlaneLayer;
 
 interface View {
   cam: Camera;
@@ -449,39 +447,17 @@ function drawHeat(ctx: Ctx, sc: Scene, th: MapTheme, v: View, scale: number): vo
   void th;
 }
 
-let scratch: HTMLCanvasElement | null = null;
-
 /**
- * The old maps. Each is stretched onto a canvas of its own fully opaque and laid on the map with its opacity in one go, so
- * the seams of its triangles never show through. Only a bitmap target can draw pictures; the vector picture leaves them out.
+ * The old maps, over the land and under the labels. In the Map view they come from the plane (drawn once, moved while
+ * the view moves); a picture being saved paints them directly. Only a bitmap target can draw pictures; the vector
+ * picture leaves them out.
  */
 function drawLayers(ctx: Ctx, sc: Scene, v: View, scale: number): void {
   const list = sc.layers ?? [];
-  if (list.length === 0 || !('drawImage' in ctx) || typeof document === 'undefined') return;
+  if (!('drawImage' in ctx) || typeof document === 'undefined') return;
   const main = ctx as unknown as CanvasRenderingContext2D;
-  const pw = Math.max(1, Math.round(v.w * scale));
-  const ph = Math.max(1, Math.round(v.h * scale));
-  for (const l of list) {
-    if (l.opacity <= 0 || l.world.length !== 4) continue;
-    const q = screenQuad(l.world, v.cam, v.w, v.h);
-    if (!quadOnScreen(q, v.w, v.h)) continue;
-    scratch ??= document.createElement('canvas');
-    if (scratch.width !== pw || scratch.height !== ph) {
-      scratch.width = pw;
-      scratch.height = ph;
-    }
-    const g = scratch.getContext('2d');
-    if (!g) return;
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, pw, ph);
-    g.setTransform(scale, 0, 0, scale, 0, 0);
-    g.imageSmoothingQuality = 'high';
-    drawWarped(g as WarpCtx, l.img, l.iw, l.ih, q);
-    main.save();
-    main.globalAlpha = l.opacity;
-    main.drawImage(scratch, 0, 0, v.w, v.h);
-    main.restore();
-  }
+  if (sc.plane) sc.plane.draw(main, list, v.cam, v.w, v.h, scale, !!sc.moving);
+  else if (list.length > 0) paintLayers(main, list, v.cam, v.w, v.h, 0, 0, v.w, v.h, scale);
   ctx.globalAlpha = 1;
 }
 

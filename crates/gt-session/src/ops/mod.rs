@@ -497,6 +497,7 @@ pub fn plan_with(
             title,
         } => map_layers::set_layer(&mut p, *media, layer.as_ref(), title.as_deref())?,
         C::ReorderMapLayers { order } => map_layers::reorder(&mut p, order)?,
+        C::SetMapLayersVisible { shown, hidden } => map_layers::set_visible(&mut p, shown, hidden)?,
         C::GroupMediaVersions { primary, others } => {
             media::group_versions(&mut p, *primary, others)?
         }

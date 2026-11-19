@@ -777,6 +777,15 @@ pub enum EditCommand {
     ReorderMapLayers {
         order: Vec<Uuid>,
     },
+    /// Shows some old maps and hides others, as one change: a whole series shown or hidden, or
+    /// one map shown alone. Maps that are already so are left as they are; a map in both lists
+    /// is refused.
+    SetMapLayersVisible {
+        #[serde(default)]
+        shown: Vec<Uuid>,
+        #[serde(default)]
+        hidden: Vec<Uuid>,
+    },
     /// An agent's own number for a person, unique within one named source file. Never exported.
     AddNumber {
         person: Uuid,
@@ -848,6 +857,13 @@ impl EditCommand {
             EditCommand::SetMapLayer { layer: None, .. } => "Take map off the Map".into(),
             EditCommand::SetMapLayer { .. } => "Change map layer".into(),
             EditCommand::ReorderMapLayers { .. } => "Reorder map layers".into(),
+            EditCommand::SetMapLayersVisible { shown, hidden } => {
+                match (shown.is_empty(), hidden.is_empty()) {
+                    (false, true) => "Show maps on the Map".into(),
+                    (true, false) => "Hide maps on the Map".into(),
+                    _ => "Choose maps shown on the Map".into(),
+                }
+            }
             EditCommand::AddNumber { .. } => "Record number".into(),
         }
     }
