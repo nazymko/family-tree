@@ -938,10 +938,16 @@
     align-items: center;
     flex-wrap: wrap;
   }
-  /* Takes what the other controls leave of the last row, so no row ends half empty. */
+  /* The buttons sit tight together right after the filters; the notices come last and stretch to the end of their
+     row, and the years row stretches its sliders, so no row ends half empty and no wide gaps open between buttons. */
   .actions {
+    order: 1;
+    flex: none;
+    justify-content: flex-start;
+  }
+  .toolbar > .notice {
+    order: 2;
     flex: 1 1 auto;
-    justify-content: space-between;
   }
   .f {
     display: inline-flex;
@@ -981,12 +987,11 @@
     border-color: var(--ink-0);
   }
   .years {
-    flex: 0 1 auto;
+    flex: 1 1 auto;
   }
   .years input[type='range'] {
     flex: 1 1 5rem;
     min-width: 5rem;
-    max-width: 16rem;
   }
   output {
     min-width: 3rem;
