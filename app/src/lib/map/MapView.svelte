@@ -1,6 +1,6 @@
 <script lang="ts">
   // The Map: where the people of the tree lived. One canvas, three modes (places, heat, movement), shared filters.
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick as afterTick, untrack } from 'svelte';
   import Button from '../ui/Button.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
   import Segmented from '../ui/Segmented.svelte';
@@ -530,6 +530,71 @@
     e.preventDefault();
   }
 
+  // ------------------------------------------------------------- full screen
+
+  // Full screen covers the whole window (the app's sidebar and top bar included) with the map; where the platform allows
+  // it the window itself goes full screen too (Tauri window API on the desktop, the Fullscreen API in a browser).
+  let full = $state(false);
+    let nativeFull = false;
+
+  async function setNative(on: boolean) {
+    try {
+      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        await getCurrentWindow().setFullscreen(on);
+        nativeFull = on;
+      } else if (on && document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+        nativeFull = true;
+      } else if (!on && nativeFull && document.fullscreenElement) {
+        await document.exitFullscreen();
+        nativeFull = false;
+      }
+    } catch {
+      // The in-window mode is enough; the real full screen is only a bonus.
+    }
+  }
+
+  function setFull(on: boolean) {
+    if (full === on) return;
+    full = on;
+    void setNative(on);
+    if (on) canvas?.focus();
+    else void afterTick().then(() => document.querySelector<HTMLButtonElement>('.map [data-full]')?.focus());
+  }
+
+  function windowKey(e: KeyboardEvent) {
+    if (!full || e.defaultPrevented) return;
+    if (e.key === 'Escape' || (e.key === 'F11' && !e.ctrlKey && !e.metaKey && !e.altKey)) {
+      e.preventDefault();
+      setFull(false);
+    }
+  }
+
+  function canvasKey(e: KeyboardEvent) {
+    if (e.key === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      setFull(!full);
+      return;
+    }
+    key(e);
+  }
+
+  onMount(() => {
+    // The browser leaves its own full screen on Escape without telling the key handler.
+    const onFs = () => {
+      if (!document.fullscreenElement && nativeFull) {
+        nativeFull = false;
+        full = false;
+      }
+    };
+    document.addEventListener('fullscreenchange', onFs);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFs);
+      if (full) void setNative(false);
+    };
+  });
+
   // ------------------------------------------------------------- filters
 
   function toggleKind(k: string) {
@@ -612,96 +677,103 @@
   const noteForMissing = $derived(missing.events > 0 ? plural('map.noCoords', missing.events) : '');
 </script>
 
-<section class="map">
-  <header class="bar">
-    <h1>{t('map.title')}</h1>
-    <Segmented
-      legend={t('map.mode')}
-      value={mode}
-      onchange={(v) => (mode = v as Mode)}
-      options={[
-        { value: 'places', label: t('map.places') },
-        { value: 'heat', label: t('map.heat') },
-        { value: 'movement', label: t('map.movement') },
-      ]}
-    />
-  </header>
+<svelte:window onkeydown={windowKey} />
 
-  <div class="filters">
-    <label class="f">
-      <span>{t('map.scope')}</span>
-      <select bind:value={scopeKind}>
-        <option value="all">{t('map.scopeAll')}</option>
-        <option value="ancestors">{t('map.scopeAncestors')}</option>
-        <option value="descendants">{t('map.scopeDescendants')}</option>
-        <option value="person">{t('map.scopePerson')}</option>
-      </select>
-    </label>
-    {#if needsPerson}
-      <span class="who" title={t('map.person')}>{personName || t('map.chooseFirst')}</span>
-    {/if}
-    {#if scopeKind === 'ancestors' || scopeKind === 'descendants'}
+<section class="map" class:full>
+  {#if !full}
+    <div class="toolbar">
+      <h1>{t('map.title')}</h1>
+      <Segmented
+        legend={t('map.mode')}
+        value={mode}
+        onchange={(v) => (mode = v as Mode)}
+        options={[
+          { value: 'places', label: t('map.places') },
+          { value: 'heat', label: t('map.heat') },
+          { value: 'movement', label: t('map.movement') },
+        ]}
+      />
       <label class="f">
-        <span>{t('map.generations')}</span>
-        <select bind:value={generations}>
-          <option value={0}>{t('map.allGenerations')}</option>
-          {#each [1, 2, 3, 4, 5, 6, 8, 10] as n (n)}<option value={n}>{n}</option>{/each}
+        <span>{t('map.scope')}</span>
+        <select bind:value={scopeKind}>
+          <option value="all">{t('map.scopeAll')}</option>
+          <option value="ancestors">{t('map.scopeAncestors')}</option>
+          <option value="descendants">{t('map.scopeDescendants')}</option>
+          <option value="person">{t('map.scopePerson')}</option>
         </select>
       </label>
-    {/if}
-    {#if mode === 'movement'}
-      <label class="f">
-        <span>{t('map.colorBy')}</span>
-        <select bind:value={colorBy}>
-          <option value="generation">{t('map.byGeneration')}</option>
-          <option value="surname">{t('map.bySurname')}</option>
-        </select>
-      </label>
-    {/if}
-  </div>
-
-  {#if allKinds.length > 0}
-    <div class="kinds" role="group" aria-label={t('map.events')}>
-      <span class="cap">{t('map.events')}</span>
-      <button type="button" class="chip" class:on={kinds.size === 0} aria-pressed={kinds.size === 0} onclick={() => (kinds = new Set())}>{t('map.allEvents')}</button>
-      {#each allKinds as k (k)}
-        <button type="button" class="chip" class:on={kinds.has(k)} aria-pressed={kinds.has(k)} onclick={() => toggleKind(k)}>{kindName(k)}</button>
-      {/each}
+      {#if needsPerson}
+        <span class="who" title={t('map.person')}>{personName || t('map.chooseFirst')}</span>
+      {/if}
+      {#if scopeKind === 'ancestors' || scopeKind === 'descendants'}
+        <label class="f">
+          <span>{t('map.generations')}</span>
+          <select bind:value={generations}>
+            <option value={0}>{t('map.allGenerations')}</option>
+            {#each [1, 2, 3, 4, 5, 6, 8, 10] as n (n)}<option value={n}>{n}</option>{/each}
+          </select>
+        </label>
+      {/if}
+      {#if mode === 'movement'}
+        <label class="f">
+          <span>{t('map.colorBy')}</span>
+          <select bind:value={colorBy}>
+            <option value="generation">{t('map.byGeneration')}</option>
+            <option value="surname">{t('map.bySurname')}</option>
+          </select>
+        </label>
+      {/if}
+      {#if allKinds.length > 0}
+        <div class="kinds" role="group" aria-label={t('map.events')}>
+          <span class="cap">{t('map.events')}</span>
+          <button type="button" class="chip" class:on={kinds.size === 0} aria-pressed={kinds.size === 0} onclick={() => (kinds = new Set())}>{t('map.allEvents')}</button>
+          {#each allKinds as k (k)}
+            <button type="button" class="chip" class:on={kinds.has(k)} aria-pressed={kinds.has(k)} onclick={() => toggleKind(k)}>{kindName(k)}</button>
+          {/each}
+        </div>
+      {/if}
+      {#if years && years[0] < years[1]}
+        <div class="years">
+          <span class="cap">{t('map.years')}</span>
+          <input type="range" min={years[0]} max={years[1]} value={yFrom ?? years[0]} aria-label={t('map.yearFrom')} oninput={(e) => setYear('from', Number(e.currentTarget.value))} />
+          <output>{yFrom ?? years[0]}</output>
+          <input type="range" min={years[0]} max={years[1]} value={yTo ?? years[1]} aria-label={t('map.yearTo')} oninput={(e) => setYear('to', Number(e.currentTarget.value))} />
+          <output>{yTo ?? years[1]}</output>
+          {#if yFrom !== null || yTo !== null}
+            <Button onclick={() => ((yFrom = null), (yTo = null), (playing = false), clearInterval(timer))}>{t('map.allYears')}</Button>
+          {/if}
+          {#if mode !== 'movement'}
+            <Button onclick={togglePlay}>{playing ? t('map.stop') : t('map.play')}</Button>
+          {/if}
+        </div>
+      {/if}
+      {#if missing.events > 0 || missing.noPlace > 0}
+        <p class="notice" role="status">
+          {#if missing.events > 0}
+            {noteForMissing}
+            <Button variant="secondary" onclick={() => (helperOpen = true)}>{t('map.setThem')}</Button>
+          {/if}
+          {#if missing.noPlace > 0}<span class="dim">{plural('map.noPlace', missing.noPlace)}</span>{/if}
+        </p>
+      {/if}
+      {#if placing}
+        <p class="notice placing" role="status">
+          <span>{t('map.layers.placing', { title: placing.title })}</span>
+          <Button variant="primary" onclick={savePlacing}>{t('map.layers.save')}</Button>
+          <Button onclick={() => (placing = null)}>{t('map.layers.cancel')}</Button>
+        </p>
+      {/if}
+      <div class="actions">
+        <Button onclick={savePng} disabled={busy || !data}>{t('map.savePicture')}</Button>
+        <label class="f inline"><input type="checkbox" bind:checked={includeLiving} /> <span>{t('map.includeLiving')}</span></label>
+        {#if !helperOpen}
+          <Button onclick={() => ((helperOpen = true), (layersOpen = false))}>{t('map.helper.title')}</Button>
+        {/if}
+        {#if !layersOpen}
+          <Button onclick={() => ((layersOpen = true), (helperOpen = false), (selected = null))}>{t('map.layers.open')}{layerList.length ? ` (${layerList.length})` : ''}</Button>
+        {/if}
+      </div>
     </div>
-  {/if}
-
-  {#if years && years[0] < years[1]}
-    <div class="years">
-      <span class="cap">{t('map.years')}</span>
-      <input type="range" min={years[0]} max={years[1]} value={yFrom ?? years[0]} aria-label={t('map.yearFrom')} oninput={(e) => setYear('from', Number(e.currentTarget.value))} />
-      <output>{yFrom ?? years[0]}</output>
-      <input type="range" min={years[0]} max={years[1]} value={yTo ?? years[1]} aria-label={t('map.yearTo')} oninput={(e) => setYear('to', Number(e.currentTarget.value))} />
-      <output>{yTo ?? years[1]}</output>
-      {#if yFrom !== null || yTo !== null}
-        <Button onclick={() => ((yFrom = null), (yTo = null), (playing = false), clearInterval(timer))}>{t('map.allYears')}</Button>
-      {/if}
-      {#if mode !== 'movement'}
-        <Button onclick={togglePlay}>{playing ? t('map.stop') : t('map.play')}</Button>
-      {/if}
-    </div>
-  {/if}
-
-  {#if missing.events > 0 || missing.noPlace > 0}
-    <p class="notice" role="status">
-      {#if missing.events > 0}
-        {noteForMissing}
-        <Button variant="secondary" onclick={() => (helperOpen = true)}>{t('map.setThem')}</Button>
-      {/if}
-      {#if missing.noPlace > 0}<span class="dim">{plural('map.noPlace', missing.noPlace)}</span>{/if}
-    </p>
-  {/if}
-
-  {#if placing}
-    <p class="notice placing" role="status">
-      <span>{t('map.layers.placing', { title: placing.title })}</span>
-      <Button variant="primary" onclick={savePlacing}>{t('map.layers.save')}</Button>
-      <Button onclick={() => (placing = null)}>{t('map.layers.cancel')}</Button>
-    </p>
   {/if}
 
   <div class="stage" class:withSide={helperOpen || chosenPoint || layersOpen}>
@@ -722,14 +794,42 @@
         onpointermove={move}
         onpointerup={up}
         onwheel={wheel}
-        onkeydown={key}
+        onkeydown={canvasKey}
       ></canvas>
       {#if !basemap && !basemapFailed}<p class="loading">{t('map.loading')}</p>{/if}
       <div class="zoom">
         <Button onclick={() => (cam = zoomAt(cam, size.w, size.h, size.w / 2, size.h / 2, 1))} aria-label={t('map.zoomIn')}>+</Button>
         <Button onclick={() => (cam = zoomAt(cam, size.w, size.h, size.w / 2, size.h / 2, -1))} aria-label={t('map.zoomOut')}>−</Button>
         <Button onclick={fit} aria-label={t('map.fitAll')}>⤢</Button>
+        <Button
+          data-full
+          aria-pressed={full}
+          aria-label={full ? t('map.fullExit') : t('map.fullEnter')}
+          title={full ? t('map.fullExit') : t('map.fullEnter')}
+          onclick={() => setFull(!full)}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            {#if full}
+              <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+            {:else}
+              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+            {/if}
+          </svg>
+        </Button>
       </div>
+      {#if full}
+        <div class="fullBar">
+          <Button variant="primary" onclick={() => setFull(false)}>{t('map.fullExit')}</Button>
+          <Button onclick={() => ((layersOpen = !layersOpen), (helperOpen = false), (selected = null))} aria-pressed={layersOpen}>{t('map.layers.title')}</Button>
+          {#if placing}
+            <span class="notice placing">
+              <span>{t('map.layers.placing', { title: placing.title })}</span>
+              <Button variant="primary" onclick={savePlacing}>{t('map.layers.save')}</Button>
+              <Button onclick={() => (placing = null)}>{t('map.layers.cancel')}</Button>
+            </span>
+          {/if}
+        </div>
+      {/if}
       <p class="credit">{t('map.attribution')}</p>
       {#if placing}
         <svg class="outline" width={size.w} height={size.h} aria-hidden="true">
@@ -796,47 +896,58 @@
       </aside>
     {/if}
   </div>
-
-  <footer class="actions">
-    <Button onclick={savePng} disabled={busy || !data}>{t('map.savePicture')}</Button>
-    <label class="f inline"><input type="checkbox" bind:checked={includeLiving} /> <span>{t('map.includeLiving')}</span></label>
-    {#if !helperOpen}
-      <Button onclick={() => ((helperOpen = true), (layersOpen = false))}>{t('map.helper.title')}</Button>
-    {/if}
-    {#if !layersOpen}
-      <Button onclick={() => ((layersOpen = true), (helperOpen = false), (selected = null))}>{t('map.layers.open')}{layerList.length ? ` (${layerList.length})` : ''}</Button>
-    {/if}
-  </footer>
 </section>
 
 <style>
   .map {
     display: flex;
     flex-direction: column;
-    gap: var(--s-3);
-    /* The shell's page scrolls, so the view sizes itself to the window instead of to its parent. */
-    height: calc(100dvh - 7rem);
-    min-height: 32rem;
+    gap: var(--s-2);
+    /* Fills what the page gives it (the window's height) and shrinks with it; nothing fixed in px. */
+    flex: 1 1 auto;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
   }
-  .bar {
+  .map.full {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    height: auto;
+    gap: 0;
+    background: var(--paper-0);
+  }
+  /* Every control in one wrapping row group: as few rows as the width allows, no half-empty rows. */
+  .toolbar {
     display: flex;
-    justify-content: space-between;
+    gap: var(--s-2) var(--s-4);
     align-items: center;
-    gap: var(--s-4);
     flex-wrap: wrap;
+    flex: none;
   }
   h1 {
     margin: 0;
     font-size: var(--t-lg);
   }
-  .filters,
   .kinds,
   .years,
   .actions {
     display: flex;
-    gap: var(--s-3);
+    gap: var(--s-2) var(--s-3);
     align-items: center;
     flex-wrap: wrap;
+  }
+  /* The buttons sit tight together right after the filters; the notices come last and stretch to the end of their
+     row, and the years row stretches its sliders, so no row ends half empty and no wide gaps open between buttons. */
+  .actions {
+    order: 1;
+    flex: none;
+    justify-content: flex-start;
+  }
+  .toolbar > .notice {
+    order: 2;
+    flex: 1 1 auto;
   }
   .f {
     display: inline-flex;
@@ -875,8 +986,12 @@
     color: var(--paper-1);
     border-color: var(--ink-0);
   }
+  .years {
+    flex: 1 1 auto;
+  }
   .years input[type='range'] {
-    width: 9rem;
+    flex: 1 1 5rem;
+    min-width: 5rem;
   }
   output {
     min-width: 3rem;
@@ -884,11 +999,11 @@
   }
   .notice {
     display: flex;
-    gap: var(--s-4);
+    gap: var(--s-3);
     align-items: center;
     flex-wrap: wrap;
     margin: 0;
-    padding: var(--s-2) var(--s-4);
+    padding: var(--s-1) var(--s-3);
     background: var(--foxing-wash);
     border: 1px solid var(--rule);
     border-radius: var(--r-1);
@@ -900,17 +1015,18 @@
     font-size: var(--t-xs);
   }
   .stage {
-    flex: 1;
-    min-height: 22rem;
+    flex: 1 1 0;
+    min-height: 12rem;
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     gap: 0;
     border: 1px solid var(--rule);
     border-radius: var(--r-1);
     overflow: hidden;
   }
   .stage.withSide {
-    grid-template-columns: 1fr minmax(18rem, 24rem);
+    grid-template-columns: minmax(0, 1fr) clamp(18rem, 24vw, 32rem);
   }
   .canvasBox {
     position: relative;
@@ -919,6 +1035,10 @@
     overflow: hidden;
   }
   canvas {
+    /* Out of the flow, so the box (not the canvas's last size) decides how big the stage is when the window shrinks. */
+    position: absolute;
+    left: 0;
+    top: 0;
     display: block;
     touch-action: none;
     cursor: grab;
@@ -946,6 +1066,19 @@
     flex-direction: column;
     gap: var(--s-2);
   }
+  .fullBar {
+    position: absolute;
+    top: var(--s-3);
+    left: var(--s-3);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+    align-items: center;
+  }
+  .map.full .stage {
+    border: 0;
+    border-radius: 0;
+  }
   .credit,
   .loading {
     position: absolute;
@@ -961,7 +1094,7 @@
   }
   .loading {
     left: var(--s-3);
-    top: var(--s-3);
+    bottom: var(--s-3);
   }
   .outline {
     position: absolute;

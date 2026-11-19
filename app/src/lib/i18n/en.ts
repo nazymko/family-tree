@@ -311,6 +311,8 @@ export const en = {
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
     fitAll: 'Show everything',
+    fullEnter: 'Full screen',
+    fullExit: 'Exit full screen',
     canvasLabel: 'Map of the places in the tree. Drag to move, scroll to zoom.',
     savePicture: 'Save picture',
     includeLiving: 'Include living people in the picture',

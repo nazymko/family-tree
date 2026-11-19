@@ -70,6 +70,7 @@ fn capabilities_are_exact() {
         perms,
         [
             "core:default",
+            "core:window:allow-set-fullscreen",
             "dialog:allow-open",
             "dialog:allow-save",
             "opener:allow-reveal-item-in-dir",

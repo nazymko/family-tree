@@ -446,7 +446,9 @@
       </div>
     </header>
     <main id="content" class="main">
-      <div class="page" class:chart={current === 'pedigree' || current === 'descendants' || current === 'relatives' || current === 'around' || current === 'whole' || current === 'trace'}>
+      <div class="page" class:chart={current === 'pedigree' || current === 'descendants' || current === 'relatives' || current === 'around' || current === 'whole' || current === 'trace' || current === 'map'}
+        class:fill={current === 'map'}
+      >
         {#if nav.route.name === 'family'}
           <FamilyView />
         {:else if nav.route.name === 'people'}
@@ -779,6 +781,12 @@
     min-height: 0;
     max-width: none;
     padding-bottom: var(--s-5);
+  }
+  /* The map takes the whole pane: no centred column, no blank band under it. */
+  .page.fill {
+    display: flex;
+    flex-direction: column;
+    padding: var(--s-3) var(--s-4);
   }
   .page {
     max-width: var(--content-max);

@@ -56,7 +56,10 @@
 
 <style>
   main {
+    box-sizing: border-box;
     height: 100vh;
+    /* The shell's padding around a page that fills the pane. */
+    padding: var(--s-3) var(--s-4);
     display: flex;
     flex-direction: column;
   }
