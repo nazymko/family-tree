@@ -152,7 +152,7 @@ export function ellipsize(measure: (s: string) => number, text: string, maxW: nu
  * A3_MIN_PT, the size below which names count as hard to read.
  */
 export const A3_NAME_FLOOR_PT = A3_MIN_PT + 1;
-/** Name lines a print card has room for above the dates. */
+/** Name lines a print card may take (the print makes its cards taller for them) before the names are drawn smaller. */
 export const NAME_MAX_LINES = 3;
 
 /**
@@ -218,24 +218,56 @@ function wrapAt(measure: Measure, text: string, room: Room, px: number): string[
   return lines;
 }
 
-/** One part of a name (the given names, or the surname) in as few lines as it needs, never cut. */
-function fitPart(measure: Measure, text: string, room: Room, basePx: number, minPx: number): NameLine[] {
-  const maxW = room(0);
+/** A print name line may always be drawn this much smaller, to keep the given name and patronymic together on one line. */
+export const NAME_SLIGHT = 0.85;
+
+/** The largest size (quarter px steps, at most `basePx`) at which `text` fits `maxW`; null when even `minPx` is too big. */
+function sizeToFit(measure: Measure, text: string, maxW: number, basePx: number, minPx: number): number | null {
   const w = measure(text, basePx);
-  if (w <= maxW) return [{ text, px: basePx }];
+  if (w <= maxW) return basePx;
   // Text width grows with the font size, so the size that just fits is close to base * room / width; step down to be sure.
   let px = Math.floor(((basePx * maxW) / w) * 4) / 4;
   while (px >= minPx && measure(text, px) > maxW) px -= 0.25;
-  if (px >= minPx) return [{ text, px }];
+  return px >= minPx && px > 0 ? px : null;
+}
+
+/** One line of words, drawn smaller when it must (down to `minPx`), wrapped at `minPx` when even that is too wide. */
+function fitPart(measure: Measure, text: string, room: Room, basePx: number, minPx: number): NameLine[] {
+  const px = sizeToFit(measure, text, room(0), basePx, minPx);
+  if (px !== null) return [{ text, px }];
   return wrapAt(measure, text, room, minPx).map((t) => ({ text: t, px: minPx }));
+}
+
+/** Whole words packed into lines at `basePx`; a line holding one word that is too wide is drawn smaller or broken (fitPart). */
+function packWords(measure: Measure, words: string[], room: Room, basePx: number, minPx: number): NameLine[] {
+  const out: NameLine[] = [];
+  const push = (text: string) => {
+    const at = out.length;
+    out.push(...fitPart(measure, text, (n) => room(at + n), basePx, minPx));
+  };
+  let cur = '';
+  for (const word of words) {
+    const joined = cur ? `${cur} ${word}` : word;
+    if (!cur || measure(joined, basePx) <= room(out.length)) {
+      cur = joined;
+      continue;
+    }
+    push(cur);
+    cur = word;
+  }
+  if (cur) push(cur);
+  return out;
 }
 
 /**
  * The name lines of a print (compact) card, nothing ever cut with "…". A name that fits stays one line at `basePx`.
- * Otherwise it goes on two lines as on the cards: the given names, then the rest (the surname); each line that is too
- * wide is drawn smaller (that line only), down to `minPx`; a line still too wide at `minPx` wraps onto extra lines at
- * `minPx` (at spaces, then after a hyphen, then between letters). When that needs more than `maxLines` lines the
- * floor is lowered step by step, so an absurdly long name still prints whole.
+ * Otherwise it takes two lines when each fits, the line too wide drawn smaller (that line only) down to `minPx`, and
+ * always down to NAME_SLIGHT of `basePx`: all words but the last on the first (the given name and the patronymic of a
+ * three-word name), the last (the surname) on the second. Otherwise whole words are packed into lines at `basePx`
+ * (given name / patronymic / surname when no two fit together), and a single word too wide is drawn smaller, down
+ * to `minPx`, then broken (after a hyphen, else between letters). When that needs more than `maxLines` lines the floor
+ * is lowered step by step, so an absurdly long name still prints whole. The card is made taller for the extra lines
+ * (see planPrintCard and printStretch), never drawn over the dates.
  * `measure(text, px)` is the text's width at that size in the card's font. The first line has `maxW`; the lines under
  * it have `restW` (they are below the ancestor number, so they may use the whole card width).
  */
@@ -253,48 +285,180 @@ export function fitPrintName(
   if (maxW <= 0) return [{ text, px: basePx }];
   if (measure(text, basePx) <= maxW) return [{ text, px: basePx }];
   const rest = Math.max(maxW, restW);
+  const room: Room = (n) => (n === 0 ? maxW : rest);
   const words = text.split(' ');
-  const parts: string[] = [];
-  if (words.length > 1) {
-    // As many leading words as fit on the first line, at least the last word on the second (the cards' own split).
-    let i = 1;
-    while (i < words.length - 1 && measure(words.slice(0, i + 1).join(' '), basePx) <= maxW) i++;
-    parts.push(words.slice(0, i).join(' '), words.slice(i).join(' '));
-  } else {
-    parts.push(text);
-  }
   let floor = Math.min(minPx, basePx);
   for (;;) {
-    const lines: NameLine[] = [];
-    for (const p of parts) {
-      const at = lines.length;
-      lines.push(...fitPart(measure, p, (n) => (at + n === 0 ? maxW : rest), basePx, floor));
+    const slight = Math.min(floor, basePx * NAME_SLIGHT);
+    if (words.length > 1) {
+      // The given name(s) and patronymic, then the surname: each line drawn smaller when it must.
+      const a = words.slice(0, -1).join(' ');
+      const b = words[words.length - 1];
+      const pa = sizeToFit(measure, a, maxW, basePx, slight);
+      const pb = pa === null ? null : sizeToFit(measure, b, rest, basePx, slight);
+      if (pa !== null && pb !== null) return [{ text: a, px: pa }, { text: b, px: pb }];
     }
+    const lines = packWords(measure, words, room, basePx, floor);
     if (lines.length <= Math.max(1, maxLines) || floor <= 2) return lines;
     floor = Math.max(2, floor * 0.85);
   }
 }
 
-/**
- * Baselines (from the card's top) of a print card's name lines. One or two lines at the normal size keep the card's
- * own places (23; 16 and 31); other mixes are stacked (a quarter of the line above for its descenders, then 0.9 of the
- * line itself: 1.15 times the size when both are equal) around the same middle, never above the card's top padding,
- * and the second line starts below the ancestor number's row (baseline 14).
- */
-export function nameBaselines(lines: NameLine[], basePx = NAME_PX): number[] {
-  if (lines.length === 0) return [];
-  const plain = lines.every((l) => l.px === basePx);
-  if (plain && lines.length === 1) return [23];
-  if (plain && lines.length === 2) return [16, 31];
-  const steps = lines.slice(1).map((l, i) => 0.25 * lines[i].px + 0.9 * l.px);
-  const span = steps.reduce((a, b) => a + b, 0);
-  let y = Math.max(23.5 - span / 2, 3 + 0.75 * lines[0].px);
-  const out = [y];
-  lines.slice(1).forEach((l, i) => {
-    y = i === 0 ? Math.max(y + steps[0], 15 + 0.8 * l.px) : y + steps[i];
-    out.push(y);
+/** Size (px) of the dates and of the relationship on a card. */
+export const CARD_SMALL_PX = 11;
+/** Print card text metrics (fractions of the size): room above the baseline (capitals with a breve, Й) and below it (у, д). */
+export const TEXT_ASCENT = 0.9;
+export const TEXT_DESCENT = 0.25;
+/** Print card spacing (px): above the first line and below the last, between the name and the dates, between the dates and a relationship under them. */
+const CARD_PAD = 4;
+const NAME_GAP = 3;
+const REL_GAP = 2;
+/** The dates start this far from the card's left edge; the relationship ends this far from its right edge. */
+export const CARD_TEXT_X = 10;
+export const CARD_TEXT_RIGHT = 8;
+/** Room between the dates and a relationship beside them on the same row (px). */
+const ROW_GAP = 10;
+/** A name line under the first starts below this (px from the top): the ancestor number's baseline (14) and its descent. */
+const AHNEN_CLEAR = 17;
+
+/** What a print card shows, and the room it has. */
+export interface PrintCardText {
+  name: string;
+  /** The dates (or "shown elsewhere"); may be empty. */
+  sub: string;
+  /** How the person is related to the centred one; may be empty. */
+  rel: string;
+  /** Card width (px). */
+  w: number;
+  /** Where the name starts, from the card's left edge (after the ribbon of the centre person). */
+  left: number;
+  /** Room the ancestor number takes at the right of the first name line (0 when there is none). */
+  ahnenW: number;
+}
+
+/** Width (px) of `text` at `px` in the card's name font, the dates' font or the relationship's (italic). */
+export type CardMeasure = (text: string, font: 'name' | 'sub' | 'rel', px: number) => number;
+
+/** Where a print card's text goes: baselines from the card's top. The relationship is right-aligned; the dates left. */
+export interface PrintCardPlan {
+  lines: NameLine[];
+  nameYs: number[];
+  sub: { text: string; px: number; y: number } | null;
+  rel: { text: string; px: number; y: number } | null;
+  /** Height the text takes, padding included. */
+  height: number;
+}
+
+/** The size (at most `px`) at which `text` fits `maxW`, however small that is (the dates and relationship are never cut). */
+function shrinkTo(measure: (px: number) => number, maxW: number, px: number): number {
+  const w = measure(px);
+  if (w <= maxW || w <= 0) return px;
+  let p = Math.floor(((px * maxW) / w) * 4) / 4;
+  while (p > 0.5 && measure(p) > maxW) p -= 0.25;
+  return Math.max(0.5, p);
+}
+
+/** The card's text stacked from the top with every size multiplied by `f`. */
+function stackCard(measure: CardMeasure, c: PrintCardText, f: number, minPx: number): PrintCardPlan {
+  const base = NAME_PX * f;
+  const floor = Math.min(minPx, NAME_PX) * f;
+  const small = CARD_SMALL_PX * f;
+  const rest = c.w - 10 - c.left;
+  const lines = fitPrintName((s, px) => measure(s, 'name', px), c.name, rest - c.ahnenW, base, floor, NAME_MAX_LINES, rest);
+  const nameYs: number[] = [];
+  let y = CARD_PAD;
+  lines.forEach((l, i) => {
+    if (i === 0) y += TEXT_ASCENT * l.px;
+    else {
+      y += TEXT_DESCENT * lines[i - 1].px + TEXT_ASCENT * l.px;
+      if (i === 1 && c.ahnenW > 0) y = Math.max(y, AHNEN_CLEAR + TEXT_ASCENT * l.px);
+    }
+    nameYs.push(y);
   });
-  return out;
+  if (lines.length > 0) y += TEXT_DESCENT * lines[lines.length - 1].px + NAME_GAP;
+  const room = c.w - CARD_TEXT_X - CARD_TEXT_RIGHT;
+  const subPx = c.sub ? shrinkTo((px) => measure(c.sub, 'sub', px), room, small) : small;
+  const relPx = c.rel ? shrinkTo((px) => measure(c.rel, 'rel', px), room, small) : small;
+  // The relationship shares the dates' row only when both fit there at full size; otherwise it gets a row of its own.
+  const onRow =
+    c.rel !== '' &&
+    relPx === small &&
+    (c.sub === '' || (subPx === small && measure(c.sub, 'sub', small) + ROW_GAP + measure(c.rel, 'rel', small) <= room));
+  let sub: PrintCardPlan['sub'] = null;
+  let rel: PrintCardPlan['rel'] = null;
+  if (c.sub || onRow) {
+    y += TEXT_ASCENT * small;
+    if (c.sub) sub = { text: c.sub, px: subPx, y };
+    if (onRow) rel = { text: c.rel, px: small, y };
+    y += TEXT_DESCENT * small;
+  }
+  if (c.rel && !onRow) {
+    y += (c.sub ? REL_GAP : 0) + TEXT_ASCENT * relPx;
+    rel = { text: c.rel, px: relPx, y };
+    y += TEXT_DESCENT * relPx;
+  }
+  return { lines, nameYs, sub, rel, height: y + CARD_PAD };
+}
+
+/** The height (px) a print card needs to show all its text at full size, nothing overlapping or cut. */
+export function printCardHeight(measure: CardMeasure, c: PrintCardText, minPx = NAME_FLOOR_PX): number {
+  return stackCard(measure, c, 1, minPx).height;
+}
+
+/**
+ * Lays a print card's text out in a card `h` high: the name lines, the dates under them, the relationship beside the
+ * dates when both fit on the row, else on its own row under them; nothing ever overlaps or is cut with "…". The text
+ * is centred in the card's height. When the card is too low for it (a print that could not grow its cards), every
+ * size is reduced together until it fits.
+ */
+export function planPrintCard(measure: CardMeasure, c: PrintCardText, h: number, minPx = NAME_FLOOR_PX): PrintCardPlan {
+  let f = 1;
+  let p = stackCard(measure, c, f, minPx);
+  while (p.height > h + 1e-6 && f > 0.2) {
+    f *= 0.93;
+    p = stackCard(measure, c, f, minPx);
+  }
+  const dy = Math.max(0, (h - p.height) / 2);
+  return {
+    lines: p.lines,
+    nameYs: p.nameYs.map((y) => y + dy),
+    sub: p.sub && { ...p.sub, y: p.sub.y + dy },
+    rel: p.rel && { ...p.rel, y: p.rel.y + dy },
+    height: p.height,
+  };
+}
+
+/**
+ * A chart with every height multiplied by `k` (card tops and heights, connector points): taller cards, the rows
+ * re-spaced in proportion, the connectors still meeting the cards where they did.
+ */
+export function stretchScene<S extends { nodes: { y: number; h: number }[]; edges: { pts: number[] }[] }>(scene: S, k: number): S {
+  if (k === 1) return scene;
+  return {
+    ...scene,
+    nodes: scene.nodes.map((n) => ({ ...n, y: n.y * k, h: n.h * k })),
+    edges: scene.edges.map((e) => ({ ...e, pts: e.pts.map((v, i) => (i % 2 === 1 ? v * k : v)) })),
+  };
+}
+
+/**
+ * How much a print stretches its chart's height so the cards are `need` times as tall: all of it when the page has
+ * that room left empty (a wide chart on a page it fills across), else as much as fits without printing the chart any
+ * smaller (the cards then fit their text by drawing it a little smaller, see planPrintCard).
+ */
+export function printStretch(bounds: Rect, need: number, choice: A3Choice = 'auto'): number {
+  if (!(need > 1)) return 1;
+  const s1 = layoutA3(bounds, choice).scale;
+  const ok = (k: number) => layoutA3({ ...bounds, y: bounds.y * k, h: bounds.h * k }, choice).scale >= s1 * (1 - 1e-9);
+  if (ok(need)) return need;
+  let lo = 1;
+  let hi = need;
+  for (let i = 0; i < 30; i++) {
+    const mid = (lo + hi) / 2;
+    if (ok(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
 }
 
 /** The HTML the print dialog gets: one A3 page holding the SVG, no browser margins, nothing that could add a second page. */

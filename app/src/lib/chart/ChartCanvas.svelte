@@ -17,14 +17,15 @@
   import Select from '../ui/Select.svelte';
   import { centerOn, fit, panBy, tween, viewRect, zoomAt, type Camera } from './camera';
   import { hitHandle, hitTest, neighbor, type Dir } from './hit';
-  import { draw, themeFromCss, type Theme } from './renderer';
+  import { draw, printCardsNeed, themeFromCss, type Theme } from './renderer';
+  import { SvgContext } from './svgContext';
   import { WindowCache } from './window';
   import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
   import { createDoubleTap, createLongPress, isTouchPointer } from '../ui/longPress';
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, chartTitle, later, printPicture, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
-  import { A3_SUB_PT, A3_TITLE_PT, PT_PX, ellipsize, mmToPx, nameFloorPx, printDirection, type A3Choice } from './a3';
+  import { A3_SUB_PT, A3_TITLE_PT, PT_PX, ellipsize, layoutA3, mmToPx, nameFloorPx, printDirection, printStretch, stretchScene, type A3Choice } from './a3';
   import { a3Direction } from './a3Pref.svelte';
   import { sceneBounds, pictureFileName } from './picture';
   import { settings } from '../state/settings.svelte';
@@ -972,11 +973,18 @@
     // The layouts are print charts: compact, outside the two-chart limit, so no chart the person has open is closed. Each is
     // closed as soon as its boxes are read, whatever happens.
     const mode = a3Direction.value;
+    // Measures the cards' text as the picture draws it (with a real canvas when there is one).
+    const meter = new SvgContext(1, 1) as unknown as CanvasRenderingContext2D;
     const found: { direction: ChartDirection; scene: Scene; meta: ChartMeta; bounds: Rect }[] = [];
     for (const d of mode === 'best' ? DIRECTIONS : [dirNow]) {
       const probe = await api.chartOpen(chartRequest(d, true));
       try {
-        const sc = await wholeScene(probe);
+        const laid = await wholeScene(probe);
+        // Cards whose text needs more room (a long name on three lines, the relationship under the dates) make every card
+        // taller: the chart's height is stretched, into the page's empty room only, so the print is never smaller.
+        const scale = layoutA3(sceneBounds(laid), choice).scale;
+        const need = printCardsNeed(meter, laid.nodes, { theme: th, kind, focus: probe.rootNode, focusMore: new Set(probe.chosenNodes ?? []), nameMinPx: nameFloorPx(scale) });
+        const sc = stretchScene(laid, printStretch(sceneBounds(laid), need, choice));
         found.push({ direction: d, scene: sc, meta: probe, bounds: sceneBounds(sc) });
       } finally {
         try {

@@ -11,7 +11,18 @@ import {
   fillRatio,
   fitPrintName,
   layoutA3,
-  nameBaselines,
+  NAME_SLIGHT,
+  TEXT_ASCENT,
+  TEXT_DESCENT,
+  CARD_TEXT_X,
+  CARD_TEXT_RIGHT,
+  planPrintCard,
+  printCardHeight,
+  printStretch,
+  stretchScene,
+  type CardMeasure,
+  type PrintCardPlan,
+  type PrintCardText,
   nameFloorPx,
   printDirection,
   printHtml,
@@ -336,20 +347,176 @@ describe('A3 card names fit without cutting', () => {
     expect(nameFloorPx(0.4)).toBe(NAME_PX);
   });
 
-  it('keeps_the_card_rows_for_plain_names_and_stacks_mixed_sizes', () => {
-    expect(nameBaselines([{ text: 'a', px: NAME_PX }])).toEqual([23]);
-    expect(nameBaselines([{ text: 'a', px: NAME_PX }, { text: 'b', px: NAME_PX }])).toEqual([16, 31]);
-    // The fullest card: the given name at full size and two surname lines at the floor of a print at screen size.
-    const f = NAME_FLOOR_PX;
-    const ys = nameBaselines([{ text: 'a', px: NAME_PX }, { text: 'b', px: f }, { text: 'c', px: f }]);
-    // Under the card's top, the second line under the ancestor number (baseline 14), no line touching the next.
-    expect(ys[0] - 0.75 * NAME_PX).toBeGreaterThanOrEqual(3);
-    expect(ys[1] - 0.75 * f).toBeGreaterThan(14);
-    expect(ys[1] - 0.75 * f).toBeGreaterThanOrEqual(ys[0] + 0.25 * NAME_PX);
-    expect(ys[2] - 0.75 * f).toBeGreaterThanOrEqual(ys[1] + 0.25 * f);
-    // The last line clears the dates row (baseline 47, 11 px type).
-    expect(ys[2] + 0.25 * f).toBeLessThan(47 - 0.75 * 11);
+  it('keeps_the_given_name_and_patronymic_together_when_a_slight_shrink_fits', () => {
+    // 14 letters: 109 px at 13 px, a little over the 104 px line; 12.25 px fits.
+    const lines = fitPrintName(m, 'Іван Антонович Тестенко', W, NAME_PX, NAME_PX);
+    expect(lines.map((l) => l.text)).toEqual(['Іван Антонович', 'Тестенко']);
+    expect(lines[0].px).toBeLessThan(NAME_PX);
+    expect(lines[0].px).toBeGreaterThanOrEqual(NAME_PX * NAME_SLIGHT);
+    expect(lines[1].px).toBe(NAME_PX);
   });
+
+  it('puts_a_long_three_word_name_on_three_whole_word_lines_at_full_size_on_a_small_print', () => {
+    // A print so small its names are under the floor: nothing is shrunk past NAME_SLIGHT, each word gets its own line.
+    const lines = fitPrintName(m, 'Святослав Олександрович Тестенко', W, NAME_PX, nameFloorPx(0.47));
+    expect(lines).toEqual([
+      { text: 'Святослав', px: NAME_PX },
+      { text: 'Олександрович', px: NAME_PX },
+      { text: 'Тестенко', px: NAME_PX },
+    ]);
+  });
+
+  describe('print cards never overlap or cut their text', () => {
+  // Synthetic three-word Ukrainian-style names (given name, patronymic, surname), dates and relationships.
+  const NAMES = [
+    'Святослав Олександрович Тестенко',
+    'Ярослава Костянтинівна Прикладенко',
+    'Олександра Володимирівна Вигаданчук',
+    'Мирослав Святославович Зразковський',
+    'Іван Петрович Тестенко',
+    'Христина Мирославівна Довгопрізвищенко-Вигаданчук',
+    'Анна Тестенко',
+  ];
+  const SUBS = ['бл. 1774 – ?', 'нар. бл. 1862', '1889 – 1970', '1915 – ?', ''];
+  const RELS = ['прадідусь', 'бабуся', '2× прабабуся', 'двоюрідна прабабуся', 'мати', ''];
+  // Stand-in for the fonts: a name letter is 0.6 of the size wide, a dates or relationship letter 0.55.
+  const cm: CardMeasure = (s, font, px) => s.length * px * (font === 'name' ? 0.6 : 0.55);
+  const CARD_W = 124;
+  /** A print scaled like the owner's (cards about a third of an A3 width apart): names under the floor already. */
+  const SMALL = nameFloorPx(0.47);
+
+  interface Box {
+    what: string;
+    x0: number;
+    x1: number;
+    y0: number;
+    y1: number;
+  }
+  const boxes = (p: PrintCardPlan, c: PrintCardText): Box[] => {
+    const out: Box[] = p.lines.map((l, i) => ({
+      what: `name ${i}`,
+      x0: c.left,
+      x1: c.left + cm(l.text, 'name', l.px),
+      y0: p.nameYs[i] - TEXT_ASCENT * l.px,
+      y1: p.nameYs[i] + TEXT_DESCENT * l.px,
+    }));
+    if (p.sub) out.push({ what: 'dates', x0: CARD_TEXT_X, x1: CARD_TEXT_X + cm(p.sub.text, 'sub', p.sub.px), y0: p.sub.y - TEXT_ASCENT * p.sub.px, y1: p.sub.y + TEXT_DESCENT * p.sub.px });
+    if (p.rel) out.push({ what: 'relation', x0: c.w - CARD_TEXT_RIGHT - cm(p.rel.text, 'rel', p.rel.px), x1: c.w - CARD_TEXT_RIGHT, y0: p.rel.y - TEXT_ASCENT * p.rel.px, y1: p.rel.y + TEXT_DESCENT * p.rel.px });
+    // The ancestor number: 10 px type at baseline 14, right-aligned.
+    if (c.ahnenW > 0) out.push({ what: 'number', x0: c.w - 8 - (c.ahnenW - 8), x1: c.w - 8, y0: 14 - 7.5, y1: 14 + 2.5 });
+    return out;
+  };
+  const overlaps = (a: Box, b: Box) => a.x0 < b.x1 - 1e-9 && b.x0 < a.x1 - 1e-9 && a.y0 < b.y1 - 1e-9 && b.y0 < a.y1 - 1e-9;
+  /** Every problem of a laid-out card: boxes that intersect, text outside the card, text cut or missing. */
+  const problems = (p: PrintCardPlan, c: PrintCardText, h: number): string[] => {
+    const out: string[] = [];
+    const bs = boxes(p, c);
+    for (let i = 0; i < bs.length; i++) {
+      const b = bs[i];
+      if (b.x0 < -1e-9 || b.x1 > c.w + 1e-9 || b.y0 < -1e-9 || b.y1 > h + 1e-9) out.push(`${b.what} outside the card`);
+      for (let j = i + 1; j < bs.length; j++) if (overlaps(b, bs[j])) out.push(`${b.what} overlaps ${bs[j].what}`);
+    }
+    const all = [...p.lines.map((l) => l.text), p.sub?.text ?? '', p.rel?.text ?? ''].join('');
+    if (all.includes('…')) out.push('ellipsis');
+    if (p.lines.map((l) => l.text).join('').replace(/\s/g, '') !== c.name.replace(/\s/g, '')) out.push('name not whole');
+    if ((p.sub?.text ?? '') !== c.sub) out.push('dates not whole');
+    if ((p.rel?.text ?? '') !== c.rel) out.push('relation not whole');
+    return out;
+  };
+  const cards = (): PrintCardText[] => {
+    const out: PrintCardText[] = [];
+    for (const name of NAMES)
+      for (const sub of SUBS)
+        for (const rel of RELS)
+          for (const [left, ahnenW] of [
+            [10, 0],
+            [26, 0],
+            [10, 22],
+            [10, 38],
+          ])
+            out.push({ name, sub, rel, w: CARD_W, left, ahnenW });
+    return out;
+  };
+
+  it('reproduces_the_overlap_the_old_card_rows_had_with_a_three_line_name', () => {
+    // The card is 56 px high; three name lines at 13 px and the dates do not fit in it.
+    const c: PrintCardText = { name: 'Святослав Олександрович Тестенко', sub: 'бл. 1774 – ?', rel: 'прадідусь', w: CARD_W, left: 10, ahnenW: 0 };
+    expect(fitPrintName((s, px) => cm(s, 'name', px), c.name, 104, NAME_PX, SMALL)).toHaveLength(3);
+    expect(printCardHeight(cm, c, SMALL)).toBeGreaterThan(56);
+  });
+
+  it('grown_to_the_height_it_needs_a_card_keeps_every_size_and_nothing_overlaps', () => {
+    for (const c of cards()) {
+      const h = Math.max(56, printCardHeight(cm, c, SMALL));
+      const p = planPrintCard(cm, c, h, SMALL);
+      expect(problems(p, c, h), JSON.stringify(c)).toEqual([]);
+      // Grown, nothing is drawn smaller than it has to be.
+      expect(p.lines).toEqual(fitPrintName((s, px) => cm(s, 'name', px), c.name, CARD_W - 10 - c.left - c.ahnenW, NAME_PX, SMALL, 3, CARD_W - 10 - c.left));
+      if (p.sub) expect(p.sub.px).toBe(11);
+    }
+  });
+
+  it('a_card_that_cannot_grow_draws_its_text_smaller_and_still_nothing_overlaps', () => {
+    for (const c of cards()) {
+      const p = planPrintCard(cm, c, 56, SMALL);
+      expect(p.height).toBeLessThanOrEqual(56 + 1e-9);
+      expect(problems(p, c, 56), JSON.stringify(c)).toEqual([]);
+    }
+  });
+
+  it('puts_the_relationship_beside_the_dates_only_when_both_fit_else_on_its_own_row', () => {
+    const beside = planPrintCard(cm, { name: 'Анна Тестенко', sub: '1915 – ?', rel: 'мати', w: CARD_W, left: 10, ahnenW: 0 }, 56);
+    expect(beside.rel!.y).toBe(beside.sub!.y);
+    const under = planPrintCard(cm, { name: 'Анна Тестенко', sub: 'бл. 1774 – ?', rel: '2× прабабуся', w: CARD_W, left: 10, ahnenW: 0 }, 70);
+    expect(under.rel!.text).toBe('2× прабабуся');
+    expect(under.rel!.y).toBeGreaterThan(under.sub!.y);
+  });
+
+  it('keeps_a_short_name_card_at_its_old_place_in_the_card', () => {
+    const p = planPrintCard(cm, { name: 'Анна Тестенко', sub: '1915 – ?', rel: '', w: CARD_W, left: 10, ahnenW: 0 }, 56);
+    expect(p.lines).toEqual([{ text: 'Анна Тестенко', px: NAME_PX }]);
+    expect(Math.abs(p.nameYs[0] - 23)).toBeLessThan(2);
+    expect(Math.abs(p.sub!.y - 43)).toBeLessThan(3);
+  });
+
+  it('stretches_the_chart_height_with_the_connectors_still_meeting_the_cards', () => {
+    const scene = {
+      nodes: [
+        { id: 0, y: 0, h: 56 },
+        { id: 1, y: 100, h: 56 },
+      ],
+      edges: [{ pts: [10, 56, 10, 78, 40, 78, 40, 100] }],
+    };
+    const s = stretchScene(scene, 1.5);
+    expect(s.nodes.map((n) => [n.y, n.h])).toEqual([
+      [0, 84],
+      [150, 84],
+    ]);
+    const pts = s.edges[0].pts;
+    // From the bottom of the upper card to the top of the lower one; x untouched.
+    expect(pts[1]).toBe(s.nodes[0].y + s.nodes[0].h);
+    expect(pts[pts.length - 1]).toBe(s.nodes[1].y);
+    expect(pts.filter((_, i) => i % 2 === 0)).toEqual([10, 10, 40, 40]);
+    expect(stretchScene(scene, 1)).toBe(scene);
+  });
+
+  it('grows_the_cards_only_into_the_room_the_page_leaves_empty', () => {
+    // A wide, low chart fills the page across: there is room below it, so the cards grow all the way.
+    const wide = { x: 0, y: 0, w: 3000, h: 600 };
+    expect(printStretch(wide, 1.5, 'landscape')).toBe(1.5);
+    expect(layoutA3({ ...wide, h: 900 }, 'landscape').scale).toBeCloseTo(layoutA3(wide, 'landscape').scale, 9);
+    // A tall chart fills the page from top to bottom: growing would print it smaller, so it does not grow.
+    const tall = { x: 0, y: 0, w: 600, h: 3000 };
+    expect(printStretch(tall, 1.5, 'landscape')).toBeCloseTo(1, 6);
+    // In between it grows as far as the page allows, and the chart prints as large as before.
+    const mid = { x: 0, y: 0, w: 3000, h: 1500 };
+    const k = printStretch(mid, 1.5, 'landscape');
+    expect(k).toBeGreaterThan(1);
+    expect(k).toBeLessThan(1.5);
+    expect(layoutA3({ ...mid, h: mid.h * k }, 'landscape').scale).toBeCloseTo(layoutA3(mid, 'landscape').scale, 6);
+    expect(printStretch(wide, 1, 'landscape')).toBe(1);
+  });
+});
 
   it('writes_each_name_line_of_a_print_card_with_its_own_size_in_the_svg', () => {
     const ctx = new SvgContext(400, 200, svgMeasure);
