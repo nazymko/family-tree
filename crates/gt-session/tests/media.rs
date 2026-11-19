@@ -602,6 +602,7 @@ fn stored_paths_outside_media_are_never_served() {
             id,
             Media {
                 version_of: None,
+                map_layer: None,
                 place: None,
                 common: Common {
                     id,

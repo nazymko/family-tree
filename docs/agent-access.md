@@ -153,6 +153,25 @@ The Map shows an event only when its place has coordinates. An agent can give a 
   note with the candidates instead.
 - The same point again answers `alreadyThere` and adds nothing.
 
+### Old maps on the Map
+
+Scanned old maps (two- and three-verst sheets, squares of an atlas) can lie on the Map under the places. An agent can add
+one with `add_map_layer` (inputs: the batch, `file_path` of a JPEG, PNG, WebP, GIF or TIFF picture of at most 50 MiB, a
+`title`, the `source` it comes from, and optionally `series`, `year`, and the placement: four `corners` as
+`{"lat": …, "lon": …}` in decimal degrees, top left, top right, bottom right, bottom left of the picture, or
+`ozi_map_path`, the OziExplorer `.map` file that came with the scan). `list_map_layers` lists every map on the Map with
+its corners and whether it is the agent's own (`yours`). `set_own_map_layer_corners` places one again.
+
+- The picture is copied into the tree's media like any other file and drawn at 70% opacity. Without corners it waits
+  for you to place it: the Map's **Old maps** panel shows "not placed yet".
+- From a `.map` file the app reads the corner lines (`MMPLL`), or else the calibration points, and works out where the
+  picture's corners lie even when the picture has another size than the one the file was made for. A map drawn on the
+  Pulkovo 1942 datum is moved to WGS 84.
+- An agent places only a map it added itself and nobody has changed since. Once you move, hide or fade it, it is
+  yours. It never changes the order of the maps and never takes one off the Map.
+- The same picture again answers `alreadyThere`. It is in the **Change log** under the agent's name ("Lay map on the
+  Map", "Change map layer"), and **Undo** takes it back.
+
 ### Rewriting a note at your request
 
 When you ask for it (for example, to retell notes as stories), an agent can replace the text of any note, yours included,

@@ -314,6 +314,7 @@ fn shared_media_is_reported_and_exclusive_media_dropped() {
     );
     let group = Media {
         version_of: None,
+        map_layer: None,
         place: None,
         common: common(),
         path: "group.jpg".into(),
@@ -358,6 +359,7 @@ fn shared_media_is_reported_and_exclusive_media_dropped() {
 fn bare_media(path: &str) -> Media {
     Media {
         version_of: None,
+        map_layer: None,
         place: None,
         common: common(),
         path: path.into(),

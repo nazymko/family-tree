@@ -304,6 +304,25 @@
     "lonE6": 30654321
   },
   {
+    "type": "setMapLayer",
+    "media": "018f3a6e-0000-7000-8000-000000000009",
+    "title": "Sheet 30-13",
+    "layer": {
+      "series": "Three-verst map",
+      "year": "1865",
+      "source": "https://example.org/sheet-30-13",
+      "corners": [
+        { "latE6": 50600000, "lonE6": 30000000 },
+        { "latE6": 50600000, "lonE6": 31200000 },
+        { "latE6": 49900000, "lonE6": 31200000 },
+        { "latE6": 49900000, "lonE6": 30000000 }
+      ],
+      "opacity": 60,
+      "visible": true
+    }
+  },
+  { "type": "reorderMapLayers", "order": ["018f3a6e-0000-7000-8000-000000000009", "018f3a6e-0000-7000-8000-000000000008"] },
+  {
     "type": "addNumber",
     "person": "018f3a6e-0000-7000-8000-000000000001",
     "sourceFile": "recording2.txt",

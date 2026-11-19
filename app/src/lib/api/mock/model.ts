@@ -1,4 +1,5 @@
 import type {
+  MapLayerDto,
   CitationDto,
   EventDto,
   Id,
@@ -78,6 +79,8 @@ export interface Db {
   versionOf?: Map<Id, Id>;
   /** Place coordinates (lat, lon) set by the person; the places themselves carry none. */
   coords?: Map<Id, [number, number]>;
+  /** Old maps on the Map, by media id. */
+  layers?: Map<Id, MapLayerDto>;
 }
 
 export class MockApiError extends Error {

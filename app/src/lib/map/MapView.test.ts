@@ -114,4 +114,78 @@ describe('Map view', () => {
     expect(await screen.findByText('1 event has no coordinates.')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Include living people in the picture' })).not.toBeChecked();
   });
+
+  it('adds_an_old_map_places_it_by_its_corners_and_keeps_the_layer_list_in_order', async () => {
+    const api = new MockApi(fixtureTree(10));
+    const { platform } = renderWith(MapView, { onOpenPerson: vi.fn() }, { api });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Old maps' }));
+    const panel = screen.getByRole('complementary', { name: 'Old maps' });
+    expect(within(panel).getByText('No old maps yet.')).toBeInTheDocument();
+
+    // The first map comes with no .map file: after adding it, the owner places it by its corners.
+    platform.next.file = 'C:/Maps/Zelena oblast 1865.jpg';
+    await user.click(within(panel).getByRole('button', { name: 'Add a map…' }));
+    expect(within(panel).getByText('No .map file: you place it by hand.')).toBeInTheDocument();
+    await user.type(within(panel).getByLabelText('Year'), '1865');
+    await user.type(within(panel).getByLabelText('Source (web address or archive reference)'), 'https://example.org/z');
+    await user.click(within(panel).getByRole('button', { name: 'Add to the map' }));
+    expect(await screen.findByText(/Drag the corners of “Zelena oblast 1865”/)).toBeInTheDocument();
+    for (const name of ['Top left corner', 'Top right corner', 'Bottom right corner', 'Bottom left corner', 'Move the whole map'])
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    // A corner moved with the keyboard, then saved.
+    screen.getByRole('button', { name: 'Bottom right corner' }).focus();
+    await user.keyboard('{Shift>}{ArrowRight}{/Shift}');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(async () => expect((await api.mapData({ kind: 'all' })).layers[0].corners).toHaveLength(4));
+    const first = (await api.mapData({ kind: 'all' })).layers[0];
+    expect(first).toMatchObject({ title: 'Zelena oblast 1865', year: '1865', source: 'https://example.org/z', opacity: 70, visible: true });
+
+    // The second comes with its OziExplorer .map file: it is placed at once.
+    platform.next.file = 'C:/Maps/sheet 30-13.jpg';
+    await user.click(within(panel).getByRole('button', { name: 'Add a map…' }));
+    expect(within(panel).getByText('Corners from sheet 30-13_ozf.map')).toBeInTheDocument();
+    await user.click(within(panel).getByRole('button', { name: 'Add to the map' }));
+    await waitFor(async () => expect((await api.mapData({ kind: 'all' })).layers).toHaveLength(2));
+    expect(screen.queryByText(/Drag the corners/)).not.toBeInTheDocument();
+    const layers = (await api.mapData({ kind: 'all' })).layers;
+    expect(layers.map((l) => l.title)).toEqual(['Zelena oblast 1865', 'sheet 30-13']);
+    expect(layers[1].corners).toHaveLength(4);
+
+    // The list shows the top map first; moving it down puts it under the other.
+    const rows = within(panel).getAllByRole('listitem');
+    expect(within(rows[0]).getByText('sheet 30-13')).toBeInTheDocument();
+    await user.click(within(panel).getByRole('button', { name: 'Move sheet 30-13 down' }));
+    await waitFor(async () => expect((await api.mapData({ kind: 'all' })).layers.map((l) => l.title)).toEqual(['sheet 30-13', 'Zelena oblast 1865']));
+
+    // Hidden, then off the map: the picture stays a media record.
+    await user.click(within(panel).getByRole('checkbox', { name: 'Show sheet 30-13' }));
+    await waitFor(async () => expect((await api.mapData({ kind: 'all' })).layers.find((l) => l.title === 'sheet 30-13')!.visible).toBe(false));
+    const media = (await api.mapData({ kind: 'all' })).layers.find((l) => l.title === 'sheet 30-13')!.media;
+    await user.click(within(panel).getAllByRole('button', { name: 'Remove from map' })[1]);
+    await waitFor(async () => expect((await api.mapData({ kind: 'all' })).layers).toHaveLength(1));
+    expect((await api.unlinkedMedia()).some((m) => m.id === media)).toBe(true);
+  });
+
+  it('edits_a_maps_corners_as_typed_degrees_and_refuses_a_wrong_one', async () => {
+    const api = new MockApi(fixtureTree(10));
+    const id = await api.addMapLayerFile('C:/Maps/a.png', 'Atlas square', { opacity: 50, visible: true });
+    renderWith(MapView, { onOpenPerson: vi.fn() }, { api });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Old maps (1)' }));
+    const panel = screen.getByRole('complementary', { name: 'Old maps' });
+    expect(within(panel).getByText('not placed yet')).toBeInTheDocument();
+    expect(within(panel).getByRole('slider', { name: 'Opacity of Atlas square' })).toHaveValue('50');
+    await user.click(within(panel).getByRole('button', { name: 'Edit' }));
+    const values = ['50.6', '30', '50.6', '31.2', '49.9', '31.2', '49.9', '30'];
+    const fields = ['Top left corner', 'Top right corner', 'Bottom right corner', 'Bottom left corner'].flatMap((c) => [`${c}: Latitude`, `${c}: Longitude`]);
+    for (const [i, f] of fields.entries()) await user.type(within(panel).getByLabelText(f), i === 0 ? '95' : values[i]);
+    await user.click(within(panel).getByRole('button', { name: 'Save' }));
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('Each corner needs a latitude');
+    await user.clear(within(panel).getByLabelText('Top left corner: Latitude'));
+    await user.type(within(panel).getByLabelText('Top left corner: Latitude'), '50,6');
+    await user.click(within(panel).getByRole('button', { name: 'Save' }));
+    await waitFor(async () => expect((await api.mapData({ kind: 'all' })).layers[0].corners?.[0]).toEqual({ latE6: 50_600_000, lonE6: 30_000_000 }));
+    expect((await api.mapData({ kind: 'all' })).layers[0].media).toBe(id);
+  });
 });

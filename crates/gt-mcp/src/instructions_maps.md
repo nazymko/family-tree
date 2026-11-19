@@ -1,0 +1,2 @@
+
+Old maps: add_map_layer copies a scanned old map (a two- or three-verst sheet, an atlas square) into the tree and lays it on the app's Map under the places, with its title, source, series and year. Give corners only when you know them: from the OziExplorer .map file that came with the scan (ozi_map_path), or four points read off the map's frame, never a guess; otherwise the owner places it. list_map_layers shows every map and where it lies; set_own_map_layer_corners places only a map you added yourself that nobody has changed since.

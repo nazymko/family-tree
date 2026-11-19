@@ -363,3 +363,47 @@ fn every_version_of_a_page_is_exported_as_its_own_object() {
         );
     }
 }
+
+#[test]
+fn an_old_map_on_the_map_is_exported_with_a_note_of_its_placement() {
+    let src = "0 HEAD\n0 @O1@ OBJE\n1 FILE sheet-30-13.jpg\n2 FORM jpg\n0 @O2@ OBJE\n1 FILE atlas.png\n2 FORM png\n0 TRLR\n";
+    let mut t = import(src.as_bytes(), &opts()).tree;
+    let ids: Vec<_> = t.media.keys().copied().collect();
+    let sheet = *ids
+        .iter()
+        .find(|id| t.media[*id].path.contains("sheet"))
+        .unwrap();
+    let atlas = *ids.iter().find(|id| **id != sheet).unwrap();
+    let p = |lat: f64, lon: f64| GeoPoint {
+        lat_e6: (lat * 1e6) as i32,
+        lon_e6: (lon * 1e6) as i32,
+    };
+    t.media.get_mut(&sheet).unwrap().map_layer = Some(MapLayer {
+        series: Some("Three-verst map".into()),
+        year: Some("1865".into()),
+        source: Some("https://example.org/sheet".into()),
+        corners: Some([p(50.6, 30.0), p(50.6, 31.2), p(49.9, 31.2), p(49.9, 30.0)]),
+        opacity: 70,
+        visible: true,
+        pos: 0,
+    });
+    t.media.get_mut(&atlas).unwrap().map_layer = Some(MapLayer {
+        series: None,
+        year: None,
+        source: None,
+        corners: None,
+        opacity: 50,
+        visible: false,
+        pos: 1,
+    });
+    for v in [GedcomVersion::V551, GedcomVersion::V70] {
+        let out = ex(&t, v);
+        assert!(out.contains("Historical map layer"), "{out}");
+        assert!(out.contains("Three-verst map"), "{out}");
+        assert!(out.contains("1865"), "{out}");
+        assert!(out.contains("https://example.org/sheet"), "{out}");
+        assert!(out.contains("50.6"), "{out}");
+        assert!(out.contains("31.2"), "{out}");
+        assert!(out.contains("Not placed on the map yet"), "{out}");
+    }
+}

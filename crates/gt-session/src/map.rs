@@ -90,6 +90,8 @@ pub struct MapDataDto {
     pub links: Vec<MapLinkDto>,
     /// Events of the scope with no place at all.
     pub events_without_place: u32,
+    /// The old maps laid on the Map, the lowest first (every one of the tree, whatever the scope).
+    pub layers: Vec<crate::map_layers::MapLayerDto>,
 }
 
 /// The first year a date states (negative for BCE).
@@ -284,6 +286,7 @@ impl Session {
             events,
             links,
             events_without_place: without_place,
+            layers: self.map_layers(),
         }
     }
 }

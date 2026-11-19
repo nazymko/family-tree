@@ -257,6 +257,7 @@ fn new_citation(source: Uuid) -> CitationArg {
 fn media_record(name: &str) -> gt_core::model::Media {
     gt_core::model::Media {
         version_of: None,
+        map_layer: None,
         place: None,
         common: gt_core::model::Common {
             id: Uuid::now_v7(),

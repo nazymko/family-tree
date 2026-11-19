@@ -4,7 +4,8 @@ import type { Basemap, Ring, Shape } from './basemap';
 import { heatStrength, rampTable, type HeatPoint } from './heat';
 import type { BirthLink, PersonPath } from './paths';
 import { pickLabels, radiusFor, type PlacePoint } from './places';
-import { worldPx, type Camera } from './projection';
+import { drawWarped, onScreen as quadOnScreen, screenQuad, type WarpCtx } from './layers';
+import { worldPx, type Camera, type World } from './projection';
 
 export interface MapTheme {
   sea: string;
@@ -98,6 +99,17 @@ export interface Scene {
   lang: 'en' | 'uk';
   /** Draw labels for the dots of the data. */
   labels: boolean;
+  /** Old maps, lowest first, drawn over the land and under the labels and the data. */
+  layers?: DrawLayer[];
+}
+
+/** An old map ready to draw: its corners in world points, its picture, and how opaque (0 to 1). */
+export interface DrawLayer {
+  world: World[];
+  img: CanvasImageSource;
+  iw: number;
+  ih: number;
+  opacity: number;
 }
 
 interface View {
@@ -150,7 +162,7 @@ function name(sh: { n?: string; u?: string }, lang: 'en' | 'uk'): string {
   return (lang === 'uk' && sh.u ? sh.u : sh.n) ?? '';
 }
 
-function drawBasemap(ctx: Ctx, bm: Basemap, sc: Scene, th: MapTheme, v: View, obstacles: { x: number; y: number }[]): void {
+function drawBasemap(ctx: Ctx, bm: Basemap, sc: Scene, th: MapTheme, v: View, obstacles: { x: number; y: number }[], under: () => void): void {
   const z = v.cam.zoom;
   ctx.fillStyle = th.land;
   fillShapes(ctx, bm.land, v);
@@ -173,6 +185,7 @@ function drawBasemap(ctx: Ctx, bm: Basemap, sc: Scene, th: MapTheme, v: View, ob
   ctx.strokeStyle = th.country;
   ctx.lineWidth = 1;
   strokeShapes(ctx, bm.countries, v, true);
+  under();
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
@@ -436,6 +449,42 @@ function drawHeat(ctx: Ctx, sc: Scene, th: MapTheme, v: View, scale: number): vo
   void th;
 }
 
+let scratch: HTMLCanvasElement | null = null;
+
+/**
+ * The old maps. Each is stretched onto a canvas of its own fully opaque and laid on the map with its opacity in one go, so
+ * the seams of its triangles never show through. Only a bitmap target can draw pictures; the vector picture leaves them out.
+ */
+function drawLayers(ctx: Ctx, sc: Scene, v: View, scale: number): void {
+  const list = sc.layers ?? [];
+  if (list.length === 0 || !('drawImage' in ctx) || typeof document === 'undefined') return;
+  const main = ctx as unknown as CanvasRenderingContext2D;
+  const pw = Math.max(1, Math.round(v.w * scale));
+  const ph = Math.max(1, Math.round(v.h * scale));
+  for (const l of list) {
+    if (l.opacity <= 0 || l.world.length !== 4) continue;
+    const q = screenQuad(l.world, v.cam, v.w, v.h);
+    if (!quadOnScreen(q, v.w, v.h)) continue;
+    scratch ??= document.createElement('canvas');
+    if (scratch.width !== pw || scratch.height !== ph) {
+      scratch.width = pw;
+      scratch.height = ph;
+    }
+    const g = scratch.getContext('2d');
+    if (!g) return;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, pw, ph);
+    g.setTransform(scale, 0, 0, scale, 0, 0);
+    g.imageSmoothingQuality = 'high';
+    drawWarped(g as WarpCtx, l.img, l.iw, l.ih, q);
+    main.save();
+    main.globalAlpha = l.opacity;
+    main.drawImage(scratch, 0, 0, v.w, v.h);
+    main.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
 /** Paints the whole map: the basemap, then the layer of the mode. `scale` is the pixel ratio of a bitmap target. */
 export function drawMap(ctx: Ctx, cam: Camera, w: number, h: number, sc: Scene, th: MapTheme, scale = 1): void {
   const v = view(cam, w, h);
@@ -443,7 +492,9 @@ export function drawMap(ctx: Ctx, cam: Camera, w: number, h: number, sc: Scene, 
   ctx.fillStyle = th.sea;
   ctx.fillRect(0, 0, w, h);
   const obstacles = sc.points.map((p) => ({ x: p.x * v.s + v.ox, y: p.y * v.s + v.oy }));
-  if (sc.basemap) drawBasemap(ctx, sc.basemap, sc, th, v, obstacles);
+  const layers = () => drawLayers(ctx, sc, v, scale);
+  if (sc.basemap) drawBasemap(ctx, sc.basemap, sc, th, v, obstacles, layers);
+  else layers();
   if (sc.mode === 'heat') drawHeat(ctx, sc, th, v, scale);
   if (sc.mode === 'movement') {
     drawMovement(ctx, sc, th, v);

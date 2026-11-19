@@ -34,6 +34,7 @@ const data: MapDataDto = {
     { parent: 'maria', child: 'ivan' },
   ],
   eventsWithoutPlace: 2,
+  layers: [],
 };
 
 describe('projection', () => {
@@ -221,7 +222,7 @@ describe('ten thousand events', () => {
     const places = Array.from({ length: 300 }, (_, i) => ({ id: `p${i}`, label: `V${i}`, name: `V${i}`, lat: 49 + (i % 20) * 0.1, lon: 30 + Math.floor(i / 20) * 0.1 }));
     const people = Array.from({ length: 10000 }, (_, i) => ({ id: `q${i}`, name: `P${i}`, surname: `S${i % 40}`, generation: i % 8, living: false }));
     const events = people.map((p, i) => ev(`e${i}`, i % 3 ? 'birth' : 'death', 1800 + (i % 200), `p${i % 300}`, p.id));
-    const big: MapDataDto = { places, people, events, links: [], eventsWithoutPlace: 0 };
+    const big: MapDataDto = { places, people, events, links: [], eventsWithoutPlace: 0, layers: [] };
     const t = performance.now();
     const f = filterEvents(events, { kinds: new Set(['birth']), from: 1850, to: 1950 });
     const pts = placePoints(big, f);

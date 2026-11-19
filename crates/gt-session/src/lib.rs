@@ -19,8 +19,10 @@ pub mod index;
 pub mod kinship;
 pub mod log;
 pub mod map;
+pub mod map_layers;
 pub mod merge;
 mod mp4_tracks;
+pub mod ozi;
 pub use merge::{CopySizeDto, CopyZipDto, MergePreviewDto, MergeResultDto};
 pub mod names;
 pub mod ops;
@@ -37,7 +39,7 @@ mod web_links;
 
 pub use agent::{
     AGENT_AUDIO_MAX, AGENT_FILE_MAX, AGENT_PDF_MAX, AgentCtx, AgentFile, AgentWrite,
-    check_agent_file, prepare_agent_file,
+    check_agent_file, check_agent_path, prepare_agent_file,
 };
 pub use command::{
     CitationArg, CitationInput, CitationPatch, CloneOf, DeleteImpact, DraftFamily, DraftPerson,
@@ -46,6 +48,7 @@ pub use command::{
     ParticipantInput, PersonDraft, Relation, ReuseLast, SkippedFact, SourceInput, SourceRef,
     TextAreaInput, TextRegionInput, UndoReport, UndoState,
 };
+pub use command::{MapCorner, MapLayerInput};
 pub use dto::*;
 pub use error::{ApiError, ErrorCode};
 pub use field_diff::{FieldChangeDto, person_field_changes, record_field_changes};
@@ -58,6 +61,7 @@ pub use map::{
     GazetteerCandidateDto, GazetteerCountryDto, GazetteerProgressDto, GazetteerStatusDto,
     MapDataDto, MapEventDto, MapLinkDto, MapPersonDto, MapPlaceDto, MapScope, MapScopeKind,
 };
+pub use map_layers::{MapLayerDto, prepare_map_file};
 pub use names::{display_name, lifespan};
 pub use ops::VERSION_GROUP_MAX;
 pub use session::{Session, SessionClock};
