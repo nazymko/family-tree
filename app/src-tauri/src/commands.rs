@@ -88,6 +88,7 @@ command_list!(
     add_map_layer_file,
     find_ozi_map,
     ozi_corners,
+    ozi_check,
     gazetteer_status,
     gazetteer_remote_size,
     gazetteer_download,
@@ -617,8 +618,10 @@ pub async fn add_map_layer_file<R: Runtime>(
         if layer.corners.is_none()
             && let Some(map) = ozi_map_path.filter(|p| !p.trim().is_empty())
         {
+            // A `.map` that does not fit the picture is never used silently: the window asks
+            // `ozi_check` first and lets the owner correct the corners.
             let c = gt_session::map_layers::ozi_corners(Path::new(&map), &path)?;
-            layer.corners = Some(c.corners.to_vec());
+            layer.corners = Some(c.fitting()?.to_vec());
         }
         let dir = s.with_session(|s| Ok(s.project_dir()))?;
         let prepared = gt_session::prepare_map_file(&dir, &path)?;
@@ -633,16 +636,23 @@ pub fn find_ozi_map(path: String) -> Option<String> {
     gt_session::map_layers::find_ozi_map(Path::new(&path)).map(|p| p.to_string_lossy().into_owned())
 }
 
-/// The corners an OziExplorer `.map` file gives a picture already in the tree.
+/// The corners an OziExplorer `.map` file gives a picture already in the tree, and whether the
+/// file fits it.
 #[tauri::command(async)]
 pub fn ozi_corners(
     state: State<'_, AppState>,
     map_path: String,
     media: Uuid,
-) -> ApiResult<Vec<gt_session::MapCorner>> {
+) -> ApiResult<gt_session::OziPlacementDto> {
     let picture = state.with_session(|s| s.media_original_path(media))?;
-    let c = gt_session::map_layers::ozi_corners(Path::new(&map_path), &picture)?;
-    Ok(c.corners.to_vec())
+    gt_session::map_layers::ozi_placement(Path::new(&map_path), &picture)
+}
+
+/// The corners an OziExplorer `.map` file gives a picture the owner is about to add, and whether
+/// the file fits it.
+#[tauri::command(async)]
+pub fn ozi_check(map_path: String, picture_path: String) -> ApiResult<gt_session::OziPlacementDto> {
+    gt_session::map_layers::ozi_placement(Path::new(&map_path), Path::new(&picture_path))
 }
 
 /// The event `gazetteer_download` emits while it works.

@@ -1,6 +1,6 @@
 <script lang="ts">
   // The Map: where the people of the tree lived. One canvas, three modes (places, heat, movement), shared filters.
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import Button from '../ui/Button.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
   import Segmented from '../ui/Segmented.svelte';
@@ -23,7 +23,9 @@
   import { fitPoints, fromScreen, panBy, toScreen, unmercator, zoomAt, type Camera } from './projection';
   import CoordsHelper from './CoordsHelper.svelte';
   import MapLayersPanel from './MapLayersPanel.svelte';
-  import { FULL_MAX, cornersToWorld, defaultCorners, moveAll, moveCorner, screenQuad, wantsMore } from './layers';
+  import { FULL_MAX, cornersToWorld, defaultCorners, moveAll, moveCorner, screenQuad } from './layers';
+  import { planLoads, type Held, type LoadPlan } from './layerLoad';
+  import { LayerPlane } from './layerPlane';
 
   let { onOpenPerson }: { onOpenPerson: (id: Id) => void } = $props();
 
@@ -147,17 +149,50 @@
   /** The map being placed and where its corners are now (saved only on Save). */
   let placing = $state<{ media: Id; title: string; corners: MapCorner[] } | null>(null);
 
+  // Pictures of the old maps are held only while they are wanted (shown, placed, near the view): see layerLoad.ts.
   interface Pic {
     img: DrawLayer['img'];
     w: number;
     h: number;
-    full: boolean;
+  }
+  interface Slot {
+    preview?: Pic;
+    full?: Pic;
+    seen: number;
+    fullSeen: number;
   }
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
-  const pics = new Map<Id, Pic>();
+  const slots = new Map<Id, Slot>();
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const asking = new Set<string>();
   let picsRev = $state(0);
+  let lastPlan: LoadPlan | null = null;
+  /** The view is being panned or zoomed; the old maps are moved, not drawn again, until it rests. */
+  let moving = $state(false);
+  let settle: ReturnType<typeof setTimeout> | undefined;
+  function nudge() {
+    moving = true;
+    clearTimeout(settle);
+    settle = setTimeout(() => (moving = false), 160);
+  }
+  const plane = new LayerPlane();
+  /** Ticks while the Map is open, so pictures not wanted for a while are let go even when nothing moves. */
+  let tick = $state(0);
+  onMount(() => {
+    const timer = setInterval(() => tick++, 5000);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(settle);
+      for (const s of slots.values()) for (const p of [s.preview, s.full]) if (p) letGo(p);
+      slots.clear();
+      plane.release();
+    };
+  });
+
+  function letGo(p: Pic) {
+    if (typeof ImageBitmap !== 'undefined' && p.img instanceof ImageBitmap) p.img.close();
+    else if (typeof HTMLImageElement !== 'undefined' && p.img instanceof HTMLImageElement) p.img.src = '';
+  }
 
   function picture(src: string): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
@@ -169,42 +204,103 @@
     });
   }
 
-  /** The preview first (quick); the original, at most FULL_MAX across, once the view needs more. */
-  async function loadPic(l: MapLayerDto, full: boolean) {
-    const key = `${l.media}:${full ? 'full' : 'preview'}`;
-    if (asking.has(key) || typeof Image === 'undefined') return;
-    asking.add(key);
-    try {
-      const img = await picture(api.mediaUrl(l.media, full ? 'original' : 'preview'));
-      let src: DrawLayer['img'] = img;
-      let w = img.naturalWidth;
-      let h = img.naturalHeight;
-      const big = Math.max(w, h);
-      if (full && big > FULL_MAX && typeof createImageBitmap === 'function') {
-        const k = FULL_MAX / big;
-        src = await createImageBitmap(img, { resizeWidth: Math.round(w * k), resizeHeight: Math.round(h * k), resizeQuality: 'high' });
-        w = Math.round(w * k);
-        h = Math.round(h * k);
-      }
-      const had = pics.get(l.media);
-      if (!had || !had.full) pics.set(l.media, { img: src, w, h, full });
-      picsRev++;
-    } catch {
-      // A picture with no preview (too large to make one) goes straight to the original.
-      if (!full) void loadPic(l, true);
-    }
+  /** A picture decoded once into a bitmap (at most FULL_MAX across), so drawing it never decodes it again. */
+  async function decode(src: string): Promise<Pic> {
+    const img = await picture(src);
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+    if (typeof createImageBitmap !== 'function') return { img, w, h };
+    const k = Math.min(1, FULL_MAX / Math.max(w, h, 1));
+    const bmp = await (k < 1 ? createImageBitmap(img, { resizeWidth: Math.round(w * k), resizeHeight: Math.round(h * k), resizeQuality: 'high' }) : createImageBitmap(img));
+    img.src = '';
+    return { img: bmp, w: bmp.width, h: bmp.height };
   }
 
+  /** Loads a map's preview, or its original. A picture with no preview (none could be made) uses its original instead. */
+  async function loadPic(id: Id, full: boolean, original = full): Promise<void> {
+    const key = `${id}:${full ? 'full' : 'preview'}`;
+    if (asking.has(key) || typeof Image === 'undefined') return;
+    asking.add(key);
+    let retry = false;
+    try {
+      const pic = await decode(api.mediaUrl(id, original ? 'original' : 'preview'));
+      const slot = slots.get(id);
+      // Not wanted any more by the time it came (hidden, or the view moved on): let it go at once.
+      const still = full ? lastPlan?.wantedFull.has(id) : lastPlan?.wanted.has(id);
+      if (!slot || !still) {
+        letGo(pic);
+        return;
+      }
+      const had = full ? slot.full : slot.preview;
+      if (had) letGo(had);
+      if (full) slot.full = pic;
+      else slot.preview = pic;
+      picsRev++;
+    } catch {
+      retry = !full && !original;
+    } finally {
+      asking.delete(key);
+    }
+    if (retry) await loadPic(id, false, true);
+  }
+
+  // What to load and what to let go of, whenever the maps, the view or the time change.
   $effect(() => {
-    for (const l of layerList) if ((l.visible || placing?.media === l.media) && !pics.has(l.media)) void loadPic(l, false);
+    void tick;
+    void picsRev;
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- a plain input to planLoads, made fresh each run
+    const held = new Map<Id, Held>();
+    for (const [id, s] of slots) held.set(id, { preview: !!s.preview, previewSide: s.preview ? Math.max(s.preview.w, s.preview.h) : 0, full: !!s.full, seen: s.seen, fullSeen: s.fullSeen });
+    const plan = planLoads({
+      layers: layerList,
+      placing: placing ? { media: placing.media, corners: placing.corners } : null,
+      cam,
+      w: size.w,
+      h: size.h,
+      scale: typeof window === 'undefined' ? 1 : Math.max(1, window.devicePixelRatio || 1),
+      held,
+      now: Date.now(),
+      moving,
+    });
+    untrack(() => applyPlan(plan));
   });
+
+  function applyPlan(plan: LoadPlan) {
+    lastPlan = plan;
+    const now = Date.now();
+    let changed = false;
+    for (const id of plan.wanted) {
+      const s = slots.get(id) ?? { seen: now, fullSeen: 0 };
+      s.seen = now;
+      if (plan.wantedFull.has(id)) s.fullSeen = now;
+      slots.set(id, s);
+    }
+    for (const id of plan.drop) {
+      const s = slots.get(id);
+      for (const p of [s?.preview, s?.full]) if (p) letGo(p);
+      slots.delete(id);
+      changed = true;
+    }
+    for (const id of plan.dropFull) {
+      const s = slots.get(id);
+      if (s?.full) {
+        letGo(s.full);
+        s.full = undefined;
+        changed = true;
+      }
+    }
+    for (const id of plan.preview) void loadPic(id, false);
+    for (const id of plan.full) void loadPic(id, true);
+    if (changed) picsRev++;
+  }
 
   const drawLayers = $derived.by<DrawLayer[]>(() => {
     void picsRev;
     const out: DrawLayer[] = [];
     for (const l of layerList) {
       const corners = placing?.media === l.media ? placing.corners : l.corners;
-      const pic = pics.get(l.media);
+      const slot = slots.get(l.media);
+      const pic = slot?.full ?? slot?.preview;
       if (!corners || !pic || (!l.visible && placing?.media !== l.media)) continue;
       const op = opacityNow[l.media] ?? l.opacity;
       out.push({ world: cornersToWorld(corners), img: pic.img, iw: pic.w, ih: pic.h, opacity: Math.max(placing?.media === l.media ? 0.6 : 0, op / 100) });
@@ -212,17 +308,8 @@
     return out;
   });
 
-  // Zoomed in on a map: its original replaces the preview.
-  $effect(() => {
-    const scale = typeof window === 'undefined' ? 1 : Math.max(1, window.devicePixelRatio || 1);
-    for (const l of layerList) {
-      const pic = pics.get(l.media);
-      const corners = placing?.media === l.media ? placing.corners : l.corners;
-      if (!pic || pic.full || !corners) continue;
-      const q = screenQuad(cornersToWorld(corners), cam, size.w, size.h);
-      if (wantsMore(q, scale, Math.max(pic.w, pic.h), Math.max(l.width ?? 0, l.height ?? 0) || Infinity)) void loadPic(l, true);
-    }
-  });
+  /** The middle of the view in degrees: the panel lists the maps under it. */
+  const centre = $derived(unmercator(cam.cx, cam.cy));
 
   function layerInput(l: MapLayerDto, corners: MapCorner[] | null): MapLayerInput {
     return { series: l.series ?? undefined, year: l.year ?? undefined, source: l.source ?? undefined, corners: corners ?? undefined, opacity: l.opacity, visible: l.visible };
@@ -232,10 +319,12 @@
     cam = fitPoints(cornersToWorld(c), size.w, size.h, 48, 12);
   }
 
-  function startPlacing(l: MapLayerDto) {
-    const pic = pics.get(l.media);
-    const corners = l.corners ?? defaultCorners(cam, size.w, size.h, l.width ?? pic?.w ?? 4, l.height ?? pic?.h ?? 3);
-    if (l.corners) fitCorners(l.corners);
+  /** Places a map by dragging its corners; `guess` (from a .map file that does not fit the picture) is where they start. */
+  function startPlacing(l: MapLayerDto, guess?: MapCorner[]) {
+    const pic = slots.get(l.media)?.preview;
+    const given = guess ?? l.corners;
+    const corners = given ?? defaultCorners(cam, size.w, size.h, l.width ?? pic?.w ?? 4, l.height ?? pic?.h ?? 3);
+    if (given) fitCorners(given);
     placing = { media: l.media, title: l.title?.trim() || t('map.layers.untitled'), corners };
     selected = null;
   }
@@ -250,12 +339,12 @@
     await load(true);
   }
 
-  async function layerAdded(media: Id, placed: boolean) {
+  async function layerAdded(media: Id, placed: boolean, guess?: MapCorner[]) {
     await load(true);
     const l = (data?.layers ?? []).find((x) => x.media === media);
     if (!l) return;
     if (placed && l.corners) fitCorners(l.corners);
-    else startPlacing(l);
+    else startPlacing(l, guess);
   }
 
   /** Corner handles (0 to 3) and the middle (4), on screen. */
@@ -298,7 +387,7 @@
   }
   void toScreen;
 
-  const scene = $derived<Scene>({ basemap, mode, points, heat, paths, links, colorOf, legend, selected, lang, labels: true, layers: drawLayers });
+  const scene = $derived<Scene>({ basemap, mode, points, heat, paths, links, colorOf, legend, selected, lang, labels: true, layers: drawLayers, plane, moving });
 
   const chosenPoint = $derived<PlacePoint | null>(points.find((p) => p.id === selected) ?? null);
   const peopleHere = $derived.by(() => {
@@ -393,6 +482,7 @@
     const dy = e.clientY - drag.y;
     drag = { x: e.clientX, y: e.clientY, moved: drag.moved + Math.abs(dx) + Math.abs(dy) };
     cam = panBy(cam, size.w, size.h, dx, dy);
+    nudge();
   }
   async function up(e: PointerEvent) {
     const d = drag;
@@ -418,6 +508,7 @@
     if (!canvas) return;
     const r = canvas.getBoundingClientRect();
     cam = zoomAt(cam, size.w, size.h, e.clientX - r.left, e.clientY - r.top, -e.deltaY / 300);
+    nudge();
   }
   function key(e: KeyboardEvent) {
     const step = 60;
@@ -663,7 +754,8 @@
           else next[media] = v;
           opacityNow = next;
         }}
-        onPlace={startPlacing}
+        {centre}
+        onPlace={(l) => startPlacing(l)}
         onAdded={layerAdded}
         onChanged={() => load(true)}
         onClose={() => ((layersOpen = false), (placing = null))}

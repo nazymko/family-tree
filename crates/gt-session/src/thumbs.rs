@@ -15,8 +15,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub const THUMB_PX: u32 = 256;
 /// Longest side of a preview in pixels.
 pub const PREVIEW_PX: u32 = 1600;
-/// Images with more pixels than this are stored but never decoded.
-pub const MAX_PIXELS: u64 = 100_000_000;
+/// Images with more pixels than this are stored but never decoded. A scanned two-verst sheet is
+/// about 11 000 x 10 000 pixels (110 million), so the limit leaves room for those: decoded once, as
+/// 8-bit RGB, such a sheet takes about 330 MB while its preview is made.
+pub const MAX_PIXELS: u64 = 160_000_000;
 const MAX_SIDE: u32 = 32_768;
 const MAX_ALLOC: u64 = 1024 * 1024 * 1024;
 const JPEG_QUALITY: u8 = 82;
@@ -132,7 +134,9 @@ pub(crate) fn decodes(path: &Path) -> Result<(), ApiError> {
     reader.decode().map(|_| ()).map_err(map_image_err)
 }
 
-fn flatten_to_rgb(img: &DynamicImage) -> (u32, u32, Vec<u8>) {
+/// The picture as 8-bit RGB, a transparent one on white. Takes the picture so that an RGB one is
+/// not copied (a large scan would otherwise need its memory twice).
+fn flatten_to_rgb(img: DynamicImage) -> (u32, u32, Vec<u8>) {
     if img.color().has_alpha() {
         let rgba = img.to_rgba8();
         let (w, h) = rgba.dimensions();
@@ -146,7 +150,7 @@ fn flatten_to_rgb(img: &DynamicImage) -> (u32, u32, Vec<u8>) {
         }
         (w, h, out)
     } else {
-        let rgb = img.to_rgb8();
+        let rgb = img.into_rgb8();
         let (w, h) = rgb.dimensions();
         (w, h, rgb.into_raw())
     }
@@ -187,8 +191,7 @@ pub fn render_px(bytes: &[u8], px: u32) -> Result<Vec<u8>, ApiError> {
     }
     decoder.set_limits(limits()).map_err(map_image_err)?;
     let img = DynamicImage::from_decoder(decoder).map_err(map_image_err)?;
-    let (w, h, rgb) = flatten_to_rgb(&img);
-    drop(img);
+    let (w, h, rgb) = flatten_to_rgb(img);
     let (w, h, rgb) = resized(w, h, rgb, px)?;
     let mut out = DynamicImage::ImageRgb8(
         image::RgbImage::from_raw(w, h, rgb)

@@ -73,6 +73,7 @@ fn export_all(dir: &Path) {
         MapLinkDto,
         MapLayerDto,
         MapLayerInput,
+        OziPlacementDto,
         MapCorner,
         NameDto,
         NameKindDto,

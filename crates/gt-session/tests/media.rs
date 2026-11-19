@@ -498,6 +498,32 @@ fn huge_image_stored_but_no_preview() {
     assert!(s.media_bytes(id, MediaSize::Original).is_ok());
 }
 
+/// A scanned two-verst sheet (10 831 x 9 714 pixels, 105 million) was refused as too large to
+/// preview. It is kept whole and gets a 1600-pixel preview.
+#[test]
+#[ignore = "heavy: runs before merge"]
+fn heavy_two_verst_sheet_gets_a_preview() {
+    let (_d, mut s, eva, src) = setup();
+    let (w, h) = (10_831, 9_714);
+    let sheet = DynamicImage::ImageLuma8(image::GrayImage::from_pixel(w, h, image::Luma([200])));
+    let p = write(&src, "sheet.jpg", &encode(&sheet, ImageFormat::Jpeg));
+    drop(sheet);
+    let r = s
+        .attach_files(person(eva), std::slice::from_ref(&p))
+        .unwrap();
+    assert!(reasons(&r).is_empty(), "{:?}", reasons(&r));
+    let id = r.attached[0].id;
+    let (preview, _) = s.media_bytes(id, MediaSize::Preview).unwrap();
+    assert_eq!(decode_dims(&preview), (1600, 1435));
+    let (original, _) = s.media_bytes(id, MediaSize::Original).unwrap();
+    let dims = image::ImageReader::new(Cursor::new(&original))
+        .with_guessed_format()
+        .unwrap()
+        .into_dimensions()
+        .unwrap();
+    assert_eq!(dims, (w, h));
+}
+
 #[test]
 fn corrupt_image_is_attached_but_has_no_thumb() {
     let (_d, mut s, eva, src) = setup();

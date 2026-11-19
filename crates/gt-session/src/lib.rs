@@ -61,7 +61,7 @@ pub use map::{
     GazetteerCandidateDto, GazetteerCountryDto, GazetteerProgressDto, GazetteerStatusDto,
     MapDataDto, MapEventDto, MapLinkDto, MapPersonDto, MapPlaceDto, MapScope, MapScopeKind,
 };
-pub use map_layers::{MapLayerDto, prepare_map_file};
+pub use map_layers::{MapLayerDto, OziPlacementDto, prepare_map_file};
 pub use names::{display_name, lifespan};
 pub use ops::VERSION_GROUP_MAX;
 pub use session::{Session, SessionClock};

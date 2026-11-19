@@ -59,6 +59,11 @@ fn id(v: &Value) -> Uuid {
     serde_json::from_value(v["id"].clone()).unwrap()
 }
 
+/// The id in a raw tool answer (what `add` returns).
+fn added(r: &Value) -> Uuid {
+    id(&serde_json::from_str(r["content"][0]["text"].as_str().unwrap()).unwrap())
+}
+
 fn items(host: &TestHost) -> Vec<Value> {
     call(host, "list_map_layers", json!({}))["items"]
         .as_array()
@@ -156,6 +161,58 @@ fn corners_come_from_an_ozi_file_and_a_wrong_call_is_refused() {
             == json!(true)
     );
     assert_eq!(items(&host).len(), 1);
+}
+
+/// A map an agent lays is hidden unless it says visible: true; the owner chooses what to show.
+#[test]
+fn an_agent_lays_maps_hidden_unless_it_says_visible() {
+    let host = empty_host();
+    let batch = begin(&host);
+    let hidden = added(&add(&host, &batch, "hidden.jpg", 10, json!({})));
+    let shown = added(&add(
+        &host,
+        &batch,
+        "shown.jpg",
+        90,
+        json!({"visible": true}),
+    ));
+    let also_hidden = added(&add(
+        &host,
+        &batch,
+        "false.jpg",
+        150,
+        json!({"visible": false}),
+    ));
+    let visible = |m: Uuid| {
+        items(&host)
+            .into_iter()
+            .find(|l| l["id"] == json!(m))
+            .unwrap()["visible"]
+            .clone()
+    };
+    assert_eq!(visible(hidden), json!(false));
+    assert_eq!(visible(shown), json!(true));
+    assert_eq!(visible(also_hidden), json!(false));
+    let bad = add(&host, &batch, "bad.jpg", 200, json!({"visible": "yes"}));
+    assert_eq!(bad["isError"], json!(true), "{bad}");
+    assert_eq!(items(&host).len(), 3);
+}
+
+/// A JPEG of another shape than the picture the .map was made for (cropped or framed otherwise)
+/// would land kilometres off: the agent is refused and nothing is added.
+#[test]
+fn a_cropped_picture_with_its_ozi_file_is_refused() {
+    let host = empty_host();
+    let batch = begin(&host);
+    let map = file(&host, "sheet_ozf.map", OZI.as_bytes());
+    let pic = file(&host, "sheet.jpg", &jpeg(180, 100, 60));
+    let err = call_err(
+        &host,
+        "add_map_layer",
+        json!({"batch": batch, "file_path": pic.to_string_lossy(), "title": "Sheet", "source": "https://example.org/s", "ozi_map_path": map.to_string_lossy()}),
+    );
+    assert!(err.contains("does not fit this picture"), "{err}");
+    assert!(items(&host).is_empty());
 }
 
 #[test]

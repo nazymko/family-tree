@@ -2,7 +2,19 @@
 //! three-verst sheets and many other old maps). The file gives up to four points of the map's
 //! frame twice: in pixels of the picture (`MMPXY`) and as longitude and latitude (`MMPLL`). The
 //! picture's own corners follow from those by a projective transform (an affine one from three
-//! points). Coordinates in the Pulkovo 1942 datum are moved to WGS 84, as the Map draws.
+//! points). A file without those lines gives its calibration points instead (`Point01` to
+//! `Point30`: pixels, then degrees and minutes). Coordinates in the Pulkovo 1942 datum are moved to
+//! WGS 84, as the Map draws.
+//!
+//! Both kinds of points are taken in the datum the file names. OziExplorer's own description of
+//! the format names no datum for `MMPLL`; programs that write these files for the old Soviet sheets
+//! (mapsoft2, for one) write `MMPLL` in the map's datum, and readers such as tilers-tools read them
+//! so. A file on Pulkovo 1942 is therefore moved to WGS 84 whichever lines it is read from.
+//!
+//! The pixels of the file are those of the picture it was calibrated on (`IWH`). A picture of the
+//! same shape but another size is that picture scaled, and gets the same corners. A picture of
+//! another shape was cropped or framed differently (a site's JPEG next to its `.ozf2`): its corners
+//! cannot be known from the file, and [`OziCorners::mismatch`] says so.
 
 use crate::command::MapCorner;
 use crate::error::{ApiError, ErrorCode};
@@ -20,6 +32,26 @@ pub struct OziCorners {
     /// The picture size the file names (`IWH`), or the one given.
     pub width: u32,
     pub height: u32,
+    /// The picture given does not fit the file: another shape than the calibrated one, or points
+    /// of the file outside it. The corners are then only a first guess for the owner to correct.
+    pub mismatch: bool,
+}
+
+/// What an agent or the owner is told when a `.map` file does not fit its picture.
+pub const OZI_MISMATCH: &str = "The .map file does not fit this picture: the picture has another shape than the one the .map file was made for (it was cropped or framed differently), so its corners would be kilometres off. Use the picture the .map file was made for, or give the corners.";
+
+/// How far the shapes (width over height) of the picture and of the calibrated one may differ.
+const SHAPE_TOLERANCE: f64 = 0.005;
+
+impl OziCorners {
+    /// The corners, or the refusal when the file does not fit the picture.
+    pub fn fitting(&self) -> Result<[MapCorner; 4], ApiError> {
+        if self.mismatch {
+            Err(bad(OZI_MISMATCH))
+        } else {
+            Ok(self.corners)
+        }
+    }
 }
 
 fn bad(msg: impl Into<String>) -> ApiError {
@@ -51,6 +83,7 @@ pub fn read_ozi_map(text: &str, dims: Option<(u32, u32)>) -> Result<OziCorners, 
     let mut xy: [Option<(f64, f64)>; 4] = [None; 4];
     let mut ll: [Option<(f64, f64)>; 4] = [None; 4];
     let mut iwh: Option<(u32, u32)> = None;
+    let mut calibration: Vec<((f64, f64), (f64, f64))> = Vec::new();
     for line in &all {
         let f: Vec<&str> = line.split(',').collect();
         let key = f.first().map(|k| k.trim()).unwrap_or_default();
@@ -75,6 +108,11 @@ pub fn read_ozi_map(text: &str, dims: Option<(u32, u32)>) -> Result<OziCorners, 
                     *s = Some((lon, lat));
                 }
             }
+            k if k.len() == 7 && k.starts_with("Point") => {
+                if let Some(p) = calibration_point(&f) {
+                    calibration.push(p);
+                }
+            }
             "IWH" => {
                 let w = num(f.get(2)).filter(|v| *v >= 1.0);
                 let h = num(f.get(3)).filter(|v| *v >= 1.0);
@@ -85,11 +123,16 @@ pub fn read_ozi_map(text: &str, dims: Option<(u32, u32)>) -> Result<OziCorners, 
             _ => {}
         }
     }
-    let pairs: Vec<((f64, f64), (f64, f64))> = xy
+    let corner_pairs: Vec<((f64, f64), (f64, f64))> = xy
         .iter()
         .zip(&ll)
         .filter_map(|(a, b)| Some(((*a)?, (*b)?)))
         .collect();
+    let pairs = if corner_pairs.len() >= 3 {
+        corner_pairs.clone()
+    } else {
+        calibration.clone()
+    };
     if pairs.len() < 3 {
         return Err(bad(
             "The .map file names fewer than three corner points (MMPXY and MMPLL lines).",
@@ -104,6 +147,21 @@ pub fn read_ozi_map(text: &str, dims: Option<(u32, u32)>) -> Result<OziCorners, 
     let (width, height) = iwh.or(dims).ok_or_else(|| {
         bad("The .map file does not say how big the picture is, and the picture cannot be read.")
     })?;
+    let mismatch = {
+        let (w, h) = (f64::from(width), f64::from(height));
+        let shape = |(a, b): (u32, u32)| f64::from(a) / f64::from(b);
+        let other_shape = dims.is_some_and(|d| {
+            (shape(d) - shape((width, height))).abs() / shape((width, height)) > SHAPE_TOLERANCE
+        });
+        // A point a little off the edge is a frame drawn to the edge; one well outside is not on
+        // this picture at all.
+        let (mx, my) = (w * SHAPE_TOLERANCE, h * SHAPE_TOLERANCE);
+        let outside = corner_pairs
+            .iter()
+            .chain(&calibration)
+            .any(|((x, y), _)| *x < -mx || *y < -my || *x > w + mx || *y > h + my);
+        other_shape || outside
+    };
     let to_ll =
         transform(&pairs).ok_or_else(|| bad("The points of the .map file lie on one line."))?;
     let (w, h) = (f64::from(width), f64::from(height));
@@ -134,7 +192,28 @@ pub fn read_ozi_map(text: &str, dims: Option<(u32, u32)>) -> Result<OziCorners, 
         datum,
         width,
         height,
+        mismatch,
     })
+}
+
+/// A calibration line: `Point01,xy, 494, 235,in, deg, 24, 0,S, 148, 0,E, grid, ...`, the pixel
+/// and then latitude and longitude in degrees, minutes and hemisphere. An unused line (no pixel or
+/// no degrees) gives nothing.
+fn calibration_point(f: &[&str]) -> Option<((f64, f64), (f64, f64))> {
+    let x = num(f.get(2))?;
+    let y = num(f.get(3))?;
+    let angle = |d: usize, minus: &str| {
+        let deg = num(f.get(d))?;
+        let min = num(f.get(d + 1)).unwrap_or(0.0);
+        let v = deg.abs() + min / 60.0;
+        let neg = deg < 0.0
+            || f.get(d + 2)
+                .is_some_and(|h| h.trim().eq_ignore_ascii_case(minus));
+        Some(if neg { -v } else { v })
+    };
+    let lat = angle(6, "S")?;
+    let lon = angle(9, "W")?;
+    Some(((x, y), (lon, lat)))
 }
 
 /// Pixel to (lon, lat): projective through four pairs, affine through three.
@@ -281,21 +360,88 @@ mod tests {
     }
 
     /// The .map is calibrated on the site's own copy of the picture (IWH 1000 x 800 here); the
-    /// downloaded JPEG has another size, even another shape. Its pixels are the .map's pixels
-    /// scaled on each axis (x * jpgW / mapW, y * jpgH / mapH), so its corners are the corners the
+    /// downloaded JPEG of the same shape is that picture scaled, so its corners are the corners the
     /// .map's own picture has, whatever size the JPEG is.
     #[test]
     fn a_picture_of_another_size_gets_the_corners_of_the_calibrated_one() {
         let calibrated = read_ozi_map(MAP, None).unwrap();
-        let bigger = read_ozi_map(MAP, Some((1450, 1104))).unwrap();
+        let bigger = read_ozi_map(MAP, Some((1450, 1160))).unwrap();
         assert_eq!(bigger.corners, calibrated.corners);
         assert_eq!((bigger.width, bigger.height), (1000, 800));
-        // Scaled by hand: the frame's top left (100, 100) of the .map is (145, 138) of the JPEG,
+        assert!(!bigger.mismatch);
+        assert_eq!(bigger.fitting().unwrap(), calibrated.corners);
+        // Scaled by hand: the frame's top left (100, 100) of the .map is (145, 145) of the JPEG,
         // and the JPEG's corner (0, 0) is 0.1 degree out from it either way.
         assert_eq!(
             (bigger.corners[0].lon_e6, bigger.corners[0].lat_e6),
             (29_900_000, 50_700_000)
         );
+        // Rounding a pixel off when it was scaled is no mismatch.
+        assert!(!read_ozi_map(MAP, Some((1001, 800))).unwrap().mismatch);
+    }
+
+    /// A JPEG cropped from the calibrated picture (a site's JPEG next to its .ozf2, framed
+    /// otherwise) has another shape: stretching the .map onto it put sheets 7 to 12 km off. The
+    /// file is said not to fit, and an agent is refused.
+    #[test]
+    fn a_cropped_picture_does_not_fit() {
+        // The 1000 x 800 sheet with 60 px cut off the right: 940 x 800.
+        let cropped = read_ozi_map(MAP, Some((940, 800))).unwrap();
+        assert!(cropped.mismatch);
+        assert_eq!(cropped.fitting().unwrap_err().message, OZI_MISMATCH);
+        // Another shape also when the size is scaled as well.
+        assert!(read_ozi_map(MAP, Some((1450, 1104))).unwrap().mismatch);
+    }
+
+    /// The pixels of the file fall outside the picture it names: it was made for another frame.
+    #[test]
+    fn points_outside_the_picture_do_not_fit() {
+        let off = MAP.replace("MMPXY,2,900,100", "MMPXY,2,1300,100");
+        let o = read_ozi_map(&off, None).unwrap();
+        assert!(o.mismatch);
+        assert!(o.fitting().is_err());
+    }
+
+    /// A file with no MMPLL lines is read from its calibration points (degrees and minutes, in the
+    /// map's datum).
+    #[test]
+    fn calibration_points_stand_in_for_the_corner_lines() {
+        let points = "Point01,xy,  100,  100,in, deg,  50, 36.000000,N,  30,  0.000000,E, grid,   ,           ,           ,N\r\n\
+                      Point02,xy,  900,  100,in, deg,  50, 36.000000,N,  30, 48.000000,E, grid,   ,           ,           ,N\r\n\
+                      Point03,xy,  900,  700,in, deg,  50,  0.000000,N,  30, 48.000000,E, grid,   ,           ,           ,N\r\n\
+                      Point04,xy,     ,     ,in, deg,    ,          ,N,    ,          ,E, grid,   ,           ,           ,N\r\n";
+        let map: String = MAP
+            .lines()
+            .filter(|l| !l.starts_with("MMPLL"))
+            .map(|l| {
+                if l.starts_with("Map Projection") {
+                    format!("{l}\r\n{points}")
+                } else {
+                    format!("{l}\r\n")
+                }
+            })
+            .collect();
+        let o = read_ozi_map(&map, None).unwrap();
+        assert_eq!(o.corners, read_ozi_map(MAP, None).unwrap().corners);
+        // Southern and western hemispheres turn the sign.
+        let south = calibration_point(
+            &"Point01,xy,1,2,in,deg,24,30,S,148,15,W,grid"
+                .split(',')
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        assert_eq!(south, ((1.0, 2.0), (-148.25, -24.5)));
+        // Pulkovo 1942 is moved to WGS 84 from the calibration points just as from MMPLL.
+        let pulkovo = |m: &str| {
+            read_ozi_map(
+                &m.replacen("WGS 84,WGS 84", "Pulkovo 1942 (1),WGS 84", 1),
+                None,
+            )
+            .unwrap()
+            .corners
+        };
+        assert_eq!(pulkovo(&map), pulkovo(MAP));
+        assert_ne!(pulkovo(MAP), o.corners);
     }
 
     #[test]
