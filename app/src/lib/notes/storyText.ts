@@ -15,7 +15,7 @@ const RULES: RegExp[] = [
   /\bark:\/\S+/giu,
   // File names: scan.jpg, page_12.pdf, 0042.png
   new RegExp(`${NOT_LETTER_BEFORE}[\\p{L}\\p{N}_()\\-./\\\\]*[\\p{L}\\p{N}_)]\\.(?:jpe?g|png|pdf|tiff?|gif|webp)${NOT_LETTER_AFTER}`, 'giu'),
-  // Archive shelf marks: ДАХеО 259-51-14, ЦДІАК 127-1012-59, ДАХмО 315-1-7189
+  // Archive shelf marks: ДАХеО 1-2-3, ЦДІАК 11-22-33, ДАХмО 10-2-345
   new RegExp(`${NOT_LETTER_BEFORE}\\p{Lu}{2,}[${L}]{0,4}\\s*\\d{1,5}-\\d{1,5}-\\d{1,6}[${L}]?${NOT_LETTER_AFTER}`, 'gu'),
   // Fond, inventory, file and sheet: ф. 259, оп. 51, спр. 14, арк. 5зв
   new RegExp(`${NOT_LETTER_BEFORE}(?:ф|оп|спр|арк)\\.\\s*\\d[\\d\\-–/]*(?:\\s*(?:зв|об)\\.?)?[${L}]?(?![\\d])`, 'giu'),

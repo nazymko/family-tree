@@ -5,7 +5,7 @@ import { cleanForStory, storyOf } from './storyText';
 describe('cleanForStory', () => {
   it('removes_archive_shelf_marks_in_every_form', () => {
     expect(cleanForStory('Іван Тестенко народився 1890 (ДАХеО 1-2-3).')).toBe('Іван Тестенко народився 1890.');
-    expect(cleanForStory('Запис у книзі ДАХмО 315-1-7189 і ЦДІАК 127-1012-59.')).toBe('Запис у книзі і.');
+    expect(cleanForStory('Запис у книзі ДАХмО 10-2-345 і ЦДІАК 11-22-33.')).toBe('Запис у книзі і.');
     expect(cleanForStory('Дивись ф. 259, оп. 51, спр. 14, арк. 5зв, там він.')).toBe('Дивись, там він.');
   });
 
