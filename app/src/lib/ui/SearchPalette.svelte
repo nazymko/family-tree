@@ -4,6 +4,7 @@
   import { getApi } from '../api/context';
   import type { SearchHitDto } from '../api/types';
   import { t, type MessageKey } from '../i18n';
+  import { cardName, shownName } from './namesPref.svelte';
 
   let { open, onclose, onpick }: { open: boolean; onclose: () => void; onpick: (hit: SearchHitDto) => void } = $props();
 
@@ -126,7 +127,7 @@
               onclick={() => onpick(h)}
               onkeydown={() => {}}
             >
-              <bdi dir="auto" class="label">{h.label}</bdi>
+              <bdi dir="auto" class="label" title={h.person && shownName(h.person).recorded ? t('people.asRecordedTitle', { name: h.person.name }) : undefined}>{h.kind === 'person' && h.person ? cardName(h.person) : h.label}</bdi>
               {#if h.snippet}<span class="snip tnum">{h.snippet}</span>{/if}
             </div>
           {/each}

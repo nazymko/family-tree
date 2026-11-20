@@ -104,6 +104,21 @@ pub fn birth_surname_shown(p: &Person) -> Option<String> {
     Some(birth.to_string())
 }
 
+/// The person's name exactly as a record writes it (kind `AsRecorded`), for the "as recorded" display mode:
+/// the earliest dated one, undated ones after the dated, then in their order. `None` when there is none, when
+/// the main name already is that name, or when it is private or empty.
+pub fn as_recorded_shown(p: &Person, order: NameOrder) -> Option<String> {
+    let main = preferred_name(p).map(|n| n.id);
+    p.names
+        .iter()
+        .filter(|n| n.kind == NameKind::AsRecorded && !n.private && Some(n.id) != main)
+        .enumerate()
+        .map(|(i, n)| (n.date.as_ref().and_then(|d| d.sort_key()), i, n))
+        .min_by_key(|(key, i, _)| (key.is_none(), *key, *i))
+        .map(|(_, _, n)| compose(n, order, false))
+        .filter(|s| !s.is_empty())
+}
+
 pub fn sex_kind(s: &Sex) -> (SexKind, Option<String>) {
     match s {
         Sex::Male => (SexKind::Male, None),
@@ -276,5 +291,40 @@ mod patronymic_tests {
         // A private birth name stays private.
         let private = named(NameKind::Birth, "Bondar", false, true);
         assert_eq!(birth_surname_shown(&person(vec![private, married])), None);
+    }
+
+    #[test]
+    fn as_recorded_picks_the_earliest_dated_name() {
+        use gt_core::date::{DayOrder, GenDate};
+        let modern = named(NameKind::Birth, "Vyhadanenko", true, false);
+        let mut late = named(NameKind::AsRecorded, "Vyhadanenkoff", false, false);
+        late.id = uuid::Uuid::from_u128(1);
+        late.date = Some(GenDate::parse("1901", DayOrder::Dmy));
+        let mut early = named(NameKind::AsRecorded, "Vyhadanenkov", false, false);
+        early.id = uuid::Uuid::from_u128(2);
+        early.date = Some(GenDate::parse("1885", DayOrder::Dmy));
+        let mut undated = named(NameKind::AsRecorded, "Undated", false, false);
+        undated.id = uuid::Uuid::from_u128(3);
+        let p = person(vec![modern.clone(), undated.clone(), late, early]);
+        assert_eq!(
+            as_recorded_shown(&p, NameOrder::GivenFirst).as_deref(),
+            Some("Olena Vyhadanenkov")
+        );
+        // Undated only: their order.
+        let p = person(vec![modern.clone(), undated]);
+        assert_eq!(
+            as_recorded_shown(&p, NameOrder::GivenFirst).as_deref(),
+            Some("Olena Undated")
+        );
+        // None, or a private one: no as-recorded name.
+        assert_eq!(
+            as_recorded_shown(&person(vec![modern.clone()]), NameOrder::GivenFirst),
+            None
+        );
+        let private = named(NameKind::AsRecorded, "Hidden", false, true);
+        assert_eq!(
+            as_recorded_shown(&person(vec![modern, private]), NameOrder::GivenFirst),
+            None
+        );
     }
 }

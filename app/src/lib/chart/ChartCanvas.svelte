@@ -27,6 +27,7 @@
   import { captionText, chartTitle, later, printPicture, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
   import { A3_SUB_PT, A3_TITLE_PT, PT_PX, ellipsize, layoutA3, mmToPx, nameFloorPx, printDirection, printStretch, stretchScene, type A3Choice } from './a3';
   import { a3Background, a3Direction, a3Title } from './a3Pref.svelte';
+  import { namesAsRecorded } from '../ui/namesPref.svelte';
   import { sceneBounds, pictureFileName } from './picture';
   import { settings } from '../state/settings.svelte';
   import { t, plural, localeStore, currentTag } from '../i18n';
@@ -161,6 +162,12 @@
           ? t('chartCanvas.aroundTools')
           : t('chartCanvas.descendantTools'),
   );
+
+  // Switching "names as recorded" redraws the cards (and the next print or picture uses the same names).
+  $effect(() => {
+    void namesAsRecorded.value;
+    untrack(() => invalidate());
+  });
 
   function invalidate(): void {
     dirty = true;

@@ -254,6 +254,7 @@ fn camel_case_wire_format() {
         living: true,
         private: false,
         birth_surname: None,
+        as_recorded: None,
         sibling_marker: false,
     };
     let row = PersonRow {

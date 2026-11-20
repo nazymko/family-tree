@@ -28,6 +28,7 @@
   import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
   import { agentChanges } from '../state/agentChanges.svelte';
+  import { namesAsRecorded } from '../ui/namesPref.svelte';
   import { compactX, isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
 
@@ -115,6 +116,12 @@
     if (!meta) return ZOOM_MIN;
     return Math.max(0.004, Math.min(ZOOM_MIN, fitZoom(meta.meta.bounds, size) * 0.9));
   }
+
+  // Switching "names as recorded" redraws the cards.
+  $effect(() => {
+    void namesAsRecorded.value;
+    untrack(() => invalidate());
+  });
 
   function invalidate(): void {
     dirty = true;

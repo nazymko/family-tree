@@ -811,7 +811,7 @@ export class MockApi implements Api {
       const f = folded.get(r.id)!;
       const at = f.indexOf(q);
       if (at < 0) continue;
-      const person: PersonRef = { id: r.id, name: r.name, lifespan: r.lifespan, sex: r.sex, living: r.living, private: r.private, ...(r.birthSurname ? { birthSurname: r.birthSurname } : {}), siblingMarker: false };
+      const person: PersonRef = { id: r.id, name: r.name, lifespan: r.lifespan, sex: r.sex, living: r.living, private: r.private, ...(r.birthSurname ? { birthSurname: r.birthSurname } : {}), ...(r.asRecorded ? { asRecorded: r.asRecorded } : {}), siblingMarker: false };
       const hit: SearchHitDto = { kind: 'person', id: r.id, label: r.name, snippet: r.lifespan || null, person };
       (at === 0 || f[at - 1] === ' ' ? starts : contains).push(hit);
       if (starts.length >= lim) break;
@@ -1606,7 +1606,7 @@ export class MockApi implements Api {
       // Far out the backend sends the surname and sex only.
       const surnames = c.whole.surnames;
       return structuredClone({
-        nodes: nodes.map((n) => ({ ...n, label: '', person: { ...n.person!, name: surnames[n.id], lifespan: '', birthSurname: undefined } })),
+        nodes: nodes.map((n) => ({ ...n, label: '', person: { ...n.person!, name: surnames[n.id], lifespan: '', birthSurname: undefined, asRecorded: undefined } })),
         edges,
       });
     }
@@ -2152,8 +2152,19 @@ export class MockApi implements Api {
     return birth;
   }
 
+  /** The earliest dated name of kind as_recorded (undated last, then their order); the same rule as the Rust index. */
+  private asRecorded(p: PersonRec): string | undefined {
+    if (p.siblingMarker) return undefined;
+    const main = this.prefName(p);
+    const list = p.names.filter((n) => n.kind === 'as_recorded' && !n.private && n !== main);
+    const key = (n: NameDto) => n.date?.sortMin ?? Number.POSITIVE_INFINITY;
+    const best = list.map((n, i) => ({ n, i })).sort((a, b) => key(a.n) - key(b.n) || a.i - b.i)[0]?.n;
+    return best?.display?.trim() || undefined;
+  }
+
   private ref(p: PersonRec): PersonRef {
     const birthSurname = this.birthSurname(p);
+    const asRecorded = this.asRecorded(p);
     return {
       id: p.id,
       name: this.prefName(p)?.display ?? '',
@@ -2162,6 +2173,7 @@ export class MockApi implements Api {
       living: !p.siblingMarker && this.isLiving(p),
       private: p.private,
       ...(birthSurname ? { birthSurname } : {}),
+      ...(asRecorded ? { asRecorded } : {}),
       siblingMarker: p.siblingMarker === true,
     };
   }

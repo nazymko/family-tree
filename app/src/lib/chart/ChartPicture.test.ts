@@ -133,16 +133,18 @@ describe('picture menu on a chart', () => {
     await waitFor(() => expect(within(menu()).getAllByRole('menuitem').length).toBeGreaterThan(3));
     const m = menu();
     const items = within(m).getAllByRole('menuitem');
-    const last = items.length - 1;
+    // The last stop is the "names as recorded" choice, a checkable item.
+    const choices = within(m).getAllByRole('menuitemradio');
+    const end = choices[choices.length - 1];
     expect(items[0]).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'ArrowDown' });
     expect(items[1]).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'End' });
-    expect(items[last]).toHaveFocus();
+    expect(end).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'ArrowDown' });
     expect(items[0]).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'ArrowUp' });
-    expect(items[last]).toHaveFocus();
+    expect(end).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(s.canvas).toHaveFocus();
