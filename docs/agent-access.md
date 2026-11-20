@@ -130,6 +130,26 @@ the place, description and everything else on the event stay as they are.
 - When sources disagree and nobody has confirmed which is right, the agent does not correct anything: it adds a note with
   both versions.
 
+### Verified corrections
+
+An agent may change data it did not create (yours, an import's, another agent's) when it has read a record that shows the
+right value. Four tools, each needs `evidence` (`source`: the id of a source in the tree, `page`, `quote`: the record's
+own words, optionally `quality` 0-3) and a `reason`, inside an open batch:
+
+- `correct_name`: the given name, patronymic, surnames or kind of any name of a person, and/or `make_preferred` to make an
+  existing name the main one (a right spelling that is only an alternative name today). When the main name's text changes,
+  the old text stays as an alternative name «як записано», so nothing is lost.
+- `correct_event`: date, place, description, age or cause of any event (`correct_event_date` stays as it was).
+- `move_child`: a child's link moved to another family that shares at least one parent with the first (from the father alone
+  to the father and the mother). The kind of link stays; a note on the child records the move. A family the agent made in the
+  same batch that is left empty is removed.
+- `correct_note`: the text of any note, yours too. A note with a story needs the new story or `clear_story`.
+
+The record's words are cited on what changed (the name, the event, the child's link, what the note is attached to). The old
+value and the reason are in the **Change log** and the history; **Undo** of the batch puts everything back. A correction
+never deletes a person and never changes who counts as alive or dead beyond the rule above (a flip is refused). Without a
+record the agent actually read, or when sources disagree and none decides, it adds a note instead.
+
 ### Taking back a wrong link
 
 When a family or a source shows that a child the agent linked belongs to other parents, the agent can take its own link back
