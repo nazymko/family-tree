@@ -106,6 +106,7 @@ fn add_note(t: &mut Tree, text: &str) -> Uuid {
             text: text.into(),
             lang: None,
             shared: false,
+            story: None,
         },
     );
     id

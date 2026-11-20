@@ -23,6 +23,7 @@ fn add_note(id: Uuid, text: &str) -> EditCommand {
             id,
         },
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: text.into(),

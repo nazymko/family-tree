@@ -75,6 +75,7 @@ fn add_note(s: &mut Session, id: Uuid, text: &str) {
             id,
         },
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: text.into(),

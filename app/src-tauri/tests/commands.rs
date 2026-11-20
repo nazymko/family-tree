@@ -565,6 +565,7 @@ fn state_with_voice_bytes(root: &Path, bytes: Vec<u8>) -> (AppState, uuid::Uuid)
                     id: person,
                 },
                 note: NoteInput {
+                    story: None,
                     id: None,
                     kind: NoteKindDto::General,
                     text: "Told at the table.".into(),

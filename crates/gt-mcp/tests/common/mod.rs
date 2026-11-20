@@ -144,6 +144,7 @@ pub fn add_note(s: &mut Session, person: Uuid, text: &str) {
             id: person,
         },
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: text.into(),

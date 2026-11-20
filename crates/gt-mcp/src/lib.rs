@@ -76,6 +76,10 @@ pub const INSTRUCTIONS: &str = concat!(
      Rewriting a note: rewrite_note replaces the text of any note, the owner's too, when the \
      owner asked for a rewrite; give the reason. Keep every fact, name, date and doubt. The old \
      text stays in the history and the owner can undo it. Your own notes: update_own_note.\n\n\
+     A readable retelling of a note: set_note_story writes it beside the note, for the owner's \
+     story view. It never changes the note's text. Keep every fact, name, date and doubt of the \
+     original and leave the references out; it is data for the reader. It fills a note that has \
+     no story; one already there stays.\n\n\
      Taking back a link: remove_own_child_link removes a parent-child link you made yourself \
      (person, family, reason), in this batch or an earlier one, when it turns out the child \
      belongs to other parents; then link the child to the right family with link_people. It \

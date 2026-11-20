@@ -49,6 +49,9 @@
   import { asRecordedLines } from './asRecorded';
   import { errMessage } from '../editors/errors';
   import { t, plural, currentTag, type MessageKey } from '../i18n';
+  import NotesViewToggle from '../notes/NotesViewToggle.svelte';
+  import NoteShortened from '../notes/NoteShortened.svelte';
+  import { shownNote } from '../notes/notesView.svelte';
   import { agentLabel, editLabel, eventKindLabel } from '../i18n/backend';
   import { withSexIcon } from '../ui/sex';
   import { oldTypeface } from '../ui/namesPref.svelte';
@@ -738,12 +741,14 @@
     <section aria-labelledby="h-notes">
       <div class="sec-head">
         <h2 id="h-notes" tabindex="-1">{t('person.notes')}</h2>
+        {#if detail.notes.length > 0 || familyNotes.length > 0}<NotesViewToggle />{/if}
         <Button onclick={() => (dialog = { kind: 'note' })}>{t('editor.addNote')}</Button>
       </div>
       {#each detail.notes as n (n.id)}
         <article class="note" data-note-id={n.id}>
           <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
-          <p class="note-text">{n.text}</p>
+          <p class="note-text">{shownNote(n).text}</p>
+          <NoteShortened note={n} />
           <VoiceSamples items={n.media} />
           <div class="btns">
             <Button onclick={() => (dialog = { kind: 'note', note: n })} aria-label={t('person.editNote', { kind: t(`noteKind.${n.kind}`) })}>{t('common.edit')}</Button>
@@ -766,7 +771,8 @@
         {#each fam.notes as n (n.id)}
           <article class="note" data-note-id={n.id}>
             <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
-            <p class="note-text">{n.text}</p>
+            <p class="note-text">{shownNote(n).text}</p>
+            <NoteShortened note={n} />
             <VoiceSamples items={n.media} />
             <div class="btns">
               <Button

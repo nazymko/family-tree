@@ -45,6 +45,10 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
         "0013_map_layers",
         include_str!("migrations/0013_map_layers.sql"),
     ),
+    (
+        "0014_note_story",
+        include_str!("migrations/0014_note_story.sql"),
+    ),
 ];
 
 pub(crate) fn user_version(conn: &Connection) -> Result<i32, StoreError> {

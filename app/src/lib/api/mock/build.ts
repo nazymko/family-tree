@@ -152,7 +152,7 @@ export function makeName(
 }
 
 export function makeNote(id: Id, kind: NoteDto['kind'], text: string): NoteDto {
-  return { id, kind, text, shared: false, lang: null, media: [] };
+  return { id, kind, text, story: null, shared: false, lang: null, media: [] };
 }
 
 /** Lower-case and strip diacritics so "Müller" matches "muller". */

@@ -326,6 +326,7 @@ fn a_family_reads_back_with_its_notes() {
             id: family,
         },
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: "They moved in spring.".into(),
@@ -440,6 +441,7 @@ fn marker_refuses_note() {
         EditCommand::SaveNote {
             target: owner(m),
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::General,
                 text: "two more daughters".into(),

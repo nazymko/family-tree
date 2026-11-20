@@ -11,6 +11,7 @@ fn add_note(target: OwnerRef, text: &str) -> EditCommand {
     EditCommand::SaveNote {
         target,
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: text.into(),

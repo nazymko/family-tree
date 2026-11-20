@@ -6,6 +6,9 @@
   import FamilyEditor from '../editors/FamilyEditor.svelte';
   import { errMessage } from '../editors/errors';
   import { t } from '../i18n';
+  import NotesViewToggle from '../notes/NotesViewToggle.svelte';
+  import NoteShortened from '../notes/NoteShortened.svelte';
+  import { shownNote } from '../notes/notesView.svelte';
   import { eventKindLabel } from '../i18n/backend';
   import VoiceSamples from '../media/VoiceSamples.svelte';
   import { nav } from '../state/nav.svelte';
@@ -126,13 +129,15 @@
 
     <section aria-labelledby="family-page-notes">
       <h2 id="family-page-notes">{t('person.familyNotes')}</h2>
+      {#if family.notes.length > 0}<NotesViewToggle />{/if}
       {#if family.notes.length === 0}
         <p class="none">{t('familyPage.noNotes')}</p>
       {:else}
         {#each family.notes as n (n.id)}
           <div class="note" data-note-id={n.id}>
             <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
-            <p class="note-text">{n.text}</p>
+            <p class="note-text">{shownNote(n).text}</p>
+            <NoteShortened note={n} />
             <VoiceSamples items={n.media} />
           </div>
         {/each}

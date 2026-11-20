@@ -952,11 +952,11 @@ pub(crate) fn delete_media(tx: &Transaction, id: &Uuid) -> Result<(), StoreError
 pub(crate) fn insert_note(tx: &Transaction, n: &Note, seq: i64) -> Result<(), StoreError> {
     let c = &n.common;
     tx.prepare_cached(
-        "INSERT INTO note(id, seq, private, changed, unknown_json, kind, text, lang, shared) \
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) \
+        "INSERT INTO note(id, seq, private, changed, unknown_json, kind, text, lang, shared, story) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) \
          ON CONFLICT(id) DO UPDATE SET private=excluded.private, changed=excluded.changed, \
          unknown_json=excluded.unknown_json, kind=excluded.kind, text=excluded.text, \
-         lang=excluded.lang, shared=excluded.shared",
+         lang=excluded.lang, shared=excluded.shared, story=excluded.story",
     )?
     .execute(params![
         s(&c.id),
@@ -968,6 +968,7 @@ pub(crate) fn insert_note(tx: &Transaction, n: &Note, seq: i64) -> Result<(), St
         n.text,
         n.lang,
         n.shared,
+        n.story,
     ])?;
     save_common(tx, "note", c)
 }

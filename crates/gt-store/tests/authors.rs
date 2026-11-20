@@ -154,7 +154,7 @@ fn v2_upgrades_and_reads_before_tracking() {
     }
     let p = Project::open(&dir).unwrap();
     assert_eq!(p.schema_version(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 13);
+    assert_eq!(SCHEMA_VERSION, 14);
     let (page, total) = p.log_page(&all(), 0, 10).unwrap();
     // The row without a group cannot be addressed, so it is left out of the log.
     assert_eq!(total, 1);

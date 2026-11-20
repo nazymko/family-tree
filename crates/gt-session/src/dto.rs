@@ -328,6 +328,8 @@ pub struct NoteDto {
     pub id: Uuid,
     pub kind: NoteKindDto,
     pub text: String,
+    /// The readable retelling of `text`, when the note has one.
+    pub story: Option<String>,
     pub shared: bool,
     pub lang: Option<String>,
     /// Voice samples (and any other media) attached to the note.

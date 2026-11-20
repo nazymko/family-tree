@@ -47,6 +47,7 @@ fn note(id: Uuid, text: &str) -> EditCommand {
     EditCommand::SaveNote {
         target: person_ref(id),
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: text.into(),
@@ -58,6 +59,7 @@ fn edit_note(owner: Uuid, id: Uuid, text: &str) -> EditCommand {
     EditCommand::SaveNote {
         target: person_ref(owner),
         note: NoteInput {
+            story: None,
             id: Some(id),
             kind: NoteKindDto::General,
             text: text.into(),
@@ -1117,6 +1119,7 @@ fn second_birth_already_in_the_owners_data_can_still_get_a_note() {
                 id: birth,
             },
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::General,
                 text: "The sources disagree".into(),
@@ -1702,6 +1705,7 @@ fn two_birth_families_in_the_owners_data_still_take_a_note() {
                 id: family,
             },
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::General,
                 text: "The sources disagree".into(),
@@ -2022,6 +2026,7 @@ fn note_of_another_kind_is_stored() {
     let research = EditCommand::SaveNote {
         target: person_ref(ivan),
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::Research,
             text: "Same words".into(),
@@ -2047,6 +2052,7 @@ fn a_note_on_own_event_does_not_stop_it_being_a_repeat() {
                 id,
             },
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::General,
                 text: "Added later".into(),
@@ -2384,6 +2390,7 @@ fn an_agent_cannot_attach_or_remove_media_on_a_note() {
     let nested = EditCommand::SaveNote {
         target: on_note,
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: "A note on a note".into(),

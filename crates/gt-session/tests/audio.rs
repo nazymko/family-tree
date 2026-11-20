@@ -146,6 +146,7 @@ fn setup() -> (tempfile::TempDir, Session, Uuid, Uuid, PathBuf) {
     s.apply(EditCommand::SaveNote {
         target: owner(OwnerKind::Person, ivan),
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::Story,
             text: "He told this one at the table.".into(),
@@ -513,6 +514,7 @@ fn editing_the_note_text_keeps_its_voice_samples() {
     s.apply(EditCommand::SaveNote {
         target: owner(OwnerKind::Person, ivan),
         note: NoteInput {
+            story: None,
             id: Some(note),
             kind: NoteKindDto::Story,
             text: "New words.".into(),
@@ -581,6 +583,7 @@ fn a_note_cannot_hold_notes_or_citations() {
         .apply(EditCommand::SaveNote {
             target: owner(OwnerKind::Note, note),
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::General,
                 text: "a note on a note".into(),
@@ -749,6 +752,7 @@ fn the_session_is_usable_between_preparing_and_committing() {
     s.apply(EditCommand::SaveNote {
         target: owner(OwnerKind::Person, ivan),
         note: NoteInput {
+            story: None,
             id: Some(note),
             kind: NoteKindDto::Story,
             text: "Edited meanwhile.".into(),
@@ -881,6 +885,7 @@ fn reusing_content_stored_with_a_wrong_type_corrects_the_type_and_logs_it() {
     s.apply(EditCommand::SaveNote {
         target: owner(OwnerKind::Person, ivan),
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::Story,
             text: "Said it again.".into(),

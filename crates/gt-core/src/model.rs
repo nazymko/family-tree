@@ -662,6 +662,11 @@ pub struct Note {
     pub text: String,
     pub lang: Option<String>,
     pub shared: bool,
+    /// A readable retelling of `text`: the same facts, names, dates and doubts without the references.
+    /// It never replaces `text`. Old rows and files have none. Always written (as null when none):
+    /// the agent gate compares records key by key and treats a key that appears as a changed fact.
+    #[serde(default)]
+    pub story: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
