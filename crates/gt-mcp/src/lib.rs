@@ -65,7 +65,7 @@ pub const INSTRUCTIONS: &str = concat!(
      Correcting a date: correct_event_date sets a confirmed birth or death date on any person's \
      birth or death event, with the reason (who confirmed it or which source says so). Add a \
      citation for the new date too. Disagreeing sources with nobody confirming are a note, not a \
-     correction. It never changes whether someone counts as alive or dead.\n\n\
+     correction. It may make someone count as dead only as the rules allow, never alive.\n\n\
      Places on the map: set_place_coordinates gives a place with no coordinates its point (lat \
      and lon in decimal degrees, north and east positive) and the source you took it from, such \
      as GeoNames 702550 or a Wikipedia article; a research note on the place keeps the source. \

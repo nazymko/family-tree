@@ -76,11 +76,14 @@ agent's own report: what it added, what it left unsettled, and questions for the
   birth or death date.
 - **Add a person with no name.** Someone a source knows only by a role, such as somebody's father, goes in a note on the people
   around them.
-- **Change whether a living person counts as alive or dead.** The app decides this from dates and relationships, and the
-  owner's *Living*/*Deceased* mark overrides it. An agent can never change the result, directly or by accident, so it cannot
-  add a death date or burial to a person the app counts as living. It leaves a note and lists the person in its report.
-  A death that agrees with what the app already shows is allowed: on a person you marked *Deceased*, or one who is already
-  counted as dead because of their age.
+- **Change whether a living person counts as alive or dead, beyond one case.** The app decides this from dates and
+  relationships, and the owner's *Living*/*Deceased* mark overrides it. An agent can never make anyone count as alive, and
+  never changes the status of a person you marked *Living*. It may make someone count as dead only when the tree, with its
+  write, shows them more than 100 years old (a birth or baptism over 100 years ago) or as a parent, grandparent and so on of
+  someone who counts as dead: for example a father with no dates who gets a son born in 1782. Any other change, such as a
+  death date on a person with no such evidence, is refused; the agent leaves a note and lists the person in its report.
+  A death that agrees with what the app already shows is allowed too: on a person you marked *Deceased*, or one who is
+  already counted as dead because of their age.
   An event of kind `missing` (went missing without trace, for example in a war) is not a death: the agent may add it with
   `add_event`, and it never changes whether the app counts the person as alive. In GEDCOM it is written as a generic event
   with `TYPE Missing`.
@@ -119,7 +122,8 @@ the place, description and everything else on the event stay as they are.
   12 MAR 1901. Reason: ..."*. The note is written in English, as the agent's own text is.
 - The change is in the **Change log** under the agent's name, with the date before and after, and in the event's history.
   **Undo** takes back the date and the note together.
-- It never changes whether someone counts as alive or dead: a date that would is refused, as every other write is.
+- It changes whether someone counts as alive or dead only as every other write may (above): a date that would do more is
+  refused.
 - A death date before the same person's birth date, or a birth date after their death date, is refused (when the two
   dates surely do not overlap): the agent leaves a note with both dates instead. The date holds up to 100 characters,
   the reason up to 1000.
@@ -141,7 +145,8 @@ child to the right family with `link_people`.
   A and B (family ...) as a child. Reason: ..."*, in English like the agent's other text.
 - It is in the **Change log** under the agent's name ("Remove child from family"), with the family before and after, and in the
   family's history. **Undo** puts the link back and takes the note away.
-- It never changes whether someone counts as alive or dead: a removal that would is refused.
+- It changes whether someone counts as alive or dead only as every other write may (above): a removal that would do more
+  is refused.
 - Asking again after the link is gone answers that it is already so; a person who was never a child of that family is refused.
 
 ### Places on the map
@@ -214,7 +219,7 @@ it still changes with `update_own_note`.
   entry reads "Rewrite note: ..." with the reason (the log has no other place for it, so there is no extra note). **Undo**
   of the batch puts the old text and kind back.
 - Audio clips, citations and media on the note are not touched. The kind stays as it is unless the agent gives one.
-- It never changes whether someone counts as alive or dead. Saying again what the note says answers that it is already so.
+- It changes whether someone counts as alive or dead only as every other write may (above). Saying again what the note says answers that it is already so.
 
 ### A readable story beside a note
 

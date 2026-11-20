@@ -64,6 +64,17 @@ fn gather_facts(tree: &Tree) -> HashMap<Uuid, Facts> {
     facts
 }
 
+/// The persons whose birth, christening or baptism shows them more than `years` old on
+/// `today_jdn`: the same bound, and the same test, as the rule's own age limit.
+pub fn older_than(tree: &Tree, years: u32, today_jdn: i32) -> std::collections::HashSet<Uuid> {
+    let cut = gregorian_minus_years(today_jdn, years);
+    gather_facts(tree)
+        .into_iter()
+        .filter(|(_, f)| f.birth_bound.is_some_and(|b| b < cut))
+        .map(|(id, _)| id)
+        .collect()
+}
+
 /// `true` = living. Every person in the tree gets an entry, except the unnamed-siblings markers.
 ///
 /// Linear in persons + events + family links: facts and parent/child

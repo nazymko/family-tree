@@ -571,7 +571,8 @@ fn a_write_that_would_change_alive_or_dead_is_refused() {
     let before = records(&host);
     let was = call(&host, "get_person", json!({"id": id}))["living"].clone();
     assert_eq!(was, true);
-    for (kind, date) in [("death", "1950"), ("burial", "1950"), ("birth", "1801")] {
+    // A death with no age or descendant to show for it stays the owner's.
+    for (kind, date) in [("death", "1950"), ("burial", "1950"), ("cremation", "1950")] {
         let message = call_err(
             &host,
             "add_event",
@@ -581,6 +582,16 @@ fn a_write_that_would_change_alive_or_dead_is_refused() {
     }
     assert_eq!(call(&host, "get_person", json!({"id": id}))["living"], was);
     assert_eq!(records(&host), before);
+    // A birth more than 100 years ago may make him count as dead.
+    call(
+        &host,
+        "add_event",
+        json!({"batch": batch, "person": id, "kind": "birth", "date": "1801"}),
+    );
+    assert_eq!(
+        call(&host, "get_person", json!({"id": id}))["living"],
+        false
+    );
 }
 
 #[test]
