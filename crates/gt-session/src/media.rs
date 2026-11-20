@@ -465,7 +465,8 @@ impl Session {
 
     /// Media records that no record links to: what is left after the note or person that held
     /// them was deleted (the record stays so that Undo can bring it back). Listed so the owner
-    /// can still remove them.
+    /// can still remove them. An old map laid on the Map is linked to no record by design: it is
+    /// in use as a layer, so it is never listed here.
     pub fn unlinked_media(&self) -> Vec<MediaDto> {
         use std::collections::HashSet;
         let mut linked: HashSet<Uuid> = HashSet::new();
@@ -489,9 +490,9 @@ impl Session {
         let links: Vec<MediaLink> = self
             .tree
             .media
-            .keys()
-            .filter(|id| !linked.contains(id))
-            .map(|id| MediaLink {
+            .iter()
+            .filter(|(id, m)| !linked.contains(*id) && m.map_layer.is_none())
+            .map(|(id, _)| MediaLink {
                 media: *id,
                 region: None,
                 primary: false,
