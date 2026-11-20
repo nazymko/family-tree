@@ -116,6 +116,11 @@ pub struct PersonRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub birth_surname: Option<String>,
+    /// The person's name as a record writes it (the earliest dated `as_recorded` name), for the "as recorded"
+    /// display mode (see `names::as_recorded_shown`). Absent when there is none or in far-out chart nodes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub as_recorded: Option<String>,
     /// The "more brothers and sisters, unnamed" entry: it has no name or dates and the app draws
     /// its label.
     pub sibling_marker: bool,

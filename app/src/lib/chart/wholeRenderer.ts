@@ -2,6 +2,7 @@ import type { ChartEdge, ChartNode, ChartWindow, SexKind, WholeBlockDto } from '
 import type { Camera } from './camera';
 import { cardRows, drawAgentBadges, drawMarkerBoxes, drawMarkerLabel, fit, lodFor, nameLines, themeFromCss, type Theme } from './renderer';
 import { birthSurnameText } from '../ui/birthSurname';
+import { cardName } from '../ui/namesPref.svelte';
 import { kinshipText } from '../family/kinship';
 import { wholeBlockTitle } from '../i18n/backend';
 
@@ -281,7 +282,7 @@ export function drawWhole(
       const rel = kinshipText(n.kinship);
       const maiden = birthSurnameText(n.person);
       const rows = cardRows(maiden !== '');
-      const lines = nameLines((t) => ctx.measureText(t).width, n.person?.name ?? '', maxW, sub !== '' || rel !== '' || maiden !== '');
+      const lines = nameLines((t) => ctx.measureText(t).width, cardName(n.person), maxW, sub !== '' || rel !== '' || maiden !== '');
       lines.forEach((line, i) => ctx.fillText(line, left, n.y + rows.name + i * rows.step));
       if (maiden) {
         ctx.fillStyle = theme.ink2;

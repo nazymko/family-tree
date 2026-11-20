@@ -5,6 +5,7 @@
   import type { Id, OutlineItem } from '../api/types';
   import { t } from '../i18n';
   import { birthSurnameText } from '../ui/birthSurname';
+  import { cardName, shownName } from '../ui/namesPref.svelte';
   import { isTouchPointer } from '../ui/longPress';
 
   /** The last press on an entry came from a finger: one tap opens the person. */
@@ -195,7 +196,7 @@
         >
           <span class="rel">{outlineLabel(it)}</span>
           {#if it.person}
-            <bdi dir="auto" class="nm">{it.person.name}</bdi>
+            <bdi dir="auto" class="nm" title={shownName(it.person).recorded ? t('people.asRecordedTitle', { name: it.person.name }) : undefined}>{cardName(it.person)}</bdi>
             {#if birthSurnameText(it.person)}<span class="life">{birthSurnameText(it.person)}</span>{/if}
             {#if it.person.lifespan}<span class="life">{it.person.lifespan}</span>{/if}
           {/if}

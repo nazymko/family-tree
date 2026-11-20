@@ -11,6 +11,7 @@
   import type { PictureScope } from './picture';
   import type { A3Choice } from './a3';
   import { a3Background, a3Direction, a3Title } from './a3Pref.svelte';
+  import { namesAsRecorded } from '../ui/namesPref.svelte';
   import { relativeItems } from './relativeItems';
 
   /**
@@ -91,6 +92,8 @@
       title: hasSelection ? undefined : t('picture.selectFirst'),
     },
     { label: t('picture.screen'), onselect: () => onpick('screen') },
+    // Modern names or the spelling of the sources, on the chart and in saved pictures and prints. Kept for next time.
+    { label: t('picture.namesAsRecorded'), checked: namesAsRecorded.value, onselect: () => namesAsRecorded.set(!namesAsRecorded.value), separatorBefore: true },
     ...(ona3
       ? [
           // The direction of the print: as on the screen (the default) or the one that prints largest. Kept for next time.

@@ -120,3 +120,22 @@ fn a_private_birth_name_is_not_shown() {
         .unwrap();
     assert_eq!(s.person_ref(olena).unwrap().birth_surname, None);
 }
+
+#[test]
+fn an_as_recorded_name_shows_in_the_person_ref_and_the_list_row() {
+    let (_d, mut s) = open_ged(GED);
+    let ivan = id_of(&s, "Ivan Petrovych Koval");
+    assert_eq!(s.person_ref(ivan).unwrap().as_recorded, None);
+    s.apply(save_name(ivan, NameKindDto::AsRecorded, "Kovalъ", false, false))
+        .unwrap();
+    let r = s.person_ref(ivan).unwrap();
+    assert_eq!(r.name, "Ivan Petrovych Koval");
+    assert_eq!(r.as_recorded.as_deref(), Some("Olena Kovalъ"));
+    let row = s
+        .list_persons(&PersonQuery::default(), 0, 200)
+        .items
+        .into_iter()
+        .find(|r| r.person.id == ivan)
+        .unwrap();
+    assert_eq!(row.person.as_recorded.as_deref(), Some("Olena Kovalъ"));
+}

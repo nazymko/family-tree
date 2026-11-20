@@ -5,6 +5,7 @@ import type { ChartDirection } from './direction';
 import { HANDLE_R, handleSpots } from './hit';
 import { t } from '../i18n';
 import { birthSurnameText } from '../ui/birthSurname';
+import { cardName } from '../ui/namesPref.svelte';
 import { relationText } from '../i18n/relation';
 import { kinshipText } from '../family/kinship';
 import { CARD_TEXT_RIGHT, CARD_TEXT_X, NAME_FLOOR_PX, planPrintCard, printCardHeight, type CardMeasure, type PrintCardText } from './a3';
@@ -218,7 +219,7 @@ function cardSubRel(n: ChartNode, kind: ChartKind, focused: boolean): { sub: str
 
 /** What a print (compact) card shows: no birth-surname row, the name never cut. */
 function printCardText(n: ChartNode, kind: ChartKind, focused: boolean): PrintCardText {
-  return { name: n.person?.name ?? '', ...cardSubRel(n, kind, focused), w: n.w, left: focused ? 26 : 10, ahnenW: ahnenRoom(n) };
+  return { name: cardName(n.person), ...cardSubRel(n, kind, focused), w: n.w, left: focused ? 26 : 10, ahnenW: ahnenRoom(n) };
 }
 
 /** Measures print card text in the fonts the card draws it in. */
@@ -479,7 +480,7 @@ export function draw(
         const { sub, rel } = cardSubRel(n, kind, focused);
         const maiden = birthSurnameText(n.person);
         const measure = (t: string) => ctx.measureText(t).width;
-        const lines = nameLines(measure, n.person?.name ?? '', maxW, sub !== '' || rel !== '' || maiden !== '');
+        const lines = nameLines(measure, cardName(n.person), maxW, sub !== '' || rel !== '' || maiden !== '');
         const rows = cardRows(maiden !== '');
         lines.forEach((line, i) => ctx.fillText(line, left, n.y + rows.name + i * rows.step));
         ctx.fillStyle = theme.ink2;

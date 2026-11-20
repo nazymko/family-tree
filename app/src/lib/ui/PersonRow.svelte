@@ -3,6 +3,9 @@
   import AgentBadge from './AgentBadge.svelte';
   import type { PersonRow } from '../api/types';
   import { t, plural } from '../i18n';
+  import { markedName, shownName } from './namesPref.svelte';
+
+  const shown = $derived(shownName(row));
 
   let {
     row,
@@ -16,7 +19,7 @@
   {#if row?.siblingMarker}
     <bdi dir="auto" class="name">{t('person.siblingMarker')}</bdi>
   {:else if row}
-    <bdi dir="auto" class="name">{row.name}</bdi>
+    <bdi dir="auto" class="name" class:recorded={shown.recorded} title={shown.recorded ? t('people.asRecordedTitle', { name: shown.modern }) : undefined}>{markedName(shown)}</bdi>
     <span class="life tnum">{row.lifespan}</span>
     <span class="flags">
       {#if row.living}<span class="living"><span class="dot" aria-hidden="true"></span><span>{t('common.living')}</span></span>{/if}
@@ -53,6 +56,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .recorded {
+    font-style: italic;
   }
   .ghost {
     height: 0.75rem;

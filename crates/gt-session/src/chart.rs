@@ -1530,6 +1530,7 @@ impl Session {
                                 name: s.surname.clone(),
                                 lifespan: String::new(),
                                 birth_surname: None,
+                                as_recorded: None,
                                 ..s.person_ref()
                             }
                         }
