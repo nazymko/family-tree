@@ -1,6 +1,6 @@
 import type { ChartEdge, ChartNode, ChartWindow, SexKind, WholeBlockDto } from '../api/types';
 import type { Camera } from './camera';
-import { cardRows, drawAgentBadges, drawMarkerBoxes, drawMarkerLabel, fit, lodFor, nameLines, themeFromCss, type Theme } from './renderer';
+import { cardRows, drawAgentBadges, drawMarkerBoxes, drawMarkerLabel, fit, lodFor, nameFamily, nameLines, themeFromCss, type Theme } from './renderer';
 import { birthSurnameText } from '../ui/birthSurname';
 import { cardName } from '../ui/namesPref.svelte';
 import { kinshipText } from '../family/kinship';
@@ -276,7 +276,7 @@ export function drawWhole(
       const left = n.x + (n.id === home ? 26 : 12);
       const maxW = n.x + n.w - 10 - left;
       ctx.fillStyle = theme.ink;
-      ctx.font = `600 13px ${theme.serif}`;
+      ctx.font = `600 13px ${nameFamily(theme, n.person)}`;
       const sub = n.person?.lifespan ?? '';
       // How this person is related to the reference person, at the right of the second line.
       const rel = kinshipText(n.kinship);

@@ -7,6 +7,8 @@
  * document, so it gets the page's `@font-face` rules (`fontFaceCss`) or it would print in Georgia, which has no ѣ.
  */
 
+import { RECORDED_FAMILY } from './namesPref.svelte';
+
 /** Old Cyrillic letters, with ordinary Cyrillic and Latin, so every part a name may use is fetched. */
 export const SAMPLE_TEXT = 'ѢѣѲѳѴѵІіЪъЖжAa';
 
@@ -21,6 +23,17 @@ export async function loadChartFonts(doc: Document = document): Promise<void> {
     ...(serif ? [`600 16px ${serif}`, `16px ${serif}`] : []),
     ...(sans ? [`16px ${sans}`, `italic 16px ${sans}`, `600 16px ${sans}`] : []),
   ];
+  await Promise.all([...specs.map((s) => fonts.load(s, SAMPLE_TEXT).catch(() => [])), loadOldTypeface(doc)]);
+}
+
+/**
+ * Fetches the old typeface (Old Standard TT) parts the old letters need; resolves when they are ready. A canvas redraws
+ * its cards when this resolves, so a name as recorded is not painted in the fallback font first. Never throws.
+ */
+export async function loadOldTypeface(doc: Document = document): Promise<void> {
+  const fonts = doc.fonts as FontFaceSet | undefined;
+  if (!fonts || typeof fonts.load !== 'function') return;
+  const specs = [`600 16px ${RECORDED_FAMILY}`, `400 16px ${RECORDED_FAMILY}`, `italic 400 16px ${RECORDED_FAMILY}`];
   await Promise.all(specs.map((s) => fonts.load(s, SAMPLE_TEXT).catch(() => [])));
 }
 

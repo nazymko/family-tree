@@ -34,6 +34,9 @@
   --font-serif: 'Source Serif 4 Variable', 'GT Old Cyrillic', Georgia, 'Noto Serif', var(--font-script-fallback), serif;
   --font-sans: 'Atkinson Hyperlegible Next', 'GT Old Cyrillic', system-ui, var(--font-script-fallback), sans-serif;
 
+  /* Names as an old metric book writes them (setting gt.oldTypeface). */
+  --font-recorded: 'Old Standard TT', var(--font-serif);
+
   --t-xs: 0.75rem;
   --t-xs-lh: 1rem;
   --t-sm: 0.8125rem;

@@ -22,7 +22,7 @@ describe('people filters on a phone', () => {
     expect(more!.hasAttribute('open')).toBe(false);
     // The status buttons, the checkboxes and the sort live inside the disclosure.
     expect(more!.querySelector('.seg')).not.toBeNull();
-    expect(more!.querySelectorAll('input[type="checkbox"]').length).toBe(4);
+    expect(more!.querySelectorAll('input[type="checkbox"]').length).toBe(5);
   });
 
   it('shows everything at once on a desktop window', () => {
@@ -30,6 +30,6 @@ describe('people filters on a phone', () => {
     const { container } = render(PeopleFilters, { query: query() });
     expect(container.querySelector('details')).toBeNull();
     expect(container.querySelector('.seg')).not.toBeNull();
-    expect(container.querySelectorAll('input[type="checkbox"]').length).toBe(4);
+    expect(container.querySelectorAll('input[type="checkbox"]').length).toBe(5);
   });
 });

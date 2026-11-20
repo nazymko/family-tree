@@ -27,7 +27,8 @@
   import { captionText, chartTitle, later, printPicture, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
   import { A3_SUB_PT, A3_TITLE_PT, PT_PX, ellipsize, layoutA3, mmToPx, nameFloorPx, printDirection, printStretch, stretchScene, type A3Choice } from './a3';
   import { a3Background, a3Direction, a3Title } from './a3Pref.svelte';
-  import { namesAsRecorded } from '../ui/namesPref.svelte';
+  import { namesAsRecorded, oldTypeface } from '../ui/namesPref.svelte';
+  import { loadOldTypeface } from '../ui/fonts';
   import { sceneBounds, pictureFileName } from './picture';
   import { settings } from '../state/settings.svelte';
   import { t, plural, localeStore, currentTag } from '../i18n';
@@ -167,6 +168,20 @@
   $effect(() => {
     void namesAsRecorded.value;
     untrack(() => invalidate());
+  });
+
+  // The old typeface of names as recorded: fetched before the cards are drawn with it, and the cards redraw once it is there.
+  $effect(() => {
+    if (!oldTypeface.value) {
+      untrack(() => invalidate());
+      return;
+    }
+    let live = true;
+    void loadOldTypeface().then(() => live && invalidate());
+    untrack(() => invalidate());
+    return () => {
+      live = false;
+    };
   });
 
   function invalidate(): void {

@@ -3,7 +3,7 @@
   import AgentBadge from './AgentBadge.svelte';
   import type { PersonRow } from '../api/types';
   import { t, plural } from '../i18n';
-  import { markedName, shownName } from './namesPref.svelte';
+  import { markedName, oldClass, shownName } from './namesPref.svelte';
 
   let {
     row,
@@ -18,7 +18,7 @@
   {#if row?.siblingMarker}
     <bdi dir="auto" class="name">{t('person.siblingMarker')}</bdi>
   {:else if row}
-    <bdi dir="auto" class="name" class:recorded={shown.recorded} title={shown.recorded ? t('people.asRecordedTitle', { name: shown.modern }) : undefined}>{markedName(shown)}</bdi>
+    <bdi dir="auto" class="name {oldClass(row) ?? ''}" class:recorded={shown.recorded} title={shown.recorded ? t('people.asRecordedTitle', { name: shown.modern }) : undefined}>{markedName(shown)}</bdi>
     <span class="life tnum">{row.lifespan}</span>
     <span class="flags">
       {#if row.living}<span class="living"><span class="dot" aria-hidden="true"></span><span>{t('common.living')}</span></span>{/if}
