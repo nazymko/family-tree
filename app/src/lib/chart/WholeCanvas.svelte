@@ -28,7 +28,8 @@
   import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
   import { agentChanges } from '../state/agentChanges.svelte';
-  import { namesAsRecorded } from '../ui/namesPref.svelte';
+  import { namesAsRecorded, oldTypeface } from '../ui/namesPref.svelte';
+  import { loadOldTypeface } from '../ui/fonts';
   import { compactX, isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
 
@@ -121,6 +122,20 @@
   $effect(() => {
     void namesAsRecorded.value;
     untrack(() => invalidate());
+  });
+
+  // The old typeface of names as recorded: fetched before the cards are drawn with it, and the cards redraw once it is there.
+  $effect(() => {
+    if (!oldTypeface.value) {
+      untrack(() => invalidate());
+      return;
+    }
+    let live = true;
+    void loadOldTypeface().then(() => live && invalidate());
+    untrack(() => invalidate());
+    return () => {
+      live = false;
+    };
   });
 
   function invalidate(): void {

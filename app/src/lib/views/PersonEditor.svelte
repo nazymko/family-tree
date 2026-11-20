@@ -51,6 +51,7 @@
   import { t, plural, currentTag, type MessageKey } from '../i18n';
   import { agentLabel, editLabel, eventKindLabel } from '../i18n/backend';
   import { withSexIcon } from '../ui/sex';
+  import { oldTypeface } from '../ui/namesPref.svelte';
   import { birthSurnameText } from '../ui/birthSurname';
   import { baptismOf, godparentFull, godparentRoleText, shortGodparentName } from '../ui/godparents';
 
@@ -486,7 +487,7 @@
         {#each recorded as r (r.name.id)}
           <p class="recorded" data-as-recorded={r.name.id}>
             <button type="button" class="recorded-btn" title={[t('person.asRecordedTitle'), r.detail].filter(Boolean).join('\n')} onclick={() => (dialog = { kind: 'name', name: r.name })}
-              ><span class="recorded-label">{t('person.asRecorded')}</span> <bdi dir="auto" class="recorded-name">{r.name.display}</bdi><span class="recorded-src"
+              ><span class="recorded-label">{t('person.asRecorded')}</span> <bdi dir="auto" class="recorded-name" class:old-typeface={oldTypeface.value}>{r.name.display}</bdi><span class="recorded-src"
                 >{` · ${r.source ? [r.source, r.year].filter(Boolean).join(', ') : t('person.asRecordedNoSource')}`}</span
               ></button
             >
@@ -1034,6 +1035,9 @@
   .recorded-btn:focus-visible {
     outline: 2px solid var(--focus);
     outline-offset: 2px;
+  }
+  .recorded-name.old-typeface {
+    font-family: var(--font-recorded);
   }
   .recorded-name {
     font-family: var(--font-serif);

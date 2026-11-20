@@ -61,3 +61,52 @@ export function markedName(s: ShownName): string {
 export function cardName(p: NamedPerson | null | undefined): string {
   return markedName(shownName(p));
 }
+
+/** Where the "old typeface for names as recorded" choice is kept on this computer ('0' = off; on by default). */
+export const OLD_TYPEFACE_KEY = 'gt.oldTypeface';
+
+/** The family a name as an old metric book writes it is set in (Old Standard TT, bundled; see styles/fonts.css). */
+export const RECORDED_FAMILY = "'Old Standard TT'";
+
+/** CSS class of an element that shows a name set in the old typeface. */
+export const OLD_TYPEFACE_CLASS = 'old-typeface';
+
+function storedTypeface(): boolean {
+  try {
+    return localStorage.getItem(OLD_TYPEFACE_KEY) !== '0';
+  } catch {
+    // Storage can be unavailable; the default (on) applies.
+    return true;
+  }
+}
+
+/** Whether a name shown as recorded is set in the old typeface (Old Standard TT) instead of the normal font. */
+class OldTypefacePref {
+  value = $state<boolean>(storedTypeface());
+
+  set(on: boolean): void {
+    this.value = on;
+    try {
+      localStorage.setItem(OLD_TYPEFACE_KEY, on ? '1' : '0');
+    } catch {
+      // Not remembered after a restart; this session still uses it.
+    }
+  }
+
+  /** Reads the stored choice again (tests start each case from storage). */
+  reload(): void {
+    this.value = storedTypeface();
+  }
+}
+
+export const oldTypeface = new OldTypefacePref();
+
+/** True when a person's shown name is the source spelling and the old typeface is on: the name is set in Old Standard TT. */
+export function usesOldTypeface(p: NamedPerson | null | undefined): boolean {
+  return oldTypeface.value && shownName(p).recorded;
+}
+
+/** The class for an element showing a person's name: the old typeface when it applies, else none. */
+export function oldClass(p: NamedPerson | null | undefined): string | undefined {
+  return usesOldTypeface(p) ? OLD_TYPEFACE_CLASS : undefined;
+}

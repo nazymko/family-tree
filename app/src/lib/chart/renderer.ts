@@ -5,7 +5,7 @@ import type { ChartDirection } from './direction';
 import { HANDLE_R, handleSpots } from './hit';
 import { t } from '../i18n';
 import { birthSurnameText } from '../ui/birthSurname';
-import { cardName } from '../ui/namesPref.svelte';
+import { RECORDED_FAMILY, cardName, usesOldTypeface } from '../ui/namesPref.svelte';
 import { relationText } from '../i18n/relation';
 import { kinshipText } from '../family/kinship';
 import { CARD_TEXT_RIGHT, CARD_TEXT_X, NAME_FLOOR_PX, planPrintCard, printCardHeight, type CardMeasure, type PrintCardText } from './a3';
@@ -222,10 +222,15 @@ function printCardText(n: ChartNode, kind: ChartKind, focused: boolean): PrintCa
   return { name: cardName(n.person), ...cardSubRel(n, kind, focused), w: n.w, left: focused ? 26 : 10, ahnenW: ahnenRoom(n) };
 }
 
+/** The font family of a card's name: Old Standard TT when it shows a name as recorded and the old typeface is on. */
+export function nameFamily(theme: Theme, person: Parameters<typeof usesOldTypeface>[0]): string {
+  return usesOldTypeface(person) ? `${RECORDED_FAMILY}, ${theme.serif}` : theme.serif;
+}
+
 /** Measures print card text in the fonts the card draws it in. */
-function cardMeasure(ctx: CanvasRenderingContext2D, theme: Theme): CardMeasure {
+function cardMeasure(ctx: CanvasRenderingContext2D, theme: Theme, nameFamily: string = theme.serif): CardMeasure {
   return (s, font, px) => {
-    ctx.font = font === 'name' ? `600 ${px}px ${theme.serif}` : font === 'rel' ? `italic ${px}px ${theme.font}` : `${px}px ${theme.font}`;
+    ctx.font = font === 'name' ? `600 ${px}px ${nameFamily}` : font === 'rel' ? `italic ${px}px ${theme.font}` : `${px}px ${theme.font}`;
     return ctx.measureText(s).width;
   };
 }
@@ -240,10 +245,10 @@ export function printCardsNeed(
   opts: { theme: Theme; kind?: ChartKind; focus: number | null; focusMore?: ReadonlySet<number>; nameMinPx?: number },
 ): number {
   const kind = opts.kind ?? 'pedigree';
-  const measure = cardMeasure(ctx, opts.theme);
   let need = 1;
   for (const n of nodes) {
     if (n.person?.siblingMarker || n.h <= 0) continue;
+    const measure = cardMeasure(ctx, opts.theme, nameFamily(opts.theme, n.person));
     const focused = n.id === opts.focus || (opts.focusMore?.has(n.id) ?? false);
     need = Math.max(need, printCardHeight(measure, printCardText(n, kind, focused), opts.nameMinPx ?? NAME_FLOOR_PX) / n.h);
   }
@@ -455,10 +460,10 @@ export function draw(
       ctx.fillStyle = isDup ? theme.ink2 : theme.ink;
       if (opts.compact === true) {
         // A print card: nothing overlaps and nothing is cut; the print made the card tall enough (see printCardsNeed).
-        const plan = planPrintCard(cardMeasure(ctx, theme), printCardText(n, kind, focused), n.h, opts.nameMinPx ?? NAME_FLOOR_PX);
+        const plan = planPrintCard(cardMeasure(ctx, theme, nameFamily(theme, n.person)), printCardText(n, kind, focused), n.h, opts.nameMinPx ?? NAME_FLOOR_PX);
         const left = n.x + (focused ? 26 : 10);
         plan.lines.forEach((l, i) => {
-          ctx.font = `600 ${l.px}px ${theme.serif}`;
+          ctx.font = `600 ${l.px}px ${nameFamily(theme, n.person)}`;
           ctx.fillText(l.text, left, n.y + plan.nameYs[i]);
         });
         ctx.fillStyle = theme.ink2;
@@ -476,7 +481,7 @@ export function draw(
         const left = n.x + (focused ? 26 : 10);
         // Room for the ancestor number, which gets long many generations back.
         const maxW = n.x + n.w - 10 - left - ahnenRoom(n);
-        ctx.font = `600 13px ${theme.serif}`;
+        ctx.font = `600 13px ${nameFamily(theme, n.person)}`;
         const { sub, rel } = cardSubRel(n, kind, focused);
         const maiden = birthSurnameText(n.person);
         const measure = (t: string) => ctx.measureText(t).width;

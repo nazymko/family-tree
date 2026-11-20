@@ -108,3 +108,8 @@ table {
     -webkit-touch-callout: none;
   }
 }
+
+/* A name as an old metric book writes it, when the setting "old typeface" is on (see namesPref.svelte.ts). */
+html .old-typeface.old-typeface {
+  font-family: var(--font-recorded);
+}

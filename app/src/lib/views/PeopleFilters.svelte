@@ -6,7 +6,7 @@
   import type { PersonQuery } from '../api/types';
   import { t, type MessageKey } from '../i18n';
   import { compact } from '../ui/compact.svelte';
-  import { namesAsRecorded } from '../ui/namesPref.svelte';
+  import { namesAsRecorded, oldTypeface } from '../ui/namesPref.svelte';
 
   let { query = $bindable() }: { query: PersonQuery } = $props();
 
@@ -34,6 +34,7 @@
     <Checkbox label={t('people.noBirthDate')} bind:checked={query.noBirthDate} />
     <Checkbox label={t('people.privateOnly')} bind:checked={query.privateOnly} />
     <Checkbox label={t('people.namesAsRecorded')} checked={namesAsRecorded.value} onchange={(on) => namesAsRecorded.set(on)} />
+    <Checkbox label={t('people.oldTypeface')} checked={oldTypeface.value} onchange={(on) => oldTypeface.set(on)} />
   </div>
 
   <div class="sort">
