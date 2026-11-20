@@ -2438,7 +2438,17 @@ impl Session {
             .flat_map(|f| f.children.iter().map(|c| c.person))
             .collect();
         for child in children {
-            let before = role_holders(self.tree.families.values(), child);
+            // A link this plan takes away in the same change (a move) holds no role against what
+            // the plan puts in its place.
+            let before = role_holders(
+                self.tree.families.values().filter(|f| {
+                    let dropped = changed.get(&f.common.id).is_some_and(|a| {
+                        a.is_none_or(|a| a.children.iter().all(|l| l.person != child))
+                    });
+                    !(dropped && f.children.iter().any(|l| l.person == child))
+                }),
+                child,
+            );
             let after = role_holders(after_families(), child);
             let clashes_now = |a: &Uuid, b: &Uuid| match (sex_after(a), sex_after(b)) {
                 (Some(x), Some(y)) => same_role(x, y),

@@ -408,6 +408,88 @@ fn move_child_refuses_families_that_share_no_parent() {
     assert!(m.contains("evidence"), "{m}");
 }
 
+/// A new family of `a` and `b`; returns its id.
+fn couple(host: &TestHost, a: Uuid, b: Uuid) -> Uuid {
+    with(host, |s| {
+        s.apply(EditCommand::SaveFamily {
+            id: None,
+            partner1: Some(a),
+            partner2: Some(b),
+            kind: UnionKindId::Unknown,
+        })
+        .unwrap()
+        .touched
+        .iter()
+        .copied()
+        .find(|id| s.tree().families.contains_key(id))
+        .unwrap()
+    })
+}
+
+fn birth_link(host: &TestHost, fam: Uuid, child: Uuid) {
+    with(host, |s| {
+        s.apply(EditCommand::LinkChild {
+            family: fam,
+            child,
+            rel: (gt_session::ParentRelId::Birth, gt_session::ParentRelId::Birth),
+            preferred: true,
+        })
+        .unwrap();
+    });
+}
+
+#[test]
+fn move_child_replaces_the_mother_when_both_families_have_two_parents() {
+    let host = empty_host();
+    let f = families(&host);
+    let src = source(&host);
+    let mother_b = with(&host, |s| add_person(s, draft("Olha", "Testenko", None, Some("1858"))));
+    let other = couple(&host, f.father, mother_b);
+    birth_link(&host, f.both, f.child);
+    with(&host, |s| {
+        s.apply(EditCommand::UnlinkChild {
+            family: f.only,
+            child: f.child,
+        })
+        .unwrap();
+    });
+    let batch = begin(&host);
+    call(
+        &host,
+        "move_child",
+        json!({"batch": batch, "person": f.child, "from_family": f.both, "to_family": other,
+               "evidence": evidence(src), "reason": "The record names Olha"}),
+    );
+    assert!(child_in(&host, other, f.child));
+    assert!(!child_in(&host, f.both, f.child));
+    undo(&host, &batch);
+    assert!(child_in(&host, f.both, f.child));
+    assert!(!child_in(&host, other, f.child));
+}
+
+#[test]
+fn move_child_still_refuses_a_second_birth_mother_through_another_family() {
+    let host = empty_host();
+    let f = families(&host);
+    let src = source(&host);
+    let mother_b = with(&host, |s| add_person(s, draft("Olha", "Testenko", None, Some("1858"))));
+    let mother_c = with(&host, |s| add_person(s, draft("Hanna", "Other", None, Some("1859"))));
+    let other = couple(&host, f.father, mother_b);
+    let third = couple(&host, mother_c, f.father);
+    birth_link(&host, f.both, f.child);
+    birth_link(&host, third, f.child);
+    let batch = begin(&host);
+    let m = call_err(
+        &host,
+        "move_child",
+        json!({"batch": batch, "person": f.child, "from_family": f.both, "to_family": other,
+               "evidence": evidence(src), "reason": "r"}),
+    );
+    assert!(m.contains("parent in that role") || m.contains("birth family"), "{m}");
+    assert!(child_in(&host, f.both, f.child));
+    assert!(!child_in(&host, other, f.child));
+}
+
 fn note_with_story(host: &TestHost, story: Option<&str>) -> (Uuid, Uuid) {
     with(host, |s| {
         let p = add_person(s, draft("Ivan", "Testenko", None, Some("1990")));
