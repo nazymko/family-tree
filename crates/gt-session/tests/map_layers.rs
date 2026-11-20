@@ -377,3 +377,13 @@ fn a_series_is_shown_or_hidden_in_one_step() {
         .is_err()
     );
 }
+
+#[test]
+fn a_map_on_the_map_is_not_listed_as_an_unlinked_file() {
+    let (dir, mut s) = session();
+    let a = write(dir.path(), "sheet-a.jpg", &jpeg(60, 40, 10));
+    s.add_map_layer_file(&a, Some("Sheet A".into()), &layer(None))
+        .unwrap();
+    // Linked to no person or note by design, but in use as a layer: never offered for deletion.
+    assert!(s.unlinked_media().is_empty());
+}
