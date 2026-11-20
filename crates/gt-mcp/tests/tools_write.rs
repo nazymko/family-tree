@@ -1453,6 +1453,10 @@ fn only_the_tools_named_here_can_write() {
             // Godparents of a baptism: added as items of the event; taken off only the agent's own.
             "add_godparent",
             "remove_own_godparent",
+            "correct_name",
+            "correct_event",
+            "move_child",
+            "correct_note",
             // Old maps on the Map: added with their placement; placed again only while the agent's own.
             "add_map_layer",
             "set_own_map_layer_corners",
