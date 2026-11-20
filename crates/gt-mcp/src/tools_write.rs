@@ -916,7 +916,7 @@ pub(crate) fn optional_uuid(args: &Value, name: &str) -> Result<Option<Uuid>, Ap
     }
 }
 
-fn surnames_arg(args: &Value) -> Result<Option<Vec<String>>, ApiError> {
+pub(crate) fn surnames_arg(args: &Value) -> Result<Option<Vec<String>>, ApiError> {
     let list = match args.get("surnames") {
         None | Some(Value::Null) => return Ok(None),
         Some(Value::Array(list)) => list,
@@ -934,7 +934,7 @@ fn surnames_arg(args: &Value) -> Result<Option<Vec<String>>, ApiError> {
 }
 
 /// One of a closed list of words, read by the type the session takes it as.
-fn word_arg<T: DeserializeOwned>(
+pub(crate) fn word_arg<T: DeserializeOwned>(
     args: &Value,
     name: &str,
     shown_as: &str,
@@ -952,7 +952,7 @@ fn word_arg<T: DeserializeOwned>(
 /// date the owner would have to untangle, so that is refused here, as is one that reads as two
 /// different dates: the owner's day order says nothing about how the source wrote it. Whatever
 /// else the session has to say about a date goes in `warnings`. Blank is no date.
-fn date_arg(
+pub(crate) fn date_arg(
     s: &Session,
     args: &Value,
     name: &str,
@@ -1426,7 +1426,7 @@ fn add_note<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
 }
 
 /// What holds a note, among what a note can be added to.
-fn note_holder(s: &Session, note: Uuid) -> Option<OwnerRef> {
+pub(crate) fn note_holder(s: &Session, note: Uuid) -> Option<OwnerRef> {
     let tree = s.tree();
     let holds = |common: &Common| common.notes.contains(&note);
     let found = |kind, id| Some(OwnerRef { kind, id });

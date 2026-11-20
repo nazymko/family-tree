@@ -56,6 +56,8 @@ pub enum AgentWrite {
 }
 
 mod godparents;
+mod verified;
+pub use verified::{EventCorrection, NameCorrection, VerifiedEvidence};
 
 fn refused(msg: impl Into<String>) -> ApiError {
     ApiError::new(ErrorCode::AgentRefused, msg)

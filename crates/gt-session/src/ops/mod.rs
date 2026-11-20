@@ -17,6 +17,7 @@ mod person;
 pub(crate) use person::agent_number;
 pub mod places;
 mod quick_add;
+pub(crate) mod verified;
 
 use crate::command::EditCommand;
 use crate::error::{ApiError, ErrorCode};

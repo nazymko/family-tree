@@ -39,7 +39,8 @@ mod web_links;
 
 pub use agent::{
     AGENT_AUDIO_MAX, AGENT_FILE_MAX, AGENT_PDF_MAX, AgentCtx, AgentFile, AgentWrite,
-    check_agent_file, check_agent_path, prepare_agent_file,
+    EventCorrection, NameCorrection, VerifiedEvidence, check_agent_file, check_agent_path,
+    prepare_agent_file,
 };
 pub use command::{
     CitationArg, CitationInput, CitationPatch, CloneOf, DeleteImpact, DraftFamily, DraftPerson,

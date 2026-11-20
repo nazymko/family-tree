@@ -10,6 +10,7 @@ mod records;
 mod tools_godparent;
 mod tools_map;
 mod tools_read;
+mod tools_verified;
 mod tools_write;
 
 use gt_session::{ApiError, Session};
@@ -80,6 +81,8 @@ pub const INSTRUCTIONS: &str = concat!(
      story view. It never changes the note's text. Keep every fact, name, date and doubt of the \
      original and leave the references out; it is data for the reader. It fills a note that has \
      no story; one already there stays.\n\n\
+     Verified corrections (a fourth exception to rule 4): correct_name, correct_event, move_child and correct_note change what someone else entered, but only when you actually read a record that shows the right value: a book, a page, the record's own words. Give evidence ({source, page, quote, quality?}: the source's id, where in it, and the record's words) and a reason. The server cites the record on what changed and keeps the old value in the history (get_history); the owner can undo it with the batch. correct_name keeps the main name's old text as an alternative name, and make_preferred makes an existing alternative the main name. move_child moves a child to a family that shares a parent with the current one. correct_note on a note with a story needs the new story or clear_story. Disagreement between sources with no decisive record stays a note with both versions. An inference, a guess or a memory is never evidence. A correction never deletes a person and never changes who counts as alive or dead beyond the rule above.
+
      Taking back a link: remove_own_child_link removes a parent-child link you made yourself \
      (person, family, reason), in this batch or an earlier one, when it turns out the child \
      belongs to other parents; then link the child to the right family with link_people. It \
@@ -151,6 +154,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         tools_read::tools::<H>(),
         tools_write::tools::<H>(),
         tools_godparent::tools::<H>(),
+        tools_verified::tools::<H>(),
         tools_map::tools::<H>(),
     ]
     .into_iter()
