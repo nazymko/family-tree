@@ -2917,8 +2917,14 @@ export class MockApi implements Api {
         if (!cmd.note.text.trim()) throw invalid('Write some text for the note.');
         const i = cmd.note.id ? bag.notes.findIndex((n) => n.id === cmd.note.id) : -1;
         if (cmd.note.id && i < 0) throw missing('note', cmd.note.id);
-        if (i >= 0) bag.notes[i] = { ...bag.notes[i], kind: cmd.note.kind, text: cmd.note.text };
-        else bag.notes.push(makeNote(this.ids.next(), cmd.note.kind, cmd.note.text));
+        // A missing story leaves the note's story as it is; an empty one takes it off.
+        const story = cmd.note.story === undefined ? undefined : cmd.note.story.trim() || null;
+        if (i >= 0) {
+          bag.notes[i] = { ...bag.notes[i], kind: cmd.note.kind, text: cmd.note.text, ...(story !== undefined ? { story } : {}) };
+        } else {
+          const made = makeNote(this.ids.next(), cmd.note.kind, cmd.note.text);
+          bag.notes.push(story ? { ...made, story } : made);
+        }
         const saved = bag.notes[i >= 0 ? i : bag.notes.length - 1];
         return { focus: cmd.target.kind === 'person' ? cmd.target.id : null, touched: [cmd.target.id, saved.id] };
       }

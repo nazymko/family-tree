@@ -143,6 +143,7 @@ pub(crate) fn plan_agent_coordinates(
         text: note.to_string(),
         lang: None,
         shared: false,
+        story: None,
     };
     let note_id = n.common.id;
     let mut place: Place = p.get(id)?;

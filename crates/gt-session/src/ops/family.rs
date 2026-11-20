@@ -273,6 +273,7 @@ pub(crate) fn plan_child_link_removal(
             id: child,
         },
         &crate::command::NoteInput {
+            story: None,
             id: None,
             kind: crate::dto::NoteKindDto::Research,
             text: note.to_string(),

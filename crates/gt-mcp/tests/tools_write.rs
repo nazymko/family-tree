@@ -1353,6 +1353,7 @@ fn the_owners_edit_between_two_writes_is_no_obstacle() {
                 id: parsed,
             },
             note: gt_session::NoteInput {
+                story: None,
                 id: None,
                 kind: gt_session::NoteKindDto::General,
                 text: "The owner's".into(),
@@ -1413,6 +1414,7 @@ fn only_the_tools_named_here_can_write() {
             "set_number",
             "set_sex",
             "update_own_note",
+            "set_note_story",
             // The owner's rewrite of any note: a reason in the log label, the old text kept in the log.
             "rewrite_note",
             "update_own_event",

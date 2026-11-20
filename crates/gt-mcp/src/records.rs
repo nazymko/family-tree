@@ -213,6 +213,7 @@ fn note_fields(s: &Session, note: &Note) -> Fields {
         text,
         lang,
         shared,
+        story,
     } = note;
     let (kind, kind_text) = note_kind(kind);
     let mut out = fields_of(json!({
@@ -220,6 +221,7 @@ fn note_fields(s: &Session, note: &Note) -> Fields {
         "kindText": kind_text,
         "text": text,
         "textLength": text.chars().count(),
+        "story": story,
         "lang": lang,
         "shared": shared,
     }));

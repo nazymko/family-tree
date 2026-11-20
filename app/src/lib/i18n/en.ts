@@ -1040,6 +1040,14 @@ export const en = {
     conclusion: 'Conclusion',
     other: 'Other',
   },
+  notesView: {
+    group: 'Show notes as',
+    research: 'Research',
+    story: 'Story',
+    researchTip: 'The notes as written: reasoning, sources, books, years and indexes. Applies to all notes.',
+    storyTip: 'A readable story about the person or family, without references. Applies to all notes.',
+    shortened: 'shortened from the research note',
+  },
   editor: {
     discardAsk: 'Discard changes?',
     keepEditing: 'Keep editing',
@@ -1074,6 +1082,8 @@ export const en = {
     kindOfNote: 'Kind of note',
     note: 'Note',
     noteHint: 'Markdown is kept as you write it. Link to a person with genetree://person/ followed by their id.',
+    noteStory: 'Story (readable retelling)',
+    noteStoryHint: 'Shown in the story view instead of the note above, which stays as written. Keep every fact, name, date and doubt; leave out the references. Empty: the story view shortens the note itself.',
     addEvent: 'Add event',
     editEvent: 'Edit {kind}',
     groupLife: 'Life',

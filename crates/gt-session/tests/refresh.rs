@@ -339,6 +339,7 @@ fn extended_command(s: &Session, rng: &mut Rng, n: usize) -> Option<EditCommand>
                 owner
             },
             note: NoteInput {
+                story: None,
                 id: notes.first().filter(|_| rng.below(2) == 0).copied(),
                 kind: NoteKindDto::General,
                 text: format!("note {n}"),

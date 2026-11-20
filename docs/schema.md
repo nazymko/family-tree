@@ -198,6 +198,7 @@ A note or story, written in Markdown. Links to people and places use `genetree:/
 - `text`: the Markdown text.
 - `lang`: language code.
 - `shared`: `1` if the note is shared between several records rather than owned by one.
+- `story`: a readable retelling of `text` (schema 14), shown in the app's story view; null when the note has none, as on every older row. It never replaces `text`.
 
 ## Polymorphic links and external ids
 

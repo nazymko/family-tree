@@ -237,6 +237,7 @@ fn person_owner(id: Uuid) -> EventOwner {
 
 fn plain_note(text: &str) -> NoteInput {
     NoteInput {
+        story: None,
         id: None,
         kind: NoteKindDto::General,
         text: text.into(),

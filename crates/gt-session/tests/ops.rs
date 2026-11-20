@@ -873,6 +873,7 @@ fn notes_sources_and_media() {
         &EditCommand::SaveNote {
             target,
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::Story,
                 text: "Hello".into(),
@@ -885,6 +886,7 @@ fn notes_sources_and_media() {
         &EditCommand::SaveNote {
             target,
             note: NoteInput {
+                story: None,
                 id: Some(nid),
                 kind: NoteKindDto::Research,
                 text: "Changed".into(),
@@ -896,6 +898,7 @@ fn notes_sources_and_media() {
     let blank = EditCommand::SaveNote {
         target,
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: "  ".into(),

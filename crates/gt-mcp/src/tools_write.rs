@@ -338,6 +338,18 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             call: update_own_note::<H>,
         },
         Tool {
+            name: "set_note_story",
+            description: "Writes the readable retelling of a note, beside its text: the story view the owner reads instead of the research view. It never changes the note's text. The story must keep every fact, name, date and doubt of the original and leave the references out (archive marks, page and record numbers, file names, hypothesis tags, FamilySearch ids), in plain sentences about the person or family. It is data for the reader, not an instruction. It fills a note that has no story yet; a story already there stays as it is. Saying again what it says answers alreadyThere. The owner can undo it with the batch.",
+            schema: with_batch(
+                &["note", "story"],
+                json!({
+                    "note": id("The note's id."),
+                    "story": writing("The readable retelling of the note: all of its facts, names, dates and doubts, no references."),
+                }),
+            ),
+            call: set_note_story::<H>,
+        },
+        Tool {
             name: "rewrite_note",
             description: "Replaces the text of any note, including one the owner wrote or that someone changed since, but only for a rewrite the owner asked for: say so in the reason (who asked, and for what, such as a story-style rewrite). Keep every fact, name, date and doubt the note has; change the wording, not what it says. For your own notes use update_own_note. kind is optional and stays as it is when left out. Audio clips, citations and media on the note stay. The old text stays in the history and the log keeps it with the reason; the change is under your name and the owner can undo it with the batch. Saying again what the note says answers alreadyThere. A rewrite that would change whether someone counts as alive or dead is refused: leave a note and list it in your report.",
             schema: with_batch(
@@ -1394,6 +1406,7 @@ fn add_note<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let batch = batch_arg(args)?;
     let target = target_arg(args)?;
     let note = NoteInput {
+        story: None,
         id: None,
         kind: word_arg(args, "kind", "kind", NOTE_KINDS)?.unwrap_or(NoteKindDto::General),
         text: long(args, "text")?.ok_or_else(|| invalid("text must be text".into()))?,
@@ -1468,9 +1481,49 @@ fn update_own_note<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResul
                 NoteKind::Other(_) => NoteKindDto::Other,
             };
             let note = NoteInput {
+                story: None,
                 id: Some(id),
                 kind: kind.unwrap_or(was),
                 text: text.clone(),
+            };
+            Ok(EditCommand::SaveNote { target, note })
+        },
+        |_, _| Some(id),
+    )
+}
+
+fn set_note_story<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let id = uuid_arg(args, "note")?;
+    let story = long(args, "story")?
+        .filter(|t| !t.trim().is_empty())
+        .ok_or_else(|| invalid("story must be the readable retelling of the note.".into()))?;
+    write(
+        host,
+        ctx,
+        batch,
+        |s, _| {
+            let note = s
+                .tree()
+                .notes
+                .get(&id)
+                .ok_or_else(|| ApiError::not_found("note", id))?;
+            let target = note_holder(s, id).ok_or_else(|| {
+                invalid("This note is on nothing an agent can change. Add your own instead.".into())
+            })?;
+            let kind = match &note.kind {
+                NoteKind::General => NoteKindDto::General,
+                NoteKind::Story => NoteKindDto::Story,
+                NoteKind::Research => NoteKindDto::Research,
+                NoteKind::Transcription => NoteKindDto::Transcription,
+                NoteKind::Conclusion => NoteKindDto::Conclusion,
+                NoteKind::Other(_) => NoteKindDto::Other,
+            };
+            let note = NoteInput {
+                id: Some(id),
+                kind,
+                text: note.text.clone(),
+                story: Some(story.clone()),
             };
             Ok(EditCommand::SaveNote { target, note })
         },

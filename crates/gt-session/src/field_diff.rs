@@ -401,10 +401,12 @@ fn note_rows(n: &Note, w: &dyn Words) -> Vec<Row> {
         text: body,
         lang,
         shared,
+        story,
     } = n;
     let mut out = vec![
         row("noteKind", Some(enum_id(kind))),
         row("text", Some(body.clone()).filter(|s| !s.is_empty())),
+        row("story", story.clone().filter(|s| !s.is_empty())),
         text("lang", lang),
         row("shared", Some(yes(*shared))),
     ];

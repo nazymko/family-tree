@@ -299,6 +299,10 @@ pub struct NoteInput {
     pub id: Option<Uuid>,
     pub kind: NoteKindDto,
     pub text: String,
+    /// The readable retelling. Missing leaves the note's story as it is; an empty text takes it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub story: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]

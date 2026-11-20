@@ -69,6 +69,7 @@ fn note(n: u128, text: &str) -> Note {
         text: text.into(),
         lang: None,
         shared: false,
+        story: None,
     }
 }
 

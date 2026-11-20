@@ -633,6 +633,7 @@ impl<'a> Ctx<'a> {
                 text: child(node, "text").map(text_of).unwrap_or_default(),
                 lang: None,
                 shared: false,
+                story: None,
             },
         );
     }

@@ -216,6 +216,7 @@ impl Session {
                         NoteKind::Other(_) => NoteKindDto::Other,
                     },
                     text: n.text.clone(),
+                    story: n.story.clone(),
                     shared: n.shared,
                     lang: n.lang.clone(),
                     media: self.media_dtos(&n.common.media),

@@ -13,6 +13,7 @@ fn read_note_node(ctx: &mut Ctx, node: &GedNode, id: Uuid, shared: bool) -> Note
         text: node.value.clone().unwrap_or_default(),
         lang: None,
         shared,
+        story: None,
     };
     if let Some(x) = &node.xref {
         n.common.ext_ids.push(ExternalId {

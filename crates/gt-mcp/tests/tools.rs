@@ -275,6 +275,7 @@ fn get_person_includes_notes_on_names() {
                 id: name,
             },
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::General,
                 text: "Spelled this way in the parish book".into(),
@@ -1044,6 +1045,7 @@ fn heavy_person(host: &TestHost) -> (Uuid, Vec<Uuid>) {
                         id: event,
                     },
                     note: NoteInput {
+                        story: None,
                         id: None,
                         kind: NoteKindDto::Transcription,
                         text: format!("{n}{}", "N".repeat(14_998)),
@@ -1208,6 +1210,7 @@ fn a_huge_note_on_an_event_or_name_is_a_preview_too() {
             s.apply(EditCommand::SaveNote {
                 target: OwnerRef { kind, id: target },
                 note: NoteInput {
+                    story: None,
                     id: None,
                     kind: NoteKindDto::General,
                     text: long.clone(),
@@ -1924,6 +1927,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
         text: mark(text),
         lang: None,
         shared: false,
+        story: None,
     };
     tree.notes.insert(
         ids.note,
@@ -1933,6 +1937,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
             text: mark("note-text"),
             lang: Some(mark("note-lang")),
             shared: true,
+            story: Some(mark("note-story")),
         },
     );
     tree.notes
@@ -2297,7 +2302,8 @@ fn every_field_of_every_record_is_readable() {
         &host,
         &[
             "note-kind",
-            "note-text",
+            "note-lang",
+            "note-story",
             "note-lang",
             "second-citation",
             "second-note",

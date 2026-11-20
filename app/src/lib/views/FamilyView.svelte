@@ -19,6 +19,9 @@
   import { flipMove, snapshotRects } from './flip';
   import { agentChanges } from '../state/agentChanges.svelte';
   import { t, type MessageKey } from '../i18n';
+  import NotesViewToggle from '../notes/NotesViewToggle.svelte';
+  import NoteShortened from '../notes/NoteShortened.svelte';
+  import { shownNote } from '../notes/notesView.svelte';
   import { birthSurnameText } from '../ui/birthSurname';
   import { partnerCardKey } from '../family/kinship';
 
@@ -431,12 +434,14 @@
       <section class="band fam-notes" aria-label={heading}>
         <div class="fam-notes-head">
           <h2>{heading}</h2>
+          {#if fam.notes.length > 0}<NotesViewToggle />{/if}
           <Button onclick={() => nav.go({ name: 'familyPage', id: fam.familyId })} aria-label={fam.partner ? t('familyPage.openWith', { name: fam.partner }) : t('familyPage.open')}>{t('familyPage.open')}</Button>
         </div>
         {#each fam.notes as n (n.id)}
           <article class="fam-note">
             <p class="fam-note-kind">{t(`noteKind.${n.kind}`)}</p>
-            <p class="fam-note-text">{n.text}</p>
+            <p class="fam-note-text">{shownNote(n).text}</p>
+            <NoteShortened note={n} />
             <VoiceSamples items={n.media} />
           </article>
         {/each}

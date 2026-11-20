@@ -218,6 +218,7 @@ pub(super) fn import_draft(
                 text: t,
                 lang: None,
                 shared: false,
+                story: None,
             };
             common.notes.push(note.common.id);
             p.put(note);

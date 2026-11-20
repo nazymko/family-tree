@@ -1599,6 +1599,7 @@ impl Session {
         let cmd = EditCommand::SaveNote {
             target,
             note: crate::command::NoteInput {
+                story: None,
                 id: Some(note),
                 kind,
                 text: text.to_string(),

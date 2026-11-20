@@ -91,8 +91,8 @@ describe('FamilyView', () => {
     });
     const section = await screen.findByRole('region', { name: 'Shared family notes, with Olena Koval' });
     expect(within(section).getByText('They moved to Lviv together.')).toBeInTheDocument();
-    // To read: the only button leads to the family page, nothing edits the note.
-    expect(within(section).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['Family page']);
+    // To read: two buttons pick the notes view, one leads to the family page, nothing edits the note.
+    expect(within(section).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['Research', 'Story', 'Family page']);
   });
 
   it('shows_no_notes_block_when_the_family_has_no_notes', async () => {

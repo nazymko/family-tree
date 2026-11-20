@@ -164,6 +164,7 @@ fn the_first_page_of_a_log_of_ten_thousand_groups() {
                         id: *id,
                     },
                     note: NoteInput {
+                        story: None,
                         id: None,
                         kind: NoteKindDto::General,
                         text: format!("Note {i}"),

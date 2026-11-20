@@ -192,6 +192,7 @@ pub fn rich_tree() -> Tree {
             text: "A long story about the family.".into(),
             lang: Some("en".into()),
             shared: true,
+            story: None,
         },
     );
     t.media.insert(

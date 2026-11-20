@@ -155,6 +155,9 @@ pub(super) fn save_note(
             let mut n: Note = p.get(id)?;
             n.kind = note_kind(input.kind, Some(&n.kind));
             n.text = input.text.clone();
+            if let Some(story) = &input.story {
+                n.story = Some(story.trim().to_string()).filter(|s| !s.is_empty());
+            }
             n.common.changed = Some(p.now);
             (id, n)
         }
@@ -165,6 +168,11 @@ pub(super) fn save_note(
                 text: input.text.clone(),
                 lang: None,
                 shared: false,
+                story: input
+                    .story
+                    .as_ref()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty()),
             };
             (n.common.id, n)
         }

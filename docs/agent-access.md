@@ -216,6 +216,18 @@ it still changes with `update_own_note`.
 - Audio clips, citations and media on the note are not touched. The kind stays as it is unless the agent gives one.
 - It never changes whether someone counts as alive or dead. Saying again what the note says answers that it is already so.
 
+### A readable story beside a note
+
+The app shows notes in two views, **Research** (the note as written) and **Story** (readable). An agent can write the
+readable retelling of any note, yours included, with the tool `set_note_story` (inputs: the batch, the note, the story). The
+note's text is never changed.
+
+- The story keeps every fact, name, date and doubt of the note and leaves the references out (archive marks, pages, record
+  numbers, file names, hypothesis tags, FamilySearch ids).
+- It fills a note that has no story. A story already there stays as it is. Saying again what it says answers that it is
+  already so. It is in the **Change log** under the agent's name, and **Undo** of the batch takes it off.
+- A note with no story is shown in the Story view as its own text with the references removed, with a quiet line saying so.
+
 ### Photographed documents
 
 An agent can attach a picture of a document and write down what is on it.

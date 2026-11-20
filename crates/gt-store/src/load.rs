@@ -502,7 +502,7 @@ impl Project {
         tree.mend_media_versions();
 
         let mut st = conn.prepare(
-            "SELECT id, private, changed, unknown_json, kind, text, lang, shared \
+            "SELECT id, private, changed, unknown_json, kind, text, lang, shared, story \
              FROM note ORDER BY seq",
         )?;
         let mut rows = st.query([])?;
@@ -514,6 +514,7 @@ impl Project {
                 text: r.get(5)?,
                 lang: r.get(6)?,
                 shared: r.get(7)?,
+                story: r.get(8)?,
                 common,
             };
             tree.notes.insert(id, n);
