@@ -5,14 +5,13 @@
   import { t, plural } from '../i18n';
   import { markedName, shownName } from './namesPref.svelte';
 
-  const shown = $derived(shownName(row));
-
   let {
     row,
     home = false,
     selected = false,
     agentChanged = false,
   }: { row: PersonRow | null; home?: boolean; selected?: boolean; agentChanged?: boolean } = $props();
+  const shown = $derived(shownName(row));
 </script>
 
 <div class="pr" class:selected>

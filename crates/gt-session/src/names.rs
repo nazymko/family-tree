@@ -317,8 +317,14 @@ mod patronymic_tests {
             Some("Olena Undated")
         );
         // None, or a private one: no as-recorded name.
-        assert_eq!(as_recorded_shown(&person(vec![modern.clone()]), NameOrder::GivenFirst), None);
+        assert_eq!(
+            as_recorded_shown(&person(vec![modern.clone()]), NameOrder::GivenFirst),
+            None
+        );
         let private = named(NameKind::AsRecorded, "Hidden", false, true);
-        assert_eq!(as_recorded_shown(&person(vec![modern, private]), NameOrder::GivenFirst), None);
+        assert_eq!(
+            as_recorded_shown(&person(vec![modern, private]), NameOrder::GivenFirst),
+            None
+        );
     }
 }

@@ -92,8 +92,6 @@
       title: hasSelection ? undefined : t('picture.selectFirst'),
     },
     { label: t('picture.screen'), onselect: () => onpick('screen') },
-    // Modern names or the spelling of the sources, on the chart and in saved pictures and prints. Kept for next time.
-    { label: t('picture.namesAsRecorded'), checked: namesAsRecorded.value, onselect: () => namesAsRecorded.set(!namesAsRecorded.value), separatorBefore: true },
     ...(ona3
       ? [
           // The direction of the print: as on the screen (the default) or the one that prints largest. Kept for next time.
@@ -111,6 +109,8 @@
           { label: t('picture.a3Print'), onselect: () => ona3('auto', true) },
         ]
       : []),
+    // Modern names or the spelling of the sources, on the chart and in saved pictures and prints. Kept for next time.
+    { label: t('picture.namesAsRecorded'), checked: namesAsRecorded.value, onselect: () => namesAsRecorded.set(!namesAsRecorded.value), separatorBefore: true },
   ]);
 
   const items = $derived<MenuItem[]>(personItems.length ? [...personItems, ...saveItems.map((i, k) => (k === 0 ? { ...i, separatorBefore: true } : i))] : saveItems);
