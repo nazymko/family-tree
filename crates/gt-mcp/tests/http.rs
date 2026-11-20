@@ -1724,7 +1724,8 @@ fn keyless_gate_refusals_and_living_status_hold() {
     let living =
         |f: &Fixture| tool_call(f, false, "get_person", json!({"id": id}))["living"].clone();
     let was = living(&f);
-    for (kind, date) in [("death", "1950"), ("burial", "1950"), ("birth", "1801")] {
+    // A death with no age or descendant to show for it stays the owner's.
+    for (kind, date) in [("death", "1950"), ("burial", "1950"), ("cremation", "1950")] {
         let message = tool_refusal(
             &f,
             "add_event",

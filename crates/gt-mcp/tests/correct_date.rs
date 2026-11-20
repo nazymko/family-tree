@@ -174,14 +174,21 @@ fn refusals() {
     assert!(m.contains("not understood"), "{m}");
     assert_eq!(date_of(&host, birth).as_deref(), Some("1901"));
 
-    // Someone born in 1990 is living; 1900 would make them dead by age.
+    // Someone born in 1900 counts as dead by age; 1990 would make them count as alive.
     let olena = with(&host, |s| {
-        add_person(s, draft("Olena", "Koval", None, Some("1990")))
+        add_person(s, draft("Olena", "Koval", None, Some("1900")))
     });
     let born = event_of(&host, olena, EventKind::Birth);
-    let m = ask(json!({"batch": batch, "event": born, "date": "1900", "reason": "Letter"}));
+    let m = ask(json!({"batch": batch, "event": born, "date": "1990", "reason": "Letter"}));
     assert!(m.contains("alive or dead"), "{m}");
-    assert_eq!(date_of(&host, born).as_deref(), Some("1990"));
+    assert_eq!(date_of(&host, born).as_deref(), Some("1900"));
+    // The other way, a date over 100 years ago may make someone count as dead.
+    let petro = with(&host, |s| {
+        add_person(s, draft("Petro", "Koval", None, Some("1990")))
+    });
+    let petro_born = event_of(&host, petro, EventKind::Birth);
+    correct(&host, &batch, petro_born, "1900");
+    assert_eq!(date_of(&host, petro_born).as_deref(), Some("1900"));
 
     call(
         &host,

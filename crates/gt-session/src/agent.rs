@@ -13,7 +13,9 @@
 //! 6. The owner's rule: the plan is tried on the tree, and if anyone who existed before the write
 //!    would count differently as alive or dead, by the owner's mark or by the rule under it, it is
 //!    refused. This reads the result and not the command, because the status follows from dates
-//!    and links in ways no list of commands covers.
+//!    and links in ways no list of commands covers. The one exception: someone the owner has not
+//!    marked may go from alive to dead when the tree then shows them more than 100 years old or
+//!    as an ancestor of someone who counts as dead. Nobody is ever made to count as alive.
 //! 7. The write is stored under the agent, outside the owner's undo and redo.
 //!
 //! The checks that need no plan come first, so that the planner's own errors ("both parents are
@@ -1475,8 +1477,8 @@ impl Session {
     /// The one change an agent may make to what is already there: a birth or death date someone
     /// confirmed, on any person's birth or death event. The date is set and a research note on the
     /// event says what it was, what it is now and `reason`, in one write the owner can undo. Step 5
-    /// of the gate is what this replaces; step 6 still holds, so it can never change whether
-    /// anyone counts as alive or dead.
+    /// of the gate is what this replaces; step 6 still holds, so it changes whether anyone counts
+    /// as alive or dead only as step 6 lets it.
     pub fn correct_date_as_agent(
         &mut self,
         event: Uuid,
@@ -1550,8 +1552,8 @@ impl Session {
 
     /// The owner's request to rewrite a note, whoever wrote it: the text (and the kind, when
     /// given) is replaced in one change set the owner can undo with the batch. Step 5 of the gate
-    /// ("own") is what this lifts; step 6 still holds, so it can never change whether anyone counts
-    /// as alive or dead. The old text stays in the log (the row's `before`). The change set's label
+    /// ("own") is what this lifts; step 6 still holds, so it changes whether anyone counts as
+    /// alive or dead only as step 6 lets it. The old text stays in the log (the row's `before`). The change set's label
     /// carries the reason ("Rewrite note: <reason>"), as the change log has no other place for it.
     /// Audio clips, citations and media link to the note by its id and are not touched.
     /// Saying what the note already says is `AlreadyThere`.
@@ -1780,7 +1782,8 @@ impl Session {
     /// one of the same connection: the log of the family says who added the link and whether
     /// anyone touched it later (`item_is_own`, the test every `update_own_*` edit uses). A note on
     /// the child records the family and `reason`, in the same change, so one undo takes back both.
-    /// Step 6 still holds, so it can never change whether anyone counts as alive or dead. A repeat
+    /// Step 6 still holds, so it changes whether anyone counts as alive or dead only as step 6
+    /// lets it. A repeat
     /// (the link was there once and is gone) is `AlreadyThere`; a person who was never a child in
     /// that family is refused.
     pub fn remove_own_child_link(
@@ -2553,13 +2556,15 @@ impl Session {
     /// exists before this write counts differently after it, whatever the command was. Both maps:
     /// the owner's mark hides what the rule says, and taking the mark off would show the change.
     /// Both sides are read now, so a date the rule passes overnight is not blamed on this write.
+    /// One change is let through (`may_mark_dead`): someone with no mark of the owner's who goes
+    /// from alive to dead, when the tree then shows them more than 100 years old or as an ancestor
+    /// of someone who counts as dead.
     // A birth date just inside the age limit that later passes it is time passing, not this write.
     fn check_living(&mut self, cs: &ChangeSet) -> Result<(), ApiError> {
         let (effective_before, computed_before) = self.living_maps();
         let mut removed_at = HashMap::new();
         apply_to_tree_tracked(&mut self.tree, cs, &mut removed_at);
         let (effective, computed) = self.living_maps();
-        apply_to_tree_tracked(&mut self.tree, &cs.inverse(), &mut removed_at);
         // Someone the owner marked dead may turn out dead by the rule too: that changes no status,
         // now or once the mark comes off. A death date is what transcripts most often add.
         let agrees_with_mark = |id: &Uuid| {
@@ -2571,19 +2576,85 @@ impl Session {
                     .get(id)
                     .is_some_and(|p| p.living_override == Some(LivingOverride::Deceased))
         };
-        let flipped = self.tree.persons.keys().find(|id| {
-            effective_before.get(id) != effective.get(id)
-                || (computed_before.get(id) != computed.get(id) && !agrees_with_mark(id))
-        });
-        match flipped {
+        let flips: Vec<Uuid> = effective_before
+            .keys()
+            .filter(|id| {
+                effective_before.get(id) != effective.get(id)
+                    || (computed_before.get(id) != computed.get(id) && !agrees_with_mark(id))
+            })
+            .copied()
+            .collect();
+        // Read on the tree with the plan on it: the evidence is what the tree shows after.
+        let refused_flip = if flips.is_empty() {
+            None
+        } else {
+            let (today, _) = (self.clock.0)();
+            let old = gt_core::living::older_than(&self.tree, AGENT_DEAD_AGE_YEARS, today);
+            flips
+                .into_iter()
+                .find(|id| !may_mark_dead(&self.tree, *id, &effective_before, &effective, &old))
+        };
+        apply_to_tree_tracked(&mut self.tree, &cs.inverse(), &mut removed_at);
+        match refused_flip {
             Some(id) => Err(refused(format!(
                 "This would change whether {} counts as alive or dead. Only the owner can do \
                  that. Leave a note and list it in your report.",
-                self.person_name(*id)
+                self.person_name(id)
             ))),
             None => Ok(()),
         }
     }
+}
+
+/// The age past which the tree's evidence lets an agent's write make someone count as dead.
+const AGENT_DEAD_AGE_YEARS: u32 = 100;
+
+/// Whether an agent's write may make `id` count as dead (step 6): they counted as alive, now
+/// count as dead, carry no mark of the owner's, and the tree with the write on it shows them
+/// more than 100 years old (`old`, from a birth, christening or baptism, as the rule reads it)
+/// or as a parent, grandparent and so on of someone who counts as dead. Ancestry follows the
+/// links the living rule follows: a partner of a family is a parent of each of its children,
+/// whatever the kind of link. Making anyone count as alive is never let through.
+fn may_mark_dead(
+    tree: &gt_core::tree::Tree,
+    id: Uuid,
+    before: &HashMap<Uuid, bool>,
+    after: &HashMap<Uuid, bool>,
+    old: &HashSet<Uuid>,
+) -> bool {
+    let unmarked = tree
+        .persons
+        .get(&id)
+        .is_some_and(|p| p.living_override.is_none());
+    if !unmarked || before.get(&id) != Some(&true) || after.get(&id) != Some(&false) {
+        return false;
+    }
+    if old.contains(&id) {
+        return true;
+    }
+    let mut children: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for f in tree.families.values() {
+        for p in [f.partner1, f.partner2].into_iter().flatten() {
+            children
+                .entry(p)
+                .or_default()
+                .extend(f.children.iter().map(|c| c.person));
+        }
+    }
+    let mut seen = HashSet::from([id]);
+    let mut queue = vec![id];
+    while let Some(p) = queue.pop() {
+        for &c in children.get(&p).into_iter().flatten() {
+            if !seen.insert(c) {
+                continue;
+            }
+            if after.get(&c) == Some(&false) {
+                return true;
+            }
+            queue.push(c);
+        }
+    }
+    false
 }
 
 /// Characters in the date of a correction.
