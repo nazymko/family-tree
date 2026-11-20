@@ -2597,7 +2597,8 @@ impl Session {
         apply_to_tree_tracked(&mut self.tree, &cs.inverse(), &mut removed_at);
         match refused_flip {
             Some(id) => Err(refused(format!(
-                "This would change whether {} counts as alive or dead. Only the owner can do                  that. Leave a note and list it in your report.",
+                "This would change whether {} counts as alive or dead. Only the owner can do \
+                 that. Leave a note and list it in your report.",
                 self.person_name(id)
             ))),
             None => Ok(()),
