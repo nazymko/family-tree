@@ -49,7 +49,7 @@ function cleanLine(line: string): string {
       .replace(/\s*[,;:]\s*\)/g, ')')
       .replace(/([,;:])(\s*[,;:])+/g, '$1')
       .replace(/\s+([,.;:!?)])/g, '$1')
-      .replace(/([(\[«])\s+/g, '$1')
+      .replace(/([([«])\s+/g, '$1')
       .replace(/[ \t]{2,}/g, ' ')
       .replace(/\s*[,;:–-]\s*([.!?])/g, '$1');
     if (s === before) break;
