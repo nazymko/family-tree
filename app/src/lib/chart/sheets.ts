@@ -1,4 +1,5 @@
 import { layoutA3 } from './a3';
+import type { ChartNode } from '../api/types';
 import { compactX, sceneBounds, type Scene } from './picture';
 import { descendantsSide, type ChartDirection } from './direction';
 
@@ -50,18 +51,40 @@ interface Draft {
   kids: Draft[];
 }
 
+/** The shape of a "built around" scene the sheets are cut along (see `hangOf`). */
+interface Hang {
+  byId: Map<number, ChartNode>;
+  isDup: (id: number) => boolean;
+  parents: (id: number) => number[];
+  childrenOf: Map<number, number[]>;
+  /** Centres and everything up their parent edges, depth-first, father's side first. */
+  lineage: number[];
+  rank: Map<number, number>;
+  /** Generation distance of a lineage node from the nearest centre. */
+  dist: (id: number) => number;
+  /** Lineage node -> the nodes hanging from it (itself included). */
+  region: Map<number, number[]>;
+  /** Node -> the node it hangs from (null for a centre and a node reached from nowhere). */
+  up: Map<number, number | null>;
+}
+
+function push<K, V>(m: Map<K, V[]>, k: K, v: V): void {
+  const list = m.get(k);
+  if (!list) m.set(k, [v]);
+  else if (!list.includes(v)) list.push(v);
+}
+
 /**
- * Cuts `scene` into sheets around `centres` (the root and any chosen people, not necessarily in one row). The cover
- * holds each centred person, their parents and grandparents and everything hanging from those, and the centred
- * people's descendants; each grandparent with ancestors gets a sheet of their ancestors and everything hanging from
- * them, split again one generation further up while it does not `fits` (a split sheet left with fewer than
- * `minPeople` people merges into the sheet below when that still fits). Numbered cover first, then depth-first, father's side first.
+ * The lineage of `scene` around `centres` and which box everything hangs from. Lineage: the centres and everything up
+ * their parent edges (a repeated box also brings its first occurrence), ranked depth-first, father's side first. A
+ * lineage node hangs from its lineage child with the smaller generation distance (father's side first on a tie). Every
+ * other node hangs from the node a multi-source search over parent, partner and sibling links reached it from; the
+ * search never steps onto another lineage node, and a lineage person's brothers and sisters are linked to them as well.
+ * Null for an empty scene.
  */
-export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions = {}): Sheet[] {
-  const minPeople = opts.minPeople ?? SHEET_MIN_PEOPLE;
-  const fits = opts.fits ?? fitsA3;
+function hangOf(scene: Scene, centres: number[]): Hang | null {
   const byId = new Map(scene.nodes.map((n) => [n.id, n]));
-  if (!byId.size) return [];
+  if (!byId.size) return null;
   const isDup = (id: number): boolean => {
     const o = byId.get(id)!.dupOf;
     return o !== null && byId.has(o);
@@ -70,11 +93,6 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
   // Parents and children, in edge order (a couple's father first).
   const parentsOf = new Map<number, number[]>();
   const childrenOf = new Map<number, number[]>();
-  const push = (m: Map<number, number[]>, k: number, v: number) => {
-    const list = m.get(k);
-    if (!list) m.set(k, [v]);
-    else if (!list.includes(v)) list.push(v);
-  };
   for (const e of scene.edges) {
     if (e.kind !== 'parent' || !byId.has(e.from) || !byId.has(e.to)) continue;
     push(parentsOf, e.to, e.from);
@@ -82,8 +100,6 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
   }
   const parents = (id: number) => parentsOf.get(id) ?? [];
 
-  // Lineage: the centres and everything up their parent edges (a repeated box also brings its first occurrence),
-  // ranked in depth-first order, father's side first.
   const rank = new Map<number, number>();
   const stack = [...centres].filter((id) => byId.has(id)).reverse();
   while (stack.length) {
@@ -99,6 +115,7 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
   // Generation distance of a lineage node: the fewest parent steps from any centre (a repeated box and its first
   // occurrence count as one). Centres need not share a row, so this, not `gen`, decides the cover.
   const depth = new Map<number, number>();
+  const firstFrom = new Map<number, number>();
   let level = [...new Set(centres.filter((id) => byId.has(id)))];
   for (let d = 0; level.length; d++) {
     const next: number[] = [];
@@ -107,19 +124,20 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
       if (depth.has(id)) continue;
       depth.set(id, d);
       const o = byId.get(id)!.dupOf;
-      if (o !== null && byId.has(o) && !depth.has(o)) level.push(o);
-      for (const p of parents(id)) if (!depth.has(p)) next.push(p);
+      if (o !== null && byId.has(o) && !depth.has(o)) {
+        level.push(o);
+        if (!firstFrom.has(o)) firstFrom.set(o, id);
+      }
+      for (const p of parents(id)) {
+        if (depth.has(p)) continue;
+        next.push(p);
+        if (!firstFrom.has(p)) firstFrom.set(p, id);
+      }
     }
     level = next;
   }
   const dist = (id: number) => depth.get(id) ?? 0;
 
-  // Which lineage node everyone hangs from: a multi-source search over parent, partner and sibling links that never
-  // steps onto another lineage node. A lineage person's brothers and sisters are linked to them as well (with their
-  // parents drawn the scene joins them only through the parents), so they hang from that person, not from the
-  // parents. Ties: the source with the smaller generation distance (`dist`: parent steps from the nearest centre, so
-  // a sibling reached both from an ancestor and from that ancestor's parents hangs from the ancestor), then the father's
-  // side (the lower depth-first rank).
   const adj = new Map<number, number[]>();
   const link = (a: number, b: number) => {
     push(adj, a, b);
@@ -131,31 +149,67 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
   }
   for (const l of lineage)
     for (const p of parents(l)) for (const c of childrenOf.get(p) ?? []) if (c !== l && !rank.has(c)) link(l, c);
+  // Ties: the source with the smaller generation distance (so a sibling reached both from an ancestor and from that
+  // ancestor's parents hangs from the ancestor), then the father's side (the lower depth-first rank).
   const better = (a: number, b: number) => {
     const da = dist(a);
     const db = dist(b);
     return da !== db ? da < db : rank.get(a)! < rank.get(b)!;
   };
+  const up = new Map<number, number | null>();
+  const centreSet = new Set(centres);
+  for (const l of lineage) {
+    if (centreSet.has(l)) {
+      up.set(l, null);
+      continue;
+    }
+    let best: number | null = null;
+    for (const c of childrenOf.get(l) ?? []) {
+      if (!rank.has(c)) continue;
+      if (best === null || dist(c) < dist(best) || (dist(c) === dist(best) && rank.get(c)! < rank.get(best)!)) best = c;
+    }
+    up.set(l, best ?? firstFrom.get(l) ?? null);
+  }
   const owner = new Map<number, number>(lineage.map((l) => [l, l]));
   let frontier = lineage;
   while (frontier.length) {
-    const best = new Map<number, number>();
+    const best = new Map<number, { src: number; via: number }>();
     for (const u of frontier) {
       const src = owner.get(u)!;
       for (const v of adj.get(u) ?? []) {
         if (owner.has(v)) continue;
         const cur = best.get(v);
-        if (cur === undefined || better(src, cur)) best.set(v, src);
+        if (cur === undefined || better(src, cur.src)) best.set(v, { src, via: u });
       }
     }
-    for (const [v, s] of best) owner.set(v, s);
+    for (const [v, b] of best) {
+      owner.set(v, b.src);
+      up.set(v, b.via);
+    }
     frontier = [...best.keys()];
   }
+  for (const n of scene.nodes) if (!up.has(n.id)) up.set(n.id, null);
   const region = new Map<number, number[]>();
   for (const n of scene.nodes) {
     const o = owner.get(n.id);
     if (o !== undefined) push(region, o, n.id);
   }
+  return { byId, isDup, parents, childrenOf, lineage, rank, dist, region, up };
+}
+
+/**
+ * Cuts `scene` into sheets around `centres` (the root and any chosen people, not necessarily in one row). The cover
+ * holds each centred person, their parents and grandparents and everything hanging from those, and the centred
+ * people's descendants; each grandparent with ancestors gets a sheet of their ancestors and everything hanging from
+ * them, split again one generation further up while it does not `fits` (a split sheet left with fewer than
+ * `minPeople` people merges into the sheet below when that still fits). Numbered cover first, then depth-first, father's side first.
+ */
+export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions = {}): Sheet[] {
+  const minPeople = opts.minPeople ?? SHEET_MIN_PEOPLE;
+  const fits = opts.fits ?? fitsA3;
+  const h = hangOf(scene, centres);
+  if (!h) return [];
+  const { byId, isDup, parents, childrenOf, lineage, dist, region } = h;
 
   /** The ancestors of `t` (not `t`), along parent edges only, nearest first. */
   const above = (t: number): number[] => {
@@ -285,6 +339,172 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
     }
     return { no, top: p.top, ids, refs, scene: sub(new Set([...ids, ...refs.keys(), ...plain])) };
   });
+}
+
+// ------------------------------------------------------------ packed sheets: pieces
+
+/** A block with fewer people in full is never moved to a piece of its own (spec amendment 21.11.2026, "Pieces"). */
+export const PIECE_MIN_PEOPLE = 3;
+
+/** One piece of a "built around" chart cut for packed A3 sheets (spec amendment 21.11.2026). */
+export interface Piece {
+  /** 0 = the cover; the others in the order they were moved out. */
+  index: number;
+  /** The node the block was cut at (its person names the piece's caption); null for the cover. */
+  top: number | null;
+  /** Index of the piece it was moved out of; null for the cover. */
+  parent: number | null;
+  /** Nodes shown in full. */
+  full: Set<number>;
+  /** Reference box node id -> index of the piece holding that person in full. */
+  refs: Map<number, number>;
+  /** Repeated boxes (`dupOf`) whose first occurrence is on this piece: drawn as plain repeats. */
+  plain: Set<number>;
+  /** It did not fit and had no block left to move. */
+  unsplittable: boolean;
+}
+
+export interface CutOptions {
+  /** Whether a piece prints readably on its own. */
+  fits: (p: Piece) => boolean;
+  /** The smallest block (people in full) that may move out; `PIECE_MIN_PEOPLE` by default. */
+  minPeople?: number;
+}
+
+/**
+ * Cuts `scene` into pieces around `centres` (spec amendment 21.11.2026, "Pieces" and "References"). Every box hangs
+ * from one box (`hangOf`); a block is a hang subtree inside a piece, at a node off the lineage or at a lineage node three
+ * or more generations above a centre. Starting from the whole chart as the cover, while a piece does not `fits`, its
+ * largest block (people in full; ties: the lower rank of the lineage node it hangs from, then the lower node id) of at
+ * least `minPeople` and fewer than the piece itself moves out into a new piece, which is treated the same way. A piece
+ * with no such block left is `unsplittable`. Wherever a parent, partner or sibling line joins two people in full on
+ * different pieces, each piece shows the other person as a reference box; a repeated box is plain where its first
+ * occurrence is on the same piece, else a reference box to that piece.
+ */
+export function cutPieces(scene: Scene, centres: number[], o: CutOptions): Piece[] {
+  const minPeople = o.minPeople ?? PIECE_MIN_PEOPLE;
+  const h = hangOf(scene, centres);
+  if (!h) return [];
+  const { byId, isDup, rank, dist, up } = h;
+  const ids = scene.nodes.map((n) => n.id);
+  const kids = new Map<number, number[]>();
+  for (const id of ids) {
+    const u = up.get(id);
+    if (u !== null && u !== undefined) push(kids, u, id);
+  }
+  // The lineage node each box hangs from in the end (itself for a lineage node).
+  const lineOwner = new Map<number, number>();
+  const ownerOf = (id: number): number => {
+    const hit = lineOwner.get(id);
+    if (hit !== undefined) return hit;
+    let at = id;
+    const path: number[] = [];
+    while (!rank.has(at) && !lineOwner.has(at)) {
+      path.push(at);
+      const u = up.get(at);
+      if (u === null || u === undefined) break;
+      at = u;
+    }
+    const res = lineOwner.get(at) ?? (rank.has(at) ? at : -1);
+    for (const p of path) lineOwner.set(p, res);
+    lineOwner.set(at, res);
+    return res;
+  };
+  const movableAt = (id: number): boolean => !rank.has(id) || dist(id) >= 3;
+
+  const pieceOf = new Map<number, number>(ids.map((id) => [id, 0]));
+  const tops: (number | null)[] = [null];
+  const parentsOfPiece: (number | null)[] = [null];
+  const unsplittable: boolean[] = [false];
+
+  const edges = scene.edges.filter((e) => (e.kind === 'parent' || e.kind === 'partner' || e.kind === 'sibling') && byId.has(e.from) && byId.has(e.to));
+  /** The piece `k` as it stands now: its people, references and plain repeats. */
+  const pieceNow = (k: number): Piece => {
+    const full = new Set<number>();
+    const refs = new Map<number, number>();
+    const plain = new Set<number>();
+    for (const id of ids) {
+      if (pieceOf.get(id) !== k) continue;
+      if (!isDup(id)) full.add(id);
+      else {
+        const holder = pieceOf.get(byId.get(id)!.dupOf!)!;
+        if (holder === k) plain.add(id);
+        else refs.set(id, holder);
+      }
+    }
+    for (const e of edges) {
+      if (isDup(e.from) || isDup(e.to)) continue;
+      const a = pieceOf.get(e.from)!;
+      const b = pieceOf.get(e.to)!;
+      if (a === b) continue;
+      if (a === k) refs.set(e.to, b);
+      else if (b === k) refs.set(e.from, a);
+    }
+    return { index: k, top: tops[k], parent: parentsOfPiece[k], full, refs, plain, unsplittable: unsplittable[k] };
+  };
+
+  /** The largest movable block of piece `k`, or null. One post-order pass over the piece's hang forest. */
+  const largestBlock = (k: number, total: number): number | null => {
+    const roots = ids.filter((id) => {
+      if (pieceOf.get(id) !== k) return false;
+      const u = up.get(id);
+      return u === null || u === undefined || pieceOf.get(u) !== k;
+    });
+    const size = new Map<number, number>();
+    let best: number | null = null;
+    const better = (a: number, b: number): boolean => {
+      const sa = size.get(a)!;
+      const sb = size.get(b)!;
+      if (sa !== sb) return sa > sb;
+      const ra = rank.get(ownerOf(a)) ?? Infinity;
+      const rb = rank.get(ownerOf(b)) ?? Infinity;
+      if (ra !== rb) return ra < rb;
+      return a < b;
+    };
+    for (const r of roots) {
+      // Iterative post-order.
+      const stack: [number, boolean][] = [[r, false]];
+      while (stack.length) {
+        const [id, done] = stack.pop()!;
+        if (done) {
+          let s = isDup(id) ? 0 : 1;
+          for (const c of kids.get(id) ?? []) if (pieceOf.get(c) === k) s += size.get(c)!;
+          size.set(id, s);
+          if (id !== r && movableAt(id) && s >= minPeople && s < total && (best === null || better(id, best))) best = id;
+          continue;
+        }
+        stack.push([id, true]);
+        for (const c of kids.get(id) ?? []) if (pieceOf.get(c) === k) stack.push([c, false]);
+      }
+    }
+    return best;
+  };
+
+  const queue = [0];
+  for (let qi = 0; qi < queue.length; qi++) {
+    const k = queue[qi];
+    for (;;) {
+      const p = pieceNow(k);
+      if (o.fits(p)) break;
+      const x = largestBlock(k, p.full.size);
+      if (x === null) {
+        unsplittable[k] = true;
+        break;
+      }
+      const nk = tops.length;
+      tops.push(x);
+      parentsOfPiece.push(k);
+      unsplittable.push(false);
+      const todo = [x];
+      while (todo.length) {
+        const id = todo.pop()!;
+        pieceOf.set(id, nk);
+        for (const c of kids.get(id) ?? []) if (pieceOf.get(c) === k) todo.push(c);
+      }
+      queue.push(nk);
+    }
+  }
+  return tops.map((_, k) => pieceNow(k));
 }
 
 /** Names a box across layouts of one chart in different directions (node ids differ between them). */
