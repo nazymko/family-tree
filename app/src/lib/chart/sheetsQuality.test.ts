@@ -137,6 +137,23 @@ describe('packed sheets on family-shaped charts', { timeout: 30_000 }, () => {
     for (const f of FAMS) expect(measures(f).fill, f).toBeGreaterThanOrEqual(0.5);
   });
 
+  it('pieces_dense', () => {
+    // Median share of a piece's drawing taken by its cards. fam-d stays lower: most of its pieces are one ancestor
+    // couple's descendants hanging off a column of three or four sparse ancestor generations (a full grid of cards
+    // would be about 0.6).
+    const least: Record<FamName, number> = { 'fam-a': 0.35, 'fam-b': 0.35, 'fam-c': 0.35, 'fam-d': 0.3 };
+    for (const f of FAMS) expect(measures(f).pieceFill, f).toBeGreaterThanOrEqual(least[f]);
+  });
+
+  it('cover_readable', () => {
+    for (const f of FAMS) expect(measures(f).coverPt, f).toBeGreaterThanOrEqual(A3_MIN_PT);
+  });
+
+  it('no_more_pages_than_round_one', () => {
+    const most: Record<FamName, number> = { 'fam-a': 22, 'fam-b': 12, 'fam-c': 12, 'fam-d': 45 };
+    for (const f of FAMS) expect(measures(f).pages, f).toBeLessThanOrEqual(most[f]);
+  });
+
   it('page_count_near_bound', () => {
     for (const f of FAMS) {
       const m = measures(f);

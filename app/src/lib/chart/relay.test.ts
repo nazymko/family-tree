@@ -81,7 +81,7 @@ describe('relayPiece', { timeout: 30_000 }, () => {
     expect(new Set(scene.nodes.filter((n) => n.gen === 1).map((n) => n.y)).size).toBe(2);
     expect(scene.nodes.find((n) => n.id === 30)!.y).toBe(176 + H + 8);
     expect(drawIssues(scene)).toEqual([]);
-    const r = relayPiece(s, 'top', new Map(), 40, true)!;
+    const r = relayPiece(s, 'top', new Map(), 40, 6)!;
     expect(sceneBounds(r, []).w).toBeLessThan(sceneBounds(s, []).w * 0.6);
     expect(drawIssues(r)).toEqual([]);
   });
@@ -97,6 +97,22 @@ describe('relayPiece', { timeout: 30_000 }, () => {
     expect(at.get(40)!.y).toBe(at.get(18)!.y);
     expect(at.get(40)!.x).toBeGreaterThan(at.get(18)!.x);
     expect(drawIssues(scene)).toEqual([]);
+  });
+
+  it('folds_in_two_rows_stack', () => {
+    // A grandparent's six childless children and one with six childless children of her own: both runs fold.
+    const g = box(1, 0, 0, 0);
+    const aunts = [...Array(6).keys()].map((i) => box(10 + i, i * (W + 28), 88, 1));
+    const mother = box(20, 6 * (W + 28), 88, 1);
+    const kids = [...Array(6).keys()].map((i) => box(30 + i, (4 + i) * (W + 28), 176, 2));
+    const s: Scene = {
+      nodes: [g, ...aunts, mother, ...kids],
+      edges: [...[...aunts, mother].map((k) => line(1, k.id, W / 2, H, 72, k)), ...kids.map((k) => line(20, k.id, mother.x + W / 2, 88 + H, 160, k))],
+    };
+    const { scene, groups } = foldRuns(s, new Set(), 4);
+    expect(groups.length).toBe(2);
+    expect(drawIssues(scene)).toEqual([]);
+    expect(drawIssues(relayPiece(s, 'top', new Map(), 40, 4)!)).toEqual([]);
   });
 
   it('every_piece_of_every_fam_draws_clean', () => {

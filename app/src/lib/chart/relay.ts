@@ -14,6 +14,7 @@ import type { Scene } from './picture';
 /** Room (world units) kept between two families' bus lines in one channel, and around a tag. */
 const BUS_GAP = 12;
 const TAG_GAP = 4;
+const LINE_GAP = 4;
 
 interface Block {
   members: number[];
@@ -60,18 +61,20 @@ function mirror(s: Scene): Scene {
 }
 
 /**
- * `scene` laid out again along its rows. `tags` gives, for each reference box, its tag's rectangle relative to the box's
+ * `scene` laid out again along its rows. `fold`: the shortest run of childless children folded into a grid (0: none). `tags` gives, for each reference box, its tag's rectangle relative to the box's
  * top-left corner (scene units). `gap`: the most room kept between two neighbours in a row. Null when the constraints
- * cannot be met in order (the caller keeps the squeezed scene).
+ * cannot be met in order, or when `fold` finds nothing to fold (the caller keeps the squeezed or unfolded scene).
  */
-export function relayPiece(scene: Scene, dir: ChartDirection, tags: Map<number, Rect> = new Map(), gap = 40, fold = false): Scene | null {
+export function relayPiece(scene: Scene, dir: ChartDirection, tags: Map<number, Rect> = new Map(), gap = 40, fold = 0, ratio = FOLD_RATIO): Scene | null {
   if (scene.nodes.length < 2) return scene;
   const across = isHorizontal(dir);
   const flip = dir === 'bottom' || dir === 'right';
   const t0 = across ? transpose(scene) : scene;
   const t = flip ? mirror(t0) : t0;
   const hOf = new Map(t.nodes.map((n) => [n.id, n.h]));
-  const folded = fold ? foldRuns(t, new Set(tags.keys())) : { scene: t, groups: [] };
+  const folded = fold > 0 ? foldRuns(t, new Set(tags.keys()), fold, ratio) : { scene: t, groups: [] };
+  // Nothing to fold: the unfolded re-lay says it all.
+  if (fold > 0 && folded.groups.length === 0) return null;
   const s = withBus(folded.scene);
   const grid = new Set(folded.groups.flat());
   const tagRel = new Map(
@@ -234,6 +237,39 @@ export function relayPiece(scene: Scene, dir: ChartDirection, tags: Map<number, 
     }
   }
 
+  // A line running down through a row (between two of its boxes) stays between them.
+  const firstAt = (r: readonly ChartNode[], x: number): number => {
+    // The first box of the row starting at or after `x` (boxes in a row do not overlap, so their ends are in order too).
+    let lo = 0;
+    let hi = r.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (r[mid].x < x - 0.5) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  for (const e of s.edges) {
+    if (e.kind !== 'parent' || !byId.has(e.from) || !byId.has(e.to)) continue;
+    const ends = [byId.get(e.from)!, byId.get(e.to)!];
+    for (let i = 0; i + 3 < e.pts.length; i += 2) {
+      const x = e.pts[i];
+      if (Math.abs(e.pts[i + 2] - x) > 0.5) continue;
+      const y0 = Math.min(e.pts[i + 1], e.pts[i + 3]);
+      const y1 = Math.max(e.pts[i + 1], e.pts[i + 3]);
+      if (y1 - y0 < 1) continue;
+      // The drop (first two points) follows the parents, the rest the child.
+      const owner = byId.get(i < 2 ? e.from : e.to)!;
+      for (const [k, r, ry0, ry1] of rowList) {
+        if (ry1 <= y0 + 0.5 || ry0 >= y1 - 0.5) continue;
+        if (ends.some((m) => bandOf(m) === k && x >= m.x - 0.5 && x <= m.x + m.w + 0.5)) continue;
+        const j = firstAt(r, x);
+        if (j > 0) after(r[j - 1].id, r[j - 1].w, owner.id, x - owner.x, LINE_GAP);
+        if (j < r.length) after(owner.id, x - owner.x, r[j].id, 0, LINE_GAP);
+      }
+    }
+  }
+
   // Order the blocks (the constraints follow the old order, so they form no cycle unless a tag forbids it).
   const ids = [...blocks.keys()];
   const out = new Map<number, { b: number; d: number }[]>();
@@ -308,10 +344,10 @@ const FOLD_MIN = 6;
 const FOLD_GAP = 8;
 const FOLD_RATIO = 3;
 
-/** The grid of a run of `n` boxes: the fewest sub-rows (two or more) keeping it at most `FOLD_RATIO` times as many boxes across as deep. */
-function foldShape(n: number): { k: number; c: number } {
+/** The grid of a run of `n` boxes: the fewest sub-rows (two or more) keeping it at most `ratio` times as many boxes across as deep. */
+function foldShape(n: number, ratio: number): { k: number; c: number } {
   let c = 2;
-  while (c < Math.ceil(n / 2) && Math.ceil(n / c) > FOLD_RATIO * c) c++;
+  while (c < Math.ceil(n / 2) && Math.ceil(n / c) > ratio * c) c++;
   return { k: Math.ceil(n / c), c };
 }
 
@@ -321,7 +357,7 @@ function foldShape(n: number): { k: number; c: number } {
  * down the gap after the grid's first box. The rows below move down to make room. `skip`: boxes that never fold (a
  * reference box, whose tag hangs below it).
  */
-export function foldRuns(s: Scene, skip: Set<number> = new Set()): { scene: Scene; groups: number[][] } {
+export function foldRuns(s: Scene, skip: Set<number> = new Set(), least = FOLD_MIN, ratio = FOLD_RATIO): { scene: Scene; groups: number[][] } {
   const byId = new Map(s.nodes.map((n) => [n.id, n]));
   const hasKids = new Set<number>();
   const hasParents = new Set<number>();
@@ -351,11 +387,15 @@ export function foldRuns(s: Scene, skip: Set<number> = new Set()): { scene: Scen
   for (const n of s.nodes) (rows.get(rowKey(n)) ?? rows.set(rowKey(n), []).get(rowKey(n))!).push(n);
   const moved = new Map<number, { dx: number; dy: number; gx: number; sub: number }>();
   const extraBelow: { y: number; d: number }[] = [];
+  // Each generation's bottom; a fold reaching past it pushes the deeper generations down (not the layout's own grids
+  // of the same generation, which stand beside it).
+  const genBottom = new Map<number, number>();
+  for (const n of s.nodes) genBottom.set(n.gen, Math.max(genBottom.get(n.gen) ?? -Infinity, n.y + n.h));
+  const newBottom = new Map(genBottom);
   const groups: number[][] = [];
   const free = (n: ChartNode) => !hasKids.has(n.id) && !skip.has(n.id);
   for (const [y, r] of rows) {
     r.sort((a, b) => a.x - b.x);
-    let extra = 0;
     let i = 0;
     // Units of a run: a leaf child alone, or with the leaf partner beside it (who has no parents here).
     const unitAt = (i: number, key: string): ChartNode[] | null => {
@@ -398,7 +438,7 @@ export function foldRuns(s: Scene, skip: Set<number> = new Set()): { scene: Scen
       }
       i = j;
       const slots = units.reduce((a, u) => a + u.length, 0);
-      if (slots < FOLD_MIN || units.length < 3) continue;
+      if (slots < least || units.length < 3) continue;
       const w = units[0][0].w;
       const h = units[0][0].h;
       const all = units.flat();
@@ -406,7 +446,7 @@ export function foldRuns(s: Scene, skip: Set<number> = new Set()): { scene: Scen
       const gaps = all.slice(1).map((n, m) => n.x - all[m].x - w);
       const sib = Math.min(...gaps);
       if (sib < 4) continue;
-      const { k } = foldShape(slots);
+      const { k } = foldShape(slots, ratio);
       const x0 = all[0].x;
       // Fill sub-row by sub-row; a couple never splits.
       const place: { u: ChartNode[]; x: number; sub: number }[] = [];
@@ -426,21 +466,22 @@ export function foldRuns(s: Scene, skip: Set<number> = new Set()): { scene: Scen
       }
       const subs = sub + 1;
       const width = (q: number) => Math.max(...place.filter((p) => p.sub === q).map((p) => p.x + p.u[p.u.length - 1].x + w - p.u[0].x));
-      // A lower sub-row reaching past the first would run under the next box's line.
-      if (subs < 2 || [...Array(subs).keys()].some((q) => width(q) > width(0) + w / 2 - 4)) continue;
+      // A lower sub-row reaching past the first would run under the next grid's line.
+      if (subs < 2 || [...Array(subs).keys()].some((q) => width(q) > width(0) + 0.5)) continue;
       const gx = x0 - sib / 2;
       for (const p of place)
         for (const n of p.u) moved.set(n.id, { dx: p.x + (n.x - p.u[0].x) - n.x, dy: p.sub * (h + FOLD_GAP), gx, sub: p.sub });
       groups.push(all.map((n) => n.id));
-      extra = Math.max(extra, sub * (h + FOLD_GAP));
+      const g = all[0].gen;
+      newBottom.set(g, Math.max(newBottom.get(g)!, y + sub * (h + FOLD_GAP) + h));
     }
-    if (extra > 0) extraBelow.push({ y: y + Math.max(...r.map((n) => n.h)), d: extra });
   }
   if (moved.size === 0) return { scene: s, groups };
+  for (const [g, b] of genBottom) if (newBottom.get(g)! > b + 0.5) extraBelow.push({ y: b, d: newBottom.get(g)! - b });
   const down = (v: number) => extraBelow.reduce((a, b) => a + (v > b.y + 0.5 ? b.d : 0), 0);
   const nodes = s.nodes.map((n) => {
     const m = moved.get(n.id);
-    return m ? { ...n, x: n.x + m.dx, y: n.y + m.dy } : { ...n, y: n.y + down(n.y) };
+    return m ? { ...n, x: n.x + m.dx, y: n.y + down(n.y) + m.dy } : { ...n, y: n.y + down(n.y) };
   });
   const at = new Map(nodes.map((n) => [n.id, n]));
   const edges: ChartEdge[] = s.edges.map((e) => {
@@ -448,11 +489,13 @@ export function foldRuns(s: Scene, skip: Set<number> = new Set()): { scene: Scen
     const kid = at.get(e.to)!;
     if (e.kind === 'parent' && m) {
       const cx = kid.x + kid.w / 2;
-      const [px, py, , bus] = e.pts;
+      const [px, py0, , bus0] = e.pts;
+      const py = py0 + down(py0);
+      const bus = bus0 + down(bus0);
       if (m.sub === 0) return { ...e, pts: [px, py, px, bus, cx, bus, cx, kid.y] };
       return { ...e, pts: [px, py, px, bus, m.gx, bus, m.gx, kid.y - FOLD_GAP / 2, cx, kid.y - FOLD_GAP / 2, cx, kid.y] };
     }
-    if (e.kind === 'partner' && m) return { ...e, pts: e.pts.map((v, i) => v + (i % 2 === 0 ? m.dx : m.dy)) };
+    if (e.kind === 'partner' && m) return { ...e, pts: e.pts.map((v, i) => v + (i % 2 === 0 ? m.dx : m.dy + down(v))) };
     return { ...e, pts: e.pts.map((v, i) => (i % 2 === 1 ? v + down(v) : v)) };
   });
   return { scene: { nodes, edges }, groups };

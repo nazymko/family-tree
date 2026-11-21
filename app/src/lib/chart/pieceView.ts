@@ -55,6 +55,13 @@ export const TAG_GAP = 2;
 /** How much wider a reference tag gets for each page more it lists (a tag of `tagW` holds one page number). */
 export const GROUP_TAG_MORE = 0.45;
 
+/** The re-lays tried for a piece: [shortest run folded (0: none), grid ratio]; the smallest wins. */
+const FOLDS: [number, number][] = [
+  [0, 3],
+  [6, 3],
+  [3, 3],
+];
+
 /** The rectangle a reference box's tag takes (see `refTagAt`), `w` x `h` world units. */
 export function tagRect(box: { x: number; y: number; w: number; h: number }, dir: ChartDirection, w: number, h: number): Rect {
   const at = refTagAt(box, dir, TAG_GAP);
@@ -144,8 +151,9 @@ export function viewsOf(piece: Piece, cut: DirScene, dirs: DirScene[], o: ViewOp
     const squeezed = compactBoth(kept, 40, occupied);
     let scene = squeezed;
     let bounds = boundsOf(squeezed);
-    for (const fold of [false, true]) {
-      const relaid = relayPiece(kept, d.direction, rel, 16, fold);
+    // Unfolded, the layout's own folds (runs of six), and shorter runs too (a piece of many small families): see FOLDS.
+    for (const [fold, ratio] of FOLDS) {
+      const relaid = relayPiece(kept, d.direction, rel, 16, fold, ratio);
       if (!relaid) continue;
       const dense = compactBoth(relaid, 40, occupied);
       const b = boundsOf(dense);
