@@ -351,13 +351,14 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "rewrite_note",
-            description: "Replaces the text of any note, including one the owner wrote or that someone changed since, but only for a rewrite the owner asked for: say so in the reason (who asked, and for what, such as a story-style rewrite). Keep every fact, name, date and doubt the note has; change the wording, not what it says. For your own notes use update_own_note. kind is optional and stays as it is when left out. Audio clips, citations and media on the note stay. The old text stays in the history and the log keeps it with the reason; the change is under your name and the owner can undo it with the batch. Saying again what the note says answers alreadyThere. A rewrite that would make anyone count as alive, or as dead other than as the rules allow, is refused: leave a note and list it in your report.",
+            description: "Replaces the text of any note, including one the owner wrote or that someone changed since, but only for a rewrite the owner asked for: say so in the reason (who asked, and for what, such as a story-style rewrite). Keep every fact, name, date and doubt the note has; change the wording, not what it says. Give story too to replace the note's readable retelling, whoever wrote it. For your own notes use update_own_note. kind is optional and stays as it is when left out. Audio clips, citations and media on the note stay. The old text stays in the history and the log keeps it with the reason; the change is under your name and the owner can undo it with the batch. Saying again what the note says answers alreadyThere. A rewrite that would make anyone count as alive, or as dead other than as the rules allow, is refused: leave a note and list it in your report.",
             schema: with_batch(
                 &["note", "text", "reason"],
                 json!({
                     "note": id("The note's id."),
                     "text": writing("The new text of the note."),
                     "kind": one_of(NOTE_KINDS),
+                    "story": writing("The new readable retelling of the note, when the owner asked for that too: all of its facts, names, dates and doubts, no references. Left out, the story stays as it is."),
                     "reason": writing("Who asked for the rewrite, and for what."),
                 }),
             ),
@@ -1543,6 +1544,7 @@ fn rewrite_note<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
         .filter(|t| !t.trim().is_empty())
         .ok_or_else(|| invalid("text must be the new text of the note.".into()))?;
     let kind: Option<NoteKindDto> = word_arg(args, "kind", "kind", NOTE_KINDS)?;
+    let story = long(args, "story")?.filter(|t| !t.trim().is_empty());
     apply(
         host,
         ctx,
@@ -1553,8 +1555,16 @@ fn rewrite_note<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
             let target = note_holder(s, id).ok_or_else(|| {
                 invalid("This note is on nothing an agent can change. Add your own instead.".into())
             })?;
-            let (write, reached) =
-                s.rewrite_note_as_agent(id, target, &text, kind, &reason, ctx, batch)?;
+            let (write, reached) = s.rewrite_note_as_agent(
+                id,
+                target,
+                &text,
+                kind,
+                story.as_deref(),
+                &reason,
+                ctx,
+                batch,
+            )?;
             Ok((write, reached, None))
         },
         |_, _| Some(id),

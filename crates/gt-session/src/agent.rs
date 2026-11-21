@@ -1558,6 +1558,8 @@ impl Session {
     /// alive or dead only as step 6 lets it. The old text stays in the log (the row's `before`). The change set's label
     /// carries the reason ("Rewrite note: <reason>"), as the change log has no other place for it.
     /// Audio clips, citations and media link to the note by its id and are not touched.
+    /// `story`, when given, replaces the note's readable retelling in the same change (the owner asked
+    /// for the rewrite, so the story may be anyone's); left out, the story stays as it is.
     /// Saying what the note already says is `AlreadyThere`.
     #[allow(clippy::too_many_arguments)]
     pub fn rewrite_note_as_agent(
@@ -1566,6 +1568,7 @@ impl Session {
         target: OwnerRef,
         text: &str,
         kind: Option<crate::dto::NoteKindDto>,
+        story: Option<&str>,
         reason: &str,
         ctx: &AgentCtx,
         batch: Uuid,
@@ -1603,7 +1606,7 @@ impl Session {
         let cmd = EditCommand::SaveNote {
             target,
             note: crate::command::NoteInput {
-                story: None,
+                story: story.map(str::to_string),
                 id: Some(note),
                 kind,
                 text: text.to_string(),

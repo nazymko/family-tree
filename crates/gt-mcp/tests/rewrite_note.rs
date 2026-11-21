@@ -70,6 +70,63 @@ fn refused(host: &TestHost, args: Value) -> String {
     call_err(host, "rewrite_note", args)
 }
 
+fn story_of(host: &TestHost, note: Uuid) -> Option<String> {
+    with(host, |s| s.tree().notes[&note].story.clone())
+}
+
+/// The owner's note with a story of its own, which set_note_story may not replace.
+fn owner_note_with_story(host: &TestHost) -> Uuid {
+    with(host, |s| {
+        let person = add_person(s, draft("Ivan", "Koval", None, Some("1890")));
+        s.apply(EditCommand::SaveNote {
+            target: gt_session::OwnerRef {
+                kind: gt_session::OwnerKind::Person,
+                id: person,
+            },
+            note: gt_session::NoteInput {
+                story: Some("Two people for now.".into()),
+                id: None,
+                kind: gt_session::NoteKindDto::Research,
+                text: "Two records, maybe one man.".into(),
+            },
+        })
+        .unwrap();
+        s.get_person(person).unwrap().notes[0].id
+    })
+}
+
+#[test]
+fn rewrite_with_a_story_replaces_the_owners_story_too() {
+    let host = empty_host();
+    let note = owner_note_with_story(&host);
+    let batch = begin(&host);
+    let err = call_err(
+        &host,
+        "set_note_story",
+        json!({"batch": batch, "note": note, "story": "One man."}),
+    );
+    assert!(!err.is_empty());
+    call(
+        &host,
+        "rewrite_note",
+        json!({"batch": batch, "note": note, "text": "One man, joined by the owner.", "story": "One man.", "reason": REASON}),
+    );
+    assert_eq!(text_of(&host, note), "One man, joined by the owner.");
+    assert_eq!(story_of(&host, note).as_deref(), Some("One man."));
+}
+
+#[test]
+fn rewrite_without_a_story_keeps_the_story() {
+    let host = empty_host();
+    let note = owner_note_with_story(&host);
+    let batch = begin(&host);
+    rewrite(&host, &batch, note, "Two records, maybe one man, reworded.");
+    assert_eq!(
+        story_of(&host, note).as_deref(),
+        Some("Two people for now.")
+    );
+}
+
 #[test]
 fn rewrites_an_owners_note_and_keeps_the_kind() {
     let host = empty_host();
