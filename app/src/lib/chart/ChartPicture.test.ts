@@ -4,15 +4,16 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/sve
 import { makeFakeContext } from '../../test-setup';
 import { MockApi } from '../api/mock/MockApi';
 import { MockPlatform } from '../api/mock/MockPlatform';
-import type { ChartEdge, ChartKind, ChartNode } from '../api/types';
+import type { ChartEdge, ChartKind, ChartNode, ChartRequest } from '../api/types';
 import { setLanguage } from '../i18n';
 import type { PrintLayout } from './sheets';
 import { bigAround, capturePrints, servePrintCharts } from './testing/syntheticAround';
 import { draw, type Theme } from './renderer';
 import { SvgContext } from './svgContext';
 import { sceneBounds, type Scene } from './picture';
-import { screenFrames, splitSheets } from './sheets';
-import { layoutA3 } from './a3';
+import { nodeKeys, screenFrames } from './sheets';
+import { planSheets } from './sheetPlan';
+import { loadFam } from './testing/famScenes';
 import { notices } from '../ui/notices.svelte';
 import ChartCanvas from './ChartCanvas.svelte';
 import WholeCanvas from './WholeCanvas.svelte';
@@ -462,15 +463,32 @@ describe('picture menu on a chart', () => {
 });
 
 describe('A3 print layouts on the around chart', () => {
-  async function renderAround(layout: PrintLayout, synthetic: boolean) {
+  /** fam-b (synthetic, 369 people) as each direction's print chart lays it out; the surname is the person's key, so names are unique. */
+  function famChart(d: ChartDirection): ReturnType<typeof bigAround> {
+    const { scene, root } = loadFam('fam-b', d);
+    const nodes = scene.nodes.map((n) => {
+      // The key as the surname: short enough to stay one word on the card.
+      const name = `${n.person!.name.split(' ')[0]} K${n.person!.id.slice(1)}`;
+      return { ...n, person: { ...n.person!, name }, label: name };
+    });
+    return { nodes, edges: scene.edges, root };
+  }
+  const famCharts = new Map<ChartDirection, ReturnType<typeof bigAround>>();
+  const famFor = (req: ChartRequest) => {
+    const d = req.direction ?? 'top';
+    if (!famCharts.has(d)) famCharts.set(d, famChart(d));
+    return famCharts.get(d)!;
+  };
+
+  async function renderAround(layout: PrintLayout) {
     const raf = fakeRaf();
     const { api, fx } = makeApi();
     const root = await richestRoot(api, fx, 'around');
     const openSpy = vi.spyOn(api, 'chartOpen');
     const saveSpy = vi.spyOn(api, 'savePicture');
     const platform = new MockPlatform();
-    // Print charts get the synthetic chart; the chart on screen stays the mock's.
-    if (synthetic) servePrintCharts(api, openSpy, bigAround());
+    // Print charts get the synthetic chart in the direction asked for; the chart on screen stays the mock's.
+    servePrintCharts(api, openSpy, famFor);
     render(Host, { props: { api, view: ChartCanvas, props: { kind: 'around', root, generations: 6, printLayout: layout, onRecentre: vi.fn(), onOpenPerson: vi.fn() }, platform } });
     const canvas = screen.getByRole('application') as HTMLCanvasElement;
     attachContext(canvas);
@@ -486,52 +504,89 @@ describe('A3 print layouts on the around chart', () => {
     html
       .split('<div class="sheet')
       .slice(1)
-      .map((b) => [...b.matchAll(/>([^<]+)<\/text>/g)].map((m) => m[1]).join(' | '));
+      .map((b) => [...b.matchAll(/>([^<]+)<\/text>/g)].map((m) => m[1]));
 
-  it('sheets_print_as_one_document_with_a_page_per_sheet', async () => {
+  /** Prints the sheets in Ukrainian and gives the printed document and the print charts asked for. */
+  async function printSheets() {
     stubOffscreen();
     const printed = capturePrints();
-    const s = await renderAround('sheets', true);
+    const s = await renderAround('sheets');
     await rightClick(s.canvas);
     const item = within(menu()).getByRole('menuitem', { name: /^Print on A3/ });
     // The sheets are titled in the language of the moment of printing.
     setLanguage('uk');
     await fireEvent.click(item);
     await waitFor(() => expect(printed).toHaveLength(1), A3_WAIT);
-    // The print chart was folded, as for "compact".
+    return { s, html: printed[0] };
+  }
+
+  it('sheets_print_pages_from_plan', async () => {
+    const { s, html } = await printSheets();
+    // The print charts were folded, as for "compact".
     expect(s.openSpy.mock.calls.filter((c) => c[0].print).every((c) => c[0].fold === true)).toBe(true);
-    const html = printed[0];
     const texts = pages(html);
     const m = texts.length;
-    // The cover and one sheet per grandparent line.
-    expect(m).toBe(5);
+    expect(m).toBeGreaterThan(1);
     // One picture per page (each SVG nests its chart area in an inner one).
     expect(html.match(/<svg xmlns=/g)).toHaveLength(m);
     expect(html.match(/break-after:page/g)).toHaveLength(m - 1);
-    expect(texts[0]).not.toContain('Гілка:');
-    texts.slice(1).forEach((text, i) => {
-      expect(text).toContain(`аркуш ${i + 2} з ${m}`);
-      expect(text).toContain('→ арк. 1');
-    });
-    expect(texts.slice(1).map((t) => /Гілка: (\S+)/.exec(t)?.[1])).toEqual(['Bondar', 'Hrytsenko', 'Melnyk', 'Tkach']);
-  }, 30000);
+    texts.forEach((text, i) => expect(text.join(' | ')).toContain(`аркуш ${i + 1} з ${m}`));
+    const all = texts.flat();
+    // The packed pieces carry «Гілка: <surname> (<given name>)»; the cover has none.
+    expect(all.some((x) => /^Гілка: \S+ \(\S+\)$/.test(x))).toBe(true);
+    const refs = all.filter((x) => x.startsWith('→ арк. ')).map((x) => Number(x.slice('→ арк. '.length)));
+    expect(refs.length).toBeGreaterThan(0);
+    for (const n of refs) expect(n >= 1 && n <= m, `→ арк. ${n}`).toBe(true);
+  }, 60000);
 
-  it('sheets_save_one_file_per_sheet_after_one_question', async () => {
+  it('page_draws_every_piece', async () => {
+    const { html } = await printSheets();
+    const texts = pages(html);
+    const shared = texts.filter((t) => t.filter((x) => x.startsWith('Гілка: ')).length >= 2);
+    expect(shared.length).toBeGreaterThan(0);
+    for (const text of shared) {
+      // Each piece's top person (the caption names them) is drawn on the page: a later piece does not wipe an earlier one.
+      for (const cap of text.filter((x) => x.startsWith('Гілка: '))) {
+        const surname = /^Гілка: (\S+)/.exec(cap)![1];
+        expect(text.some((x) => !x.startsWith('Гілка: ') && x.split(' ').includes(surname)), surname).toBe(true);
+      }
+    }
+  }, 60000);
+
+  it('sheets_ignore_direction_setting', async () => {
+    expect(a3Direction.value).toBe('screen');
     stubOffscreen();
-    const s = await renderAround('sheets', true);
+    const printed = capturePrints();
+    const s = await renderAround('sheets');
+    // The frames on screen plan first (four print charts); then the print alone is counted.
+    await waitFor(() => expect(s.openSpy.mock.calls.filter((c) => c[0].print)).toHaveLength(4), A3_WAIT);
+    await new Promise((r) => setTimeout(r, 50));
+    s.openSpy.mockClear();
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Print on A3/ }));
+    await waitFor(() => expect(printed).toHaveLength(1), A3_WAIT);
+    expect(s.openSpy.mock.calls.filter((c) => c[0].print).map((c) => c[0].direction)).toEqual(['top', 'bottom', 'left', 'right']);
+  }, 60000);
+
+  it('sheets_save_into_new_folder', async () => {
+    stubOffscreen();
+    const s = await renderAround('sheets');
     s.platform.next.save = 'C:/Mock/Around.svg';
+    const folderSpy = vi.spyOn(s.api, 'makePictureFolder');
     await rightClick(s.canvas);
     await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
-    await waitFor(() => expect(s.saveSpy.mock.calls.length).toBe(5), A3_WAIT);
+    await waitFor(() => expect(s.platform.calls.filter((c) => c.method === 'reveal')).toHaveLength(1), A3_WAIT);
+    const m = s.saveSpy.mock.calls.length;
+    expect(m).toBeGreaterThan(1);
     expect(s.platform.calls.filter((c) => c.method === 'pickSavePath')).toHaveLength(1);
-    // Every sheet in a new folder named after the chosen file; the folder is shown once all are written.
-    expect(s.saveSpy.mock.calls.map((c) => c[0])).toEqual([1, 2, 3, 4, 5].map((n) => `C:/Mock/Around — sheets/Around — sheet ${n}.svg`));
-    await waitFor(() => expect(s.platform.calls.filter((c) => c.method === 'reveal').map((c) => c.args[0])).toEqual(['C:/Mock/Around — sheets/Around — sheet 1.svg']));
+    expect(folderSpy).toHaveBeenCalledTimes(1);
+    // Every page in a new folder named after the chosen file; the folder is shown once all are written.
+    expect(s.saveSpy.mock.calls.map((c) => c[0])).toEqual(Array.from({ length: m }, (_, i) => `C:/Mock/Around — sheets/Around — sheet ${i + 1}.svg`));
+    expect(s.platform.calls.filter((c) => c.method === 'reveal').map((c) => c.args[0])).toEqual(['C:/Mock/Around — sheets/Around — sheet 1.svg']);
     const second = new TextDecoder().decode(s.saveSpy.mock.calls[1][1]);
-    expect(second).toContain('Branch: Bondar');
-    expect(second).toContain('Sheet 2 of 5');
-    expect(second).toContain('→ sheet 1');
-  }, 30000);
+    expect(second).toContain(`Sheet 2 of ${m}`);
+    expect(second).toMatch(/Branch: \S+/);
+  }, 60000);
 });
 
 describe('picture menu on the whole tree', () => {
@@ -686,10 +741,14 @@ describe.skipIf(!process.env.SHOTS_DIR)('print layout screenshots', () => {
     expect(sceneBounds(asScene(compact)).w).toBeLessThan(sceneBounds(asScene(today)).w * 0.9);
     shot(asScene(today), [], 'screen-today.svg', today.root);
     shot(asScene(compact), [], 'screen-compact.svg', compact.root);
-    // The frames: the print chart cut as the print cuts it, framed around the same people on screen.
-    const sheets = splitSheets(asScene(print), [print.root], { fits: (sc) => !layoutA3(sceneBounds(sc), 'auto', true).tooSmall });
-    expect(sheets.length).toBeGreaterThan(1);
-    const frames = screenFrames(asScene(print), sheets, asScene(compact));
+    // The frames: the print chart planned as the print plans it (one layout serving every direction here), framed
+    // around the same people on screen.
+    const ps = asScene(print);
+    const keys = nodeKeys(ps);
+    const dirs = (['top', 'bottom', 'left', 'right'] as const).map((direction) => ({ direction, scene: ps, keys }));
+    const plan = planSheets(dirs, { choice: 'auto', header: true, screenDir: 'top', centres: [keys.get(print.root)!], capW: () => 200, tagW: 60, tagH: 14 });
+    expect(plan.pages.length).toBeGreaterThan(1);
+    const frames = screenFrames(plan, (id) => keys.get(id), asScene(compact));
     shot(asScene(compact), frames, 'screen-sheets.svg', compact.root);
     // A readable part: 2,400 px of the chart from just left of the second line sheet's frame (its label in view) on.
     const [, b] = [...frames].sort((p, q) => p.x - q.x);

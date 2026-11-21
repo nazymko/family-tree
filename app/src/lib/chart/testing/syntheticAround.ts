@@ -87,10 +87,16 @@ export function asPrintChart(big: ReturnType<typeof bigAround>): ReturnType<type
 }
 
 /**
- * Serves `big` to every print chart the picture code opens (`req.print`); the chart on screen stays the mock's, or is
- * `screen` when given. `openSpy` is the spy already on `api.chartOpen`.
+ * Serves `big` to every print chart the picture code opens (`req.print`), or what `big(req)` gives (a chart per
+ * direction); the chart on screen stays the mock's, or is `screen` when given. `openSpy` is the spy already on
+ * `api.chartOpen`.
  */
-export function servePrintCharts(api: MockApi, openSpy: MockInstance<MockApi['chartOpen']>, big: ReturnType<typeof bigAround>, screen?: ReturnType<typeof bigAround>): void {
+export function servePrintCharts(
+  api: MockApi,
+  openSpy: MockInstance<MockApi['chartOpen']>,
+  big: ReturnType<typeof bigAround> | ((req: ChartRequest) => ReturnType<typeof bigAround>),
+  screen?: ReturnType<typeof bigAround>,
+): void {
   const ids = new Map<number, ReturnType<typeof bigAround>>();
   let next = 9000;
   const realOpen = MockApi.prototype.chartOpen;
@@ -100,7 +106,7 @@ export function servePrintCharts(api: MockApi, openSpy: MockInstance<MockApi['ch
     return { chartId, kind: 'around', bounds: { w, h }, nodeCount: c.nodes.length, personCount: c.nodes.length, rootNode: c.root, truncated: false, version: 0 };
   };
   openSpy.mockImplementation(async (req: ChartRequest): Promise<ChartMeta> => {
-    const chart = req.print ? big : screen;
+    const chart = req.print ? (typeof big === 'function' ? big(req) : big) : screen;
     if (!chart) return realOpen.call(api, req);
     const chartId = next++;
     ids.set(chartId, chart);

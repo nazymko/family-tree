@@ -1,11 +1,12 @@
-import { layoutA3 } from './a3';
 import type { ChartNode } from '../api/types';
-import { compactX, sceneBounds, type Scene } from './picture';
+import type { Scene } from './picture';
 import { descendantsSide, type ChartDirection } from './direction';
+import type { SheetPlan } from './sheetPlan';
 
 /**
- * Cutting a "built around" chart into A3 sheets by branch (spec 2026-11-21 "around print layouts", section B and
- * decisions 2-4). One scene, laid out once, is cut into sub-scenes the way the "branch" picture scope cuts one.
+ * Cutting a "built around" chart into pieces for the packed A3 sheets (spec 2026-11-21 "around print layouts", amendment
+ * 21.11.2026 "packed sheets"). One scene, laid out in the screen's direction, is cut; `pieceView.ts` takes each piece out
+ * of the four direction layouts and `pack.ts` packs them onto pages.
  *
  * Shapes of the scene this relies on (from `gt-layout`): a `parent` edge runs from the parent to the child, and a
  * couple's child gets one edge from each parent, the father's first; `partner` and `sibling` edges join people of one
@@ -13,57 +14,14 @@ import { descendantsSide, type ChartDirection } from './direction';
  * which the repeated box names in `dupOf`. Generations are negative above the centred people.
  */
 
-/** One printed sheet. */
-export interface Sheet {
-  /** 1-based; 1 is the cover. */
-  no: number;
-  /** Lineage node the sheet is cut at (its box is the reference mark at the foot of the sheet); null for the cover. */
-  top: number | null;
-  /** Nodes shown in full. */
-  ids: Set<number>;
-  /** Node id -> sheet number, never this sheet's own: drawn as a reference mark ("-> sheet N") on this sheet. */
-  refs: Map<number, number>;
-  /**
-   * The sub-scene: the `ids` and `refs` nodes, repeated boxes (`dupOf`) whose first occurrence is on this sheet (in
-   * neither set: drawn as ordinary repeats), and the edges between them, compacted with `compactX`.
-   */
-  scene: Scene;
-}
-
-export interface SplitOptions {
-  /** A line sheet with fewer people in full is not made; its people stay on the sheet below. */
-  minPeople?: number;
-  /** Whether a sub-scene prints readably on one sheet. */
-  fits?: (s: Scene) => boolean;
-}
-
-/** A line sheet needs at least this many people in full (decision 4). */
-export const SHEET_MIN_PEOPLE = 8;
-
-/** True when the scene prints on A3 with names of at least `A3_MIN_PT`. */
-export function fitsA3(s: Scene): boolean {
-  return !layoutA3(sceneBounds(s), 'auto', true).tooSmall;
-}
-
-interface Draft {
-  top: number;
-  nodes: Set<number>;
-  kids: Draft[];
-}
-
 /** The shape of a "built around" scene the sheets are cut along (see `hangOf`). */
 interface Hang {
   byId: Map<number, ChartNode>;
   isDup: (id: number) => boolean;
-  parents: (id: number) => number[];
-  childrenOf: Map<number, number[]>;
-  /** Centres and everything up their parent edges, depth-first, father's side first. */
-  lineage: number[];
+  /** Lineage node -> its place in the lineage: the centres and everything up their parent edges, depth-first, father's side first. */
   rank: Map<number, number>;
   /** Generation distance of a lineage node from the nearest centre. */
   dist: (id: number) => number;
-  /** Lineage node -> the nodes hanging from it (itself included). */
-  region: Map<number, number[]>;
   /** Node -> the node it hangs from (null for a centre and a node reached from nowhere). */
   up: Map<number, number | null>;
 }
@@ -189,156 +147,7 @@ function hangOf(scene: Scene, centres: number[]): Hang | null {
     frontier = [...best.keys()];
   }
   for (const n of scene.nodes) if (!up.has(n.id)) up.set(n.id, null);
-  const region = new Map<number, number[]>();
-  for (const n of scene.nodes) {
-    const o = owner.get(n.id);
-    if (o !== undefined) push(region, o, n.id);
-  }
-  return { byId, isDup, parents, childrenOf, lineage, rank, dist, region, up };
-}
-
-/**
- * Cuts `scene` into sheets around `centres` (the root and any chosen people, not necessarily in one row). The cover
- * holds each centred person, their parents and grandparents and everything hanging from those, and the centred
- * people's descendants; each grandparent with ancestors gets a sheet of their ancestors and everything hanging from
- * them, split again one generation further up while it does not `fits` (a split sheet left with fewer than
- * `minPeople` people merges into the sheet below when that still fits). Numbered cover first, then depth-first, father's side first.
- */
-export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions = {}): Sheet[] {
-  const minPeople = opts.minPeople ?? SHEET_MIN_PEOPLE;
-  const fits = opts.fits ?? fitsA3;
-  const h = hangOf(scene, centres);
-  if (!h) return [];
-  const { byId, isDup, parents, childrenOf, lineage, dist, region } = h;
-
-  /** The ancestors of `t` (not `t`), along parent edges only, nearest first. */
-  const above = (t: number): number[] => {
-    const seen = new Set<number>([t]);
-    for (const id of seen) for (const p of parents(id)) seen.add(p);
-    seen.delete(t);
-    return [...seen];
-  };
-
-  const sub = (keep: Set<number>): Scene =>
-    compactX({
-      nodes: scene.nodes.filter((n) => keep.has(n.id)),
-      edges: scene.edges.filter((e) => keep.has(e.from) && keep.has(e.to)),
-    });
-
-  // The cover.
-  const cover = new Set<number>();
-  for (const l of lineage) if (dist(l) <= 2) for (const v of region.get(l) ?? []) cover.add(v);
-  const down = centres.filter((id) => byId.has(id));
-  for (let i = 0; i < down.length; i++) {
-    for (const c of childrenOf.get(down[i]) ?? []) {
-      if (!cover.has(c)) {
-        cover.add(c);
-        down.push(c);
-      }
-    }
-  }
-  const pool = new Set(scene.nodes.map((n) => n.id).filter((id) => !cover.has(id)));
-
-  const collect = (d: Draft, out = new Set<number>()): Set<number> => {
-    for (const v of d.nodes) out.add(v);
-    for (const k of d.kids) collect(k, out);
-    return out;
-  };
-  const fullCount = (nodes: Iterable<number>): number => {
-    let full = 0;
-    for (const v of nodes) if (!isDup(v)) full++;
-    return full;
-  };
-  /**
-   * Adds the split-off sheet `k` to `kids`, the sheets cut from the sheet below (`below`, cut at `belowTop`; the cover
-   * when null). A sheet that was split further up and kept fewer than `minPeople` people in full merges into the sheet
-   * below, which then also holds its split-off sheets, when the merged sheet still fits; otherwise it stays a sheet.
-   */
-  const place = (below: Set<number>, belowTop: number | null, k: Draft, kids: Draft[]): void => {
-    if (k.kids.length && fullCount(k.nodes) < minPeople) {
-      const merged = new Set([...below, ...k.nodes]);
-      if (belowTop !== null) merged.add(belowTop);
-      if (fits(sub(merged))) {
-        for (const v of k.nodes) below.add(v);
-        kids.push(...k.kids);
-        return;
-      }
-    }
-    kids.push(k);
-  };
-  /** Everyone of `pool` hanging from the ancestors of `t`. */
-  const candidate = (t: number, from: Set<number>): Set<number> => {
-    const nodes = new Set<number>();
-    for (const a of above(t)) for (const v of region.get(a) ?? []) if (from.has(v)) nodes.add(v);
-    return nodes;
-  };
-  /** The sheet cut at `t` from the people of `from`, split further up while it does not fit; null when too small. */
-  const build = (t: number, from: Set<number>): Draft | null => {
-    const nodes = candidate(t, from);
-    if (fullCount(nodes) < minPeople) return null;
-    const d: Draft = { top: t, nodes, kids: [] };
-    if (!fits(sub(new Set([...nodes, t])))) {
-      const cut: Draft[] = [];
-      for (const p of parents(t)) {
-        if (!nodes.has(p)) continue;
-        const k = build(p, nodes);
-        if (!k) continue;
-        for (const v of collect(k)) nodes.delete(v);
-        cut.push(k);
-      }
-      // Merging is decided once every split-off sheet has left this one.
-      for (const k of cut) place(nodes, t, k, d.kids);
-    }
-    return d;
-  };
-
-  // A line sheet for every grandparent of a centre (generation distance 2) with ancestors beyond the cover.
-  const cut: Draft[] = [];
-  for (const g of lineage) {
-    if (dist(g) !== 2 || !parents(g).some((p) => dist(p) > 2)) continue;
-    const d = build(g, pool);
-    if (d) {
-      for (const v of collect(d)) pool.delete(v);
-      cut.push(d);
-    } else {
-      for (const v of candidate(g, pool)) {
-        cover.add(v);
-        pool.delete(v);
-      }
-    }
-  }
-  // Anyone not reached from the lineage stays on the cover.
-  for (const v of pool) cover.add(v);
-  const lines: Draft[] = [];
-  for (const d of cut) place(cover, null, d, lines);
-
-  // Number the sheets: cover, then depth-first, father's side first.
-  const parts: { top: number | null; nodes: Set<number> }[] = [{ top: null, nodes: cover }];
-  const walk = (d: Draft) => {
-    parts.push({ top: d.top, nodes: d.nodes });
-    d.kids.forEach(walk);
-  };
-  lines.forEach(walk);
-  const holder = new Map<number, number>();
-  parts.forEach((p, i) => {
-    for (const v of p.nodes) if (!isDup(v)) holder.set(v, i + 1);
-  });
-
-  return parts.map((p, i) => {
-    const no = i + 1;
-    const ids = new Set<number>();
-    const refs = new Map<number, number>();
-    // A repeated box whose first occurrence is on this same sheet: drawn as the chart draws it, not as a mark.
-    const plain = new Set<number>();
-    if (p.top !== null) refs.set(p.top, holder.get(p.top) ?? 1);
-    for (const n of scene.nodes) {
-      if (!p.nodes.has(n.id)) continue;
-      if (!isDup(n.id)) ids.add(n.id);
-      else if ((holder.get(n.dupOf!) ?? no) === no) plain.add(n.id);
-      else refs.set(n.id, holder.get(n.dupOf!)!);
-    }
-    return { no, top: p.top, ids, refs, scene: sub(new Set([...ids, ...refs.keys(), ...plain])) };
-  });
+  return { byId, isDup, rank, dist, up };
 }
 
 // ------------------------------------------------------------ packed sheets: pieces
@@ -590,51 +399,40 @@ export function refTagAt(box: { x: number; y: number; w: number; h: number }, di
 export type PrintLayout = 'today' | 'compact' | 'sheets';
 
 /**
- * The frames of the printed sheets on the chart on screen. `sheets` are cut from the print chart `print`, which has its
- * own node ids and coordinates (compact cards, stretched, maybe turned to the best-fit direction), so each sheet is framed
- * around the screen nodes of the same people in `screen` (matched by person id) and keeps its printed number. Only the
- * line sheets get a frame: the cover (sheet 1) holds the middle of the chart, so its bounds would span the whole chart and
- * cross every other frame; it is what lies outside the frames. One sheet: no frames.
+ * The frames of a packed set on the chart on screen: one per piece (the cover included), around the screen boxes of the
+ * people the piece holds in full, labelled with the page it prints on. The plan is cut from print charts with their own
+ * node ids and coordinates, so people are matched by node key: `keysOf` gives the key of a piece's box in its direction's
+ * print chart. Frames may overlap. A set of one page has no frames.
  */
-export function screenFrames(print: Scene, sheets: readonly Sheet[], screen: Scene): { no: number; x: number; y: number; w: number; h: number }[] {
-  if (sheets.length <= 1) return [];
-  const personOf = new Map(print.nodes.map((n) => [n.id, n.person?.id ?? null]));
+export function screenFrames(
+  plan: SheetPlan,
+  keysOf: (pieceNodeId: number, dir: ChartDirection) => NodeKey | undefined,
+  screen: Scene,
+): { no: number; x: number; y: number; w: number; h: number }[] {
+  if (plan.pages.length <= 1) return [];
+  const screenKeys = nodeKeys(screen);
   const out: { no: number; x: number; y: number; w: number; h: number }[] = [];
-  for (const sh of sheets) {
-    if (sh.top === null) continue;
-    const people = new Set<string>();
-    for (const id of sh.ids) {
-      const p = personOf.get(id);
-      if (p) people.add(p);
+  for (const pg of plan.pages) {
+    for (const pc of pg.pieces) {
+      const full = new Set<NodeKey>();
+      for (const n of pc.view.scene.nodes) {
+        if (n.dupOf !== null || pc.view.refs.has(n.id)) continue;
+        const k = keysOf(n.id, pc.view.direction);
+        if (k !== undefined) full.add(k);
+      }
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let x1 = -Infinity;
+      let y1 = -Infinity;
+      for (const n of screen.nodes) {
+        if (n.dupOf !== null || !full.has(screenKeys.get(n.id)!)) continue;
+        x0 = Math.min(x0, n.x);
+        y0 = Math.min(y0, n.y);
+        x1 = Math.max(x1, n.x + n.w);
+        y1 = Math.max(y1, n.y + n.h);
+      }
+      if (x0 <= x1) out.push({ no: pg.no, x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
     }
-    let x0 = Infinity;
-    let y0 = Infinity;
-    let x1 = -Infinity;
-    let y1 = -Infinity;
-    for (const n of screen.nodes) {
-      if (n.dupOf !== null || !n.person || !people.has(n.person.id)) continue;
-      x0 = Math.min(x0, n.x);
-      y0 = Math.min(y0, n.y);
-      x1 = Math.max(x1, n.x + n.w);
-      y1 = Math.max(y1, n.y + n.h);
-    }
-    if (x0 <= x1) out.push({ no: sh.no, x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
   }
   return out;
-}
-
-/**
- * The names of the line sheets, told apart: a surname that two or more sheets share gets the top person's given name
- * («Bondar, Taras»), and a name still shared gets « (2)», « (3)» in sheet order (the first keeps it plain).
- */
-export function branchNames(tops: readonly { surname: string; given: string }[]): string[] {
-  const count = (list: string[], x: string) => list.filter((y) => y === x).length;
-  const surnames = tops.map((t) => t.surname);
-  const named = tops.map((t) => (count(surnames, t.surname) > 1 && t.given ? `${t.surname}, ${t.given}` : t.surname));
-  const seen = new Map<string, number>();
-  return named.map((n) => {
-    const k = (seen.get(n) ?? 0) + 1;
-    seen.set(n, k);
-    return k === 1 ? n : `${n} (${k})`;
-  });
 }

@@ -37,6 +37,22 @@ describe('renderer', () => {
 
   const win: ChartWindow = { nodes: [node(0), node(1), node(2)], edges: [] };
 
+  it('keep_does_not_clear', () => {
+    const a: ChartWindow = { nodes: [node(0), node(1)], edges: [edge(0)] };
+    const b: ChartWindow = { nodes: [node(5, { person: { ...node(5).person!, name: 'Other 5' } })], edges: [] };
+    // Without `keep`, a draw starts by clearing the page, as before.
+    const plain = makeFakeContext();
+    draw(plain, a, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });
+    expect(ops(plain, 'clearRect')).toHaveLength(1);
+    const ctx = makeFakeContext();
+    draw(ctx, a, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });
+    draw(ctx, b, { x: 500, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme, lod: 'full', keep: true });
+    expect(ops(ctx, 'clearRect')).toHaveLength(1);
+    expect(ctx.calls.slice(0, plain.calls.length)).toEqual(plain.calls);
+    const names = ops(ctx, 'fillText').map((c) => String(c.args[0]));
+    expect(names).toEqual(expect.arrayContaining(['Person 0', 'Person 1', 'Other 5']));
+  });
+
   it('draws_a_dashed_frame_and_a_label_per_sheet_under_the_cards_and_nothing_without_them', () => {
     const base = makeFakeContext();
     draw(base, win, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });

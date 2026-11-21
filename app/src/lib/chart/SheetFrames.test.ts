@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { layoutA3 } from './a3';
-import { sceneBounds, type Scene } from './picture';
-import { splitSheets } from './sheets';
 import LayoutHost from './testing/LayoutHost.svelte';
 import { asPrintChart, bigAround, servePrintCharts } from './testing/syntheticAround';
 import { attachContext, fakeRaf, makeApi, richestRoot } from './testing/helpers';
@@ -25,8 +22,7 @@ async function setup() {
   const root = await richestRoot(api, fx, 'around');
   const openSpy = vi.spyOn(api, 'chartOpen');
   const big = bigAround();
-  const print = asPrintChart(big);
-  servePrintCharts(api, openSpy, print, big);
+  servePrintCharts(api, openSpy, asPrintChart(big), big);
   render(LayoutHost, { props: { api, root, kind: 'around', person: root } });
   const canvas = screen.getByRole('application') as HTMLCanvasElement;
   const ctx = attachContext(canvas);
@@ -44,11 +40,11 @@ async function setup() {
   };
   /** How many frames were drawn. */
   const draws = () => ctx.calls.filter((c) => c.op === 'clearRect').length;
-  return { openSpy, print, prints, labels, draws };
+  return { openSpy, prints, labels, draws };
 }
 
 describe('sheet frames on the around chart', () => {
-  it('appear_only_under_sheets_numbered_as_the_print_and_go_when_the_layout_changes', async () => {
+  it('one_frame_per_piece_with_its_page', async () => {
     const s = await setup();
     // As today: no frames, and no print chart laid out for them.
     await new Promise((r) => setTimeout(r, 400));
@@ -57,12 +53,15 @@ describe('sheet frames on the around chart', () => {
 
     await fireEvent.click(screen.getByRole('radio', { name: 'Sheets by branch' }));
     await waitFor(() => expect(s.labels().length).toBeGreaterThan(0), WAIT);
-    // The numbers are the printed ones: the print chart cut as a print cuts it ("Print on A3": orientation picked
-    // itself, title block on), the cover left unframed.
-    const printScene: Scene = { nodes: s.print.nodes, edges: s.print.edges };
-    const sheets = splitSheets(printScene, [s.print.root], { fits: (sc) => !layoutA3(sceneBounds(sc), 'auto', true).tooSmall });
-    expect(sheets.length).toBeGreaterThan(1);
-    expect(s.labels()).toEqual(sheets.filter((sh) => sh.top !== null).map((sh) => `sheet ${sh.no}`));
+    // One frame per packed piece, the cover included, each labelled with the page it prints on: the pages are numbered
+    // from 1 with none skipped, and page 1 (the cover's) is framed.
+    const nos = s.labels().map((l) => Number(l.slice('sheet '.length)));
+    const pagesSeen = [...new Set(nos)].sort((a, b) => a - b);
+    expect(pagesSeen.length).toBeGreaterThan(1);
+    expect(pagesSeen).toEqual(Array.from({ length: pagesSeen.length }, (_, i) => i + 1));
+    expect(nos[0]).toBe(1);
+    // The print planned every direction, whatever the A3 direction setting.
+    expect(s.openSpy.mock.calls.filter((c) => c[0].print).map((c) => c[0].direction)).toEqual(['top', 'bottom', 'left', 'right']);
 
     const before = s.draws();
     await fireEvent.click(screen.getByRole('radio', { name: 'Compact' }));
