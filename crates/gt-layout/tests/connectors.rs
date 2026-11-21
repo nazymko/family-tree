@@ -112,7 +112,7 @@ fn modes(s: &MapSource, chosen: &[Key]) -> Vec<(String, Layout)> {
     ] {
         v.push((
             name.to_string(),
-            around_many_kin(s, chosen, 255, kin, &m, 10_000),
+            around_many_kin(s, chosen, 255, kin, false, &m, 10_000),
         ));
     }
     v
@@ -141,7 +141,7 @@ fn defect_1_great_grandparents_of_two_families_do_not_share_a_bus() {
         ("all", around_all_kin(&fixture(), F, 255, &m, 10_000)),
         (
             "many-all",
-            around_many_kin(&fixture(), &[F, H], 255, ManyKin::All, &m, 10_000),
+            around_many_kin(&fixture(), &[F, H], 255, ManyKin::All, false, &m, 10_000),
         ),
     ] {
         let a = bus(&l, &[GM1, GU]);
@@ -177,7 +177,7 @@ fn defect_3_the_mothers_line_is_not_the_line_from_the_couple_to_the_daughters() 
     let m = Metrics::default();
     for l in [
         around_all_kin(&fixture(), F, 255, &m, 10_000),
-        around_many_kin(&fixture(), &[F, H], 255, ManyKin::All, &m, 10_000),
+        around_many_kin(&fixture(), &[F, H], 255, ManyKin::All, false, &m, 10_000),
         around_with_siblings(&fixture(), F, 255, &m, 10_000),
     ] {
         let trunk = into(&l, &[D1, D2])[0].pts[0];
@@ -215,7 +215,7 @@ fn defect_5_the_partner_connector_is_long_and_the_children_hang_from_its_middle(
         ("all", around_all_kin(&fixture(), F, 255, &m, 10_000)),
         (
             "many-all",
-            around_many_kin(&fixture(), &[F, H], 255, ManyKin::All, &m, 10_000),
+            around_many_kin(&fixture(), &[F, H], 255, ManyKin::All, false, &m, 10_000),
         ),
     ] {
         // Each couple's children start between the two cards, level with the partner connector.
@@ -276,6 +276,7 @@ fn rows_grow_when_a_gap_needs_more_lanes() {
         &[100],
         255,
         ManyKin::Siblings,
+        false,
         &Metrics::default(),
         10_000,
     );
@@ -291,11 +292,11 @@ fn an_ancestors_brother_stands_on_the_outer_side_of_the_couple_and_no_line_cross
         ("all", around_all_kin(&s, F, 255, &m, 10_000)),
         (
             "many-all",
-            around_many_kin(&s, &[F], 255, ManyKin::All, &m, 10_000),
+            around_many_kin(&s, &[F], 255, ManyKin::All, false, &m, 10_000),
         ),
         (
             "many-all-couple",
-            around_many_kin(&s, &[F, H], 255, ManyKin::All, &m, 10_000),
+            around_many_kin(&s, &[F, H], 255, ManyKin::All, false, &m, 10_000),
         ),
         ("siblings", around_with_siblings(&s, F, 255, &m, 10_000)),
     ] {

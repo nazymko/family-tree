@@ -807,9 +807,9 @@ impl Session {
                 .flatten()
                 .collect();
             let source = OpenSource { src: &src, keep };
-            gt_layout::around_open(&source, root, g, base, &specs, &m, MAX_NODES)
+            gt_layout::around_open(&source, root, g, base, &specs, false, &m, MAX_NODES)
         } else {
-            gt_layout::around_open(&src, root, g, base, &specs, &m, MAX_NODES)
+            gt_layout::around_open(&src, root, g, base, &specs, false, &m, MAX_NODES)
         };
         let flags = if base == AroundBase::Line {
             gt_layout::open_flags(&LineSource(&src), &layout, base)
@@ -978,9 +978,17 @@ impl Session {
             AroundKin::All => gt_layout::ManyKin::All,
         };
         let mut layout = if kin == gt_layout::ManyKin::Line {
-            gt_layout::around_many_kin(&LineSource(&src), &slots, generations, kin, &m, MAX_NODES)
+            gt_layout::around_many_kin(
+                &LineSource(&src),
+                &slots,
+                generations,
+                kin,
+                false,
+                &m,
+                MAX_NODES,
+            )
         } else {
-            gt_layout::around_many_kin(&src, &slots, generations, kin, &m, MAX_NODES)
+            gt_layout::around_many_kin(&src, &slots, generations, kin, false, &m, MAX_NODES)
         };
         layout.orient(Direction::Top, direction);
         let chosen_nodes: Vec<u32> = slots

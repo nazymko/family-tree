@@ -212,7 +212,7 @@ fn relatives_and_around_modes_in_all_four_directions() {
                     &what,
                     Direction::Top,
                     to,
-                    &|m| around_many_kin(&s, &chosen, 255, kin, m, 10_000),
+                    &|m| around_many_kin(&s, &chosen, 255, kin, false, m, 10_000),
                     true,
                 );
                 assert!(on_side(&l, P, F, to), "{what} {to:?}");

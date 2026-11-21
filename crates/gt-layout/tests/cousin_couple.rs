@@ -52,7 +52,7 @@ fn partners_with_parents_on_the_chart_stand_on_their_parents_side() {
                 vec![HANNA],
                 vec![NINA],
             ] {
-                let l = around_many_kin(&s, &chosen, 255, kin, &m, 10_000);
+                let l = around_many_kin(&s, &chosen, 255, kin, false, &m, 10_000);
                 check(&format!("lev={lev} wide={wide} {kin:?} {chosen:?}"), &l);
             }
         }
