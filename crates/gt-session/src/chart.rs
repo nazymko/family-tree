@@ -800,6 +800,19 @@ impl Session {
                 }
                 AroundKin::Line => gt_layout::around(&LineSource(&src), root, g, &m, MAX_NODES),
             }
+        } else if base == AroundBase::Line && specs.is_empty() {
+            // Folding with nothing opened: the plain line source, so a chart with nothing to fold is exactly the one
+            // `around` draws.
+            gt_layout::around_open(
+                &LineSource(&src),
+                root,
+                g,
+                base,
+                &specs,
+                fold,
+                &m,
+                MAX_NODES,
+            )
         } else if base == AroundBase::Line {
             // The line shows no unnamed-siblings markers, except among the brothers and sisters that were opened.
             let keep = specs

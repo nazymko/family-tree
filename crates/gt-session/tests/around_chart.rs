@@ -350,16 +350,67 @@ fn child_rows(s: &Session, m: &ChartMeta) -> Vec<i64> {
     ys
 }
 
+/// Nothing to fold (no run of six) and nothing opened: `fold: true` is exactly the chart without it, for every kin
+/// and for one person as well as several.
 #[test]
-fn fold_absent_equals_before() {
-    let (_d, mut s) = open_tree(&tree_of(&wide_family()));
-    let plain = request(&s, "Pavlo", 255);
-    let mut off = plain.clone();
-    off.fold = Some(false);
-    let a = s.chart_open(&plain).unwrap();
-    let b = s.chart_open(&off).unwrap();
-    assert_eq!(shown(&s, &a), shown(&s, &b));
-    assert_eq!(child_rows(&s, &a).len(), 1, "unfolded: one row of children");
+fn fold_on_with_nothing_to_fold_equals_fold_absent() {
+    // Koval, plus half-brothers (Petro's second family) and a family with children but no parents.
+    let gedcom = format!(
+        "{KOVAL}0 @I20@ INDI
+1 NAME Ruslan /Koval/
+1 SEX M
+1 FAMC @F7@
+1 FAMS @F8@
+0 @I21@ INDI
+1 NAME Iryna /Koval/
+1 SEX F
+1 FAMS @F7@
+0 @I22@ INDI
+1 NAME Lesia /Koval/
+1 SEX F
+1 FAMC @F8@
+0 @I23@ INDI
+1 NAME Orphan /Koval/
+1 SEX M
+1 FAMC @F9@
+0 @F7@ FAM
+1 HUSB @I7@
+1 WIFE @I21@
+1 CHIL @I20@
+0 @F8@ FAM
+1 HUSB @I20@
+1 CHIL @I22@
+0 @F9@ FAM
+1 CHIL @I23@
+1 CHIL @I12@
+"
+    );
+    let (_d, mut s) = open_tree(&tree_of(&gedcom));
+    for kin in [AroundKin::Line, AroundKin::Siblings, AroundKin::All] {
+        for who in [
+            vec!["Ivan Petrovych"],
+            vec!["Ivan Petrovych", "Maria"],
+            vec!["Hryhorii"],
+            vec!["Ruslan"],
+            vec!["Taras"],
+        ] {
+            let mut req = request(&s, who[0], 255);
+            req.kin = Some(kin);
+            if who.len() > 1 {
+                req.roots = Some(who.iter().map(|g| find(s.tree(), g)).collect());
+            }
+            let base = s.chart_open(&req).unwrap();
+            req.fold = Some(true);
+            let on = s.chart_open(&req).unwrap();
+            let ctx = format!("{kin:?} {who:?}");
+            assert_eq!(base.bounds, on.bounds, "bounds {ctx}");
+            assert_eq!(base.node_count, on.node_count, "count {ctx}");
+            let wb = s.chart_window(base.chart_id, &everything(), 1.0).unwrap();
+            let wo = s.chart_window(on.chart_id, &everything(), 1.0).unwrap();
+            assert_eq!(wb.nodes, wo.nodes, "nodes {ctx}");
+            assert_eq!(wb.edges, wo.edges, "edges {ctx}");
+        }
+    }
 }
 
 #[test]
