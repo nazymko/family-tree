@@ -104,10 +104,10 @@ export function fitsTarget(views: PieceView[]): boolean {
 }
 
 /**
- * Whether a piece reads at the target size in some direction. Rejects at once, without cutting it out of the four
- * layouts, a piece whose cards alone (in `cut`) take more than the printable A3 area at the target scale.
+ * Whether a piece's cards alone (in `cut`) fit the printable A3 area at the target scale: a quick test that rejects a
+ * piece far too big without cutting it out of the four layouts.
  */
-export function pieceFits(piece: Piece, cut: DirScene, dirs: DirScene[], o: ViewOptions): boolean {
+export function cardsFit(piece: Piece, cut: DirScene, o: Pick<ViewOptions, 'choice' | 'header'>): boolean {
   const byId = cutIndex(cut);
   let cards = 0;
   for (const set of [piece.full, piece.refs.keys(), piece.plain]) {
@@ -124,8 +124,12 @@ export function pieceFits(piece: Piece, cut: DirScene, dirs: DirScene[], o: View
       return a.w * a.h;
     }),
   );
-  if (cards * t * t > area) return false;
-  return fitsTarget(viewsOf(piece, cut, dirs, o));
+  return cards * t * t <= area;
+}
+
+/** Whether a piece reads at the target size in some direction (`cardsFit` first, then the four views). */
+export function pieceFits(piece: Piece, cut: DirScene, dirs: DirScene[], o: ViewOptions): boolean {
+  return cardsFit(piece, cut, o) && fitsTarget(viewsOf(piece, cut, dirs, o));
 }
 
 const nodeIndex = new WeakMap<Scene, Map<number, ChartNode>>();
@@ -143,11 +147,12 @@ const ORDER: ChartDirection[] = ['top', 'bottom', 'left', 'right'];
 /**
  * The direction a piece prints in: among the views that reach the target size, the smallest area; when none does, the
  * one that prints largest. Values within 0.1% are a tie: the screen direction stays, then top, bottom, left, right.
+ * `fits` replaces the test "reaches the target size alone on a page" (the planner also counts the caption band).
  */
-export function pickView(views: PieceView[], screenDir: ChartDirection): PieceView {
+export function pickView(views: PieceView[], screenDir: ChartDirection, fits?: (v: PieceView) => boolean): PieceView {
   if (!views.length) throw new Error('no view of the piece');
   const t = targetScale();
-  const fit = views.filter((v) => v.standalone.scale >= t - EPS);
+  const fit = views.filter(fits ?? ((v) => v.standalone.scale >= t - EPS));
   const pref = (v: PieceView) => (v.direction === screenDir ? -1 : ORDER.indexOf(v.direction));
   const ordered = [...(fit.length ? fit : views)].sort((a, b) => pref(a) - pref(b));
   let best = ordered[0];

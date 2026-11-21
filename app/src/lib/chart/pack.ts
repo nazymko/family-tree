@@ -46,6 +46,15 @@ const band = (it: PackItem) => (it.capW > 0 ? mmToPx(CAPTION_MM) : 0);
 const slotW = (it: PackItem, s: number) => Math.max(it.w * s, Math.min(it.capW, mmToPx(CAPTION_MAX_MM)));
 const slotH = (it: PackItem, s: number) => it.h * s + band(it);
 
+/** Whether `item` alone fits a page of an allowed orientation at scale `s`, caption band included. */
+export function slotFits(item: PackItem, s: number, choice: A3Choice, header: boolean): boolean {
+  const allowed: A3Orientation[] = choice === 'auto' ? ['landscape', 'portrait'] : [choice];
+  return allowed.some((or) => {
+    const area = a3Area(or, header);
+    return slotW(item, s) <= area.w + EPS && slotH(item, s) <= area.h + EPS;
+  });
+}
+
 interface Placed {
   item: PackItem;
   x: number;
