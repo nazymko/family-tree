@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  a3Area,
   A3_MAX_SCALE,
   A3_MIN_PT,
   A3_NAME_FLOOR_PT,
@@ -572,5 +573,12 @@ describe('A3 card names fit without cutting', () => {
     const svg = ctx.toSvg('#fff', { w: 400, h: 200 });
     expect(svg).toContain('…');
     expect(texts(svg).every((x) => x.px === NAME_PX || x.px === 11)).toBe(true);
+  });
+});
+
+describe('a3Area', () => {
+  it('a3Area_matches_layoutA3', () => {
+    const b = { x: 10, y: 20, w: 3000, h: 1700 };
+    for (const o of ['landscape', 'portrait'] as const) for (const title of [true, false]) expect(a3Area(o, title)).toEqual(layoutA3(b, o, title).area);
   });
 });

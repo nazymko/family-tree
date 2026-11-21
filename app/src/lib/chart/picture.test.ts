@@ -6,6 +6,7 @@ import {
   MAX_AREA,
   MAX_SIDE,
   branchIds,
+  compactBoth,
   compactX,
   formatOf,
   isKeyboardMenu,
@@ -19,6 +20,7 @@ import {
   tileRects,
   type Scene,
 } from './picture';
+import { loadFam } from './testing/famScenes';
 
 const nav = { parent: null, child: null, prev: null, next: null };
 
@@ -326,5 +328,64 @@ describe('pictureFileName', () => {
     expect(pictureFileName('Pedigree - Ivan "Vanya" Koval / Jr.')).toBe('Pedigree - Ivan Vanya Koval Jr..png');
     expect(pictureFileName('  Whole tree ')).toBe('Whole tree.png');
     expect(pictureFileName('???')).toBe('Chart.png');
+  });
+});
+
+describe('compactBoth', () => {
+  const sign = (v: number) => (v > 1e-9 ? 1 : v < -1e-9 ? -1 : 0);
+
+  it('compactBoth_keeps_order_and_gaps', () => {
+    // The whole fixture chart has no empty stretch to squeeze (the layout packs it); a line piece cut out of it does:
+    // the people four and more generations above the centre, as the sheets cut them.
+    const whole = loadFam('fam-a', 'left').scene;
+    const keep = new Set(whole.nodes.filter((n) => n.gen <= -4).map((n) => n.id));
+    const scene: Scene = { nodes: whole.nodes.filter((n) => keep.has(n.id)), edges: whole.edges.filter((e) => keep.has(e.from) && keep.has(e.to)) };
+    expect(scene.nodes.length).toBeGreaterThan(80);
+    const out = compactBoth(scene);
+    const a = scene.nodes;
+    const b = out.nodes;
+    expect(b.length).toBe(a.length);
+    for (let i = 0; i < a.length; i++) {
+      for (let j = i + 1; j < a.length; j++) {
+        expect(sign(b[i].x - b[j].x)).toBe(sign(a[i].x - a[j].x));
+        expect(sign(b[i].y - b[j].y)).toBe(sign(a[i].y - a[j].y));
+        const overlap = b[i].x < b[j].x + b[j].w && b[j].x < b[i].x + b[i].w && b[i].y < b[j].y + b[j].h && b[j].y < b[i].y + b[i].h;
+        if (overlap) expect.fail(`boxes ${b[i].id} and ${b[j].id} overlap`);
+      }
+    }
+    // Line ends that touch a box move with it.
+    const before = new Map(a.map((n) => [n.id, n]));
+    const after = new Map(b.map((n) => [n.id, n]));
+    scene.edges.forEach((e, k) => {
+      const pts = out.edges[k].pts;
+      const ends: [number, number, number][] = [
+        [e.from, 0, 1],
+        [e.to, e.pts.length - 2, e.pts.length - 1],
+      ];
+      for (const [id, ix, iy] of ends) {
+        const n0 = before.get(id)!;
+        const n1 = after.get(id)!;
+        const [x, y] = [e.pts[ix], e.pts[iy]];
+        if (x < n0.x || x > n0.x + n0.w || y < n0.y || y > n0.y + n0.h) continue;
+        expect(pts[ix] - n1.x).toBeCloseTo(x - n0.x, 6);
+        expect(pts[iy] - n1.y).toBeCloseTo(y - n0.y, 6);
+      }
+    });
+    expect(sceneBounds(out).h).toBeLessThanOrEqual(sceneBounds(scene).h / 2);
+  });
+
+  it('compactBoth_respects_occupied', () => {
+    const scene: Scene = { nodes: [node(1, 0, 0), node(2, 400, 0)], edges: [] };
+    const out = compactBoth(scene, 40, (n) => (n.id === 1 ? { x: n.x, y: n.y, w: n.w + 120, h: n.h } : { x: n.x, y: n.y, w: n.w, h: n.h }));
+    expect(out.nodes[1].x - (out.nodes[0].x + 100 + 120)).toBe(40);
+  });
+
+  it('compactBoth_without_y_gaps_equals_compactX', () => {
+    const scene: Scene = {
+      nodes: [node(1, 0, 0), node(2, 500, 30), node(3, 1200, 90), node(4, 2000, 120)],
+      edges: [edge(1, 2), edge(2, 3, 'partner'), edge(3, 4)],
+    };
+    scene.edges.forEach((e, i) => (e.pts = [e.pts[0], 20 + i * 30, e.pts[2], 40 + i * 30]));
+    expect(compactBoth(scene)).toEqual(compactX(scene));
   });
 });

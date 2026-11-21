@@ -277,9 +277,23 @@ export function scalePlan(plan: PicturePlan, factor: number): PicturePlan {
  * stay aligned and lines stay connected. Used for a branch picked from the very wide whole-tree rows.
  */
 export function compactX(scene: Scene, gap = 40): Scene {
+  const map = squeeze(spansOf(scene, (n) => [n.x, n.x + n.w], 0), gap);
+  return {
+    nodes: scene.nodes.map((n) => ({ ...n, x: map(n.x) })),
+    edges: scene.edges.map((e) => ({ ...e, pts: e.pts.map((v, i) => (i % 2 === 0 ? map(v) : v)) })),
+  };
+}
+
+/** The spans along one axis (`axis` 0 = x, 1 = y) the boxes (`span`) and the points of the lines take. */
+function spansOf(scene: Scene, span: (n: ChartNode) => [number, number], axis: 0 | 1): [number, number][] {
   const spans: [number, number][] = [];
-  for (const n of scene.nodes) spans.push([n.x, n.x + n.w]);
-  for (const e of scene.edges) for (let i = 0; i < e.pts.length; i += 2) spans.push([e.pts[i], e.pts[i]]);
+  for (const n of scene.nodes) spans.push(span(n));
+  for (const e of scene.edges) for (let i = axis; i < e.pts.length; i += 2) spans.push([e.pts[i], e.pts[i]]);
+  return spans;
+}
+
+/** The monotone mapping that shrinks every empty stretch between `spans` wider than `gap` down to `gap`. */
+function squeeze(spans: [number, number][], gap: number): (v: number) => number {
   spans.sort((a, b) => a[0] - b[0]);
   // The gaps between the merged spans, with the total removed up to and including each one.
   const cuts: { end: number; removed: number }[] = [];
@@ -292,13 +306,50 @@ export function compactX(scene: Scene, gap = 40): Scene {
     }
     reach = Math.max(reach, hi);
   }
-  const map = (x: number): number => {
-    for (let i = cuts.length - 1; i >= 0; i--) if (x >= cuts[i].end) return x - cuts[i].removed;
-    return x;
+  return (v: number): number => {
+    // The last cut at or before v (binary search: big scenes have thousands of cuts).
+    let lo = 0;
+    let hi = cuts.length - 1;
+    let at = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (v >= cuts[mid].end) {
+        at = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    return at < 0 ? v : v - cuts[at].removed;
   };
+}
+
+/**
+ * Squeezes the empty stretches out of a scene along x, then along y, by `compactX`'s rule: each stretch wider than
+ * `gap` with no box or line point in it shrinks to `gap`, through one monotone mapping per axis, so rows stay aligned,
+ * order is kept and lines stay connected. `occupied(n)` is the room a box holds (by default the box itself), e.g. the
+ * box and a tag drawn beside it: a neighbour is never squeezed onto it. It is called with the box as it is at that pass.
+ */
+export function compactBoth(scene: Scene, gap = 40, occupied: (n: ChartNode) => Rect = (n) => n): Scene {
+  const mx = squeeze(
+    spansOf(scene, (n) => {
+      const r = occupied(n);
+      return [r.x, r.x + r.w];
+    }, 0),
+    gap,
+  );
+  const a: Scene = {
+    nodes: scene.nodes.map((n) => ({ ...n, x: mx(n.x) })),
+    edges: scene.edges.map((e) => ({ ...e, pts: e.pts.map((v, i) => (i % 2 === 0 ? mx(v) : v)) })),
+  };
+  const my = squeeze(
+    spansOf(a, (n) => {
+      const r = occupied(n);
+      return [r.y, r.y + r.h];
+    }, 1),
+    gap,
+  );
   return {
-    nodes: scene.nodes.map((n) => ({ ...n, x: map(n.x) })),
-    edges: scene.edges.map((e) => ({ ...e, pts: e.pts.map((v, i) => (i % 2 === 0 ? map(v) : v)) })),
+    nodes: a.nodes.map((n) => ({ ...n, y: my(n.y) })),
+    edges: a.edges.map((e) => ({ ...e, pts: e.pts.map((v, i) => (i % 2 === 1 ? my(v) : v)) })),
   };
 }
 

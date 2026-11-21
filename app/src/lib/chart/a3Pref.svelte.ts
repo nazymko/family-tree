@@ -1,4 +1,4 @@
-import type { A3Background, A3DirectionMode } from './a3';
+import type { A3Background, A3Choice, A3DirectionMode } from './a3';
 
 /** Where the A3 direction choice is kept on this computer (like the other view choices of the chart screens). */
 export const A3_DIRECTION_KEY = 'gt.a3Direction';
@@ -92,3 +92,31 @@ class A3BackgroundPref {
 
 export const a3Title = new A3TitlePref();
 export const a3Background = new A3BackgroundPref();
+
+/** Where the A3 orientation last chosen in the print and save menu is kept. */
+export const A3_ORIENTATION_KEY = 'gt.a3Orientation';
+
+function storedOrientation(): A3Choice {
+  const v = read(A3_ORIENTATION_KEY);
+  return v === 'landscape' || v === 'portrait' ? v : 'auto';
+}
+
+/**
+ * The page orientation of A3 prints: the one last chosen to save (auto, landscape or portrait; auto by default). Printing
+ * uses it, and the sheet frames on the chart show the pages it gives.
+ */
+class A3OrientationPref {
+  value = $state<A3Choice>(storedOrientation());
+
+  set(choice: A3Choice): void {
+    this.value = choice;
+    write(A3_ORIENTATION_KEY, choice);
+  }
+
+  /** Reads the stored choice again (tests start each case from storage). */
+  reload(): void {
+    this.value = storedOrientation();
+  }
+}
+
+export const a3Orientation = new A3OrientationPref();

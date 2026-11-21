@@ -54,6 +54,8 @@ export interface DrawOpts {
   nameMinPx?: number;
   /** "Sheets" layout on screen: where each printed A3 sheet falls, drawn as a thin dashed frame with its label, under the cards. */
   sheetFrames?: readonly SheetFrame[];
+  /** Draw over what is already on the canvas (several pieces of a packed A3 page): the page is not cleared first. */
+  keep?: boolean;
 }
 
 /** One printed sheet's frame on the screen chart (world coordinates, before the margin). */
@@ -386,7 +388,7 @@ export function draw(
   const lod = opts.lod ?? lodFor(z);
 
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
-  ctx.clearRect(0, 0, view.w, view.h);
+  if (!opts.keep) ctx.clearRect(0, 0, view.w, view.h);
   ctx.setTransform(view.dpr * z, 0, 0, view.dpr * z, -cam.x * view.dpr * z, -cam.y * view.dpr * z);
 
   if (opts.sheetFrames?.length) drawSheetFrames(ctx, opts.sheetFrames, theme, z);

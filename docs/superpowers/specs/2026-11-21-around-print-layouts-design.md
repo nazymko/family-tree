@@ -142,3 +142,126 @@ writes one file per sheet (`… — арк. 1.png`, `… — арк. 2.png`, or 
 - The exact column-count rule and the bracket drawing for folded runs.
 - How the sheet frames look on screen.
 - Whether the choice is remembered between sessions (`a3Pref` style) — fine either way.
+
+## Amendment 21.11.2026 — packed sheets
+
+Status: the owner approved the full redesign (21.11.2026). Plan: `docs/superpowers/plans/2026-11-22-sheets-packing.md`.
+
+Why: an investigation on synthetic family-shaped trees (fam-a…fam-d, 369–1,568 people, all kin opened) found that
+today's sets have 5–15 sheets and that 84–98% of the people on them print below 6 pt. Causes: the cover is never
+checked for size and takes every aunt's and uncle's whole family; collateral families are never split; a sheet is
+compacted along x only, so in a left/right chart the whole chart's gaps stay in it; one direction serves the whole
+chart; every grandparent line becomes a sheet however small (6–8-person sheets on an empty page) and nothing is
+packed. This amendment specifies that report's fixes F1–F6.
+
+### What it replaces
+
+- Decision 2's **cover contents** ("the cover holds generations 0, −1, −2 and everything hanging from them") and
+  section B's **one sheet per grandparent line**: the cover is what remains after big blocks move out (see
+  "Pieces"), and a line is cut wherever it needs to be, not at each grandparent.
+- Decision 4's **8-person minimum** (`SHEET_MIN_PEOPLE`) and the merge-back rule: small blocks are not merged back;
+  they are packed beside other blocks on a shared page.
+- Section B's **one branch per page** and **"the title says the branch"**: a page may hold several pieces; every
+  page's title is the chart title, and each piece carries its own branch caption.
+- Section B's "every sheet is laid out with `printDirection`": every piece has its own direction, whatever the A3
+  direction setting says (owner decision 1).
+
+Unchanged: «як зараз» and «компактно» print and save exactly as before, byte for byte; a set is saved into a new
+folder that is then opened in Explorer; A3 only; en + uk strings only; synthetic data only in tests and screenshots.
+
+### Owner decisions (binding)
+
+1. Each piece gets its own best direction and orientation and is compacted on both axes (F1, F2, F5).
+2. The cover and big collateral families are split. A moved block leaves a reference box «→ арк. N» (F3).
+3. If the whole chart reads on one A3 page, one page is printed.
+4. Otherwise small branches are packed together onto pages. Each piece carries a caption with its branch name, and
+   names do not go below the target size. Expected outcome: 2–4x fewer pages (F4, F6); see "Expected outcome".
+5. «як зараз» and «компактно» unchanged; saving into a new folder opened in Explorer; en + uk strings only.
+
+### Controller's rulings (21.11.2026)
+
+- **Target name size 8 pt** (`SHEET_TARGET_PT`). Never below 6 pt (`A3_MIN_PT`) unless a piece cannot be split
+  further; then the existing "names are small" warning names its page.
+- **A3 only.**
+- **Page header**: the chart title on the left; «аркуш N з M» on the right, before the tree name and date (as today).
+  **Each packed piece** gets a small caption «Гілка: <surname> (<given name of the top person>)».
+- **Screen frames**: one dashed frame per piece, labelled «арк. N», N being the page the piece lands on; a page may
+  therefore have several frames on screen.
+- **Packing**: first-fit-decreasing shelf packing. Each page uses ONE common scale, the largest that still keeps
+  every piece on it at or above the target. Pieces never turn relative to each other; mixed directions on one page
+  are accepted.
+
+### Design
+
+**One page when it reads.** The whole chart, in each of the four directions, compacted on both axes (below), on one
+A3 page in the chosen orientation (the better one under 'auto'): if the best of these prints names at ≥ 8 pt, the
+set is that one page: no caption, no «аркуш 1 з 1», the title block as «компактно» has it.
+
+**Four layouts, one cut.** "Sheets by branch" always lays the print chart out in all four directions (compact
+cards, folded), whatever the A3 direction setting. The cut is made once, on the screen direction's layout. A box is
+matched between the four layouts by a **node key** (the person id; for a repeated box, the person id and the box it
+hangs on), never by node id.
+
+**Compacted on both axes (F1).** A piece's sub-scene is squeezed along x and then along y by the existing
+`compactX` rule (each empty stretch wider than the gap shrinks to the gap; order, rows and connections stay). The
+room a reference tag needs beside its box counts as occupied, so the squeeze never pushes a neighbour onto a tag.
+
+**Card height at the target (F5).** Each direction's layout is stretched once for its cards' text, with the name
+floor of the 8 pt scale, fully (no longer only into the page's empty room: the packer now decides the room). Pages
+print at or above the target unless they hold one unsplittable piece, so names keep their floor.
+
+**Pieces (F3, F6).** Every box hangs from the lineage (centred people and their ancestors) as decision 2 already
+says; that **hang tree** gives every box one box it hangs from. A **block** is the subtree of the hang tree under
+one box: a person not on the lineage with their partners and everything hanging below them (a collateral family),
+or a lineage person three or more generations above a centre with everything above and beside them (a line).
+Starting from the whole chart: while a piece does not print at ≥ 8 pt in any direction, its **largest** block (most
+people in full; ties: father's side first, then scene order) of at least 3 people (`PIECE_MIN_PEOPLE`) moves out
+into a piece of its own, which is treated the same way. A piece with nothing left to move is unsplittable. The
+cover is the piece holding the centred people: them, their spine up to the grandparents, and whatever near family
+was not moved out.
+
+**References (F3).** Wherever a cut separates two boxes joined by a line (parent, partner or sibling), each side
+shows the other side's box as a reference box tagged «→ арк. N», N being the page holding that person in full. So a
+moved collateral family leaves its head person as a reference box among their brothers and sisters, and the moved
+piece shows the head's parents as reference boxes; a moved line shows the generation below it as reference boxes at
+its foot, and the piece below shows the line's top people as reference boxes. Repeated boxes (`dupOf`) keep the
+existing rule: a plain repeat when the first occurrence is on the same piece, else a reference box. Everyone appears
+in full exactly once in the set.
+
+**Direction per piece (F2).** Each piece is cut out of each of the four layouts (by node key) and compacted. A piece
+takes the direction with the smallest area among those that fit one A3 page at 8 pt; when none does, the one that
+prints it largest (it then gets a page of its own). Ties keep the screen direction.
+
+**Packing (F4).** Pieces are packed first-fit-decreasing by slot height onto shelves at the target scale. A slot is
+the piece's drawing plus a caption band above it (6 mm, text 9 pt) and a 6 mm gap; a slot is at least as wide as
+its caption (captions longer than 140 mm end in an ellipsis). The cover goes first, on page 1. A page opens
+landscape unless its first piece fits only portrait; with a fixed orientation chosen every page has it. Then each
+page's scale grows to the largest (at most 1.5, `A3_MAX_SCALE`) at which its pieces still pack on it, both
+orientations tried under 'auto'. The packed block is centred on the page. A piece too big for a page at 8 pt goes
+alone on a page at its own best scale and orientation. Pages are numbered in the order they were opened; the
+references are then resolved to page numbers.
+
+**Captions.** «Гілка: <surname> (<given>)» (the existing `picture.branchTitle` with that name) from the piece's top
+person; without a given name «Гілка: <surname>». The cover has no caption: the page title names the chart. Two equal
+captions are allowed (references point to pages). The old `branchNames` de-duplication goes.
+
+**Screen frames.** For a set of more than one page, one dashed frame per piece (cover included) around the screen
+boxes of its people in full, labelled «арк. N» with its page. Frames may overlap.
+
+**Output.** Same form as today: one print document with one page per A3 page; save writes one file per page into a
+new folder opened in Explorer. The warning lists the pages that print below 6 pt.
+
+### Expected outcome, against the target
+
+From the investigation's numbers (compact card 124 × 56; a compacted piece is about 20–35% cards; about 85% shelf
+efficiency) an A3 page holds roughly 60–95 people at 8 pt and 110–170 at 6 pt. At 8 pt that gives about fam-a
+8–13 pages (today 9), fam-b 4–7 (9), fam-c 6–9 (5), fam-d 17–27 (15): every name readable, but not fewer pages for
+the biggest charts. "2–4x fewer pages" holds for medium charts and holds for big ones only at today's unreadable
+sizes. The plan's Task 5 measures the real numbers and prints them; its gates are readability, fill and correctness,
+not beating today's page count.
+
+### Owner decision 21.11.2026: names stay at 8 pt
+
+The open question (for charts above about 500 people the 8 pt floor and "2–4x fewer pages" cannot both hold) is
+answered: **names stay at or above 8 pt, even if big charts get more pages.** `SHEET_TARGET_PT = 8`. Page count is
+never traded for a smaller name size, and no gate demands fewer pages than today's sets.
