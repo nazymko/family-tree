@@ -198,11 +198,6 @@ export function cardsFit(piece: Piece, cut: DirScene, o: Pick<ViewOptions, 'choi
   return cards * t * t <= area;
 }
 
-/** Whether a piece reads at the target size in some direction (`cardsFit` first, then the four views). */
-export function pieceFits(piece: Piece, cut: DirScene, dirs: DirScene[], o: ViewOptions): boolean {
-  return cardsFit(piece, cut, o) && fitsTarget(viewsOf(piece, cut, dirs, o));
-}
-
 const nodeIndex = new WeakMap<Scene, Map<number, ChartNode>>();
 function cutIndex(cut: DirScene): Map<number, ChartNode> {
   let m = nodeIndex.get(cut.scene);

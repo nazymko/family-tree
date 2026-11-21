@@ -1161,8 +1161,8 @@
   }
 
   /**
-   * One A3 page of a print chart: `scene` drawn with the page layout `lay`, the title block (`title` on the left, `sub` on
-   * the right), and under every box of `refs` a small tag naming the sheet that shows the person in full.
+   * One A3 page of a print chart: `scene` drawn with the page layout `lay` and the title block (`title` on the left, `sub`
+   * on the right).
    */
   function buildA3For(
     c: A3Chart,
@@ -1170,7 +1170,6 @@
     lay: A3Layout,
     format: PictureFormat,
     text: { title: string; sub: string; warning?: string },
-    refs: Map<number, number> = new Map(),
   ): BuiltPicture {
     const { th, bg, header } = c.look;
     // The centre person (and the others it is built around) are the ones of the print chart, not the screen's box numbers.
@@ -1178,7 +1177,6 @@
     const printMore = new Set(c.meta.chosenNodes ?? []);
     const dir = c.pick.direction;
     const pxScale = format === 'svg' ? 1 : lay.pngScale;
-    const byId = new Map(scene.nodes.map((n) => [n.id, n]));
     const plan = {
       cam: lay.cam,
       view: { ...lay.px },
@@ -1197,23 +1195,6 @@
       warning: text.warning,
       paint: (ctx, p) => {
         draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: printFocus, focusMore: printMore, theme: th, kind, dir, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(lay.scale) });
-        if (refs.size > 0) {
-          // "→ sheet N" beside each reference box, on the side away from its ancestors (see refTagAt), the size of a
-          // card's dates on paper (kept between 6 and 9 pt).
-          ctx.setTransform(p.scale, 0, 0, p.scale, 0, 0);
-          const px = refTagPx(lay.scale);
-          ctx.font = `600 ${px}px ${th.font}`;
-          ctx.fillStyle = th.ink2;
-          const z = lay.cam.zoom;
-          for (const [id, no] of refs) {
-            const n = byId.get(id);
-            if (!n) continue;
-            const at = refTagAt({ x: (n.x - lay.cam.x) * z, y: (n.y - lay.cam.y) * z, w: n.w * z, h: n.h * z }, dir, 2 * lay.scale);
-            ctx.textAlign = at.align;
-            ctx.textBaseline = at.baseline;
-            ctx.fillText(t('picture.sheetRef', { n: no }), at.x, at.y);
-          }
-        }
         if (!header) return;
         drawTitleBlock(ctx, p.scale, lay, th, text);
       },
