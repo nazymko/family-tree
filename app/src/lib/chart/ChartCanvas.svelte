@@ -2,6 +2,7 @@
   import { errMessage } from '../editors/errors';
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
+  import type { PrintLayout } from './sheets';
   import type { AroundKin, BranchDepth, OpenBranch, ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
   import { added } from '../state/added.svelte';
   import { project } from '../state/project.svelte';
@@ -47,6 +48,8 @@
     onAunts,
     kin = 'line',
     onKin,
+    printLayout = 'today',
+    onPrintLayout,
     openings = [],
     onOpenings,
     onOpened,
@@ -75,6 +78,10 @@
     kin?: AroundKin;
     /** Shows the "Relatives" choice (line only, brothers and sisters, all relatives) in the toolbar when given. */
     onKin?: (kin: AroundKin) => void;
+    /** Chart built around one person: how it is laid out for the page (as today, compact, or sheets by branch). */
+    printLayout?: PrintLayout;
+    /** Shows the "Layout" choice in the toolbar when given. */
+    onPrintLayout?: (v: PrintLayout) => void;
     /** Chart built around one person: the side branches opened per person. */
     openings?: OpenBranch[];
     /** Shows the controls to open the brothers and sisters, or the children, of the selected person when given. */
@@ -327,10 +334,11 @@
     return typeof e === 'object' && e !== null && (e as { code?: string }).code === 'stale';
   }
 
-  function chartRequest(direction?: ChartDirection, print = false): ChartRequest {
+  function chartRequest(direction?: ChartDirection, print = false, layout: PrintLayout = printLayout): ChartRequest {
     const req: ChartRequest =
       kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? (many ? { kind, root, generations, kin, roots } : openings.length > 0 ? { kind, root, generations, kin, open: openings } : { kind, root, generations, kin }) : { kind, root, generations };
-    return direction ? { ...req, direction, ...(print ? { print } : {}) } : req;
+    const folded: ChartRequest = kind === 'around' && layout !== 'today' ? { ...req, fold: true } : req;
+    return direction ? { ...folded, direction, ...(print ? { print } : {}) } : folded;
   }
 
   /** `keepView`: reopened after an edit. The camera stays where it was and the selected person stays selected. */
@@ -588,6 +596,7 @@
     void generations;
     void auntsUncles;
     void kin;
+    void printLayout;
     void roots?.join();
     const flipped = dirNow !== lastDirection;
     lastDirection = dirNow;
@@ -1035,11 +1044,13 @@
     // The layouts are print charts: compact, outside the two-chart limit, so no chart the person has open is closed. Each is
     // closed as soon as its boxes are read, whatever happens.
     const mode = a3Direction.value;
+    // The layout chosen when the print started: a change of the choice while it runs does not reach its requests.
+    const layoutAtStart = printLayout;
     // Measures the cards' text as the picture draws it (with a real canvas when there is one).
     const meter = new SvgContext(1, 1) as unknown as CanvasRenderingContext2D;
     const found: { direction: ChartDirection; scene: Scene; meta: ChartMeta; bounds: Rect }[] = [];
     for (const d of mode === 'best' ? DIRECTIONS : [dirNow]) {
-      const probe = await api.chartOpen(chartRequest(d, true));
+      const probe = await api.chartOpen(chartRequest(d, true, layoutAtStart));
       try {
         const laid = await wholeScene(probe);
         // Cards whose text needs more room (a long name on three lines, the relationship under the dates) make every card
@@ -1304,6 +1315,20 @@
           ]}
           value={kin}
           onchange={(v) => onKin(v as AroundKin)}
+        />
+      </div>
+    {/if}
+    {#if onPrintLayout && kind === 'around'}
+      <div class="tool">
+        <Segmented
+          legend={t('chartCanvas.layout')}
+          options={[
+            { value: 'today', label: t('chartCanvas.layoutToday') },
+            { value: 'compact', label: t('chartCanvas.layoutCompact') },
+            { value: 'sheets', label: t('chartCanvas.layoutSheets') },
+          ]}
+          value={printLayout}
+          onchange={(v) => onPrintLayout(v as PrintLayout)}
         />
       </div>
     {/if}

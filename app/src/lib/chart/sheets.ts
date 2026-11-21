@@ -285,3 +285,6 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
     return { no, top: p.top, ids, refs, scene: sub(new Set([...ids, ...refs.keys(), ...plain])) };
   });
 }
+
+/** How a "built around" chart is laid out for the page: as it always was, folded compactly, or cut into sheets by branch. */
+export type PrintLayout = 'today' | 'compact' | 'sheets';

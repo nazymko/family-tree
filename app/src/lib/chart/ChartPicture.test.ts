@@ -256,6 +256,32 @@ describe('picture menu on a chart', () => {
     expect(closeSpy.mock.calls.length).toBe(1);
   });
 
+  it('a_print_under_compact_asks_for_a_folded_layout_and_under_as_today_does_not', async () => {
+    stubOffscreen();
+    for (const [layout, fold] of [['compact', true], ['today', undefined]] as const) {
+      const raf = fakeRaf();
+      const { api, fx } = makeApi();
+      const root = await richestRoot(api, fx, 'around');
+      const openSpy = vi.spyOn(api, 'chartOpen');
+      const saveSpy = vi.spyOn(api, 'savePicture');
+      const { unmount } = render(Host, { props: { api, view: ChartCanvas, props: { kind: 'around', root, generations: 6, printLayout: layout, onRecentre: vi.fn(), onOpenPerson: vi.fn() }, platform: new MockPlatform() } });
+      const canvas = screen.getByRole('application') as HTMLCanvasElement;
+      attachContext(canvas);
+      canvas.getBoundingClientRect = () => RECT;
+      await waitFor(() => expect(openSpy).toHaveBeenCalled());
+      await new Promise((r) => setTimeout(r, 0));
+      raf.pump(2);
+      const before = openSpy.mock.calls.length;
+      await rightClick(canvas);
+      await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
+      await waitFor(() => expect(saveSpy).toHaveBeenCalled(), A3_WAIT);
+      const probes = openSpy.mock.calls.slice(before).map((c) => c[0]);
+      expect(probes.length).toBeGreaterThan(0);
+      expect(probes.every((r) => r.print === true && r.fold === fold)).toBe(true);
+      unmount();
+    }
+  });
+
   it('an_a3_save_lays_out_print_charts_only_and_closes_them_without_touching_the_open_chart', async () => {
     stubOffscreen();
     a3Direction.set('best');
