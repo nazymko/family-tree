@@ -65,7 +65,16 @@ fn kids(key: Key, d: BranchDepth) -> OpenSpec {
 }
 
 fn run(base: AroundBase, open: &[OpenSpec]) -> Layout {
-    let l = around_open(&family(), 1, ALL, base, open, &Metrics::default(), 100_000);
+    let l = around_open(
+        &family(),
+        1,
+        ALL,
+        base,
+        open,
+        false,
+        &Metrics::default(),
+        100_000,
+    );
     assert_clean(&l);
     l
 }
@@ -103,7 +112,7 @@ fn no_openings_is_the_old_chart_for_every_base() {
         (AroundBase::All, around_all_kin(&s, 1, ALL, &m, 100_000)),
     ];
     for (base, old) in cases {
-        let new = around_open(&s, 1, ALL, base, &[], &m, 100_000);
+        let new = around_open(&s, 1, ALL, base, &[], false, &m, 100_000);
         assert_eq!(shape(&new), shape(&old));
         assert_eq!(new.edges.len(), old.edges.len());
     }
@@ -187,7 +196,7 @@ fn flags_say_who_can_be_opened() {
     let s = family();
     let m = Metrics::default();
     let flags = |open: &[OpenSpec]| {
-        let l = around_open(&s, 1, ALL, AroundBase::Line, open, &m, 100_000);
+        let l = around_open(&s, 1, ALL, AroundBase::Line, open, false, &m, 100_000);
         let f = open_flags(&s, &l, AroundBase::Line);
         move |k: Key| {
             let i = l.nodes.iter().position(|n| n.key == k).unwrap();
@@ -206,7 +215,7 @@ fn flags_say_who_can_be_opened() {
     assert!(f(12).1, "a cousin with hidden children");
     assert!(!f(13).1, "no children");
     assert_eq!(f(11), (false, false), "an in-law");
-    let all = around_open(&s, 1, ALL, AroundBase::All, &[], &m, 100_000);
+    let all = around_open(&s, 1, ALL, AroundBase::All, &[], false, &m, 100_000);
     let f = open_flags(&s, &all, AroundBase::All);
     assert!(f.iter().all(|x| !x.0), "all relatives are shown");
 }

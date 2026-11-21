@@ -149,7 +149,7 @@ fn every_api_method_has_a_command() {
             "no command {snake}"
         );
     }
-    assert_eq!(COMMAND_NAMES.len(), 90);
+    assert_eq!(COMMAND_NAMES.len(), 91);
     let unique: std::collections::HashSet<&&str> = COMMAND_NAMES.iter().collect();
     assert_eq!(unique.len(), COMMAND_NAMES.len(), "a command listed twice");
 }
@@ -845,6 +845,59 @@ fn invoke_save_picture(
         InvokeResponseBody::Json(s) => serde_json::from_str(&s).unwrap(),
         InvokeResponseBody::Raw(_) => Value::Null,
     })
+}
+
+#[test]
+fn make_picture_folder_makes_a_new_folder_and_never_reuses_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let base = dir.path().to_str().unwrap();
+    let name = "Around \u{2014} sheets";
+    let first = invoke(&w, "make_picture_folder", json!({ "dir": base, "name": name })).unwrap();
+    assert_eq!(first, json!(dir.path().join(name).to_str().unwrap()));
+    assert!(dir.path().join(name).is_dir());
+    // Something already in the first folder stays untouched: the next set gets a folder of its own.
+    std::fs::write(dir.path().join(name).join("old.png"), png_bytes()).unwrap();
+    let second = invoke(&w, "make_picture_folder", json!({ "dir": base, "name": name })).unwrap();
+    assert_eq!(second, json!(dir.path().join(format!("{name} (2)")).to_str().unwrap()));
+    // A file of the next name counts as taken too.
+    std::fs::write(dir.path().join(format!("{name} (3)")), b"x").unwrap();
+    let fourth = invoke(&w, "make_picture_folder", json!({ "dir": base, "name": name })).unwrap();
+    assert_eq!(fourth, json!(dir.path().join(format!("{name} (4)")).to_str().unwrap()));
+    assert_eq!(std::fs::read(dir.path().join(name).join("old.png")).unwrap(), png_bytes());
+}
+
+#[test]
+fn make_picture_folder_rejects_a_missing_folder_or_a_bad_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let base = dir.path().to_str().unwrap();
+    for (d, n) in [
+        (dir.path().join("missing").to_str().unwrap().to_string(), "x"),
+        (base.to_string(), ""),
+        (base.to_string(), ".."),
+    ] {
+        let err = invoke(&w, "make_picture_folder", json!({ "dir": d, "name": n })).unwrap_err();
+        assert_eq!(err["code"], "invalid", "{d} {n}");
+    }
+}
+
+#[test]
+fn make_picture_folder_sanitises_windows_invalid_characters() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let base = dir.path().to_str().unwrap();
+    for (name, want) in [
+        ("a<b>c:d\"e/f\\g|h?i*j", "a_b_c_d_e_f_g_h_i_j"),
+        ("../evil", ".._evil"),
+        ("tab\there\u{7}", "tab_here_"),
+        ("sheets.", "sheets_"),
+        ("sheets . ", "sheets _"),
+    ] {
+        let out = invoke(&w, "make_picture_folder", json!({ "dir": base, "name": name })).unwrap();
+        assert_eq!(out, json!(dir.path().join(want).to_str().unwrap()), "{name}");
+        assert!(dir.path().join(want).is_dir(), "{name}");
+    }
 }
 
 #[test]

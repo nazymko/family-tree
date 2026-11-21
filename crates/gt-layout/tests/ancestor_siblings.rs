@@ -103,7 +103,7 @@ const SIBS: [(Key, Key, Key); 6] = [
 
 fn check(name: &str, s: &MapSource, chosen: &[Key]) {
     let m = Metrics::default();
-    let l = around_many_kin(s, chosen, 255, ManyKin::All, &m, 10_000);
+    let l = around_many_kin(s, chosen, 255, ManyKin::All, false, &m, 10_000);
     let q = quality(&l);
     assert_eq!(q.box_overlaps, 0, "{name}: {q:?}");
     assert_eq!(q.lines_through_boxes, 0, "{name}: {q:?}");
@@ -237,7 +237,15 @@ fn heavy_two_deep_pedigrees_with_all_kin_lay_out_without_overlaps() {
     // No clock here: in the gate this runs beside the other heavy tests and other builds, and a debug-build time
     // budget failed under that load (21 s) while the test alone took 9 s. The time is checked by the release budget below.
     let s = MapSource::ahnen_tree(1 << 13);
-    let l = around_many_kin(&s, &[4, 5], 255, ManyKin::All, &Metrics::default(), 100_000);
+    let l = around_many_kin(
+        &s,
+        &[4, 5],
+        255,
+        ManyKin::All,
+        false,
+        &Metrics::default(),
+        100_000,
+    );
     let q = quality(&l);
     assert_eq!(q.box_overlaps, 0, "{q:?}");
     assert!(l.nodes.len() > 1000);
@@ -248,7 +256,15 @@ fn heavy_two_deep_pedigrees_with_all_kin_lay_out_without_overlaps() {
 fn budget_two_deep_pedigrees_with_all_kin() {
     let s = MapSource::ahnen_tree(1 << 13);
     let t = std::time::Instant::now();
-    let l = around_many_kin(&s, &[4, 5], 255, ManyKin::All, &Metrics::default(), 100_000);
+    let l = around_many_kin(
+        &s,
+        &[4, 5],
+        255,
+        ManyKin::All,
+        false,
+        &Metrics::default(),
+        100_000,
+    );
     assert!(l.nodes.len() > 1000);
     assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
 }

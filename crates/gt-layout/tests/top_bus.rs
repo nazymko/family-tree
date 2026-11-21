@@ -87,7 +87,7 @@ fn world(depth: u8, orphan_groups: bool) -> (MapSource, Vec<Key>) {
 fn check(s: &MapSource, chosen: &[Key], gens: u8, to: Direction, kin: ManyKin, what: &str) {
     let base = Direction::Top;
     let m = Metrics::default().for_direction(base, to);
-    let mut l: Layout = around_many_kin(s, chosen, gens, kin, &m, 100_000);
+    let mut l: Layout = around_many_kin(s, chosen, gens, kin, false, &m, 100_000);
     l.orient(base, to);
     assert!(!l.nodes.is_empty(), "{what}");
     let q = quality(&l);
@@ -139,7 +139,15 @@ fn dump() {
         return;
     };
     let (s, chosen) = world(4, true);
-    let l = around_many_kin(&s, &chosen, 255, ManyKin::All, &Metrics::default(), 100_000);
+    let l = around_many_kin(
+        &s,
+        &chosen,
+        255,
+        ManyKin::All,
+        false,
+        &Metrics::default(),
+        100_000,
+    );
     let nodes: Vec<String> = l
         .nodes
         .iter()

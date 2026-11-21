@@ -1,0 +1,86 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { layoutA3 } from './a3';
+import { sceneBounds, type Scene } from './picture';
+import { splitSheets } from './sheets';
+import LayoutHost from './testing/LayoutHost.svelte';
+import { asPrintChart, bigAround, servePrintCharts } from './testing/syntheticAround';
+import { attachContext, fakeRaf, makeApi, richestRoot } from './testing/helpers';
+
+const RECT = { left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON() {} };
+const WAIT = { timeout: 10000 };
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+/**
+ * The around chart on screen is the synthetic chart; every print chart is the same people as a print lays them out
+ * (other ids, smaller cards, other places), so the screen's frames can only be right if they follow the print's cut.
+ */
+async function setup() {
+  const raf = fakeRaf();
+  const { api, fx } = makeApi();
+  const root = await richestRoot(api, fx, 'around');
+  const openSpy = vi.spyOn(api, 'chartOpen');
+  const big = bigAround();
+  const print = asPrintChart(big);
+  servePrintCharts(api, openSpy, print, big);
+  render(LayoutHost, { props: { api, root, kind: 'around', person: root } });
+  const canvas = screen.getByRole('application') as HTMLCanvasElement;
+  const ctx = attachContext(canvas);
+  canvas.getBoundingClientRect = () => RECT;
+  await waitFor(() => expect(openSpy).toHaveBeenCalled());
+  const prints = () => openSpy.mock.calls.filter((c) => c[0].print).length;
+  /** The sheet labels of the last frame drawn (after drawing what is due). */
+  const labels = () => {
+    raf.pump(2);
+    const from = ctx.calls.map((c) => c.op).lastIndexOf('clearRect');
+    return ctx.calls
+      .slice(Math.max(0, from))
+      .filter((c) => c.op === 'fillText' && /^sheet \d+$/.test(String(c.args[0])))
+      .map((c) => String(c.args[0]));
+  };
+  /** How many frames were drawn. */
+  const draws = () => ctx.calls.filter((c) => c.op === 'clearRect').length;
+  return { openSpy, print, prints, labels, draws };
+}
+
+describe('sheet frames on the around chart', () => {
+  it('appear_only_under_sheets_numbered_as_the_print_and_go_when_the_layout_changes', async () => {
+    const s = await setup();
+    // As today: no frames, and no print chart laid out for them.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(s.labels()).toEqual([]);
+    expect(s.prints()).toBe(0);
+
+    await fireEvent.click(screen.getByRole('radio', { name: 'Sheets by branch' }));
+    await waitFor(() => expect(s.labels().length).toBeGreaterThan(0), WAIT);
+    // The numbers are the printed ones: the print chart cut as a print cuts it ("Print on A3": orientation picked
+    // itself, title block on), the cover left unframed.
+    const printScene: Scene = { nodes: s.print.nodes, edges: s.print.edges };
+    const sheets = splitSheets(printScene, [s.print.root], { fits: (sc) => !layoutA3(sceneBounds(sc), 'auto', true).tooSmall });
+    expect(sheets.length).toBeGreaterThan(1);
+    expect(s.labels()).toEqual(sheets.filter((sh) => sh.top !== null).map((sh) => `sheet ${sh.no}`));
+
+    const before = s.draws();
+    await fireEvent.click(screen.getByRole('radio', { name: 'Compact' }));
+    await waitFor(() => {
+      expect(s.labels()).toEqual([]);
+      expect(s.draws()).toBeGreaterThan(before);
+    }, WAIT);
+    // No late result from the sheets chart brings them back.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(s.labels()).toEqual([]);
+  }, 30000);
+
+  it('a_quick_change_of_layout_lays_out_no_print_chart', async () => {
+    const s = await setup();
+    await fireEvent.click(screen.getByRole('radio', { name: 'Sheets by branch' }));
+    await fireEvent.click(screen.getByRole('radio', { name: 'As today' }));
+    await new Promise((r) => setTimeout(r, 500));
+    expect(s.prints()).toBe(0);
+    expect(s.labels()).toEqual([]);
+  }, 30000);
+});

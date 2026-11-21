@@ -55,6 +55,12 @@ describe('TauriApi', () => {
     expect(calls[0].args).toBe(bytes);
   });
 
+  it('make_picture_folder_sends_the_folder_and_name', async () => {
+    reply = () => 'C:/P/X — sheets (2)';
+    await expect(new TauriApi().makePictureFolder('C:/P', 'X — sheets')).resolves.toBe('C:/P/X — sheets (2)');
+    expect(calls).toEqual([{ cmd: 'make_picture_folder', args: { dir: 'C:/P', name: 'X — sheets' } }]);
+  });
+
   it('save_picture_failure_is_a_plain_api_error', async () => {
     reply = () => {
       throw { code: 'io', message: 'Could not save the picture: the disk is full. Choose another place and try again.' };

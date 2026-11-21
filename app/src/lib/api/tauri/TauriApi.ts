@@ -262,6 +262,9 @@ export class TauriApi implements Api {
   exportGedcom(opts: ExportOptions, dest: string, previewToken: string): Promise<{ bytes: number }> {
     return call('export_gedcom', { opts, dest, previewToken });
   }
+  makePictureFolder(dir: string, name: string): Promise<string> {
+    return call('make_picture_folder', { dir, name });
+  }
   async savePicture(dest: string, bytes: Uint8Array): Promise<{ bytes: number }> {
     // The picture travels as the raw request body; the path goes in a header as base64 of its UTF-8 text.
     const path = btoa(String.fromCharCode(...new TextEncoder().encode(dest)));

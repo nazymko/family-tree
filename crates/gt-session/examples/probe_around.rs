@@ -31,6 +31,7 @@ fn main() {
             roots: Some(ids.clone()),
             direction: None,
             print: None,
+            fold: None,
         })
         .expect("open the chart");
     println!(

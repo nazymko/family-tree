@@ -566,7 +566,7 @@ fn several_chosen_people_get_the_siblings_of_a_family_without_partners() {
     let s = parentless();
     for chosen in [[1, 7], [7, 1], [7, 8], [8, 7]] {
         for kin in [ManyKin::Siblings, ManyKin::All] {
-            let l = around_many_kin(&s, &chosen, ALL, kin, &Metrics::default(), 100_000);
+            let l = around_many_kin(&s, &chosen, ALL, kin, false, &Metrics::default(), 100_000);
             assert_eq!(l.nodes.iter().filter(|n| n.key == 9).count(), 1);
             assert_eq!(l.nodes.iter().filter(|n| n.key == 10).count(), 1);
             if kin == ManyKin::All && chosen.contains(&1) {

@@ -283,6 +283,7 @@ fn the_chart_of_everyone_is_not_touched_by_a_selection_chart() {
             roots: None,
             direction: None,
             print: None,
+            fold: None,
         })
         .unwrap();
     }

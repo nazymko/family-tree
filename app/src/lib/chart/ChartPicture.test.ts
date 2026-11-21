@@ -1,9 +1,18 @@
+import fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { makeFakeContext } from '../../test-setup';
 import { MockApi } from '../api/mock/MockApi';
 import { MockPlatform } from '../api/mock/MockPlatform';
-import type { ChartKind, ChartNode } from '../api/types';
+import type { ChartEdge, ChartKind, ChartNode } from '../api/types';
+import { setLanguage } from '../i18n';
+import type { PrintLayout } from './sheets';
+import { bigAround, capturePrints, servePrintCharts } from './testing/syntheticAround';
+import { draw, type Theme } from './renderer';
+import { SvgContext } from './svgContext';
+import { sceneBounds, type Scene } from './picture';
+import { screenFrames, splitSheets } from './sheets';
+import { layoutA3 } from './a3';
 import { notices } from '../ui/notices.svelte';
 import ChartCanvas from './ChartCanvas.svelte';
 import WholeCanvas from './WholeCanvas.svelte';
@@ -256,6 +265,32 @@ describe('picture menu on a chart', () => {
     expect(closeSpy.mock.calls.length).toBe(1);
   });
 
+  it('a_print_under_compact_asks_for_a_folded_layout_and_under_as_today_does_not', async () => {
+    stubOffscreen();
+    for (const [layout, fold] of [['compact', true], ['today', undefined]] as const) {
+      const raf = fakeRaf();
+      const { api, fx } = makeApi();
+      const root = await richestRoot(api, fx, 'around');
+      const openSpy = vi.spyOn(api, 'chartOpen');
+      const saveSpy = vi.spyOn(api, 'savePicture');
+      const { unmount } = render(Host, { props: { api, view: ChartCanvas, props: { kind: 'around', root, generations: 6, printLayout: layout, onRecentre: vi.fn(), onOpenPerson: vi.fn() }, platform: new MockPlatform() } });
+      const canvas = screen.getByRole('application') as HTMLCanvasElement;
+      attachContext(canvas);
+      canvas.getBoundingClientRect = () => RECT;
+      await waitFor(() => expect(openSpy).toHaveBeenCalled());
+      await new Promise((r) => setTimeout(r, 0));
+      raf.pump(2);
+      const before = openSpy.mock.calls.length;
+      await rightClick(canvas);
+      await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
+      await waitFor(() => expect(saveSpy).toHaveBeenCalled(), A3_WAIT);
+      const probes = openSpy.mock.calls.slice(before).map((c) => c[0]);
+      expect(probes.length).toBeGreaterThan(0);
+      expect(probes.every((r) => r.print === true && r.fold === fold)).toBe(true);
+      unmount();
+    }
+  });
+
   it('an_a3_save_lays_out_print_charts_only_and_closes_them_without_touching_the_open_chart', async () => {
     stubOffscreen();
     a3Direction.set('best');
@@ -426,6 +461,79 @@ describe('picture menu on a chart', () => {
   });
 });
 
+describe('A3 print layouts on the around chart', () => {
+  async function renderAround(layout: PrintLayout, synthetic: boolean) {
+    const raf = fakeRaf();
+    const { api, fx } = makeApi();
+    const root = await richestRoot(api, fx, 'around');
+    const openSpy = vi.spyOn(api, 'chartOpen');
+    const saveSpy = vi.spyOn(api, 'savePicture');
+    const platform = new MockPlatform();
+    // Print charts get the synthetic chart; the chart on screen stays the mock's.
+    if (synthetic) servePrintCharts(api, openSpy, bigAround());
+    render(Host, { props: { api, view: ChartCanvas, props: { kind: 'around', root, generations: 6, printLayout: layout, onRecentre: vi.fn(), onOpenPerson: vi.fn() }, platform } });
+    const canvas = screen.getByRole('application') as HTMLCanvasElement;
+    attachContext(canvas);
+    canvas.getBoundingClientRect = () => RECT;
+    await waitFor(() => expect(openSpy).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    raf.pump(2);
+    return { api, platform, canvas, openSpy, saveSpy };
+  }
+
+  /** The text of every page of a print document, in order. */
+  const pages = (html: string) =>
+    html
+      .split('<div class="sheet')
+      .slice(1)
+      .map((b) => [...b.matchAll(/>([^<]+)<\/text>/g)].map((m) => m[1]).join(' | '));
+
+  it('sheets_print_as_one_document_with_a_page_per_sheet', async () => {
+    stubOffscreen();
+    const printed = capturePrints();
+    const s = await renderAround('sheets', true);
+    await rightClick(s.canvas);
+    const item = within(menu()).getByRole('menuitem', { name: /^Print on A3/ });
+    // The sheets are titled in the language of the moment of printing.
+    setLanguage('uk');
+    await fireEvent.click(item);
+    await waitFor(() => expect(printed).toHaveLength(1), A3_WAIT);
+    // The print chart was folded, as for "compact".
+    expect(s.openSpy.mock.calls.filter((c) => c[0].print).every((c) => c[0].fold === true)).toBe(true);
+    const html = printed[0];
+    const texts = pages(html);
+    const m = texts.length;
+    // The cover and one sheet per grandparent line.
+    expect(m).toBe(5);
+    // One picture per page (each SVG nests its chart area in an inner one).
+    expect(html.match(/<svg xmlns=/g)).toHaveLength(m);
+    expect(html.match(/break-after:page/g)).toHaveLength(m - 1);
+    expect(texts[0]).not.toContain('Гілка:');
+    texts.slice(1).forEach((text, i) => {
+      expect(text).toContain(`аркуш ${i + 2} з ${m}`);
+      expect(text).toContain('→ арк. 1');
+    });
+    expect(texts.slice(1).map((t) => /Гілка: (\S+)/.exec(t)?.[1])).toEqual(['Bondar', 'Hrytsenko', 'Melnyk', 'Tkach']);
+  }, 30000);
+
+  it('sheets_save_one_file_per_sheet_after_one_question', async () => {
+    stubOffscreen();
+    const s = await renderAround('sheets', true);
+    s.platform.next.save = 'C:/Mock/Around.svg';
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
+    await waitFor(() => expect(s.saveSpy.mock.calls.length).toBe(5), A3_WAIT);
+    expect(s.platform.calls.filter((c) => c.method === 'pickSavePath')).toHaveLength(1);
+    // Every sheet in a new folder named after the chosen file; the folder is shown once all are written.
+    expect(s.saveSpy.mock.calls.map((c) => c[0])).toEqual([1, 2, 3, 4, 5].map((n) => `C:/Mock/Around — sheets/Around — sheet ${n}.svg`));
+    await waitFor(() => expect(s.platform.calls.filter((c) => c.method === 'reveal').map((c) => c.args[0])).toEqual(['C:/Mock/Around — sheets/Around — sheet 1.svg']));
+    const second = new TextDecoder().decode(s.saveSpy.mock.calls[1][1]);
+    expect(second).toContain('Branch: Bondar');
+    expect(second).toContain('Sheet 2 of 5');
+    expect(second).toContain('→ sheet 1');
+  }, 30000);
+});
+
 describe('picture menu on the whole tree', () => {
   async function setupWhole() {
     const mm = window.matchMedia;
@@ -504,4 +612,114 @@ describe('picture menu on the whole tree', () => {
     expect(boxes(branch.ctx)).toBeLessThan(wholeBoxes);
     expect(branch.ctx.calls.some((c) => c.op === 'fillText' && /family \(\d+ people\)/.test(String(c.args[0])))).toBe(false);
   });
+});
+
+/**
+ * Screenshots of the three layouts of the around chart, from a SYNTHETIC tree (invented names, about 280 people) laid out
+ * by the real engine. First write the layouts (keys only), then draw them:
+ *   SHOTS_DIR=<folder> cargo test -p gt-layout --test fold_shots -- --ignored   (writes <folder>/fold-*.json)
+ *   SHOTS_DIR=<folder> npx vitest run src/lib/chart/ChartPicture.test.ts -t "print layout screenshots"
+ * Writes screen-today / screen-compact / screen-sheets (whole, and a readable crop in light and dark) .svg and the first
+ * sheets as printed (print-sheet-N.svg).
+ */
+describe.skipIf(!process.env.SHOTS_DIR)('print layout screenshots', () => {
+  const GIVEN = ['Orest', 'Bohdana', 'Taras', 'Oksana', 'Lev', 'Halyna', 'Yaroslav', 'Mariika', 'Stepan', 'Daryna', 'Ihor', 'Zoriana'];
+  const SUR = ['Bondar', 'Hrytsenko', 'Melnyk', 'Tkach'];
+
+  /** The line a key belongs to (the fixture of `fold_shots.rs`: Ahnentafel keys, and 1000 + n * 100 + i for the brothers and sisters of n). */
+  const surname = (key: number): string => {
+    const k = key >= 1000 ? Math.floor((key - 1000) / 100) : key;
+    if (k < 4) return 'Testenko';
+    return SUR[(k >> (Math.floor(Math.log2(k)) - 2)) - 4];
+  };
+
+  /** A layout written by `fold_shots.rs`, with invented names. */
+  function loaded(name: string): ReturnType<typeof bigAround> {
+    const raw = JSON.parse(fs.readFileSync(`${process.env.SHOTS_DIR}/${name}.json`, 'utf8')) as {
+      root: number;
+      nodes: { id: number; key: number; x: number; y: number; w: number; h: number; gen: number; dupOf: number | null }[];
+      edges: { from: number; to: number; kind: ChartEdge['kind']; pts: number[] }[];
+    };
+    const nav = { parent: null, child: null, prev: null, next: null };
+    const nodes: ChartNode[] = raw.nodes.map((n) => {
+      const label = `${GIVEN[(n.key * 7) % GIVEN.length]} ${surname(n.key)}`;
+      const born = 2000 + n.gen * 30 + (n.key % 9);
+      return { id: n.id, person: { id: `shot-${n.key}`, name: label, lifespan: `${born} – ${born + 60}`, sex: n.key % 2 ? 'female' : 'male', living: false, private: false, siblingMarker: false }, x: n.x, y: n.y, w: n.w, h: n.h, gen: n.gen, ahnen: null, dupOf: n.dupOf, moreUp: false, moreDown: false, nav, label };
+    });
+    return { nodes, edges: raw.edges, root: raw.root };
+  }
+
+  const light: Theme = { paper: '#FBFBF8', rule: '#C6CABF', ink: '#1B2230', ink2: '#5A6272', ribbon: '#9B2C3F', wash: '#F1DDE0', font: 'system-ui, sans-serif', serif: 'Georgia, serif' };
+  const dark: Theme = { ...light, paper: '#1A1F28', rule: '#2C3340', ink: '#E3E5DD', ink2: '#8A91A0', ribbon: '#E58A98', wash: '#3A1F26' };
+
+  type Frame = ReturnType<typeof screenFrames>[number];
+  const asScene = (c: ReturnType<typeof bigAround>): Scene => ({ nodes: c.nodes, edges: c.edges });
+
+  /** Draws `scene` (or the part `crop` of it) at `scale` into an SVG file. */
+  function shot(scene: Scene, frames: Frame[], file: string, root: number, opts: { th?: Theme; crop?: { x: number; y: number; w: number; h: number }; scale?: number } = {}): void {
+    const th = opts.th ?? light;
+    const b = opts.crop ?? sceneBounds(scene);
+    // Whole charts at most 4,000 px wide.
+    const scale = opts.scale ?? Math.min(0.5, 4000 / b.w);
+    const pad = 40;
+    const w = Math.ceil(b.w * scale + 2 * pad);
+    const h = Math.ceil(b.h * scale + 2 * pad);
+    const ctx = new SvgContext(w, h);
+    draw(ctx as unknown as CanvasRenderingContext2D, scene, { x: b.x - pad / scale, y: b.y - pad / scale, zoom: scale }, { w, h, dpr: 1 }, {
+      selected: null,
+      focus: root,
+      theme: th,
+      kind: 'around',
+      handles: false,
+      lod: 'full',
+      sheetFrames: frames.map((f) => ({ ...f, label: `sheet ${f.no}` })),
+    });
+    fs.writeFileSync(`${process.env.SHOTS_DIR}/${file}`, ctx.toSvg(th.paper, { w, h }));
+  }
+
+  it('screens_as_today_compact_and_sheets', () => {
+    const today = loaded('fold-off');
+    const compact = loaded('fold-on');
+    const print = loaded('fold-print');
+    expect(compact.nodes.length).toBeGreaterThan(240);
+    // Compact folds: the chart on screen is narrower than as today.
+    expect(sceneBounds(asScene(compact)).w).toBeLessThan(sceneBounds(asScene(today)).w * 0.9);
+    shot(asScene(today), [], 'screen-today.svg', today.root);
+    shot(asScene(compact), [], 'screen-compact.svg', compact.root);
+    // The frames: the print chart cut as the print cuts it, framed around the same people on screen.
+    const sheets = splitSheets(asScene(print), [print.root], { fits: (sc) => !layoutA3(sceneBounds(sc), 'auto', true).tooSmall });
+    expect(sheets.length).toBeGreaterThan(1);
+    const frames = screenFrames(asScene(print), sheets, asScene(compact));
+    shot(asScene(compact), frames, 'screen-sheets.svg', compact.root);
+    // A readable part: 2,400 px of the chart from just left of the second line sheet's frame (its label in view) on.
+    const [, b] = [...frames].sort((p, q) => p.x - q.x);
+    const all = sceneBounds(asScene(compact));
+    const crop = { x: b.x - 600, y: all.y - 40, w: 2400, h: all.h + 80 };
+    shot(asScene(compact), frames, 'screen-sheets-crop.svg', compact.root, { crop, scale: 0.8 });
+    shot(asScene(compact), frames, 'screen-sheets-crop-dark.svg', compact.root, { crop, scale: 0.8, th: dark });
+  });
+
+  it('prints_two_sheets', async () => {
+    stubOffscreen();
+    const raf = fakeRaf();
+    const { api, fx } = makeApi();
+    const root = await richestRoot(api, fx, 'around');
+    const openSpy = vi.spyOn(api, 'chartOpen');
+    const saveSpy = vi.spyOn(api, 'savePicture');
+    const platform = new MockPlatform();
+    servePrintCharts(api, openSpy, loaded('fold-print'), loaded('fold-on'));
+    render(Host, { props: { api, view: ChartCanvas, props: { kind: 'around', root, generations: 6, printLayout: 'sheets', onRecentre: vi.fn(), onOpenPerson: vi.fn() }, platform } });
+    const canvas = screen.getByRole('application') as HTMLCanvasElement;
+    attachContext(canvas);
+    canvas.getBoundingClientRect = () => RECT;
+    await waitFor(() => expect(openSpy).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    raf.pump(2);
+    platform.next.save = `${process.env.SHOTS_DIR}/print.svg`;
+    await rightClick(canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
+    await waitFor(() => expect(saveSpy.mock.calls.length).toBeGreaterThan(1), A3_WAIT);
+    await new Promise((r) => setTimeout(r, 500));
+    saveSpy.mock.calls.slice(0, 3).forEach((c, i) => fs.writeFileSync(`${process.env.SHOTS_DIR}/print-sheet-${i + 1}.svg`, c[1]));
+  }, 60000);
 });

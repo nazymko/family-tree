@@ -52,6 +52,44 @@ export interface DrawOpts {
   compact?: boolean;
   /** Compact cards: the smallest size (px) a name line is shrunk to before it wraps (see `nameFloorPx`). */
   nameMinPx?: number;
+  /** "Sheets" layout on screen: where each printed A3 sheet falls, drawn as a thin dashed frame with its label, under the cards. */
+  sheetFrames?: readonly SheetFrame[];
+}
+
+/** One printed sheet's frame on the screen chart (world coordinates, before the margin). */
+export interface SheetFrame {
+  no: number;
+  /** «арк. N»: already in the interface language. */
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Room (world px) between a sheet's nodes and its frame. */
+export const SHEET_FRAME_MARGIN = 12;
+
+function drawSheetFrames(ctx: CanvasRenderingContext2D, frames: readonly SheetFrame[], theme: Theme, z: number): void {
+  const m = SHEET_FRAME_MARGIN;
+  // The frames' dash, font and text anchors stay theirs: what is drawn next starts from the state before them.
+  ctx.save();
+  ctx.strokeStyle = theme.ink2;
+  ctx.fillStyle = theme.ink2;
+  ctx.lineWidth = 1 / z;
+  ctx.setLineDash([8 / z, 5 / z]);
+  for (const f of frames) {
+    ctx.beginPath();
+    ctx.rect(f.x - m, f.y - m, f.w + 2 * m, f.h + 2 * m);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  const px = Math.max(12, 14 / z);
+  ctx.font = `${px}px ${theme.font}`;
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  for (const f of frames) ctx.fillText(f.label, f.x - m + px * 0.4, f.y - m + px * 1.2);
+  ctx.restore();
 }
 
 /** The check-mark badge and frame of the boxes marked with Shift+click. */
@@ -350,6 +388,8 @@ export function draw(
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   ctx.clearRect(0, 0, view.w, view.h);
   ctx.setTransform(view.dpr * z, 0, 0, view.dpr * z, -cam.x * view.dpr * z, -cam.y * view.dpr * z);
+
+  if (opts.sheetFrames?.length) drawSheetFrames(ctx, opts.sheetFrames, theme, z);
 
   // Edges first, one path per kind.
   const parent: ChartEdge[] = [];

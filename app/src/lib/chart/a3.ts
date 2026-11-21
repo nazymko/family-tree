@@ -484,6 +484,29 @@ export function printDocument(svg: string, orientation: A3Orientation, fontCss =
 }
 
 /**
+ * The HTML the print dialog gets for a set of A3 sheets: one page per SVG, each on paper of its own orientation (the
+ * named pages `land` and `port`), a page break after every sheet but the last. `fontCss` as for `printDocument`.
+ */
+export function printDocumentPages(pages: { svg: string; orientation: A3Orientation }[], fontCss = ''): string {
+  const blocks = pages.map((p, i) => {
+    const body = p.svg.replace(/^<\?xml[^>]*\?>\s*/, '');
+    const land = p.orientation === 'landscape';
+    const size = land ? `width:${A3_LONG_MM}mm;height:${A3_SHORT_MM}mm` : `width:${A3_SHORT_MM}mm;height:${A3_LONG_MM}mm`;
+    const brk = i < pages.length - 1 ? ';break-after:page;page-break-after:always' : '';
+    return `<div class="sheet" style="page:${land ? 'land' : 'port'};${size};overflow:hidden${brk}">${body}</div>`;
+  });
+  return (
+    `<!doctype html><html><head><meta charset="utf-8"><style>` +
+    (fontCss ? `${fontCss.replaceAll('</', '<\\/')}\n` : '') +
+    `@page land{size:A3 landscape;margin:0}` +
+    `@page port{size:A3 portrait;margin:0}` +
+    `html,body{margin:0;padding:0}` +
+    `svg{display:block}` +
+    `</style></head><body>${blocks.join('')}</body></html>`
+  );
+}
+
+/**
  * Prints an HTML document through a hidden frame (the system print dialog; "Microsoft Print to PDF" makes a PDF).
  * Resolves when the print call has returned; rejects when the frame does not load within `loadMs`. The frame is removed
  * after the print finished (`afterprint`), or after `cleanupMs` when the webview never says so: never while the dialog is open.

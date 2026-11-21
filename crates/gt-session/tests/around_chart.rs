@@ -51,6 +51,7 @@ fn request(s: &Session, given: &str, generations: u32) -> ChartRequest {
         roots: None,
         direction: None,
         print: None,
+        fold: None,
     }
 }
 
@@ -322,4 +323,203 @@ fn print_charts_are_capped_and_the_oldest_goes() {
     assert!(s.chart_window(ids[0], &everything(), 1.0).is_err());
     assert!(s.chart_window(ids[1], &everything(), 1.0).is_err());
     assert!(s.chart_window(ids[7], &everything(), 1.0).is_ok());
+}
+
+/// Parent Pavlo Hnat with eighteen childless children (Child01 .. Child18), no partner.
+fn wide_family() -> String {
+    let mut g = String::from("0 @I1@ INDI\n1 NAME Pavlo /Hnat/\n1 SEX M\n1 FAMS @F1@\n");
+    let mut fam = String::from("0 @F1@ FAM\n1 HUSB @I1@\n");
+    for i in 1..=18 {
+        g.push_str(&format!(
+            "0 @I{}@ INDI\n1 NAME Child{i:02} /Hnat/\n1 SEX M\n1 FAMC @F1@\n",
+            i + 1
+        ));
+        fam.push_str(&format!("1 CHIL @I{}@\n", i + 1));
+    }
+    g + &fam
+}
+
+fn child_rows(s: &Session, m: &ChartMeta) -> Vec<i64> {
+    let mut ys: Vec<i64> = shown(s, m)
+        .into_iter()
+        .filter(|(n, _)| n.starts_with("Child"))
+        .map(|(_, y)| y.round() as i64)
+        .collect();
+    ys.sort_unstable();
+    ys.dedup();
+    ys
+}
+
+/// Nothing to fold (no run of six) and nothing opened: `fold: true` is exactly the chart without it, for every kin
+/// and for one person as well as several.
+#[test]
+fn fold_on_with_nothing_to_fold_equals_fold_absent() {
+    // Koval, plus half-brothers (Petro's second family) and a family with children but no parents.
+    let gedcom = format!(
+        "{KOVAL}0 @I20@ INDI
+1 NAME Ruslan /Koval/
+1 SEX M
+1 FAMC @F7@
+1 FAMS @F8@
+0 @I21@ INDI
+1 NAME Iryna /Koval/
+1 SEX F
+1 FAMS @F7@
+0 @I22@ INDI
+1 NAME Lesia /Koval/
+1 SEX F
+1 FAMC @F8@
+0 @I23@ INDI
+1 NAME Orphan /Koval/
+1 SEX M
+1 FAMC @F9@
+0 @F7@ FAM
+1 HUSB @I7@
+1 WIFE @I21@
+1 CHIL @I20@
+0 @F8@ FAM
+1 HUSB @I20@
+1 CHIL @I22@
+0 @F9@ FAM
+1 CHIL @I23@
+1 CHIL @I12@
+"
+    );
+    let (_d, mut s) = open_tree(&tree_of(&gedcom));
+    for kin in [AroundKin::Line, AroundKin::Siblings, AroundKin::All] {
+        for who in [
+            vec!["Ivan Petrovych"],
+            vec!["Ivan Petrovych", "Maria"],
+            vec!["Hryhorii"],
+            vec!["Ruslan"],
+            vec!["Taras"],
+        ] {
+            let mut req = request(&s, who[0], 255);
+            req.kin = Some(kin);
+            if who.len() > 1 {
+                req.roots = Some(who.iter().map(|g| find(s.tree(), g)).collect());
+            }
+            let base = s.chart_open(&req).unwrap();
+            req.fold = Some(true);
+            let on = s.chart_open(&req).unwrap();
+            let ctx = format!("{kin:?} {who:?}");
+            assert_eq!(base.bounds, on.bounds, "bounds {ctx}");
+            assert_eq!(base.node_count, on.node_count, "count {ctx}");
+            let wb = s.chart_window(base.chart_id, &everything(), 1.0).unwrap();
+            let wo = s.chart_window(on.chart_id, &everything(), 1.0).unwrap();
+            assert_eq!(wb.nodes, wo.nodes, "nodes {ctx}");
+            assert_eq!(wb.edges, wo.edges, "edges {ctx}");
+        }
+    }
+}
+
+#[test]
+fn fold_true_reaches_layout() {
+    let (_d, mut s) = open_tree(&tree_of(&wide_family()));
+    let mut req = request(&s, "Pavlo", 255);
+    req.fold = Some(true);
+    let m = s.chart_open(&req).unwrap();
+    assert!(child_rows(&s, &m).len() >= 2, "folded: several sub-rows");
+    // The same with people chosen (several roots) takes the other layout path.
+    let mut many = req.clone();
+    many.roots = Some(vec![many.root, find(s.tree(), "Child01")]);
+    let m = s.chart_open(&many).unwrap();
+    assert!(
+        child_rows(&s, &m).len() >= 2,
+        "folded around several people"
+    );
+}
+
+/// A synthetic chart of about 300 people: Root with a partner and 60 children (30 of them with a partner and six
+/// children), and Root's own parents with twelve more childless children (the brothers and sisters).
+fn big_family() -> String {
+    let (mut indi, mut fam) = (String::new(), String::new());
+    let mut next = 1;
+    let mut person = |indi: &mut String, name: &str, famc: Option<u32>, fams: Option<u32>| {
+        let id = next;
+        next += 1;
+        indi.push_str(&format!("0 @I{id}@ INDI\n1 NAME {name} /Big/\n1 SEX M\n"));
+        if let Some(f) = famc {
+            indi.push_str(&format!("1 FAMC @F{f}@\n"));
+        }
+        if let Some(f) = fams {
+            indi.push_str(&format!("1 FAMS @F{f}@\n"));
+        }
+        id
+    };
+    let mut nf = 0;
+    let mut family = |fam: &mut String, h: u32, w: Option<u32>, kids: &[u32]| {
+        nf += 1;
+        fam.push_str(&format!("0 @F{nf}@ FAM\n1 HUSB @I{h}@\n"));
+        if let Some(w) = w {
+            fam.push_str(&format!("1 WIFE @I{w}@\n"));
+        }
+        for k in kids {
+            fam.push_str(&format!("1 CHIL @I{k}@\n"));
+        }
+    };
+    // Families are numbered in creation order: F1 = the parents', F2 = Root's own, then one per married child.
+    let dad = person(&mut indi, "Dad", None, Some(1));
+    let mom = person(&mut indi, "Mom", None, Some(1));
+    let root = person(&mut indi, "Root", Some(1), Some(2));
+    let sibs: Vec<u32> = (0..12)
+        .map(|i| person(&mut indi, &format!("Sib{i:02}"), Some(1), None))
+        .collect();
+    let mut first = vec![root];
+    first.extend(sibs);
+    family(&mut fam, dad, Some(mom), &first);
+    let wife = person(&mut indi, "Wife", None, Some(2));
+    let mut kids = Vec::new();
+    let mut later = Vec::new();
+    for i in 0..60 {
+        let married = i < 30;
+        let f = 3 + i;
+        let c = person(
+            &mut indi,
+            &format!("Kid{i:02}"),
+            Some(2),
+            married.then_some(f),
+        );
+        kids.push(c);
+        if married {
+            later.push(c);
+        }
+    }
+    family(&mut fam, root, Some(wife), &kids);
+    for (i, c) in later.into_iter().enumerate() {
+        let spouse = person(&mut indi, &format!("In{i:02}"), None, Some(3 + i as u32));
+        let gk: Vec<u32> = (0..6)
+            .map(|j| {
+                person(
+                    &mut indi,
+                    &format!("Gk{i:02}x{j}"),
+                    Some(3 + i as u32),
+                    None,
+                )
+            })
+            .collect();
+        family(&mut fam, c, Some(spouse), &gk);
+    }
+    indi + &fam
+}
+
+#[test]
+fn fold_on_a_chart_of_about_300_people_lays_out_in_time() {
+    let (_d, mut s) = open_tree(&tree_of(&big_family()));
+    let mut req = request(&s, "Root", 255);
+    req.kin = Some(AroundKin::All);
+    let t = std::time::Instant::now();
+    let off = s.chart_open(&req).unwrap();
+    let t_off = t.elapsed();
+    req.fold = Some(true);
+    let t = std::time::Instant::now();
+    let on = s.chart_open(&req).unwrap();
+    let t_on = t.elapsed();
+    eprintln!(
+        "TIMING people={} fold off {t_off:?}, fold on {t_on:?}",
+        on.person_count
+    );
+    assert!(on.person_count >= 250, "a big chart: {}", on.person_count);
+    assert_eq!(on.person_count, off.person_count);
+    assert!(t_on.as_secs() < 20, "folding stays fast: {t_on:?}");
 }

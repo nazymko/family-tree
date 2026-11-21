@@ -121,6 +121,7 @@ command_list!(
     preview_export,
     export_gedcom,
     save_picture,
+    make_picture_folder,
     get_settings,
     set_settings,
     agent_access_state,
@@ -1130,6 +1131,66 @@ pub fn save_picture(request: tauri::ipc::Request<'_>) -> ApiResult<BytesWritten>
         .and_then(|b| String::from_utf8(b).ok())
         .unwrap_or_default();
     save_picture_impl(&path, bytes)
+}
+
+/// Makes a NEW folder `name` in `dir` for a set of chart pictures (the A3 sheets of one chart) and returns its path.
+/// When `name` is taken (by a folder or a file) it tries `name (2)`, `name (3)` and so on: the folder is always new, so
+/// nothing already on the disk is written into or replaced.
+pub fn make_picture_folder_impl(dir: &str, name: &str) -> ApiResult<String> {
+    let invalid = |m: &str| ApiError::new(ErrorCode::Invalid, m);
+    let name = name.trim();
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+    {
+        return Err(invalid(
+            "There is no folder name for the sheets. Choose a file name and try again.",
+        ));
+    }
+    // Characters Windows refuses in a name (and the separators, so the folder cannot leave `dir`) become "_"; so does a
+    // trailing dot or space, which Windows drops silently.
+    let mut name: String = name
+        .chars()
+        .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
+        .collect();
+    if name.ends_with(['.', ' ']) {
+        name.pop();
+        name.push('_');
+    }
+    let name = name.as_str();
+    let parent = Path::new(dir);
+    if dir.trim().is_empty() || !parent.is_dir() {
+        return Err(invalid(
+            "That folder does not exist. Choose another folder and try again.",
+        ));
+    }
+    for n in 1..=999u32 {
+        let candidate = if n == 1 {
+            parent.join(name)
+        } else {
+            parent.join(format!("{name} ({n})"))
+        };
+        match std::fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate.to_string_lossy().into_owned()),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                return Err(ApiError::new(
+                    ErrorCode::Io,
+                    format!("Could not make a folder for the sheets: {e}. Choose another place and try again."),
+                ));
+            }
+        }
+    }
+    Err(ApiError::new(
+        ErrorCode::Io,
+        "Could not make a folder for the sheets: too many folders of that name. Choose another name and try again.",
+    ))
+}
+
+/// Makes a new folder for a set of chart pictures (see `make_picture_folder_impl`).
+#[tauri::command]
+pub fn make_picture_folder(dir: String, name: String) -> ApiResult<String> {
+    make_picture_folder_impl(&dir, &name)
 }
 
 // ------------------------------------------------------------ settings

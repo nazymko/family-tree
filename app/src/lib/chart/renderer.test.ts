@@ -37,6 +37,34 @@ describe('renderer', () => {
 
   const win: ChartWindow = { nodes: [node(0), node(1), node(2)], edges: [] };
 
+  it('draws_a_dashed_frame_and_a_label_per_sheet_under_the_cards_and_nothing_without_them', () => {
+    const base = makeFakeContext();
+    draw(base, win, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });
+    const none = makeFakeContext();
+    draw(none, win, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme, sheetFrames: [] });
+    expect(none.calls).toEqual(base.calls);
+
+    const sheetFrames = [1, 2, 3].map((no) => ({ no, label: `sheet ${no}`, x: no * 100, y: 10, w: 90, h: 50 }));
+    const ctx = makeFakeContext();
+    draw(ctx, win, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme, sheetFrames });
+    const rects = ops(ctx, 'rect').filter((c) => c.args[2] === 90 + 2 * 12 && c.args[3] === 50 + 2 * 12);
+    expect(rects).toHaveLength(3);
+    expect(ops(ctx, 'setLineDash').some((c) => (c.args[0] as number[]).length === 2)).toBe(true);
+    const texts = ops(ctx, 'fillText').map((c) => c.args[0]);
+    expect(texts).toEqual(expect.arrayContaining(['sheet 1', 'sheet 2', 'sheet 3']));
+    // Under the cards: the first frame is stroked before the first card name is written.
+    const firstRect = ctx.calls.findIndex((c) => c.op === 'rect');
+    const firstName = ctx.calls.findIndex((c) => c.op === 'fillText' && String(c.args[0]).startsWith('Person'));
+    expect(firstRect).toBeLessThan(firstName);
+    // The frames' drawing state is their own: saved before them and given back after.
+    const save = ctx.calls.findIndex((c) => c.op === 'save');
+    const restore = ctx.calls.findIndex((c) => c.op === 'restore');
+    expect(save).toBeGreaterThanOrEqual(0);
+    expect(save).toBeLessThan(firstRect);
+    expect(restore).toBeGreaterThan(ctx.calls.findIndex((c) => c.op === 'fillText' && c.args[0] === 'sheet 3'));
+    expect(restore).toBeLessThan(firstName);
+  });
+
   it('draws_text_when_full', () => {
     const ctx = makeFakeContext();
     draw(ctx, win, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });

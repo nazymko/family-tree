@@ -1861,6 +1861,27 @@ export class MockApi implements Api {
     return { bytes: 2_000 + this.db.persons.size * 140 };
   }
 
+  /** Paths taken before anything is made (tests set it); folders made by `makePictureFolder` are added. */
+  existingPaths = new Set<string>();
+  /** Folders made by `makePictureFolder`, in order. */
+  madeFolders: string[] = [];
+
+  async makePictureFolder(dir: string, name: string): Promise<string> {
+    const clean = name.trim();
+    if (!clean || clean === '.' || clean === '..' || /[\\/]/.test(clean)) throw invalid('There is no folder name for the sheets. Choose a file name and try again.');
+    if (!dir.trim()) throw invalid('That folder does not exist. Choose another folder and try again.');
+    const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : '/';
+    const base = dir.replace(/[\\/]+$/, '');
+    for (let n = 1; n < 1000; n++) {
+      const path = `${base}${sep}${n === 1 ? clean : `${clean} (${n})`}`;
+      if (this.existingPaths.has(path)) continue;
+      this.existingPaths.add(path);
+      this.madeFolders.push(path);
+      return path;
+    }
+    throw new MockApiError('io', 'Could not make a folder for the sheets: too many folders of that name. Choose another name and try again.');
+  }
+
   /** Pictures "saved" by `savePicture`, newest last (the mock writes no file). */
   savedPictures: { dest: string; bytes: Uint8Array }[] = [];
 

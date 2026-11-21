@@ -76,6 +76,33 @@ describe('SvgContext', () => {
     const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
     expect(doc.getElementsByTagName('parsererror')).toHaveLength(0);
   });
+
+  it('restore_gives_back_the_styles_font_anchors_dash_and_transform_that_save_kept', () => {
+    const c = new SvgContext(100, 100, () => 10);
+    c.font = '12px serif';
+    c.textAlign = 'center';
+    c.strokeStyle = '#123456';
+    c.setTransform(2, 0, 0, 2, 5, 5);
+    c.save();
+    c.font = '20px sans-serif';
+    c.textAlign = 'left';
+    c.strokeStyle = '#abcdef';
+    c.setLineDash([4, 2]);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.restore();
+    expect([c.font, c.textAlign, c.strokeStyle]).toEqual(['12px serif', 'center', '#123456']);
+    c.beginPath();
+    c.moveTo(0, 0);
+    c.lineTo(10, 0);
+    c.stroke();
+    const svg = c.toSvg(null, { w: 100, h: 100 });
+    // The kept transform, and no dash.
+    expect(svg).toContain('matrix(2');
+    expect(svg).not.toContain('stroke-dasharray');
+    // A restore with nothing saved changes nothing.
+    c.restore();
+    expect(c.font).toBe('12px serif');
+  });
 });
 
 describe('helpers', () => {
