@@ -19,9 +19,12 @@ export interface Sheet {
   top: number | null;
   /** Nodes shown in full. */
   ids: Set<number>;
-  /** Node id -> sheet number: drawn as a reference mark ("-> sheet N") on this sheet. */
+  /** Node id -> sheet number, never this sheet's own: drawn as a reference mark ("-> sheet N") on this sheet. */
   refs: Map<number, number>;
-  /** The sub-scene: the `ids` and `refs` nodes and the edges between them, compacted with `compactX`. */
+  /**
+   * The sub-scene: the `ids` and `refs` nodes, repeated boxes (`dupOf`) whose first occurrence is on this sheet (in
+   * neither set: drawn as ordinary repeats), and the edges between them, compacted with `compactX`.
+   */
   scene: Scene;
 }
 
@@ -47,10 +50,11 @@ interface Draft {
 }
 
 /**
- * Cuts `scene` into sheets around `centres` (the root and any chosen people). The cover holds the centred people,
- * their parents and grandparents and everything hanging from those, and the centred people's descendants; each
- * grandparent with ancestors gets a sheet of their ancestors and everything hanging from them, split again one
- * generation further up while it does not `fits`. Numbered cover first, then depth-first, father's side first.
+ * Cuts `scene` into sheets around `centres` (the root and any chosen people, not necessarily in one row). The cover
+ * holds each centred person, their parents and grandparents and everything hanging from those, and the centred
+ * people's descendants; each grandparent with ancestors gets a sheet of their ancestors and everything hanging from
+ * them, split again one generation further up while it does not `fits` (a split sheet left with fewer than
+ * `minPeople` people merges into the sheet below when that still fits). Numbered cover first, then depth-first, father's side first.
  */
 export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions = {}): Sheet[] {
   const minPeople = opts.minPeople ?? SHEET_MIN_PEOPLE;
@@ -91,12 +95,30 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
     for (let i = next.length - 1; i >= 0; i--) stack.push(next[i]);
   }
   const lineage = [...rank.keys()];
-  const gen = (id: number) => byId.get(id)!.gen;
+  // Generation distance of a lineage node: the fewest parent steps from any centre (a repeated box and its first
+  // occurrence count as one). Centres need not share a row, so this, not `gen`, decides the cover.
+  const depth = new Map<number, number>();
+  let level = [...new Set(centres.filter((id) => byId.has(id)))];
+  for (let d = 0; level.length; d++) {
+    const next: number[] = [];
+    for (let i = 0; i < level.length; i++) {
+      const id = level[i];
+      if (depth.has(id)) continue;
+      depth.set(id, d);
+      const o = byId.get(id)!.dupOf;
+      if (o !== null && byId.has(o) && !depth.has(o)) level.push(o);
+      for (const p of parents(id)) if (!depth.has(p)) next.push(p);
+    }
+    level = next;
+  }
+  const dist = (id: number) => depth.get(id) ?? 0;
 
   // Which lineage node everyone hangs from: a multi-source search over parent, partner and sibling links that never
   // steps onto another lineage node. A lineage person's brothers and sisters are linked to them as well (with their
   // parents drawn the scene joins them only through the parents), so they hang from that person, not from the
-  // parents. Ties: the source nearer the centred generation, then the father's side.
+  // parents. Ties: the source with the smaller generation distance (`dist`: parent steps from the nearest centre, so
+  // a sibling reached both from an ancestor and from that ancestor's parents hangs from the ancestor), then the father's
+  // side (the lower depth-first rank).
   const adj = new Map<number, number[]>();
   const link = (a: number, b: number) => {
     push(adj, a, b);
@@ -109,9 +131,9 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
   for (const l of lineage)
     for (const p of parents(l)) for (const c of childrenOf.get(p) ?? []) if (c !== l && !rank.has(c)) link(l, c);
   const better = (a: number, b: number) => {
-    const ga = Math.abs(gen(a));
-    const gb = Math.abs(gen(b));
-    return ga !== gb ? ga < gb : rank.get(a)! < rank.get(b)!;
+    const da = dist(a);
+    const db = dist(b);
+    return da !== db ? da < db : rank.get(a)! < rank.get(b)!;
   };
   const owner = new Map<number, number>(lineage.map((l) => [l, l]));
   let frontier = lineage;
@@ -150,7 +172,7 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
 
   // The cover.
   const cover = new Set<number>();
-  for (const l of lineage) if (gen(l) >= -2) for (const v of region.get(l) ?? []) cover.add(v);
+  for (const l of lineage) if (dist(l) <= 2) for (const v of region.get(l) ?? []) cover.add(v);
   const down = centres.filter((id) => byId.has(id));
   for (let i = 0; i < down.length; i++) {
     for (const c of childrenOf.get(down[i]) ?? []) {
@@ -167,6 +189,28 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
     for (const k of d.kids) collect(k, out);
     return out;
   };
+  const fullCount = (nodes: Iterable<number>): number => {
+    let full = 0;
+    for (const v of nodes) if (!isDup(v)) full++;
+    return full;
+  };
+  /**
+   * Adds the split-off sheet `k` to `kids`, the sheets cut from the sheet below (`below`, cut at `belowTop`; the cover
+   * when null). A sheet that was split further up and kept fewer than `minPeople` people in full merges into the sheet
+   * below, which then also holds its split-off sheets, when the merged sheet still fits; otherwise it stays a sheet.
+   */
+  const place = (below: Set<number>, belowTop: number | null, k: Draft, kids: Draft[]): void => {
+    if (k.kids.length && fullCount(k.nodes) < minPeople) {
+      const merged = new Set([...below, ...k.nodes]);
+      if (belowTop !== null) merged.add(belowTop);
+      if (fits(sub(merged))) {
+        for (const v of k.nodes) below.add(v);
+        kids.push(...k.kids);
+        return;
+      }
+    }
+    kids.push(k);
+  };
   /** Everyone of `pool` hanging from the ancestors of `t`. */
   const candidate = (t: number, from: Set<number>): Set<number> => {
     const nodes = new Set<number>();
@@ -176,29 +220,31 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
   /** The sheet cut at `t` from the people of `from`, split further up while it does not fit; null when too small. */
   const build = (t: number, from: Set<number>): Draft | null => {
     const nodes = candidate(t, from);
-    let full = 0;
-    for (const v of nodes) if (!isDup(v)) full++;
-    if (full < minPeople) return null;
+    if (fullCount(nodes) < minPeople) return null;
     const d: Draft = { top: t, nodes, kids: [] };
     if (!fits(sub(new Set([...nodes, t])))) {
+      const cut: Draft[] = [];
       for (const p of parents(t)) {
         if (!nodes.has(p)) continue;
         const k = build(p, nodes);
         if (!k) continue;
         for (const v of collect(k)) nodes.delete(v);
-        d.kids.push(k);
+        cut.push(k);
       }
+      // Merging is decided once every split-off sheet has left this one.
+      for (const k of cut) place(nodes, t, k, d.kids);
     }
     return d;
   };
 
-  const lines: Draft[] = [];
+  // A line sheet for every grandparent of a centre (generation distance 2) with ancestors beyond the cover.
+  const cut: Draft[] = [];
   for (const g of lineage) {
-    if (gen(g) !== -2 || !parents(g).length) continue;
+    if (dist(g) !== 2 || !parents(g).some((p) => dist(p) > 2)) continue;
     const d = build(g, pool);
     if (d) {
       for (const v of collect(d)) pool.delete(v);
-      lines.push(d);
+      cut.push(d);
     } else {
       for (const v of candidate(g, pool)) {
         cover.add(v);
@@ -208,6 +254,8 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
   }
   // Anyone not reached from the lineage stays on the cover.
   for (const v of pool) cover.add(v);
+  const lines: Draft[] = [];
+  for (const d of cut) place(cover, null, d, lines);
 
   // Number the sheets: cover, then depth-first, father's side first.
   const parts: { top: number | null; nodes: Set<number> }[] = [{ top: null, nodes: cover }];
@@ -225,12 +273,15 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
     const no = i + 1;
     const ids = new Set<number>();
     const refs = new Map<number, number>();
+    // A repeated box whose first occurrence is on this same sheet: drawn as the chart draws it, not as a mark.
+    const plain = new Set<number>();
     if (p.top !== null) refs.set(p.top, holder.get(p.top) ?? 1);
     for (const n of scene.nodes) {
       if (!p.nodes.has(n.id)) continue;
-      if (isDup(n.id)) refs.set(n.id, holder.get(n.dupOf!) ?? no);
-      else ids.add(n.id);
+      if (!isDup(n.id)) ids.add(n.id);
+      else if ((holder.get(n.dupOf!) ?? no) === no) plain.add(n.id);
+      else refs.set(n.id, holder.get(n.dupOf!)!);
     }
-    return { no, top: p.top, ids, refs, scene: sub(new Set([...ids, ...refs.keys()])) };
+    return { no, top: p.top, ids, refs, scene: sub(new Set([...ids, ...refs.keys(), ...plain])) };
   });
 }

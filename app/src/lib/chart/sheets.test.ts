@@ -167,10 +167,14 @@ describe('splitSheets', () => {
     expect(line).toBeGreaterThanOrEqual(200);
     const fits = (s: Scene) => s.nodes.length <= 40;
     const sheets = splitSheets(scene, [g.c], { fits });
-    expect(sheets.length).toBeGreaterThan(2);
+    // Cover; the great-grandfather's sheet with the two small remainders above it merged in, then the four sheets cut
+    // at gen -5 above it; the same for the great-grandmother.
+    expect(sheets.length).toBe(11);
     expectEveryoneOnce(scene, sheets);
     for (const s of sheets.slice(1)) {
       expect(fits(s.scene)).toBe(true);
+      expect(s.ids.size).toBeGreaterThanOrEqual(8);
+      expect(t.gen(s.top!)).not.toBe(-4);
       // The foot of every line sheet points to the sheet that holds that person in full.
       const top = s.top!;
       const holder = sheetOf(sheets, top)!;
@@ -178,15 +182,58 @@ describe('splitSheets', () => {
       expect(holder).toBeLessThan(s.no);
       expect(s.scene.nodes.some((n) => n.id === top)).toBe(true);
     }
-    // Split at the great-grandparents first: their own sheets follow the grandparent's sheet, father's side first.
+    // The grandparent's sheet kept only 6 people after the split, so it merged into the cover: the great-grandparents'
+    // sheets hang straight from the cover, father's side first, each followed by its own sheets (depth-first).
     const [ffF, ffM] = t.edges.filter((e) => e.kind === 'parent' && e.to === g.ff).map((e) => e.from);
+    expect(sheets.some((s) => s.top === g.ff)).toBe(false);
+    expect(sheets[1].top).toBe(ffF);
+    expect(sheets[1].refs.get(ffF)).toBe(1);
+    expect(sheets[1].ids.size).toBe(18);
+    expect(sheets[6].top).toBe(ffM);
+    expect(sheets[6].refs.get(ffM)).toBe(1);
+    expect(sheets.slice(2, 6).map((s) => [t.gen(s.top!), s.refs.get(s.top!)])).toEqual(Array(4).fill([-5, 2]));
+    expect(sheets.slice(7).map((s) => [t.gen(s.top!), s.refs.get(s.top!)])).toEqual(Array(4).fill([-5, 7]));
+    expect(sheets[0].ids.has(ffF)).toBe(true);
+  });
+
+  it('small_remainder_stays_when_merging_would_not_fit', () => {
+    const t = new Tree();
+    const g = base(t);
+    chain(t, g.ff, 6, 2);
+    // Thirty children make the cover 39 boxes: with the grandparent's 6 left-over people it would not fit.
+    for (let i = 0; i < 30; i++) t.child(g.c);
+    const scene = t.scene();
+    const fits = (s: Scene) => s.nodes.length <= 40;
+    const sheets = splitSheets(scene, [g.c], { fits });
+    expectEveryoneOnce(scene, sheets);
+    expect(sheets.length).toBe(12);
+    expect(sheets[0].ids.size).toBe(39);
     expect(sheets[1].top).toBe(g.ff);
+    expect(sheets[1].ids.size).toBe(6);
+    expect(sheets[1].refs.get(g.ff)).toBe(1);
+    const [ffF] = t.edges.filter((e) => e.kind === 'parent' && e.to === g.ff).map((e) => e.from);
     expect(sheets[2].top).toBe(ffF);
-    const ffMSheet = sheets.find((s) => s.top === ffM)!;
-    expect(ffMSheet.refs.get(ffM)).toBe(2);
-    // Depth-first: every sheet of the father's side comes before the mother's.
-    const fatherSide = sheets.filter((s) => s.no > 2 && s.no < ffMSheet.no);
-    expect(fatherSide.length).toBeGreaterThan(1);
+    expect(sheets[2].refs.get(ffF)).toBe(2);
+    for (const s of sheets) expect(fits(s.scene)).toBe(true);
+  });
+
+  it('centres_in_different_rows', () => {
+    const t = new Tree();
+    const g = base(t);
+    for (const gp of [g.ff, g.fm, g.mf, g.mm]) chain(t, gp, 3);
+    // A second chosen person one row higher, with ancestors of their own.
+    const b = t.add(-1);
+    const [bf, bm] = t.parents(b);
+    const bgps = [...t.parents(bf), ...t.parents(bm)];
+    const above = bgps.map((gp) => chain(t, gp, 3));
+    const scene = t.scene();
+    const sheets = splitSheets(scene, [g.c, b], { fits: always });
+    expectEveryoneOnce(scene, sheets);
+    expect(sheets.length).toBe(9);
+    for (const id of [b, bf, bm, ...bgps]) expect(sheets[0].ids.has(id)).toBe(true);
+    for (const line of above) expect(sheets[0].ids.has(line[0])).toBe(false);
+    expect(sheets.slice(1).map((s) => s.top)).toEqual([g.ff, g.fm, g.mf, g.mm, ...bgps]);
+    for (const s of sheets.slice(1)) expect(s.refs.get(s.top!)).toBe(1);
   });
 
   it('several_centres_or_no_ancestors', () => {
@@ -223,6 +270,26 @@ describe('splitSheets', () => {
     expect(mmSheet.refs.get(dup)).toBe(xSheet);
     expect(mmSheet.scene.nodes.some((n) => n.id === dup)).toBe(true);
     expect(sheets.some((s) => s.ids.has(dup))).toBe(false);
+  });
+
+  it('dup_on_its_originals_sheet_is_no_ref', () => {
+    const t = new Tree();
+    const g = base(t);
+    const ffLine = chain(t, g.ff, 3);
+    for (const gp of [g.fm, g.mf, g.mm]) chain(t, gp, 3);
+    // An ancestor at gen -4 of the father's father's line is reached again higher up on the same line.
+    const x = ffLine.find((id) => t.gen(id) === -4)!;
+    const top = ffLine.find((id) => t.gen(id) === -5)!;
+    const dup = t.add(-6, x);
+    t.edge(dup, top, 'parent');
+    const scene = t.scene();
+    const sheets = splitSheets(scene, [g.c], { fits: always });
+    expectEveryoneOnce(scene, sheets);
+    const ffSheet = sheets.find((s) => s.top === g.ff)!;
+    expect(ffSheet.ids.has(x)).toBe(true);
+    expect(ffSheet.refs.has(dup)).toBe(false);
+    expect(ffSheet.scene.nodes.some((n) => n.id === dup)).toBe(true);
+    for (const s of sheets) for (const v of s.refs.values()) expect(v).not.toBe(s.no);
   });
 
   it('default_fits_splits_a_wide_line', () => {
