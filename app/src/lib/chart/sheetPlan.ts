@@ -1,5 +1,5 @@
 import type { ChartNode } from '../api/types';
-import { NAME_PX, printedPt, targetScale, type A3Choice, type A3Orientation } from './a3';
+import { layoutA3, NAME_PX, printedPt, SHEET_TARGET_PT, targetScale, type A3Choice, type A3Orientation } from './a3';
 import type { ChartDirection } from './direction';
 import { packPages, slotFits, type PackItem } from './pack';
 import { cardsFit, fitsTarget, pickView, viewsOf, type DirScene, type PieceView, type ViewOptions } from './pieceView';
@@ -60,6 +60,21 @@ export interface SheetPlan {
 }
 
 export function planSheets(dirs: DirScene[], o: PlanOptions): SheetPlan {
+  if (o.choice !== 'auto') return planFor(dirs, o);
+  // "Auto" plans both orientations and keeps the better (letting every piece pick its own orientation packs worse
+  // than either): one page if either gives it; then every page at the target size; then fewer pages; then the larger
+  // smallest print. The two plans share the pieces' views (only their page layout differs).
+  const shared = new Map<string, PieceView>();
+  const [l, p] = (['landscape', 'portrait'] as const).map((choice) => planFor(dirs, { ...o, choice }, shared));
+  const least = (pl: SheetPlan) => Math.min(...pl.pages.map((pg) => pg.namePt));
+  if (l.single !== p.single) return l.single ? l : p;
+  const readable = (pl: SheetPlan) => pl.pages.every((pg) => pg.namePt >= SHEET_TARGET_PT - 0.05);
+  if (readable(l) !== readable(p)) return readable(l) ? l : p;
+  if (l.pages.length !== p.pages.length) return l.pages.length < p.pages.length ? l : p;
+  return least(p) > least(l) ? p : l;
+}
+
+function planFor(dirs: DirScene[], o: PlanOptions, shared = new Map<string, PieceView>()): SheetPlan {
   const cut = dirs.find((d) => d.direction === o.screenDir) ?? dirs[0];
   if (!cut || cut.scene.nodes.length === 0) return { single: true, pages: [] };
   const vo: ViewOptions = { choice: o.choice, header: o.header, tagW: o.tagW, tagH: o.tagH };
@@ -100,7 +115,12 @@ export function planSheets(dirs: DirScene[], o: PlanOptions): SheetPlan {
     const sig = `${d.direction}|${[...p.full].sort((a, b) => a - b).join(',')}|${[...p.refs].sort((a, b) => a[0] - b[0]).join(';')}|${[...p.plain].sort((a, b) => a - b).join(',')}`;
     let v = made.get(sig);
     if (!v) {
-      v = viewsOf(p, cut, [d], vo)[0];
+      let base = shared.get(sig);
+      if (!base) {
+        base = viewsOf(p, cut, [d], vo)[0];
+        shared.set(sig, base);
+      }
+      v = base.standalone.orientation === o.choice || o.choice === 'auto' ? base : { ...base, standalone: layoutA3(base.bounds, o.choice, o.header) };
       made.set(sig, v);
     }
     return v;

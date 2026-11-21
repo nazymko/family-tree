@@ -154,6 +154,19 @@ describe('packed sheets on family-shaped charts', { timeout: 30_000 }, () => {
     for (const f of FAMS) expect(measures(f).pages, f).toBeLessThanOrEqual(most[f]);
   });
 
+  it('auto_never_more_pages_than_a_fixed_orientation', () => {
+    for (const f of FAMS) {
+      const { dirs, root } = famDirs(f);
+      // A fixed orientation that prints some page under the target size (a piece only the other one holds) is no
+      // better plan: auto compares with the ones that keep every page at the target.
+      const plans = (['landscape', 'portrait'] as const).map((choice) => planSheets(dirs, { ...opts(dirs, root), choice }));
+      const fixed = plans.filter((p) => p.pages.every((pg) => pg.namePt >= SHEET_TARGET_PT - 0.05)).map((p) => p.pages.length);
+      expect(fixed.length, f).toBeGreaterThan(0);
+      expect(run(f).plan.pages.length, `${f} auto vs ${fixed.join('/')}`).toBeLessThanOrEqual(Math.min(...fixed));
+      expect(Math.min(...run(f).plan.pages.map((pg) => pg.namePt)), f).toBeGreaterThanOrEqual(SHEET_TARGET_PT - 0.05);
+    }
+  });
+
   it('page_count_near_bound', () => {
     for (const f of FAMS) {
       const m = measures(f);
