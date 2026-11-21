@@ -102,7 +102,7 @@ import { orientLayout, type Layout } from './mockLayout';
 import { DEFAULT_DIRECTIONS } from '../../chart/direction';
 import { clockMs } from '../../media/clips';
 import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } from './layout';
-import { GROUP_BASE, layoutAround, layoutAroundAll, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
+import { GROUP_BASE, layoutAround, layoutAroundAll, layoutAroundOpen, layoutRelatives, openFlags, relativesOutline, type MockOpen, type RelLayout } from './relatives';
 import { layoutWhole, lineageOf, type WholeResult } from './wholeLayout';
 import { kinshipFinder } from './kinship';
 import { relationLabel, relationRole, type PartnerOf, type Rel } from './relation';
@@ -1298,8 +1298,18 @@ export class MockApi implements Api {
       ...src,
       unions: (id) => src.unions(id).map((u) => ({ ...u, children: u.children.filter((c) => !this.person(c).siblingMarker) })),
     };
-    const laid =
+    // Side branches opened per person (one chosen person only; people not in the project and markers are left out).
+    const open: MockOpen[] =
       req.kind === 'around'
+        ? (req.open ?? [])
+            .filter((o) => this.db.persons.has(o.person) && !this.person(o.person).siblingMarker && (o.siblings || o.children))
+            .map((o) => ({ key: o.person, siblings: o.siblings, children: o.children }))
+        : [];
+    const openBase = req.kin === 'all' ? 'all' : req.kin === 'siblings' ? 'siblings' : 'line';
+    const laid =
+      req.kind === 'around' && open.length > 0
+        ? layoutAroundOpen(req.root, generations, openBase, open, openBase === 'line' ? { ...src, unions: line.unions } : src, line)
+        : req.kind === 'around'
         ? req.kin === 'all'
           ? layoutAroundAll(req.root, generations, src)
           : req.kin === 'siblings'
@@ -1310,6 +1320,14 @@ export class MockApi implements Api {
         : req.kind === 'descendants'
           ? layoutDescendants(req.root, generations, src)
           : layoutRelatives(req.root, Math.min(generations, 6), req.auntsUncles ?? true, src);
+    if (req.kind === 'around') {
+      const flags = openFlags(laid as RelLayout, openBase, openBase === 'line' ? line : src);
+      laid.nodes.forEach((n, i) => {
+        if (flags[i].siblings) n.canOpenSiblings = true;
+        if (flags[i].children) n.canOpenChildren = true;
+        if (n.dupOf === null && open.some((o) => o.key === n.person?.id)) n.opened = true;
+      });
+    }
     // The side the ancestors are drawn on, for this kind of chart.
     const layout = orientLayout(laid, req.kind, req.direction ?? this.settings.chartDirections[req.kind]);
     if (req.print) {

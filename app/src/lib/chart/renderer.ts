@@ -443,6 +443,20 @@ export function draw(
     ctx.fill();
   }
 
+  // A small ring in the corner of a card whose brothers and sisters, or children, were opened (screen only).
+  if (opts.handles !== false) {
+    for (const n of win.nodes.filter((x) => x.opened === true)) {
+      ctx.beginPath();
+      ctx.arc(n.x + n.w - 9, n.y + 9, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = theme.ribbon;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(n.x + n.w - 9, n.y + 9, 1.8, 0, Math.PI * 2);
+      ctx.fillStyle = theme.paper;
+      ctx.fill();
+    }
+  }
+
   if (opts.handles !== false) for (const n of win.nodes.filter((x) => !x.person?.siblingMarker)) for (const h of handleSpots(n, kind, opts.dir)) drawHandle(ctx, h, theme, z);
 
   if (lod === 'boxes') for (const n of win.nodes) if (n.person?.siblingMarker) drawMarkerLabel(ctx, n, theme, z, 'far');

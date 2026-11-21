@@ -7,7 +7,7 @@
   import { getApi } from '../api/context';
   import type { Id } from '../api/types';
   import { parentFacts, type ParentFacts } from '../family/addOptions';
-  import { t } from '../i18n';
+  import { plural, t } from '../i18n';
   import type { PictureScope } from './picture';
   import type { A3Choice } from './a3';
   import { a3Background, a3Direction, a3Title } from './a3Pref.svelte';
@@ -26,7 +26,10 @@
     ona3,
     restoreFocus,
     onOpenPerson,
+    personCount,
   }: {
+    /** The number of people on the chart, shown with the print item so a big chart is not a surprise. */
+    personCount?: number;
     hasSelection: boolean;
     busy?: boolean;
     onpick: (scope: PictureScope) => void;
@@ -106,7 +109,7 @@
           { label: t('picture.a3'), onselect: () => ona3('auto', false) },
           { label: t('picture.a3Landscape'), onselect: () => ona3('landscape', false) },
           { label: t('picture.a3Portrait'), onselect: () => ona3('portrait', false) },
-          { label: t('picture.a3Print'), onselect: () => ona3('auto', true) },
+          { label: personCount === undefined ? t('picture.a3Print') : `${t('picture.a3Print')} (${plural('chart.onChart', personCount)})`, onselect: () => ona3('auto', true) },
         ]
       : []),
     // Modern names or the spelling of the sources, on the chart and in saved pictures and prints. Kept for next time.
