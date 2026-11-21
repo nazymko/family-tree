@@ -132,18 +132,42 @@ const FOLD_MIN: usize = 6;
 /// The gap between two sub-rows of a folded run.
 const FOLD_GAP: f32 = 8.0;
 
-/// The grid shapes tried for a chart, as the most boxes across per sub-row deep, widest first. Each gives every run
-/// the same rule ([`fold_shape`]); [`around_open`] keeps the chart closest to the A3 ratio.
-const FOLD_SHAPES: [f32; 4] = [3.0, 1.5, 0.75, 0.375];
+/// The widest grid shape tried for a chart: at most this many boxes across per sub-row deep ([`fold_shape`]).
+const FOLD_RATIO: f32 = 3.0;
+
+/// The most grid shapes tried for one chart (the ratio halves each time, see [`closest_to_a3`]).
+const FOLD_TRIES: usize = 8;
 
 /// The grid of a run of `n` leaf boxes: the fewest sub-rows (at least two) that keep the grid at most `ratio` times as
-/// many boxes across as deep. Returns (across, deep).
+/// many boxes across as deep, but always two boxes across or more. Returns (across, deep).
 fn fold_shape(n: usize, ratio: f32) -> (usize, usize) {
     let mut c = 2;
-    while c < n && n.div_ceil(c) as f32 > ratio * c as f32 {
+    while c < n.div_ceil(2) && n.div_ceil(c) as f32 > ratio * c as f32 {
         c += 1;
     }
     (n.div_ceil(c), c)
+}
+
+/// The chart laid out by `run` with every grid shape in turn, widest first ([`FOLD_RATIO`], then half of it and so on,
+/// [`FOLD_TRIES`] at most), as long as each comes closer to the A3 ratio: the last that did. Where nothing folds, `run`
+/// gives the unfolded chart and that is returned at once.
+fn closest_to_a3(mut run: impl FnMut(f32) -> (Layout, bool)) -> Layout {
+    let mut ratio = FOLD_RATIO;
+    let (first, folded) = run(ratio);
+    if !folded {
+        return first;
+    }
+    let mut best = (off_a3(&first), first);
+    for _ in 1..FOLD_TRIES {
+        ratio /= 2.0;
+        let (l, _) = run(ratio);
+        let off = off_a3(&l);
+        if off >= best.0 {
+            break;
+        }
+        best = (off, l);
+    }
+    best.1
 }
 
 /// How far a chart is from the A3 ratio (√2), in either orientation: 1 is exactly A3.
@@ -169,17 +193,16 @@ fn fold_contour(f: &Fold, m: &Metrics) -> Contour {
     vec![(-half, half); 1 + below]
 }
 
-/// Fold the runs of `list`: consecutive leaf units (no partner, no children, not on the line, not a repeat) that hang
-/// from the same parents, [`FOLD_MIN`] or more of them. The first unit of a run stays in the list and stands for the
-/// grid (shaped by `ratio`, see [`fold_shape`]); the others leave it. `group`: the list is a row group (a run shares
-/// `hang`), else children (a run shares `attach`). Brothers and sisters joined by a bar never fold. Returns whether
-/// anything folded.
-fn fold_list(
+/// Fold the runs of `list`: consecutive leaf units (no partner, no children, not in `skip`, not a repeat) of the same
+/// `family` (the same parents), [`FOLD_MIN`] or more of them. The first unit of a run stays in the list and stands for
+/// the grid (shaped by `ratio`, see [`fold_shape`]); the others leave it. `skip` holds the people on the line and the
+/// brothers and sisters joined by a bar. Returns whether anything folded.
+fn fold_list<K: PartialEq>(
     list: &mut Vec<usize>,
     units: &mut [Unit],
     nodes: &[Node],
-    line: &HashSet<usize>,
-    group: bool,
+    skip: &HashSet<usize>,
+    family: impl Fn(&Unit) -> K,
     ratio: f32,
 ) -> bool {
     if list.len() < FOLD_MIN {
@@ -194,17 +217,10 @@ fn fold_list(
                 && un.fold.is_none()
                 && !un.folded
                 && nodes[un.person as usize].dup_of.is_none()
-                && !line.contains(&u)
-                && !(group && un.hang == [false, false])
+                && !skip.contains(&u)
         })
         .collect();
-    let same = |a: &Unit, b: &Unit| {
-        if group {
-            a.hang == b.hang
-        } else {
-            a.attach == b.attach
-        }
-    };
+    let same = |a: &Unit, b: &Unit| family(a) == family(b);
     let mut out = Vec::with_capacity(list.len());
     let mut folded = false;
     let mut i = 0;
@@ -241,14 +257,14 @@ fn fold_list(
 }
 
 /// Fold the runs among the children of every unit. Running it again changes nothing. Returns whether anything folded.
-fn fold_children(units: &mut [Unit], nodes: &[Node], line: &HashSet<usize>, ratio: f32) -> bool {
+fn fold_children(units: &mut [Unit], nodes: &[Node], skip: &HashSet<usize>, ratio: f32) -> bool {
     let mut folded = false;
     for i in 0..units.len() {
         if units[i].children.len() < FOLD_MIN {
             continue;
         }
         let mut ch = std::mem::take(&mut units[i].children);
-        folded |= fold_list(&mut ch, units, nodes, line, false, ratio);
+        folded |= fold_list(&mut ch, units, nodes, skip, |u| u.attach, ratio);
         units[i].children = ch;
     }
     folded
@@ -400,6 +416,9 @@ struct Block {
     side: Option<usize>,
     /// All-relatives mode: absolute centre of the anchor's box.
     ax: f32,
+    /// All-relatives mode, folded: the grids of brothers and sisters who would stand on the inner side of the
+    /// ancestor. They hang on the outer side of the chart instead, after the families of their row (see `solve_all`).
+    outer: Vec<usize>,
 }
 
 type Pending = Vec<(Option<u32>, Vec<Key>)>;
@@ -516,6 +535,8 @@ struct Builder<'a> {
     plan: Option<OpenPlan>,
     /// Long runs of leaf boxes fold into grids of this shape (the compact print layout, see [`fold_shape`]).
     fold: Option<f32>,
+    /// Something folded.
+    folded: bool,
 }
 
 impl Builder<'_> {
@@ -641,6 +662,30 @@ impl Builder<'_> {
         }
     }
 
+    /// The chart of several people: fold the runs of a list of brothers and sisters (runs share their parents; the
+    /// chosen people and the brothers and sisters joined by a bar of `bars` never fold).
+    fn fold_kin(&mut self, list: &mut Vec<usize>, bars: &[Vec<u32>]) {
+        let Some(shape) = self.fold else { return };
+        let barred: HashSet<u32> = bars.iter().flatten().copied().collect();
+        let skip: HashSet<usize> = list
+            .iter()
+            .copied()
+            .filter(|&u| {
+                let p = self.units[u].person;
+                barred.contains(&p) || self.nodes[p as usize].rel == Some(Rel::Focus)
+            })
+            .collect();
+        let (src, nodes) = (self.src, &self.nodes);
+        self.folded |= fold_list(
+            list,
+            &mut self.units,
+            nodes,
+            &skip,
+            |u| src.parents(nodes[u.person as usize].key),
+            shape,
+        );
+    }
+
     /// `side` is the parent slot (0 father side, 1 mother side) the block fills, if it is a parent's block.
     fn make_block(
         &mut self,
@@ -736,6 +781,7 @@ impl Builder<'_> {
             left: 0.0,
             side,
             ax: 0.0,
+            outer: Vec::new(),
         });
         Some(self.blocks.len() - 1)
     }
@@ -929,10 +975,11 @@ struct OpenPlan {
 ///
 /// `fold` (the compact print layout): every run of six or more leaf boxes in one group (brothers and sisters,
 /// or children of one couple) that have no partner and nothing below them folds into a grid of short sub-rows under
-/// one bracket; everything else keeps its place. The grids' shape is chosen for the whole chart: each shape of
-/// `FOLD_SHAPES` is tried and the chart closest to the A3 ratio is kept. Where no run is that long the chart is exactly
-/// the unfolded one. Brothers and sisters standing on the inner side of an ancestor (between the ancestor and the
-/// middle of the chart) never fold with all relatives shown: the buses of the rows below run under them.
+/// one bracket; everything else keeps its place. The grids' shape is chosen for the whole chart: shapes from wide to
+/// deep are tried and the chart closest to the A3 ratio is kept. Where no run is that long the chart is exactly the
+/// unfolded one. With all relatives shown, a grid of brothers and sisters who would stand on the inner side of their
+/// ancestor (between the ancestor's couple and the couple's child) hangs on the outer side of the chart instead, after
+/// the families of its row: the line from the couple to the child runs through the gaps a grid fills.
 #[allow(clippy::too_many_arguments)]
 pub fn around_open(
     src: &dyn ChartSource,
@@ -979,20 +1026,7 @@ pub fn around_open(
     if !fold {
         return run(None).0;
     }
-    // Every grid shape in turn, keeping the chart closest to A3 (the first on a tie). A chart where nothing folds is the
-    // unfolded chart whatever the shape.
-    let mut best: Option<(f32, Layout)> = None;
-    for shape in FOLD_SHAPES {
-        let (l, folded) = run(Some(shape));
-        if !folded {
-            return l;
-        }
-        let off = off_a3(&l);
-        if best.as_ref().is_none_or(|b| off < b.0) {
-            best = Some((off, l));
-        }
-    }
-    best.map_or_else(|| run(None).0, |b| b.1)
+    closest_to_a3(|ratio| run(Some(ratio)))
 }
 
 /// For each node of a chart from [`around_open`]: whether the person's brothers and sisters can be opened, and
@@ -1175,29 +1209,45 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
         }
     }
 
-    // The families, nearest generation first, outward.
+    // The families, nearest generation first, outward. In each row, after the families, the folded grids that would
+    // have stood on the inner side of their ancestor (`Block::outer`): a grid's lower sub-rows fill the gaps below its
+    // row, so it must stand outside every family whose connector runs through those gaps, and those are all placed by
+    // then (the line, the rows below, the families of its own row).
     for side in 0..2usize {
-        let mut order: Vec<usize> = (1..blocks.len())
+        let mut order: Vec<(usize, bool)> = (1..blocks.len())
             .filter(|&i| blocks[i].side == Some(side))
+            .flat_map(|i| {
+                let grids = !blocks[i].outer.is_empty();
+                std::iter::once((i, false)).chain(grids.then_some((i, true)))
+            })
             .collect();
-        order.sort_by_key(|&i| {
+        order.sort_by_key(|&(i, grids)| {
             (
                 -blocks[i].row,
+                grids,
                 if side == 0 { -(i as i64) } else { i as i64 },
             )
         });
-        for bi in order {
-            if matches!(sibling_side(units, blocks, bi), Some((_, true))) {
-                continue;
-            }
-            let group = blocks[bi].group.clone();
-            let Some(k) = group.iter().position(|&u| u == blocks[bi].anchor) else {
-                continue;
-            };
-            let others: Vec<usize> = if side == 0 {
-                group[..k].iter().rev().copied().collect()
+        for (bi, grids) in order {
+            let others: Vec<usize> = if grids {
+                let mut v = blocks[bi].outer.clone();
+                if side == 0 {
+                    v.reverse();
+                }
+                v
             } else {
-                group[k + 1..].to_vec()
+                if matches!(sibling_side(units, blocks, bi), Some((_, true))) {
+                    continue;
+                }
+                let group = blocks[bi].group.clone();
+                let Some(k) = group.iter().position(|&u| u == blocks[bi].anchor) else {
+                    continue;
+                };
+                if side == 0 {
+                    group[..k].iter().rev().copied().collect()
+                } else {
+                    group[k + 1..].to_vec()
+                }
             };
             for u in others {
                 let row0 = units[u].row;
@@ -1374,8 +1424,8 @@ pub enum ManyKin {
 /// chosen row go to the left, the others to the right, each clearing row by row everything already placed. Everyone
 /// is drawn once; a relative reached by two ways appears where the first put them and the second gets a link.
 ///
-/// `fold`: long runs of leaf children fold into grids, as in [`around_open`]. The chosen row and the brothers and
-/// sisters of the ancestors keep their places.
+/// `fold`: long runs of leaf boxes fold into grids, as in [`around_open`]: brothers and sisters in the chosen row and
+/// of the ancestors, and children; the grids' shape is chosen for the whole chart, closest to the A3 ratio.
 pub fn around_many_kin(
     src: &dyn ChartSource,
     chosen: &[Key],
@@ -1385,6 +1435,23 @@ pub fn around_many_kin(
     m: &Metrics,
     max_nodes: usize,
 ) -> Layout {
+    if !fold {
+        return many_kin_shaped(src, chosen, generations, kin, None, m, max_nodes).0;
+    }
+    closest_to_a3(|ratio| many_kin_shaped(src, chosen, generations, kin, Some(ratio), m, max_nodes))
+}
+
+/// [`around_many_kin`] with grids of this shape (None: nothing folds); also whether anything folded.
+#[allow(clippy::too_many_arguments)]
+fn many_kin_shaped(
+    src: &dyn ChartSource,
+    chosen: &[Key],
+    generations: u8,
+    kin: ManyKin,
+    fold: Option<f32>,
+    m: &Metrics,
+    max_nodes: usize,
+) -> (Layout, bool) {
     // Brothers and sisters with families of a line ancestor cannot always stand on the outer side whatever the
     // order of the chosen row: with two or three chosen people try the other orders too (chosen partners stay
     // adjacent) and keep the one with the fewest crossing lines, then the shortest lines; ties keep the given order.
@@ -1416,18 +1483,11 @@ pub fn around_many_kin(
     };
     // The spine solve first; where it cannot keep the parents over the chosen people in any order, the older way.
     for legacy in [false, true] {
-        let mut best: Option<((usize, f32), Layout)> = None;
+        let mut best: Option<((usize, f32), (Layout, bool))> = None;
         for o in &orders {
-            let Some((l, off)) = around_many_kin_with(
-                src,
-                o,
-                generations,
-                kin,
-                fold.then_some(FOLD_SHAPES[0]),
-                m,
-                max_nodes,
-                legacy,
-            ) else {
+            let Some((l, off, folded)) =
+                around_many_kin_with(src, o, generations, kin, fold, m, max_nodes, legacy)
+            else {
                 continue;
             };
             let sc = score(&l);
@@ -1437,20 +1497,20 @@ pub fn around_many_kin(
                 continue;
             }
             if sc.0 == 0 && best.is_none() {
-                return l;
+                return (l, folded);
             }
             if best
                 .as_ref()
                 .is_none_or(|b| sc.0 < b.0.0 || (sc.0 == b.0.0 && sc.1 < b.0.1 - 0.5))
             {
-                best = Some((sc, l));
+                best = Some((sc, (l, folded)));
             }
         }
         if let Some((_, l)) = best {
             return l;
         }
     }
-    Layout::finish(Vec::new(), Vec::new(), 0, false)
+    (Layout::finish(Vec::new(), Vec::new(), 0, false), false)
 }
 
 fn permute(v: &mut Vec<usize>, k: usize, f: &mut dyn FnMut(&[usize])) {
@@ -1477,7 +1537,7 @@ fn around_many_kin_with(
     m: &Metrics,
     max_nodes: usize,
     legacy: bool,
-) -> Option<(Layout, f32)> {
+) -> Option<(Layout, f32, bool)> {
     // One chosen person with every relative: the all-relatives layout puts each ancestor's brothers and sisters on the
     // outer side of the ancestor's couple, which the several-people layout below cannot do.
     // A chosen partner without known parents or siblings adds nothing the one-person layout does not draw.
@@ -1493,13 +1553,10 @@ fn around_many_kin_with(
             generations,
             aunts: false,
         };
-        return Some((
-            lay_out(
-                src, chosen[0], &o, true, true, true, None, fold, m, max_nodes,
-            )
-            .0,
-            0.0,
-        ));
+        let (l, folded) = lay_out(
+            src, chosen[0], &o, true, true, true, None, fold, m, max_nodes,
+        );
+        return Some((l, 0.0, folded));
     }
     let m = &partner_room(m);
     let with_sibs = kin != ManyKin::Line;
@@ -1523,6 +1580,7 @@ fn around_many_kin_with(
         all: false,
         plan: None,
         fold,
+        folded: false,
     };
     // A chosen person who is an ancestor of another one goes first: the other one is then drawn as a descendant.
     let mut ancestors: std::collections::HashSet<Key> = std::collections::HashSet::new();
@@ -1661,12 +1719,19 @@ fn around_many_kin_with(
         }
         bars.push(bar);
     }
+    for g in &mut groups {
+        b.fold_kin(&mut g.0, &bars);
+    }
     let roots: Vec<usize> = groups.into_iter().flat_map(|g| g.0).collect();
     if roots.is_empty() {
-        return Some((Layout::finish(Vec::new(), Vec::new(), 0, b.truncated), 0.0));
+        return Some((
+            Layout::finish(Vec::new(), Vec::new(), 0, b.truncated),
+            0.0,
+            false,
+        ));
     }
     if let Some(shape) = fold {
-        fold_children(&mut b.units, &b.nodes, &HashSet::new(), shape);
+        b.folded |= fold_children(&mut b.units, &b.nodes, &HashSet::new(), shape);
     }
     fill_contours(&mut b.units, m);
     let gap = m.gap_x;
@@ -2009,11 +2074,19 @@ fn around_many_kin_with(
         mut nodes,
         units,
         truncated,
+        folded,
         ..
     } = b;
+    // The lower sub-rows of a folded run get their lines from `fold_edges`, not from the family's bracket.
+    let deep: HashSet<u32> = units
+        .iter()
+        .filter_map(|u| u.fold.as_ref())
+        .flat_map(|f| f.members[f.k.min(f.members.len())..].iter())
+        .map(|&v| units[v].person)
+        .collect();
     {
         let mut seen = std::collections::HashSet::new();
-        links.retain(|l| seen.insert(*l));
+        links.retain(|l| !deep.contains(&l.1) && seen.insert(*l));
     }
     // Keep every coordinate non-negative: the canvas bounds start at the origin.
     let min_x = nodes.iter().map(|n| n.rect.x).fold(f32::INFINITY, f32::min);
@@ -2045,6 +2118,15 @@ fn around_many_kin_with(
         nodes[c as usize].nav.parent.get_or_insert(p);
         nodes[p as usize].nav.child.get_or_insert(c);
     }
+    for u in &units {
+        if let Some(f) = &u.fold {
+            let up = nodes[u.person as usize].nav.parent;
+            for &v in &f.members {
+                let n = &mut nodes[units[v].person as usize].nav;
+                n.parent = n.parent.or(up);
+            }
+        }
+    }
     let mut by_parents: HashMap<Vec<u32>, usize> = HashMap::new();
     for c in child_order {
         let mut ps = parents_of.remove(&c).unwrap_or_default();
@@ -2073,7 +2155,7 @@ fn around_many_kin_with(
     }
     link_rows(&mut nodes);
     let root = units[roots[0]].person;
-    Some((Layout::finish(nodes, edges, root, truncated), off))
+    Some((Layout::finish(nodes, edges, root, truncated), off, folded))
 }
 
 /// Set the boxes of every unit from `from` on from its centre, and the centres of its children. The units whose
@@ -2223,6 +2305,7 @@ fn arrange_ancestors(
             made.push(u);
         }
         bars.push(bar);
+        b.fold_kin(&mut made, &bars[bars.len() - 1..]);
         let k = made.len() as i32;
         for (i, u) in made.into_iter().enumerate() {
             let mut kk = ch.clone();
@@ -2232,7 +2315,7 @@ fn arrange_ancestors(
         }
     }
     if let Some(shape) = b.fold {
-        fold_children(&mut b.units, &b.nodes, &HashSet::new(), shape);
+        b.folded |= fold_children(&mut b.units, &b.nodes, &HashSet::new(), shape);
     }
     fill_contours(&mut b.units, m);
     let ukey = |i: usize| {
@@ -2674,10 +2757,11 @@ fn hang_ancestor_siblings_legacy(
             made.push(u);
         }
         bars.push(bar);
+        b.fold_kin(&mut made, &bars[bars.len() - 1..]);
         fams.push((cx < mid, made));
     }
     if let Some(shape) = b.fold {
-        fold_children(&mut b.units, &b.nodes, &HashSet::new(), shape);
+        b.folded |= fold_children(&mut b.units, &b.nodes, &HashSet::new(), shape);
     }
     fill_contours(&mut b.units, m);
     let gap = m.gap_x;
@@ -2764,6 +2848,7 @@ fn lay_out(
         all,
         plan,
         fold,
+        folded: false,
     };
     let top = -i32::from(o.generations);
     b.make_block(root, 0, &o, None);
@@ -2815,20 +2900,29 @@ fn lay_out(
     let uw = |u: &Unit| m.node_w * (1.0 + u.partners as f32) + m.couple_gap * u.partners as f32;
     let mut folded = false;
     if let Some(shape) = fold {
-        // The people on the line (the centred person and the ancestors) never fold.
-        let line: HashSet<usize> = blocks.iter().map(|b| b.anchor).collect();
+        // The people on the line (the centred person and the ancestors) never fold, nor brothers and sisters joined by
+        // a bar.
+        let skip: HashSet<usize> = blocks
+            .iter()
+            .map(|b| b.anchor)
+            .chain((0..units.len()).filter(|&u| units[u].hang == [false, false]))
+            .collect();
         for bi in 0..blocks.len() {
-            // Brothers and sisters on the inner side of their ancestor are placed with the line, before the families
-            // of the rows below, whose buses then run outward through the gaps under them: there a grid's lower
-            // sub-rows would stand in the way of those buses.
-            if all && matches!(sibling_side(&units, &blocks, bi), Some((_, true))) {
-                continue;
-            }
+            let inner = all && matches!(sibling_side(&units, &blocks, bi), Some((_, true)));
             let mut group = std::mem::take(&mut blocks[bi].group);
-            folded |= fold_list(&mut group, &mut units, &nodes, &line, true, shape);
+            folded |= fold_list(&mut group, &mut units, &nodes, &skip, |u| u.hang, shape);
+            if inner {
+                // Brothers and sisters on the inner side of their ancestor stand between the ancestor's couple and
+                // the couple's child, and the line between those two runs through the gaps under the row: a grid
+                // there would stand in its way. The grids go to the outer side of the chart (`solve_all`).
+                let (grids, rest): (Vec<usize>, Vec<usize>) =
+                    group.into_iter().partition(|&u| units[u].fold.is_some());
+                group = rest;
+                blocks[bi].outer = grids;
+            }
             blocks[bi].group = group;
         }
-        folded |= fold_children(&mut units, &nodes, &line, shape);
+        folded |= fold_children(&mut units, &nodes, &skip, shape);
     }
     fill_contours(&mut units, m);
     if all {
@@ -2984,7 +3078,7 @@ fn lay_out(
         .fold(f32::NEG_INFINITY, f32::max);
     let mut by_parents: HashMap<Vec<u32>, usize> = HashMap::new();
     for blk in &blocks {
-        for &r in &blk.group {
+        for &r in blk.group.iter().chain(&blk.outer) {
             let parents: Vec<u32> = (0..2)
                 .filter(|&s| units[r].hang[s])
                 .filter_map(|s| blk.slots[s])
@@ -3027,7 +3121,7 @@ fn lay_out(
                 .find_map(|s| blk.slots[s])
                 .map(|ub| units[blocks[ub].anchor].person)
         };
-        for &r in &blk.group {
+        for &r in blk.group.iter().chain(&blk.outer) {
             for p in fold_cards(&units, r) {
                 nodes[p as usize].nav.parent = first_up(units[r].hang);
             }

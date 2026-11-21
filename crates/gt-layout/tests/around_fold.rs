@@ -66,6 +66,24 @@ fn kids(key: Key, d: BranchDepth) -> OpenSpec {
     }
 }
 
+/// The fixture of `around.rs` for wide families: parents 2 and 3 (with their own parents 6/7 and 8/9) over person 1
+/// and the siblings 4 (older) and 5 (younger); `wide_for` gets twelve children.
+fn wide_siblings_family(wide_for: &[Key]) -> MapSource {
+    let mut s = MapSource::default();
+    s.family(Some(6), Some(7), &[2]);
+    s.family(Some(8), Some(9), &[3]);
+    s.family(Some(2), Some(3), &[4, 1, 5]);
+    s.births.extend([(4, 1), (1, 2), (5, 3)]);
+    s.family(Some(1), None, &[30, 31]);
+    let mut next = 1_000;
+    for &w in wide_for {
+        let kids: Vec<Key> = (next..next + 12).collect();
+        next += 12;
+        s.family(Some(w), None, &kids);
+    }
+    s
+}
+
 /// Everything that is drawn: every card and every line.
 fn assert_same(a: &Layout, b: &Layout) {
     assert_eq!(a.nodes, b.nodes);
@@ -192,6 +210,37 @@ fn fold_off_is_today() {
         let line = around_many(&s, &[1, 4], ALL, &m, 100_000);
         let off = around_many_kin(&s, &[1, 4], ALL, ManyKin::Line, false, &m, 100_000);
         assert_same(&line, &off);
+    }
+    // The wide families: unfolded, exactly today's charts; folded, the twelve children fold and the chart stays clean.
+    for wide in [&[4][..], &[5][..], &[1][..], &[4, 5][..], &[4, 1, 5][..]] {
+        let s = wide_siblings_family(wide);
+        let old = [
+            (AroundBase::Line, around(&s, 1, ALL, &m, 100_000)),
+            (
+                AroundBase::Siblings,
+                around_with_siblings(&s, 1, ALL, &m, 100_000),
+            ),
+            (AroundBase::All, around_all_kin(&s, 1, ALL, &m, 100_000)),
+        ];
+        for (base, old) in &old {
+            assert_same(
+                &around_open(&s, 1, ALL, *base, &[], false, &m, 100_000),
+                old,
+            );
+            let on = around_open(&s, 1, ALL, *base, &[], true, &m, 100_000);
+            assert_eq!(on.nodes.len(), old.nodes.len());
+            assert_no_overlap(&on);
+            assert_lines_clear_of_cards(&on);
+            common::assert_connectors_readable(&on);
+            for &w in wide {
+                if on.nodes.iter().any(|n| n.key == w) {
+                    let i = wide.iter().position(|&x| x == w).unwrap() as Key;
+                    let kids: Vec<Key> = (1000 + 12 * i..1012 + 12 * i).collect();
+                    assert!(distinct_ys(&on, &kids) >= 2, "children of {w} fold");
+                    assert_children_linked(&on, w, &kids);
+                }
+            }
+        }
     }
 }
 
@@ -323,13 +372,102 @@ fn big_chart_closer_to_a3() {
         (a_on - a3).abs() < (a_off - a3).abs(),
         "aspect folded {a_on} unfolded {a_off}"
     );
+    eprintln!("big chart: aspect {a_off} -> {a_on}");
     assert_no_overlap(&on);
     assert_lines_clear_of_cards(&on);
     common::assert_connectors_readable(&on);
     for n in 1..16u32 {
-        let count = 12 + (n * 7) % 9;
-        let sibs: Vec<Key> = (0..count).map(|i| 1000 + n * 100 + i).collect();
+        let sibs = big_sibs(n);
         assert_children_linked(&on, 2 * n, &sibs);
         assert_children_linked(&on, 2 * n + 1, &sibs);
+    }
+}
+
+/// The siblings of ancestor `n` in [`big_chart`].
+fn big_sibs(n: u32) -> Vec<Key> {
+    let count = 12 + (n * 7) % 9;
+    (0..count).map(|i| 1000 + n * 100 + i).collect()
+}
+
+fn right(l: &Layout, keys: &[Key]) -> f32 {
+    keys.iter()
+        .map(|&k| node(l, k).rect.x + node(l, k).rect.w)
+        .fold(f32::NEG_INFINITY, f32::max)
+}
+
+fn left(l: &Layout, keys: &[Key]) -> f32 {
+    keys.iter()
+        .map(|&k| node(l, k).rect.x)
+        .fold(f32::INFINITY, f32::min)
+}
+
+#[test]
+fn which_groups_fold() {
+    let (s, open) = big_chart();
+    let m = Metrics::default();
+    let l = around_open(&s, 1, 4, AroundBase::Line, &open, true, &m, 100_000);
+    // Block 0: the centred person's own brothers and sisters.
+    assert!(
+        distinct_ys(&l, &big_sibs(1)) >= 2,
+        "the person's siblings fold"
+    );
+    // An outer group: the father's (2) siblings stand left of him, outside the line.
+    assert!(
+        distinct_ys(&l, &big_sibs(2)) >= 2,
+        "the father's siblings fold"
+    );
+    assert!(right(&l, &big_sibs(2)) < node(&l, 2).rect.x);
+    // Inner groups: the father's mother (5) would have her siblings on her right, between her couple and the father;
+    // the mother's father (6) on his left, between his couple and the mother. Folded, they hang on the outer side.
+    assert!(distinct_ys(&l, &big_sibs(5)) >= 2, "an inner group folds");
+    assert!(right(&l, &big_sibs(5)) < node(&l, 4).rect.x);
+    assert!(distinct_ys(&l, &big_sibs(6)) >= 2, "an inner group folds");
+    assert!(left(&l, &big_sibs(6)) > node(&l, 7).rect.x + node(&l, 7).rect.w);
+    // Every group of the chart folds.
+    for n in 1..16u32 {
+        assert!(distinct_ys(&l, &big_sibs(n)) >= 2, "siblings of {n} fold");
+    }
+}
+
+#[test]
+fn several_people_fold_too() {
+    let (s, _) = big_chart();
+    let m = Metrics::default();
+    // Ivan (1) and his first brother (1100) chosen, with all relatives: the chosen row's other brothers and sisters
+    // and every ancestor's brothers and sisters fold.
+    let chosen = [1, 1100];
+    for kin in [ManyKin::Siblings, ManyKin::All] {
+        let off = around_many_kin(&s, &chosen, 4, kin, false, &m, 100_000);
+        let on = around_many_kin(&s, &chosen, 4, kin, true, &m, 100_000);
+        assert_eq!(on.nodes.len(), off.nodes.len());
+        assert_no_overlap(&on);
+        assert_lines_clear_of_cards(&on);
+        common::assert_connectors_readable(&on);
+        let rest: Vec<Key> = big_sibs(1)[1..].to_vec();
+        assert!(
+            distinct_ys(&on, &rest) >= 2,
+            "the chosen row's siblings fold"
+        );
+        assert_children_linked(&on, 2, &big_sibs(1));
+        assert_children_linked(&on, 3, &big_sibs(1));
+        let a3 = std::f32::consts::SQRT_2;
+        assert!(
+            (aspect(&on) - a3).abs() < (aspect(&off) - a3).abs(),
+            "{kin:?}: aspect folded {} unfolded {}",
+            aspect(&on),
+            aspect(&off)
+        );
+        if kin == ManyKin::All {
+            for n in 2..16u32 {
+                assert!(distinct_ys(&on, &big_sibs(n)) >= 2, "siblings of {n} fold");
+                assert_children_linked(&on, 2 * n, &big_sibs(n));
+                assert_children_linked(&on, 2 * n + 1, &big_sibs(n));
+            }
+            eprintln!(
+                "several people, all: aspect {} -> {}",
+                aspect(&off),
+                aspect(&on)
+            );
+        }
     }
 }
