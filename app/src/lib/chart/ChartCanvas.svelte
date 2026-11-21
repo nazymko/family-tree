@@ -1323,7 +1323,7 @@
         <Button onclick={() => onOpenings([])}>{t('chartCanvas.clearOpenings')}</Button>
       {/if}
     {/if}
-    <ChartPictureMenu bind:this={pictureMenu} personCount={meta?.personCount} ona3={pictureA3} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
+    <ChartPictureMenu bind:this={pictureMenu} personCount={openings.length > 0 ? meta?.personCount : undefined} ona3={pictureA3} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
     <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
     {#if onGenerations}
       <div class="gens">
