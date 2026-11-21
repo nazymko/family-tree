@@ -171,6 +171,8 @@ pub struct Node {
     pub can_open_siblings: bool,
     /// Chart built around one person: the person's children can be opened.
     pub can_open_children: bool,
+    /// Something of this person was opened by the caller (a mark on the card).
+    pub opened: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -374,6 +376,7 @@ pub(crate) fn new_node(id: u32, key: Key, rect: Rect, r#gen: i16) -> Node {
         nav: Nav::default(),
         can_open_siblings: false,
         can_open_children: false,
+        opened: false,
     }
 }
 

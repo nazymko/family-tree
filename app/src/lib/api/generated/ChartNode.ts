@@ -17,4 +17,16 @@ role?: RoleDto,
  * How this person is related to the chart's reference person, as data (see `Kinship`); absent for the
  * reference person, for unrelated people and when the boxes carry no text.
  */
-kinship?: Kinship, };
+kinship?: Kinship, 
+/**
+ * Chart built around one person: this person's brothers and sisters can be opened.
+ */
+canOpenSiblings?: boolean, 
+/**
+ * Chart built around one person: this person's children can be opened.
+ */
+canOpenChildren?: boolean, 
+/**
+ * Something of this person is opened (brothers and sisters, or children).
+ */
+opened?: boolean, };

@@ -103,6 +103,8 @@ fn export_all(dir: &Path) {
         ChartKind,
         EdgeKindDto,
         ChartRequest,
+        OpenBranch,
+        BranchDepth,
         ChartSize,
         ChartMeta,
         Rect,

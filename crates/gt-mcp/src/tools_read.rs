@@ -802,6 +802,7 @@ fn get_around_chart<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult
             }
         }
         let rows = s.around_people(&gt_session::ChartRequest {
+            open: None,
             kind: gt_session::ChartKind::Around,
             root: people[0],
             generations,

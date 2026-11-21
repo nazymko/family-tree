@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 //! The chart built around one person with side branches opened per person.
 
 mod common;
@@ -6,8 +7,8 @@ use std::collections::HashSet;
 
 use common::MapSource;
 use gt_layout::{
-    AroundBase, BranchDepth, Key, Layout, Metrics, OpenSpec, around, around_all_kin,
-    around_open, around_with_siblings, open_flags,
+    AroundBase, BranchDepth, Key, Layout, Metrics, OpenSpec, around, around_all_kin, around_open,
+    around_with_siblings, open_flags,
 };
 
 const ALL: u8 = 255;
@@ -143,7 +144,10 @@ fn an_opening_under_a_closed_one_has_no_effect() {
 
 #[test]
 fn children_of_an_opened_relative_go_one_step_at_a_time() {
-    let open = [sib(2, BranchDepth::Children), kids(12, BranchDepth::Children)];
+    let open = [
+        sib(2, BranchDepth::Children),
+        kids(12, BranchDepth::Children),
+    ];
     let l = run(AroundBase::Line, &open);
     assert!(keys(&l).is_superset(&set(&[10, 11, 12, 13, 14, 15])));
     assert!(!keys(&l).contains(&16));
@@ -191,16 +195,16 @@ fn flags_say_who_can_be_opened() {
         }
     };
     let f = flags(&[]);
-    assert_eq!(f(1).0, true, "the person has a sister");
-    assert_eq!(f(2).0, true);
-    assert_eq!(f(6).0, true);
-    assert_eq!(f(7).0, false, "no brothers or sisters");
+    assert!(f(1).0, "the person has a sister");
+    assert!(f(2).0);
+    assert!(f(6).0);
+    assert!(!f(7).0, "no brothers or sisters");
     assert_eq!(f(20), (false, false), "a partner");
     assert_eq!(f(30), (false, false), "a descendant on the line");
-    assert_eq!(f(1).1, false, "children are shown");
+    assert!(!f(1).1, "children are shown");
     let f = flags(&[sib(2, BranchDepth::Children)]);
-    assert_eq!(f(12).1, true, "a cousin with hidden children");
-    assert_eq!(f(13).1, false, "no children");
+    assert!(f(12).1, "a cousin with hidden children");
+    assert!(!f(13).1, "no children");
     assert_eq!(f(11), (false, false), "an in-law");
     let all = around_open(&s, 1, ALL, AroundBase::All, &[], &m, 100_000);
     let f = open_flags(&s, &all, AroundBase::All);

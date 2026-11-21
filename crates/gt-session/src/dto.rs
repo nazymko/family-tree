@@ -644,9 +644,27 @@ wire_enum!(RoleKind, "snake_case", {
 // What the chart built around a person shows besides their own line: nothing, their brothers and sisters, or
 // all relatives (the brothers and sisters of every ancestor too, with all their descendants).
 wire_enum!(AroundKin, "lowercase", { Line, Siblings, All });
+// How much of an opened side branch the chart built around a person shows: the opened people with their
+// partners and children, or with all their descendants.
+wire_enum!(BranchDepth, "lowercase", { Children, All });
 wire_enum!(OutlineGroupKind, "snake_case", { Parents, Siblings, Partners, Children, AuntsUncles });
 wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants, Relatives, Around, Whole });
 wire_enum!(EdgeKindDto, "lowercase", { Parent, Partner, Dup, Sibling });
+
+/// One opening on the chart built around one person: the brothers and sisters and/or the children of one person.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenBranch {
+    pub person: Uuid,
+    /// The person's brothers and sisters (with their partners).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub siblings: Option<BranchDepth>,
+    /// The person's children (with their partners); ignored for people whose children the chart already shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub children: Option<BranchDepth>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -667,6 +685,11 @@ pub struct ChartRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub roots: Option<Vec<Uuid>>,
+    /// Chart built around ONE person only: side branches opened per person. Absent or empty: the chart as before.
+    /// Ignored when the chart is built around several people.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub open: Option<Vec<OpenBranch>>,
     /// Lays the chart out in this direction instead of the one in the settings (a print picks the best fit; the
     /// screen setting stays as it is).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -751,6 +774,18 @@ pub struct ChartNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub kinship: Option<Kinship>,
+    /// Chart built around one person: this person's brothers and sisters can be opened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub can_open_siblings: Option<bool>,
+    /// Chart built around one person: this person's children can be opened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub can_open_children: Option<bool>,
+    /// Something of this person is opened (brothers and sisters, or children).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub opened: Option<bool>,
 }
 
 wire_enum!(

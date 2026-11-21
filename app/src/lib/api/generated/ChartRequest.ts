@@ -2,6 +2,7 @@
 import type { AroundKin } from "./AroundKin";
 import type { ChartDirection } from "./ChartDirection";
 import type { ChartKind } from "./ChartKind";
+import type { OpenBranch } from "./OpenBranch";
 
 export type ChartRequest = { kind: ChartKind, root: string, generations: number, 
 /**
@@ -17,6 +18,11 @@ kin?: AroundKin,
  * people give one chart around all of them, with the wider family `kin` asks for.
  */
 roots?: Array<string>, 
+/**
+ * Chart built around ONE person only: side branches opened per person. Absent or empty: the chart as before.
+ * Ignored when the chart is built around several people.
+ */
+open?: Array<OpenBranch>, 
 /**
  * Lays the chart out in this direction instead of the one in the settings (a print picks the best fit; the
  * screen setting stays as it is).

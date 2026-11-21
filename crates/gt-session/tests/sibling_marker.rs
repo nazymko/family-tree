@@ -370,6 +370,7 @@ fn marker_is_not_a_chart_root_family_view_or_person() {
     ] {
         let err = s
             .chart_open(&ChartRequest {
+                open: None,
                 kind,
                 root: m,
                 generations: 3,

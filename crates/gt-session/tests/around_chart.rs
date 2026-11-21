@@ -42,6 +42,7 @@ fn everything() -> Rect {
 
 fn request(s: &Session, given: &str, generations: u32) -> ChartRequest {
     ChartRequest {
+        open: None,
         kind: ChartKind::Around,
         root: find(s.tree(), given),
         generations,
