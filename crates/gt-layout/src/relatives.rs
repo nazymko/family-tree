@@ -41,6 +41,8 @@ enum Tree {
     /// A brother or sister of the person or of an ancestor (all-relatives mode): every descendant. The
     /// number is the generations from the person up to the common ancestor.
     Kin(u8),
+    /// [`Tree::Kin`] cut after this many generations (an opened branch: 1 is the children only).
+    KinTo(u8, u8),
 }
 
 /// How a blood relative `up` generations above the common ancestor and `down` below it is named.
@@ -79,6 +81,7 @@ impl Tree {
             Tree::Niece => 1,
             Tree::Aunt => 1,
             Tree::Kin(_) => 250,
+            Tree::KinTo(_, n) => n,
         }
     }
 }
@@ -270,6 +273,8 @@ struct Builder<'a> {
     siblings: bool,
     /// All relatives: every ancestor on the line gets its brothers and sisters and all their descendants.
     all: bool,
+    /// Openings of side branches (the chart built around one person with some branches opened).
+    plan: Option<OpenPlan>,
 }
 
 impl Builder<'_> {
@@ -337,8 +342,8 @@ impl Builder<'_> {
     /// Create the children of `root` that `tree` allows, breadth first.
     fn expand(&mut self, root: usize, tree: Tree) {
         let limit = usize::from(tree.limit());
-        let mut queue = VecDeque::from([(root, 0usize)]);
-        while let Some((u, depth)) = queue.pop_front() {
+        let mut queue = VecDeque::from([(root, 0usize, limit)]);
+        while let Some((u, depth, limit)) = queue.pop_front() {
             let unions = std::mem::take(&mut self.pending[u]);
             let person = self.units[u].person;
             if unions.iter().all(|(_, c)| c.is_empty()) {
@@ -357,7 +362,7 @@ impl Builder<'_> {
                 ),
                 Tree::Niece => (Rel::NieceNephew, None),
                 Tree::Aunt => (Rel::Cousin, None),
-                Tree::Kin(up) => {
+                Tree::Kin(up) | Tree::KinTo(up, _) => {
                     let down = step.saturating_add(1);
                     (kin_rel(up, down), Some(kin_partner(up, down)))
                 }
@@ -371,10 +376,25 @@ impl Builder<'_> {
                     };
                     self.units[u].children.push(cu);
                     kid_nodes.push(self.units[cu].person);
-                    queue.push_back((cu, depth + 1));
+                    let own = self.opened_limit(tree, key, depth + 1, limit);
+                    queue.push_back((cu, depth + 1, own));
                 }
             }
             link_children(&mut self.nodes, person, &kid_nodes);
+        }
+    }
+
+    /// How deep the descendants of a relative reached by an opened branch may go: the opened person's own choice
+    /// of how far their children are shown, when it reaches further than the branch above them allows.
+    fn opened_limit(&self, tree: Tree, key: Key, depth: usize, limit: usize) -> usize {
+        if !matches!(tree, Tree::KinTo(..)) {
+            return limit;
+        }
+        let Some(plan) = &self.plan else { return limit };
+        match plan.open.get(&key).and_then(|o| o.children) {
+            Some(BranchDepth::All) => limit.max(depth + 250),
+            Some(BranchDepth::Children) => limit.max(depth + 1),
+            None => limit,
         }
     }
 
@@ -477,6 +497,23 @@ impl Builder<'_> {
         Some(self.blocks.len() - 1)
     }
 
+    /// How far the brothers and sisters of `key` are shown in all-relatives mode: everything, unless openings are
+    /// asked for, and then only what the base and the openings say.
+    fn sibling_depth(&self, key: Key, focus: bool) -> Option<BranchDepth> {
+        let Some(plan) = &self.plan else {
+            return Some(BranchDepth::All);
+        };
+        if plan.base == AroundBase::All {
+            return Some(BranchDepth::All);
+        }
+        let own = plan.open.get(&key).and_then(|o| o.siblings);
+        if focus && plan.base == AroundBase::Siblings {
+            own.or(Some(BranchDepth::Children))
+        } else {
+            own
+        }
+    }
+
     /// All-relatives mode: the brothers and sisters of block `bi`'s anchor, each with partners and all
     /// descendants. They stand on the outer side of the anchor: the father's slot on the left, the mother's on
     /// the right; the centred person's own brothers and sisters are placed in birth order around them.
@@ -490,6 +527,9 @@ impl Builder<'_> {
             return;
         }
         let key = self.nodes[person as usize].key;
+        let Some(depth) = self.sibling_depth(key, row == 0) else {
+            return;
+        };
         let gens = u8::try_from(-row).unwrap_or(u8::MAX);
         let mut sibs = siblings(self.src, key);
         if let Some(i) = sibs.iter().position(|s| s.key == key) {
@@ -519,7 +559,11 @@ impl Builder<'_> {
                 else {
                     continue;
                 };
-                self.expand(u, Tree::Kin(up));
+                let tree = match depth {
+                    BranchDepth::All => Tree::Kin(up),
+                    BranchDepth::Children => Tree::KinTo(up, 1),
+                };
+                self.expand(u, tree);
                 u
             };
             self.units[u].hang = s.hang;
@@ -547,7 +591,7 @@ pub fn relatives(
     m: &Metrics,
     max_nodes: usize,
 ) -> Layout {
-    lay_out(src, root, o, true, false, false, m, max_nodes)
+    lay_out(src, root, o, true, false, false, None, m, max_nodes)
 }
 
 /// The chart "built around" one person: only their own line. The person stands in the middle, their
@@ -566,7 +610,7 @@ pub fn around(
         generations,
         aunts: false,
     };
-    lay_out(src, root, &o, false, false, false, m, max_nodes)
+    lay_out(src, root, &o, false, false, false, None, m, max_nodes)
 }
 
 /// [`around`] with the person's brothers and sisters beside them, each with their partners and descendants.
@@ -582,7 +626,7 @@ pub fn around_with_siblings(
         generations,
         aunts: false,
     };
-    lay_out(src, root, &o, true, true, false, m, max_nodes)
+    lay_out(src, root, &o, true, true, false, None, m, max_nodes)
 }
 
 /// [`around`] with all relatives: the brothers and sisters of the person and of every ancestor on the line
@@ -602,7 +646,95 @@ pub fn around_all_kin(
         generations,
         aunts: false,
     };
-    lay_out(src, root, &o, true, true, true, m, max_nodes)
+    lay_out(src, root, &o, true, true, true, None, m, max_nodes)
+}
+
+/// How much of an opened branch is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BranchDepth {
+    /// The opened people with partners and their children.
+    Children,
+    /// The opened people with partners and all their descendants.
+    All,
+}
+
+/// One opening: the brothers and sisters, and/or the children, of one person.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenSpec {
+    pub key: Key,
+    pub siblings: Option<BranchDepth>,
+    pub children: Option<BranchDepth>,
+}
+
+/// What the chart around one person shows before any opening.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AroundBase {
+    Line,
+    Siblings,
+    All,
+}
+
+struct OpenPlan {
+    base: AroundBase,
+    open: HashMap<Key, OpenSpec>,
+}
+
+/// The chart built around one person with side branches opened: the base chart (`base`), plus for each opened
+/// person their brothers and sisters and/or their children to the chosen depth. Nothing opened is exactly the
+/// base chart. The last entry for a person wins.
+pub fn around_open(
+    src: &dyn ChartSource,
+    root: Key,
+    generations: u8,
+    base: AroundBase,
+    open: &[OpenSpec],
+    m: &Metrics,
+    max_nodes: usize,
+) -> Layout {
+    if open.is_empty() {
+        return match base {
+            AroundBase::Line => around(src, root, generations, m, max_nodes),
+            AroundBase::Siblings => around_with_siblings(src, root, generations, m, max_nodes),
+            AroundBase::All => around_all_kin(src, root, generations, m, max_nodes),
+        };
+    }
+    let o = RelativesOptions {
+        generations,
+        aunts: false,
+    };
+    let plan = OpenPlan {
+        base,
+        open: open.iter().map(|s| (s.key, *s)).collect(),
+    };
+    lay_out(src, root, &o, true, true, true, Some(plan), m, max_nodes)
+}
+
+/// For each node of a chart from [`around_open`]: whether the person's brothers and sisters can be opened, and
+/// whether their children can. Only blood relatives and people on the line qualify; partners never do.
+pub fn open_flags(src: &dyn ChartSource, layout: &Layout, base: AroundBase) -> Vec<(bool, bool)> {
+    layout
+        .nodes
+        .iter()
+        .map(|n| {
+            if n.dup_of.is_some() {
+                return (false, false);
+            }
+            match n.rel {
+                Some(Rel::Focus | Rel::Ancestor(_)) => (
+                    base != AroundBase::All && siblings(src, n.key).len() > 1,
+                    false,
+                ),
+                Some(
+                    Rel::Sibling { .. }
+                    | Rel::AuntUncle { .. }
+                    | Rel::NieceNephew
+                    | Rel::Cousin
+                    | Rel::Kin { .. },
+                ) => (false, n.more_down),
+                _ => (false, false),
+            }
+        })
+        .collect()
 }
 
 /// An ancestor block whose brothers and sisters stand inside the line: block, anchor, left side, units, offsets.
@@ -1059,7 +1191,7 @@ fn around_many_kin_with(
             aunts: false,
         };
         return Some((
-            lay_out(src, chosen[0], &o, true, true, true, m, max_nodes),
+            lay_out(src, chosen[0], &o, true, true, true, None, m, max_nodes),
             0.0,
         ));
     }
@@ -1083,6 +1215,7 @@ fn around_many_kin_with(
         truncated: false,
         siblings: false,
         all: false,
+        plan: None,
     };
     // A chosen person who is an ancestor of another one goes first: the other one is then drawn as a descendant.
     let mut ancestors: std::collections::HashSet<Key> = std::collections::HashSet::new();
@@ -2279,6 +2412,7 @@ fn lay_out(
     siblings: bool,
     centred: bool,
     all: bool,
+    plan: Option<OpenPlan>,
     m: &Metrics,
     max_nodes: usize,
 ) -> Layout {
@@ -2304,6 +2438,7 @@ fn lay_out(
         truncated: false,
         siblings,
         all,
+        plan,
     };
     let top = -i32::from(o.generations);
     b.make_block(root, 0, &o, None);
