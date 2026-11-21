@@ -67,16 +67,23 @@ export const pxToMm = (px: number): number => px / MM_PX;
 /** Printed height in points of text that is `px` high on screen, after scaling the chart by `scale`. */
 export const printedPt = (px: number, scale: number): number => px * scale * 0.75;
 
-function fitTo(b: Rect, o: A3Orientation, title = true) {
+/** The printable area of an A3 page (layout px): inside the margins, below the title block when there is one. */
+export function a3Area(o: A3Orientation, title = true): Rect {
   const titleMm = title ? A3_TITLE_MM : 0;
   const wMm = o === 'landscape' ? A3_LONG_MM : A3_SHORT_MM;
   const hMm = o === 'landscape' ? A3_SHORT_MM : A3_LONG_MM;
-  const area: Rect = {
+  return {
     x: mmToPx(A3_MARGIN_MM),
     y: mmToPx(A3_MARGIN_MM + titleMm),
     w: mmToPx(wMm - 2 * A3_MARGIN_MM),
     h: mmToPx(hMm - 2 * A3_MARGIN_MM - titleMm),
   };
+}
+
+function fitTo(b: Rect, o: A3Orientation, title = true) {
+  const wMm = o === 'landscape' ? A3_LONG_MM : A3_SHORT_MM;
+  const hMm = o === 'landscape' ? A3_SHORT_MM : A3_LONG_MM;
+  const area = a3Area(o, title);
   const scale = Math.min(A3_MAX_SCALE, area.w / Math.max(1, b.w), area.h / Math.max(1, b.h));
   return { wMm, hMm, area, scale };
 }
