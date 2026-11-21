@@ -30,7 +30,7 @@
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, chartTitle, later, printPicture, printPictures, savePicture, savePictures, suggestedName, type BuiltPicture } from './pictureExport';
   import { A3_MIN_PT, A3_SUB_PT, A3_TITLE_PT, CARD_SMALL_PX, PT_PX, ellipsize, layoutA3, mmToPx, nameFloorPx, printDirection, printStretch, stretchScene, targetScale, type A3Background, type A3Choice, type A3DirectionMode, type A3Layout, type DirectionFit } from './a3';
-  import { a3Background, a3Direction, a3Title } from './a3Pref.svelte';
+  import { a3Background, a3Direction, a3Orientation, a3Title } from './a3Pref.svelte';
   import { namesAsRecorded, oldTypeface } from '../ui/namesPref.svelte';
   import { loadOldTypeface } from '../ui/fonts';
   import { sceneBounds, pictureFileName } from './picture';
@@ -332,11 +332,11 @@
   let framesTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
-   * The frames of the A3 sheets on the chart on screen, numbered as the print numbers them: the print charts are laid out
-   * and planned by the same helper the print uses ({@link planA3Sheets}, for "Print on A3", which picks the orientation
-   * itself), and each piece is framed around the screen boxes of its people. Runs a little after the chart opened (a
-   * quick change of the layout or the person lays out one print chart, not one per step); nothing is framed until it
-   * arrives, and a result for a chart that is no longer open is dropped.
+   * The frames of the A3 sheets on the chart on screen, numbered as the print numbers them: they show the very plan the
+   * print and the save use ({@link plannedSheets}, in the orientation last chosen), each piece framed around the screen
+   * boxes of its people. Runs a little after the chart opened (a quick change of the layout or the person lays out one
+   * print chart, not one per step); nothing is framed until it arrives, and a result
+   * for a chart that is no longer open is dropped.
    */
   function scheduleFrames(m: ChartMeta, seq: number): void {
     if (framesTimer) clearTimeout(framesTimer);
@@ -349,7 +349,7 @@
   async function frameSheets(m: ChartMeta, seq: number): Promise<void> {
     try {
       if (seq !== openSeq || printLayout !== 'sheets') return;
-      const planned = await planA3Sheets('auto');
+      const planned = await plannedSheets(a3Orientation.value);
       if (!planned || seq !== openSeq || printLayout !== 'sheets') return;
       const scene = await wholeScene(m);
       if (seq !== openSeq) return;
@@ -385,6 +385,7 @@
   /** `keepView`: reopened after an edit. The camera stays where it was and the selected person stays selected. */
   async function open(keepView = false): Promise<void> {
     const seq = ++openSeq;
+    sheetsMade = null;
     const keptPerson = keepView ? (selNode?.person?.id ?? null) : null;
     const keepCam = keepView && sized && rootRect !== null;
     closeChart();
@@ -654,10 +655,12 @@
     };
   });
 
-  // The print's direction and title block change how the sheets are cut: the frames follow.
+  // The print's direction, orientation, title block and background change the sheets: the frames follow.
   $effect(() => {
     void a3Direction.value;
+    void a3Orientation.value;
     void a3Title.value;
+    void a3Background.value;
     untrack(() => {
       if (meta && kind === 'around' && printLayout === 'sheets') scheduleFrames(meta, openSeq);
     });
@@ -1346,6 +1349,29 @@
     return { dirs, look, plan };
   }
 
+  type PlannedSheets = { dirs: PrintDirScene[]; look: A3Look; plan: SheetPlan };
+  /** The last sheets plan made, with what it was made from: the frames, the print and the save share it. */
+  let sheetsMade: { key: string; planned: Promise<PlannedSheets | null> } | null = null;
+
+  /**
+   * The sheets plan for `choice`, made once per chart opening (an edit or another person reopens it), orientation, title
+   * block, background, screen direction and theme: the frames on screen, "Print" and "Save" all get this same plan.
+   */
+  function plannedSheets(choice: A3Choice): Promise<PlannedSheets | null> {
+    theme ??= themeFromCss();
+    const key = JSON.stringify([openSeq, choice, a3Title.value, a3Background.value, dirNow, theme.font, theme.paper, theme.ink, currentTag()]);
+    if (sheetsMade?.key !== key) {
+      const planned = planA3Sheets(choice);
+      const made = { key, planned };
+      sheetsMade = made;
+      // A plan that failed is made again next time.
+      planned.catch(() => {
+        if (sheetsMade === made) sheetsMade = null;
+      });
+    }
+    return sheetsMade.planned;
+  }
+
   /**
    * One packed A3 page: each piece drawn in its own direction at the page's scale in its slot, the "→ sheet N" tags of its
    * reference boxes, its caption above it, and the title block (the chart title, "sheet N of M" and the tree name).
@@ -1417,7 +1443,7 @@
    * the first naming the pages below 6 pt.
    */
   async function buildA3Sheets(choice: A3Choice, format: PictureFormat): Promise<BuiltPicture[] | null> {
-    const planned = await planA3Sheets(choice);
+    const planned = await plannedSheets(choice);
     if (!planned || planned.plan.pages.length === 0) return null;
     const { dirs, look, plan } = planned;
     const title = chartTitle(kind, rootName);
@@ -1445,7 +1471,10 @@
     const layout = printLayout;
     const name = pictureFileName(`${chartTitle(kind, rootName)} (A3)`);
     if (kind === 'around' && layout === 'sheets') {
-      const build = (f: PictureFormat) => buildA3Sheets(choice, f);
+      // Saving remembers the orientation chosen; printing uses the one remembered. The frames on screen follow it.
+      if (!print) a3Orientation.set(choice);
+      const sheetsChoice = print ? a3Orientation.value : choice;
+      const build = (f: PictureFormat) => buildA3Sheets(sheetsChoice, f);
       if (print) return void printPictures({ build, setBusy });
       return void savePictures({ api, platform }, { fileName: name, build, setBusy });
     }

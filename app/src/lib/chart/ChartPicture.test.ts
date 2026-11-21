@@ -19,7 +19,7 @@ import ChartCanvas from './ChartCanvas.svelte';
 import WholeCanvas from './WholeCanvas.svelte';
 import Host from './testing/Host.svelte';
 import type { ChartDirection } from './direction';
-import { A3_BACKGROUND_KEY, A3_DIRECTION_KEY, A3_TITLE_KEY, a3Background, a3Direction, a3Title } from './a3Pref.svelte';
+import { A3_BACKGROUND_KEY, A3_DIRECTION_KEY, A3_ORIENTATION_KEY, A3_TITLE_KEY, a3Background, a3Direction, a3Orientation, a3Title } from './a3Pref.svelte';
 import { allNodes, attachContext, fakeRaf, lastCamera, makeApi, richestRoot } from './testing/helpers';
 
 const RECT = { left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON() {} };
@@ -82,6 +82,8 @@ beforeEach(() => {
   // Every case starts with the default A3 direction (as on screen).
   localStorage.removeItem(A3_DIRECTION_KEY);
   a3Direction.reload();
+  localStorage.removeItem(A3_ORIENTATION_KEY);
+  a3Orientation.reload();
   localStorage.removeItem(A3_TITLE_KEY);
   localStorage.removeItem(A3_BACKGROUND_KEY);
   a3Title.reload();
@@ -566,14 +568,16 @@ describe('A3 print layouts on the around chart', () => {
     stubOffscreen();
     const printed = capturePrints();
     const s = await renderAround('sheets');
-    // The frames on screen plan first (four print charts); then the print alone is counted.
+    // The frames on screen plan first, with the four print charts whatever the direction setting.
     await waitFor(() => expect(s.openSpy.mock.calls.filter((c) => c[0].print)).toHaveLength(4), A3_WAIT);
+    expect(s.openSpy.mock.calls.filter((c) => c[0].print).map((c) => c[0].direction)).toEqual(['top', 'bottom', 'left', 'right']);
     await new Promise((r) => setTimeout(r, 50));
     s.openSpy.mockClear();
+    // The print takes the plan the frames show: it lays out no print chart of its own.
     await rightClick(s.canvas);
     await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Print on A3/ }));
     await waitFor(() => expect(printed).toHaveLength(1), A3_WAIT);
-    expect(s.openSpy.mock.calls.filter((c) => c[0].print).map((c) => c[0].direction)).toEqual(['top', 'bottom', 'left', 'right']);
+    expect(s.openSpy.mock.calls.filter((c) => c[0].print)).toEqual([]);
   }, 60000);
 
   it('sheets_save_into_new_folder', async () => {
