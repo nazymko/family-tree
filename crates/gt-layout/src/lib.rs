@@ -7,7 +7,7 @@
 mod descendants;
 mod grid;
 mod pedigree;
-mod quality;
+pub(crate) mod quality;
 mod relatives;
 mod route;
 mod types;

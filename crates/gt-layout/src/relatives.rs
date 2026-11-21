@@ -156,18 +156,186 @@ struct FoldPlan {
     deny: HashSet<Key>,
 }
 
-/// A run that qualifies for folding: the key of its first person, and whether its grid can get in the way of other
-/// lines (brothers and sisters of an ancestor, who stand near the line and the connectors of the rows below).
-type Candidate = (Key, bool);
+/// A run that qualifies for folding: the key of its first person (the run's name in [`FoldPlan::deny`]), whether its
+/// grid can get in the way of other lines (brothers and sisters of an ancestor, who stand near the line and the
+/// connectors of the rows below), and the people in it.
+#[derive(Clone)]
+struct Candidate {
+    key: Key,
+    risky: bool,
+    people: Vec<Key>,
+}
 
 /// A layout and the runs in it that qualify for folding.
 type Folded = (Layout, Vec<Candidate>);
+
+/// How many layouts of a chart the fold may make, as people laid out in all: a chart of `n` people gets
+/// `FOLD_WORK / n` layouts, but never fewer than [`FOLD_MIN_RUNS`]. Past it the search stops and keeps the folds
+/// accepted so far (a safety net: the blame rounds of [`fold_checked`] settle a chart in a few layouts). Counted in
+/// layouts, not in time, so a chart folds the same on every machine.
+const FOLD_WORK: usize = 160_000;
+
+/// The fewest layouts the fold may make, however big the chart.
+const FOLD_MIN_RUNS: usize = 12;
+
+/// How many times [`fold_checked`] blames the grids that made a chart worse and lays it out again without them,
+/// before it falls back to trying the runs one at a time.
+const BLAME_ROUNDS: usize = 4;
+
+/// The unfolded chart that every folded one is held to, and how much layout work the search has left.
+struct FoldCheck {
+    base: Layout,
+    quality: crate::Quality,
+    /// [`crate::quality::trouble`] of the cards of `base`, by person.
+    trouble: HashMap<Key, (usize, usize)>,
+    /// The crossings of the lines of `base`, by the people they join.
+    crossings: HashMap<(Key, Key), usize>,
+    runs_left: usize,
+}
+
+impl FoldCheck {
+    fn new(base: Layout) -> Self {
+        let runs_left = (FOLD_WORK / base.nodes.len().max(1)).max(FOLD_MIN_RUNS);
+        let (cards, lines) = crate::quality::trouble(&base);
+        FoldCheck {
+            quality: crate::quality(&base),
+            trouble: by_person(&base, &cards),
+            crossings: by_line(&base, &lines),
+            base,
+            runs_left,
+        }
+    }
+
+    /// Whether `l` draws no more crossing lines, no more lines through cards and no more overlapping cards than the
+    /// unfolded chart.
+    fn clean(&self, l: &Layout) -> bool {
+        let q = crate::quality(l);
+        q.box_overlaps == 0
+            && q.lines_through_boxes <= self.quality.lines_through_boxes
+            && q.line_crossings <= self.quality.line_crossings
+    }
+
+    /// Lay the chart out with `plan`, while the work budget lasts.
+    fn run(
+        &mut self,
+        run: &mut impl FnMut(Option<&FoldPlan>) -> Folded,
+        plan: &FoldPlan,
+    ) -> Option<Folded> {
+        if self.runs_left == 0 {
+            return None;
+        }
+        self.runs_left -= 1;
+        Some(run(Some(plan)))
+    }
+
+    /// The folded runs of `l` (those of `cands` that `plan` does not deny) whose people are in more trouble than in
+    /// the unfolded chart: more crossings of their lines, or more lines through their cards or cards under their
+    /// lines or on top of theirs (each counted on its own, so fewer crossings never hide a line through a card). Only
+    /// the grid's own cards and lines are looked at, so a run is blamed for what its grid does where it stands.
+    ///
+    /// Where no grid is to blame that way (a grid moved other people's lines about), the grids that stand where a line
+    /// now crosses more lines than in the unfolded chart: a grid whose cards are within the line's reach.
+    fn blame(&self, l: &Layout, cands: &[Candidate], plan: &FoldPlan) -> Vec<Key> {
+        let (cards, lines) = crate::quality::trouble(l);
+        let now = by_person(l, &cards);
+        let sum = |t: &HashMap<Key, (usize, usize)>, people: &[Key]| {
+            people
+                .iter()
+                .filter_map(|k| t.get(k))
+                .fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
+        };
+        let folded: Vec<&Candidate> = cands
+            .iter()
+            .filter(|c| !plan.deny.contains(&c.key))
+            .collect();
+        let blamed: Vec<Key> = folded
+            .iter()
+            .filter(|c| {
+                let (now, then) = (sum(&now, &c.people), sum(&self.trouble, &c.people));
+                now.0 > then.0 || now.1 > then.1
+            })
+            .map(|c| c.key)
+            .collect();
+        if !blamed.is_empty() {
+            return blamed;
+        }
+        // The reach of every line that crosses more lines than it did, as (left, right, top, bottom).
+        let mut was = self.crossings.clone();
+        let mut worse: Vec<(f32, f32, f32, f32)> = Vec::new();
+        for (e, &c) in l.edges.iter().zip(&lines) {
+            let k = (l.nodes[e.from as usize].key, l.nodes[e.to as usize].key);
+            let before = was.get_mut(&k).map_or(0, std::mem::take);
+            if c > before {
+                let xs = e.pts.iter().step_by(2);
+                let ys = e.pts.iter().skip(1).step_by(2);
+                worse.push((
+                    xs.clone().copied().fold(f32::INFINITY, f32::min),
+                    xs.copied().fold(f32::NEG_INFINITY, f32::max),
+                    ys.clone().copied().fold(f32::INFINITY, f32::min),
+                    ys.copied().fold(f32::NEG_INFINITY, f32::max),
+                ));
+            }
+        }
+        let at: HashMap<Key, &Rect> = l
+            .nodes
+            .iter()
+            .filter(|n| n.dup_of.is_none())
+            .map(|n| (n.key, &n.rect))
+            .collect();
+        folded
+            .iter()
+            .filter(|c| {
+                let rects: Vec<&Rect> =
+                    c.people.iter().filter_map(|k| at.get(k).copied()).collect();
+                let x0 = rects.iter().map(|r| r.x).fold(f32::INFINITY, f32::min);
+                let x1 = rects
+                    .iter()
+                    .map(|r| r.x + r.w)
+                    .fold(f32::NEG_INFINITY, f32::max);
+                let y0 = rects.iter().map(|r| r.y).fold(f32::INFINITY, f32::min);
+                let y1 = rects
+                    .iter()
+                    .map(|r| r.y + r.h)
+                    .fold(f32::NEG_INFINITY, f32::max);
+                worse
+                    .iter()
+                    .any(|w| w.0 <= x1 && x0 <= w.1 && w.2 <= y1 && y0 <= w.3)
+            })
+            .map(|c| c.key)
+            .collect()
+    }
+}
+
+/// Per-line numbers by the people the line joins (lines joining the same two people add up).
+fn by_line(l: &Layout, per_line: &[usize]) -> HashMap<(Key, Key), usize> {
+    let mut out = HashMap::new();
+    for (e, &c) in l.edges.iter().zip(per_line) {
+        let k = (l.nodes[e.from as usize].key, l.nodes[e.to as usize].key);
+        *out.entry(k).or_insert(0) += c;
+    }
+    out
+}
+
+/// Per-card numbers by person (the first card of a person; repeats are not counted).
+fn by_person<T: Copy>(l: &Layout, per_card: &[T]) -> HashMap<Key, T> {
+    l.nodes
+        .iter()
+        .zip(per_card)
+        .filter(|(n, _)| n.dup_of.is_none())
+        .map(|(n, &t)| (n.key, t))
+        .collect()
+}
 
 /// The folded chart: `run` lays the chart out with a fold plan (None: unfolded) and lists the runs that qualify. Every
 /// grid shape in turn, widest first ([`FOLD_RATIO`], then half of it and so on, [`FOLD_TRIES`] at most), as long as
 /// each comes closer to the A3 ratio: the last that did. Where no run qualifies the chart is the unfolded one. A run
 /// that had to stay unfolded with one shape starts unfolded with the next, deeper one (a deeper grid reaches further).
-fn fold_search(mut run: impl FnMut(Option<&FoldPlan>) -> (Layout, Vec<Candidate>)) -> Layout {
+/// With the shape chosen, the runs blamed on the way and still unfolded get one more try, in groups ([`add_back`]):
+/// a run blamed beside a worse grid can fold once that one stays unfolded.
+///
+/// The search makes a bounded number of layouts ([`FOLD_WORK`]); when they run out it keeps the best clean chart so
+/// far, so a big chart never holds the app for long.
+fn fold_search(mut run: impl FnMut(Option<&FoldPlan>) -> Folded) -> Layout {
     let mut plan = FoldPlan {
         ratio: FOLD_RATIO,
         deny: HashSet::new(),
@@ -176,67 +344,120 @@ fn fold_search(mut run: impl FnMut(Option<&FoldPlan>) -> (Layout, Vec<Candidate>
     if first.1.is_empty() {
         return first.0;
     }
-    let base = crate::quality(&run(None).0);
-    let l = fold_checked(&mut run, &mut plan, &base, Some(first));
-    let mut best = (off_a3(&l), l);
+    let mut check = FoldCheck::new(run(None).0);
+    let (l, mut blamed) = fold_checked(&mut run, &mut plan, &mut check, Some(first));
+    let mut best = (off_a3(&l), l, plan.clone());
     for _ in 1..FOLD_TRIES {
+        if check.runs_left == 0 {
+            break;
+        }
         plan.ratio /= 2.0;
-        let l = fold_checked(&mut run, &mut plan, &base, None);
+        let (l, more) = fold_checked(&mut run, &mut plan, &mut check, None);
+        blamed.extend(more);
         let off = off_a3(&l);
         if off >= best.0 {
             break;
         }
-        best = (off, l);
+        best = (off, l, plan.clone());
     }
-    best.1
+    let (_, mut l, mut plan) = best;
+    let mut seen = HashSet::new();
+    blamed.retain(|k| plan.deny.contains(k) && seen.insert(*k));
+    add_back(&mut run, &mut plan, &mut check, &blamed, &mut l);
+    l
 }
 
 /// The chart with grids of `plan`'s shape that draws no more crossing lines, no more lines through cards and no more
-/// overlapping cards than the unfolded chart (`base`): `plan` as it is if that is clean; else without the runs that can
-/// get in the way (or without any run, if that is not clean either), and then those runs back one at a time, each kept
-/// where the chart stays clean. `plan.deny` ends as the runs left unfolded. `first`: the layout of `plan`, when already
-/// made.
+/// overlapping cards than the unfolded chart (`check`), and the runs blamed on the way.
+///
+/// `plan` as it is if that is clean. Else the grids that made it worse are blamed ([`FoldCheck::blame`]) and left
+/// unfolded, a few rounds at most: each round lays the chart out once, whatever the number of runs. Where that does
+/// not settle it: without the runs that can get in the way (or without any run, if that is not clean either), and
+/// then those runs back in groups ([`add_back`]). `plan.deny` ends as the runs left unfolded. `first`: the layout of
+/// `plan`, when already made. Out of work before any clean chart: the unfolded chart.
 fn fold_checked(
-    run: &mut impl FnMut(Option<&FoldPlan>) -> (Layout, Vec<Candidate>),
+    run: &mut impl FnMut(Option<&FoldPlan>) -> Folded,
     plan: &mut FoldPlan,
-    base: &crate::Quality,
-    first: Option<(Layout, Vec<Candidate>)>,
-) -> Layout {
-    let clean = |l: &Layout| {
-        let q = crate::quality(l);
-        q.box_overlaps == 0
-            && q.lines_through_boxes <= base.lines_through_boxes
-            && q.line_crossings <= base.line_crossings
+    check: &mut FoldCheck,
+    first: Option<Folded>,
+) -> (Layout, Vec<Key>) {
+    let tried = plan.deny.clone();
+    let Some((mut l, mut cands)) = first.or_else(|| check.run(run, plan)) else {
+        return (check.base.clone(), Vec::new());
     };
-    let (l, mut cands) = first.unwrap_or_else(|| run(Some(plan)));
-    if clean(&l) {
-        return l;
-    }
     let mut seen = HashSet::new();
-    cands.retain(|c| seen.insert(c.0));
-    let tried = std::mem::take(&mut plan.deny);
+    cands.retain(|c| seen.insert(c.key));
+    let mut blamed = Vec::new();
+    for _ in 0..BLAME_ROUNDS {
+        if check.clean(&l) {
+            return (l, blamed);
+        }
+        let more = check.blame(&l, &cands, plan);
+        if more.is_empty() {
+            break;
+        }
+        plan.deny.extend(more.iter().copied());
+        blamed.extend(more);
+        let Some((next, _)) = check.run(run, plan) else {
+            plan.deny.extend(cands.iter().map(|c| c.key));
+            return (check.base.clone(), blamed);
+        };
+        l = next;
+    }
+    if check.clean(&l) {
+        return (l, blamed);
+    }
+    // Not settled by blame: the runs that can get in the way stay unfolded too, or every run; then back in groups
+    // (the blamed runs get their try after the search, see [`fold_search`]).
     plan.deny = cands
         .iter()
-        .filter(|c| c.1 || tried.contains(&c.0))
-        .map(|c| c.0)
+        .filter(|c| c.risky || tried.contains(&c.key) || blamed.contains(&c.key))
+        .map(|c| c.key)
         .collect();
-    let mut best = run(Some(plan)).0;
-    if !clean(&best) {
-        plan.deny = cands.iter().map(|c| c.0).collect();
-        best = run(Some(plan)).0;
-    }
-    for &(key, _) in &cands {
-        if tried.contains(&key) || !plan.deny.remove(&key) {
-            continue;
+    let mut best = match check.run(run, plan) {
+        Some((l, _)) if check.clean(&l) => l,
+        _ => {
+            plan.deny = cands.iter().map(|c| c.key).collect();
+            check.base.clone()
         }
-        let l = run(Some(plan)).0;
-        if clean(&l) {
-            best = l;
-        } else {
-            plan.deny.insert(key);
-        }
+    };
+    let back: Vec<Key> = cands
+        .iter()
+        .map(|c| c.key)
+        .filter(|k| !tried.contains(k) && !blamed.contains(k) && plan.deny.contains(k))
+        .collect();
+    add_back(run, plan, check, &back, &mut best);
+    (best, blamed)
+}
+
+/// Fold the runs of `keys` (now left unfolded by `plan`) where the chart stays clean: all of them at once if that
+/// is clean, else each half in turn, down to single runs, while the work budget lasts. `best` is the clean chart of
+/// `plan` and ends as the clean chart of the runs folded.
+fn add_back(
+    run: &mut impl FnMut(Option<&FoldPlan>) -> Folded,
+    plan: &mut FoldPlan,
+    check: &mut FoldCheck,
+    keys: &[Key],
+    best: &mut Layout,
+) {
+    if keys.is_empty() || check.runs_left == 0 {
+        return;
     }
-    best
+    for k in keys {
+        plan.deny.remove(k);
+    }
+    match check.run(run, plan) {
+        Some((l, _)) if check.clean(&l) => {
+            *best = l;
+            return;
+        }
+        _ => plan.deny.extend(keys.iter().copied()),
+    }
+    if keys.len() > 1 {
+        let (a, b) = keys.split_at(keys.len() / 2);
+        add_back(run, plan, check, a, best);
+        add_back(run, plan, check, b, best);
+    }
 }
 
 /// How far a chart is from the A3 ratio (√2), in either orientation: 1 is exactly A3.
@@ -309,7 +530,14 @@ fn fold_list<K: PartialEq>(
         let run = &list[i..j];
         let key = nodes[units[run[0]].person as usize].key;
         if run.len() >= FOLD_MIN {
-            cands.push((key, risky));
+            cands.push(Candidate {
+                key,
+                risky,
+                people: run
+                    .iter()
+                    .map(|&u| nodes[units[u].person as usize].key)
+                    .collect(),
+            });
         }
         if run.len() >= FOLD_MIN && !plan.deny.contains(&key) {
             let (k, c) = fold_shape(run.len(), plan.ratio);
