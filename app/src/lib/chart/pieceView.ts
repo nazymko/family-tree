@@ -2,6 +2,7 @@ import type { ChartNode, Rect } from '../api/types';
 import { layoutA3, targetScale, type A3Choice, type A3Layout } from './a3';
 import { opposite, type ChartDirection } from './direction';
 import { compactBoth, sceneBounds, type Scene } from './picture';
+import { relayPiece } from './relay';
 import { refTagAt, type NodeKey, type Piece } from './sheets';
 
 /**
@@ -99,13 +100,28 @@ export function viewsOf(piece: Piece, cut: DirScene, dirs: DirScene[], o: ViewOp
     for (const e of d.scene.edges) if (e.kind === 'parent' && refs.has(e.from) && keep.has(e.to)) flip.add(e.from);
     const dirOf = (id: number) => (flip.has(id) ? opposite(d.direction) : d.direction);
     const occupied = (n: ChartNode): Rect => (refs.has(n.id) ? union(n, tagRect(n, dirOf(n.id), o.tagW, o.tagH)) : n);
-    const scene = compactBoth(
-      { nodes: d.scene.nodes.filter((n) => keep.has(n.id)), edges: d.scene.edges.filter((e) => keep.has(e.from) && keep.has(e.to)) },
-      40,
-      occupied,
-    );
-    const tags = scene.nodes.filter((n) => refs.has(n.id)).map((n) => tagRect(n, dirOf(n.id), o.tagW, o.tagH));
-    const bounds = sceneBounds(scene, tags);
+    const kept = { nodes: d.scene.nodes.filter((n) => keep.has(n.id)), edges: d.scene.edges.filter((e) => keep.has(e.from) && keep.has(e.to)) };
+    const boundsOf = (sc: Scene) => sceneBounds(sc, sc.nodes.filter((n) => refs.has(n.id)).map((n) => tagRect(n, dirOf(n.id), o.tagW, o.tagH)));
+    // Laid out again for this piece alone; the plain squeeze stays when it comes out smaller.
+    const rel = new Map<number, Rect>();
+    for (const n of kept.nodes) {
+      if (!refs.has(n.id)) continue;
+      const r = tagRect(n, dirOf(n.id), o.tagW, o.tagH);
+      rel.set(n.id, { ...r, x: r.x - n.x, y: r.y - n.y });
+    }
+    const squeezed = compactBoth(kept, 40, occupied);
+    let scene = squeezed;
+    let bounds = boundsOf(squeezed);
+    for (const fold of [false, true]) {
+      const relaid = relayPiece(kept, d.direction, rel, 16, fold);
+      if (!relaid) continue;
+      const dense = compactBoth(relaid, 40, occupied);
+      const b = boundsOf(dense);
+      if (b.w * b.h <= bounds.w * bounds.h) {
+        scene = dense;
+        bounds = b;
+      }
+    }
     return { direction: d.direction, scene, refs, flip, bounds, standalone: layoutA3(bounds, o.choice, o.header) };
   });
 }

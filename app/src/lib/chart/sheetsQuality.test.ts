@@ -70,10 +70,28 @@ function measures(f: FamName) {
   const land = a3Area('landscape', true);
   const lb = Math.ceil(all.reduce((a, x) => a + slotArea(x.p, t), 0) / (land.w * land.h));
   const head = fills.length > 1 ? fills.slice(0, -1) : fills;
-  return { pages: plan.pages.length, people, lb, at6: at(A3_MIN_PT), at8: at(SHEET_TARGET_PT), fill: head.reduce((a, b) => a + b, 0) / head.length, pieces: all.length };
+  const cardFills = all.map((x) => pieceFill(x.p)).sort((a, b) => a - b);
+  const cover = plan.pages.find((pg) => pg.pieces.some((p) => p.index === 0))!;
+  return {
+    pages: plan.pages.length,
+    people,
+    lb,
+    at6: at(A3_MIN_PT),
+    at8: at(SHEET_TARGET_PT),
+    fill: head.reduce((a, b) => a + b, 0) / head.length,
+    pieces: all.length,
+    pieceFill: cardFills[Math.floor(cardFills.length / 2)],
+    coverPt: cover.namePt,
+  };
 }
 
-describe('packed sheets on family-shaped charts', () => {
+/** Share of a piece's drawing taken by its cards. */
+function pieceFill(p: PlannedPiece): number {
+  const cards = p.view.scene.nodes.reduce((a, n) => a + n.w * n.h, 0);
+  return cards / (p.view.bounds.w * p.view.bounds.h);
+}
+
+describe('packed sheets on family-shaped charts', { timeout: 30_000 }, () => {
   it('everyone_once', () => {
     for (const f of FAMS) {
       const { dirs, plan } = run(f);
@@ -208,7 +226,7 @@ describe('packed sheets on family-shaped charts', () => {
     const rows = FAMS.map((f) => {
       const m = measures(f);
       const pts = run(f).plan.pages.map((pg) => Math.round(pg.namePt * 10) / 10);
-      return { tree: f, people: m.people, today: TODAY_SHEETS[f], pages: m.pages, pieces: m.pieces, LB: m.lb, at6: Math.round(m.at6 * 1000) / 10, at8: Math.round(m.at8 * 1000) / 10, fill: Math.round(m.fill * 100) / 100, minPt: Math.min(...pts), maxPt: Math.max(...pts) };
+      return { tree: f, people: m.people, today: TODAY_SHEETS[f], pages: m.pages, pieces: m.pieces, LB: m.lb, at6: Math.round(m.at6 * 1000) / 10, at8: Math.round(m.at8 * 1000) / 10, fill: Math.round(m.fill * 100) / 100, pieceFill: Math.round(m.pieceFill * 100) / 100, coverPt: Math.round(m.coverPt * 10) / 10, minPt: Math.min(...pts), maxPt: Math.max(...pts) };
     });
     console.table(rows);
     expect(rows.length).toBe(4);

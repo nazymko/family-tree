@@ -89,12 +89,23 @@ export function planSheets(dirs: DirScene[], o: PlanOptions): SheetPlan {
   // included, on one page at the target size.
   const capOf = (p: Piece) => (p.top === null ? 0 : o.capW(byId.get(p.top)!));
   const slotOk = (p: Piece) => (v: PieceView) => slotFits({ id: p.index, w: v.bounds.w, h: v.bounds.h, capW: capOf(p) }, t, o.choice, o.header);
+  // A piece's view in one direction, made once (the cut asks again for the pieces it keeps).
+  const made = new Map<string, PieceView>();
+  const viewIn = (p: Piece, d: DirScene): PieceView => {
+    const sig = `${d.direction}|${[...p.full].sort((a, b) => a - b).join(',')}|${[...p.refs].sort((a, b) => a[0] - b[0]).join(';')}|${[...p.plain].sort((a, b) => a - b).join(',')}`;
+    let v = made.get(sig);
+    if (!v) {
+      v = viewsOf(p, cut, [d], vo)[0];
+      made.set(sig, v);
+    }
+    return v;
+  };
   const pieces = cutPieces(cut.scene, centres, {
-    fits: (p) => cardsFit(p, cut, vo) && viewsOf(p, cut, dirs, vo).some(slotOk(p)),
+    fits: (p) => cardsFit(p, cut, vo) && dirs.some((d) => slotOk(p)(viewIn(p, d))),
   });
 
   // (3) Each piece's direction.
-  const views = pieces.map((p) => pickView(viewsOf(p, cut, dirs, vo), o.screenDir, slotOk(p)));
+  const views = pieces.map((p) => pickView(dirs.map((d) => viewIn(p, d)), o.screenDir, slotOk(p)));
 
   // (4) Packing.
   const items: PackItem[] = pieces.map((p, i) => ({ id: p.index, w: views[i].bounds.w, h: views[i].bounds.h, capW: capOf(p) }));
