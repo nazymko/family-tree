@@ -25,6 +25,17 @@ export const A3_MIN_PT = 6;
 /** Font size (px) of a person's name in a box. */
 export const NAME_PX = 13;
 
+/**
+ * Name size (points) a packed "sheets by branch" set aims for (spec amendment 21.11.2026; the owner's decision of
+ * 21.11.2026: names stay at or above 8 pt even if big charts get more pages).
+ */
+export const SHEET_TARGET_PT = 8;
+
+/** The print scale at which names print at `pt` points. */
+export function targetScale(pt = SHEET_TARGET_PT): number {
+  return pt / (NAME_PX * 0.75);
+}
+
 export type A3Orientation = 'landscape' | 'portrait';
 export type A3Choice = A3Orientation | 'auto';
 /** The page behind a picture: the app's paper tint, plain white, or nothing (a transparent PNG / SVG). */
