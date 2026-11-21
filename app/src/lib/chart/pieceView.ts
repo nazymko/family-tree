@@ -1,6 +1,6 @@
 import type { ChartNode, Rect } from '../api/types';
 import { layoutA3, targetScale, type A3Choice, type A3Layout } from './a3';
-import type { ChartDirection } from './direction';
+import { opposite, type ChartDirection } from './direction';
 import { compactBoth, sceneBounds, type Scene } from './picture';
 import { refTagAt, type NodeKey, type Piece } from './sheets';
 
@@ -24,6 +24,11 @@ export interface PieceView {
   scene: Scene;
   /** Reference box node id (in `scene`) -> index of the piece holding that person in full. */
   refs: Map<number, number>;
+  /**
+   * Reference boxes whose tag goes on the ancestors' side: the parents of someone on this piece (their line to the child
+   * leaves the descendants' side, where the tag would sit on it). See `tagDir`.
+   */
+  flip: Set<number>;
   /** The scene's bounds with every reference tag. */
   bounds: Rect;
   /** The piece alone on an A3 page. */
@@ -47,6 +52,11 @@ export function tagRect(box: { x: number; y: number; w: number; h: number }, dir
   const x = at.align === 'center' ? at.x - w / 2 : at.align === 'left' ? at.x : at.x - w;
   const y = at.baseline === 'top' ? at.y : at.baseline === 'bottom' ? at.y - h : at.y - h / 2;
   return { x, y, w, h };
+}
+
+/** The direction to give `refTagAt` / `tagRect` for the tag of reference box `id` of a view. */
+export function tagDir(v: Pick<PieceView, 'direction' | 'flip'>, id: number): ChartDirection {
+  return v.flip.has(id) ? opposite(v.direction) : v.direction;
 }
 
 const union = (a: Rect, b: Rect): Rect => {
@@ -83,15 +93,20 @@ export function viewsOf(piece: Piece, cut: DirScene, dirs: DirScene[], o: ViewOp
       const id = byKey.get(k);
       if (id !== undefined) refs.set(id, p);
     }
-    const occupied = (n: ChartNode): Rect => (refs.has(n.id) ? union(n, tagRect(n, d.direction, o.tagW, o.tagH)) : n);
+    // A reference box that is a parent of someone here has its line leave on the descendants' side: its tag goes on the
+    // ancestors' side, which is free (its own parents are not on this piece).
+    const flip = new Set<number>();
+    for (const e of d.scene.edges) if (e.kind === 'parent' && refs.has(e.from) && keep.has(e.to)) flip.add(e.from);
+    const dirOf = (id: number) => (flip.has(id) ? opposite(d.direction) : d.direction);
+    const occupied = (n: ChartNode): Rect => (refs.has(n.id) ? union(n, tagRect(n, dirOf(n.id), o.tagW, o.tagH)) : n);
     const scene = compactBoth(
       { nodes: d.scene.nodes.filter((n) => keep.has(n.id)), edges: d.scene.edges.filter((e) => keep.has(e.from) && keep.has(e.to)) },
       40,
       occupied,
     );
-    const tags = scene.nodes.filter((n) => refs.has(n.id)).map((n) => tagRect(n, d.direction, o.tagW, o.tagH));
+    const tags = scene.nodes.filter((n) => refs.has(n.id)).map((n) => tagRect(n, dirOf(n.id), o.tagW, o.tagH));
     const bounds = sceneBounds(scene, tags);
-    return { direction: d.direction, scene, refs, bounds, standalone: layoutA3(bounds, o.choice, o.header) };
+    return { direction: d.direction, scene, refs, flip, bounds, standalone: layoutA3(bounds, o.choice, o.header) };
   });
 }
 

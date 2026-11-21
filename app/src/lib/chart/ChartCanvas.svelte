@@ -4,7 +4,7 @@
   import { getApi, getPlatform } from '../api/context';
   import { nodeKeys, refTagAt, screenFrames, type NodeKey, type PrintLayout } from './sheets';
   import { planSheets, type PlannedPage, type SheetPlan } from './sheetPlan';
-  import type { DirScene } from './pieceView';
+  import { tagDir, type DirScene } from './pieceView';
   import { CAPTION_MAX_MM, CAPTION_MM, CAPTION_PT } from './pack';
   import type { AroundKin, BranchDepth, OpenBranch, ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
   import { added } from '../state/added.svelte';
@@ -1377,7 +1377,8 @@
           draw(ctx, v.scene, cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: m.rootNode, focusMore: new Set(m.chosenNodes ?? []), theme: th, kind, dir: v.direction, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(s), keep: i > 0 });
         });
         ctx.setTransform(p.scale, 0, 0, p.scale, 0, 0);
-        // "→ sheet N" beside each reference box, on the side away from its ancestors (see refTagAt).
+        // "→ sheet N" beside each reference box, on the side away from its ancestors, or towards them for a parent of
+        // someone on the piece (see tagDir).
         ctx.font = `600 ${refTagPx(s)}px ${th.font}`;
         ctx.fillStyle = th.ink2;
         for (const pc of pg.pieces) {
@@ -1386,7 +1387,7 @@
           for (const [id, no] of pc.refPages) {
             const n = byId.get(id);
             if (!n) continue;
-            const at = refTagAt({ x: pc.x + (n.x - b.x) * s, y: pc.y + (n.y - b.y) * s, w: n.w * s, h: n.h * s }, pc.view.direction, 2 * s);
+            const at = refTagAt({ x: pc.x + (n.x - b.x) * s, y: pc.y + (n.y - b.y) * s, w: n.w * s, h: n.h * s }, tagDir(pc.view, id), 2 * s);
             ctx.textAlign = at.align;
             ctx.textBaseline = at.baseline;
             ctx.fillText(t('picture.sheetRef', { n: no }), at.x, at.y);
