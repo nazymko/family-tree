@@ -1809,6 +1809,7 @@ export const en = {
     a3SmallSheets: 'Sheets {list}:',
     sheetOf: 'Sheet {n} of {m}',
     branchTitle: 'Branch: {name}',
+    siblingsTitle: 'Brothers and sisters of {name}',
     sheetRef: '→ sheet {n}',
     sheetSuffix: ' — sheet {n}',
     sheetsFolder: '{name} — sheets',

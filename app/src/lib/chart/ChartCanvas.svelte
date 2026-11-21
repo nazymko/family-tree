@@ -1270,8 +1270,12 @@
     return words.length > 1 ? words[0] : '';
   }
 
-  /** A packed piece's caption: «Branch: <surname> (<given name>)», or «Branch: <surname>» without a given name. */
-  function branchCaption(top: ChartNode): string {
+  /**
+   * A packed piece's caption: «Branch: <surname> (<given name>)», or «Branch: <surname>» without a given name; for a piece
+   * of childless brothers and sisters, «Brothers and sisters of <name>».
+   */
+  function branchCaption(top: ChartNode, siblingsOf: ChartNode | null = null): string {
+    if (siblingsOf?.person) return t('picture.siblingsTitle', { name: siblingsOf.person.name });
     const surname = branchSurname(top);
     const given = givenName(top);
     return t('picture.branchTitle', { name: given ? `${surname} (${given})` : surname });
@@ -1330,9 +1334,9 @@
       .filter((k): k is NodeKey => k !== undefined);
     const meter = new SvgContext(1, 1) as unknown as CanvasRenderingContext2D;
     const capMax = mmToPx(CAPTION_MAX_MM);
-    const capW = (top: ChartNode): number => {
+    const capW = (top: ChartNode, siblingsOf: ChartNode | null): number => {
       meter.font = `${CAPTION_PT * PT_PX}px ${look.th.font}`;
-      return Math.min(capMax, meter.measureText(branchCaption(top)).width);
+      return Math.min(capMax, meter.measureText(branchCaption(top, siblingsOf)).width);
     };
     // The tag of a reference box at the target scale, in world units (for the widest page number a set may have).
     const ts = targetScale();
@@ -1400,7 +1404,7 @@
         ctx.textBaseline = 'alphabetic';
         for (const pc of pg.pieces) {
           if (pc.capY === null || !pc.top) continue;
-          const cap = ellipsize((x) => ctx.measureText(x).width, branchCaption(pc.top), mmToPx(CAPTION_MAX_MM));
+          const cap = ellipsize((x) => ctx.measureText(x).width, branchCaption(pc.top, pc.siblingsOf), mmToPx(CAPTION_MAX_MM));
           ctx.fillText(cap, pc.x, pc.capY + mmToPx(CAPTION_MM) - mmToPx(1.8));
         }
         if (header) drawTitleBlock(ctx, p.scale, lay, th, text);

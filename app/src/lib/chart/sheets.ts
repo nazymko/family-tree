@@ -171,6 +171,11 @@ export interface Piece {
   plain: Set<number>;
   /** It did not fit and had no block left to move. */
   unsplittable: boolean;
+  /**
+   * A piece of childless brothers and sisters (with their partners) moved out together: the brother or sister they
+   * belong with who stayed behind (the line's person where there is one); null for any other piece.
+   */
+  siblingsOf: number | null;
 }
 
 export interface CutOptions {
@@ -221,10 +226,37 @@ export function cutPieces(scene: Scene, centres: number[], o: CutOptions): Piece
   };
   const movableAt = (id: number): boolean => !rank.has(id) || dist(id) >= 3;
 
+  // Childless brothers and sisters: each with the partners beside them who have no family of their own here, by family.
+  const parentsOf = new Map<number, number[]>();
+  const partnersOf = new Map<number, number[]>();
+  const hasKids = new Set<number>();
+  for (const e of scene.edges) {
+    if (!byId.has(e.from) || !byId.has(e.to)) continue;
+    if (e.kind === 'parent') {
+      push(parentsOf, e.to, e.from);
+      hasKids.add(e.from);
+    } else if (e.kind === 'partner') {
+      push(partnersOf, e.from, e.to);
+      push(partnersOf, e.to, e.from);
+    }
+  }
+  const families = new Map<string, number[]>();
+  for (const [c, ps] of parentsOf) if (!isDup(c)) push(families, [...ps].sort((a, b) => a - b).join(','), c);
+  const loneSpouse = (sp: number, of: number) =>
+    !isDup(sp) && !hasKids.has(sp) && !parentsOf.has(sp) && (partnersOf.get(sp) ?? []).every((x) => x === of);
+  /** A childless child and their partners, or null when they have a family here. */
+  const leafUnit = (c: number): number[] | null => {
+    if (hasKids.has(c)) return null;
+    const ps = partnersOf.get(c) ?? [];
+    return ps.every((sp) => loneSpouse(sp, c)) ? [c, ...ps] : null;
+  };
+  const familyList = [...families.values()];
+
   const pieceOf = new Map<number, number>(ids.map((id) => [id, 0]));
   const tops: (number | null)[] = [null];
   const parentsOfPiece: (number | null)[] = [null];
   const unsplittable: boolean[] = [false];
+  const siblingsOfPiece: (number | null)[] = [null];
 
   const edges = scene.edges.filter((e) => (e.kind === 'parent' || e.kind === 'partner' || e.kind === 'sibling') && byId.has(e.from) && byId.has(e.to));
   /** The piece `k` as it stands now: its people, references and plain repeats. */
@@ -249,11 +281,20 @@ export function cutPieces(scene: Scene, centres: number[], o: CutOptions): Piece
       if (a === k) refs.set(e.to, b);
       else if (b === k) refs.set(e.from, a);
     }
-    return { index: k, top: tops[k], parent: parentsOfPiece[k], full, refs, plain, unsplittable: unsplittable[k] };
+    return { index: k, top: tops[k], parent: parentsOfPiece[k], full, refs, plain, unsplittable: unsplittable[k], siblingsOf: siblingsOfPiece[k] };
   };
 
-  /** The largest movable block of piece `k`, or null. One post-order pass over the piece's hang forest. */
-  const largestBlock = (k: number, total: number): number | null => {
+  interface Block {
+    top: number;
+    /** A group of childless brothers and sisters: exactly these move (and who they stay with); else the hang subtree at `top`. */
+    members: number[] | null;
+    siblingsOf: number | null;
+  }
+  /**
+   * The largest movable block of piece `k`, or null: a hang subtree (one post-order pass over the piece's hang forest),
+   * or the childless brothers and sisters of one family with their partners.
+   */
+  const largestBlock = (k: number, total: number): Block | null => {
     const roots = ids.filter((id) => {
       if (pieceOf.get(id) !== k) return false;
       const u = up.get(id);
@@ -286,7 +327,31 @@ export function cutPieces(scene: Scene, centres: number[], o: CutOptions): Piece
         for (const c of kids.get(id) ?? []) if (pieceOf.get(c) === k) stack.push([c, false]);
       }
     }
-    return best;
+    let group: Block | null = null;
+    let groupSize = 0;
+    for (const children of familyList) {
+      const members: number[] = [];
+      for (const c of children) {
+        const u = leafUnit(c);
+        if (u && u.every((id) => pieceOf.get(id) === k && movableAt(id))) members.push(...u);
+      }
+      const n = members.length;
+      // The piece left behind keeps a few people too (a couple and their many children stay one piece).
+      if (n < minPeople || n > total - minPeople) continue;
+      const left = children.filter((c) => !members.includes(c));
+      const stay = [...left].sort((a, b) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity) || a - b)[0] ?? null;
+      const top = Math.min(...members.filter((id) => children.includes(id)));
+      const beats =
+        group === null ||
+        n > groupSize ||
+        (n === groupSize && ((rank.get(ownerOf(top)) ?? Infinity) < (rank.get(ownerOf(group.top)) ?? Infinity) || top < group.top));
+      if (beats) {
+        group = { top, members, siblingsOf: stay };
+        groupSize = n;
+      }
+    }
+    if (group && (best === null || groupSize > size.get(best)!)) return group;
+    return best === null ? null : { top: best, members: null, siblingsOf: null };
   };
 
   const queue = [0];
@@ -301,10 +366,16 @@ export function cutPieces(scene: Scene, centres: number[], o: CutOptions): Piece
         break;
       }
       const nk = tops.length;
-      tops.push(x);
+      tops.push(x.top);
       parentsOfPiece.push(k);
       unsplittable.push(false);
-      const todo = [x];
+      siblingsOfPiece.push(x.siblingsOf);
+      if (x.members) {
+        for (const id of x.members) pieceOf.set(id, nk);
+        queue.push(nk);
+        continue;
+      }
+      const todo = [x.top];
       while (todo.length) {
         const id = todo.pop()!;
         pieceOf.set(id, nk);

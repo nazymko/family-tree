@@ -19,7 +19,7 @@ export interface PlanOptions {
   /** The root and chosen people, as keys. */
   centres: NodeKey[];
   /** Width (layout px, at `CAPTION_PT`) of the caption of the piece cut at `top`. */
-  capW: (top: ChartNode) => number;
+  capW: (top: ChartNode, siblingsOf: ChartNode | null) => number;
   /** Reference tag size, world units at the target scale (see `ViewOptions`). */
   tagW: number;
   tagH: number;
@@ -29,6 +29,8 @@ export interface PlannedPiece {
   index: number;
   /** The node (of the screen direction's layout) the piece was cut at; null for the cover. */
   top: ChartNode | null;
+  /** For a piece of childless brothers and sisters, the one they belong with (its caption names them). */
+  siblingsOf: ChartNode | null;
   view: PieceView;
   /** 1-based page number. */
   page: number;
@@ -74,6 +76,7 @@ export function planSheets(dirs: DirScene[], o: PlanOptions): SheetPlan {
     refs: new Map(),
     plain: new Set(cut.scene.nodes.filter(live).map((n) => n.id)),
     unsplittable: false,
+    siblingsOf: null,
   };
   const wholeViews = viewsOf(whole, cut, dirs, vo);
   if (fitsTarget(wholeViews)) {
@@ -81,13 +84,13 @@ export function planSheets(dirs: DirScene[], o: PlanOptions): SheetPlan {
     const lay = v.standalone;
     const x = (v.bounds.x - lay.cam.x) * lay.scale;
     const y = (v.bounds.y - lay.cam.y) * lay.scale;
-    const piece: PlannedPiece = { index: 0, top: null, view: v, page: 1, x, y, capY: null, refPages: new Map(), unsplittable: false };
+    const piece: PlannedPiece = { index: 0, top: null, siblingsOf: null, view: v, page: 1, x, y, capY: null, refPages: new Map(), unsplittable: false };
     return { single: true, pages: [{ no: 1, orientation: lay.orientation, scale: lay.scale, namePt: printedPt(NAME_PX, lay.scale), pieces: [piece] }] };
   }
 
   // (2) Pieces, cut on the screen direction's layout. A piece fits when some direction holds it, caption band
   // included, on one page at the target size.
-  const capOf = (p: Piece) => (p.top === null ? 0 : o.capW(byId.get(p.top)!));
+  const capOf = (p: Piece) => (p.top === null ? 0 : o.capW(byId.get(p.top)!, p.siblingsOf === null ? null : byId.get(p.siblingsOf)!));
   const slotOk = (p: Piece) => (v: PieceView) => slotFits({ id: p.index, w: v.bounds.w, h: v.bounds.h, capW: capOf(p) }, t, o.choice, o.header);
   // A piece's view in one direction, made once (the cut asks again for the pieces it keeps).
   const made = new Map<string, PieceView>();
@@ -123,7 +126,7 @@ export function planSheets(dirs: DirScene[], o: PlanOptions): SheetPlan {
       const p = pieces[s.id];
       const view = views[s.id];
       const refPages = new Map([...view.refs].map(([id, k]) => [id, pageOf.get(k)!]));
-      return { index: p.index, top: p.top === null ? null : byId.get(p.top)!, view, page: i + 1, x: s.x, y: s.y, capY: s.capY, refPages, unsplittable: p.unsplittable };
+      return { index: p.index, top: p.top === null ? null : byId.get(p.top)!, siblingsOf: p.siblingsOf === null ? null : byId.get(p.siblingsOf)!, view, page: i + 1, x: s.x, y: s.y, capY: s.capY, refPages, unsplittable: p.unsplittable };
     }),
   }));
   return { single: false, pages };

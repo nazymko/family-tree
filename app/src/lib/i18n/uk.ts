@@ -1818,6 +1818,7 @@ export const uk: Messages = {
     a3SmallSheets: 'Аркуші {list}:',
     sheetOf: 'аркуш {n} з {m}',
     branchTitle: 'Гілка: {name}',
+    siblingsTitle: 'Брати й сестри: {name}',
     sheetRef: '→ арк. {n}',
     sheetSuffix: ' — арк. {n}',
     sheetsFolder: '{name} — аркуші',

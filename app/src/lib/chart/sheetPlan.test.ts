@@ -9,7 +9,7 @@ import { loadFam } from './testing/famScenes';
 const DIRS: ChartDirection[] = ['top', 'bottom', 'left', 'right'];
 const nav = { parent: null, child: null, prev: null, next: null };
 
-function famDirs(name: 'fam-b'): { dirs: DirScene[]; root: number } {
+function famDirs(name: 'fam-b' | 'fam-a'): { dirs: DirScene[]; root: number } {
   const dirs = DIRS.map((d) => {
     const { scene } = loadFam(name, d);
     return { direction: d, scene, keys: nodeKeys(scene) };
@@ -93,5 +93,18 @@ describe('planSheets', () => {
         }
       }
     expect(refs).toBeGreaterThan(0);
+  });
+
+  it('brothers_and_sisters_piece_names_who_they_belong_with', () => {
+    const a = famDirs('fam-a');
+    const plan = planSheets(a.dirs, opts(a.dirs, a.root));
+    const sib = plan.pages.flatMap((pg) => pg.pieces).filter((p) => p.siblingsOf !== null);
+    expect(sib.length).toBeGreaterThan(0);
+    for (const p of sib) {
+      expect(p.siblingsOf!.person).not.toBeNull();
+      // Nobody on it is shown with children of their own.
+      const here = new Set(p.view.scene.nodes.map((n) => n.id));
+      expect(p.view.scene.edges.some((e) => e.kind === 'parent' && here.has(e.from) && !p.view.refs.has(e.from))).toBe(false);
+    }
   });
 });

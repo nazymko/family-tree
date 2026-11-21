@@ -159,6 +159,45 @@ describe('cutPieces', () => {
     for (const id of [g.c, g.f, g.m, g.ff, g.fm, g.mf, g.mm]) expect(pieces[0].full.has(id)).toBe(true);
   });
 
+  /** Centre, parents, grandparents (and theirs); the father's parents have ten childless children besides him, two married. */
+  function auntsColumn() {
+    const t = new Tree();
+    const g = base(t);
+    for (const gp of [g.ff, g.fm, g.mf, g.mm]) chain(t, gp, 1);
+    const aunts: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      const a = t.child(g.ff, g.fm);
+      aunts.push(a);
+      if (i % 4 === 1) aunts.push(t.partner(a));
+    }
+    return { t, g, aunts };
+  }
+
+  it('childless_brothers_and_sisters_leave_as_one_piece', () => {
+    const { t, g, aunts } = auntsColumn();
+    // Every block of the hang tree here is one person or a couple: only the group can move.
+    const pieces = cutPieces(t.scene(), [g.c], { fits: (p) => p.full.size <= 15 });
+    expectFullOnce(t.scene(), pieces);
+    expectRefsToHolders(t.scene(), pieces);
+    const group = pieces.find((p) => p.siblingsOf !== null)!;
+    expect(group, 'a brothers-and-sisters piece').toBeDefined();
+    expect([...group.full].sort((a, b) => a - b)).toEqual([...aunts].sort((a, b) => a - b));
+    expect(group.siblingsOf).toBe(g.f);
+    expect(pieces[0].full.has(g.f)).toBe(true);
+    expect(pieces[0].unsplittable).toBe(false);
+  });
+
+  it('a_group_needs_childless_members', () => {
+    const { t, g, aunts } = auntsColumn();
+    // One aunt gets a child: she is no longer part of the group, the rest still are.
+    const kid = t.child(aunts[0]);
+    const pieces = cutPieces(t.scene(), [g.c], { fits: (p) => p.full.size <= 15 });
+    const group = pieces.find((p) => p.siblingsOf !== null)!;
+    expect(group.full.has(aunts[0])).toBe(false);
+    expect(group.full.has(kid)).toBe(false);
+    expect(group.full.has(aunts[1])).toBe(true);
+  });
+
   /** Centre, parents, grandparents; an aunt with a 13-person family and an uncle with four children. */
   function auntTree() {
     const t = new Tree();
