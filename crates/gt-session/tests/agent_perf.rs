@@ -154,6 +154,7 @@ fn run(people: usize, families: usize, writes: usize, notes: usize) {
                 roots: None,
                 direction: None,
                 print: None,
+                fold: None,
             })
             .unwrap()
         }),

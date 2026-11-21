@@ -31,4 +31,9 @@ direction?: ChartDirection,
 /**
  * A chart for a print: compact cards, and it stays out of the two-chart limit (close it when done).
  */
-print?: boolean, };
+print?: boolean, 
+/**
+ * Chart built around people only: lay long runs of people with nothing below them in several short columns.
+ * Absent or false: as before.
+ */
+fold?: boolean, };

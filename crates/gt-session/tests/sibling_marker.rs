@@ -379,6 +379,7 @@ fn marker_is_not_a_chart_root_family_view_or_person() {
                 roots: None,
                 direction: None,
                 print: None,
+                fold: None,
             })
             .unwrap_err();
         assert_eq!(err.code, ErrorCode::NotFound);

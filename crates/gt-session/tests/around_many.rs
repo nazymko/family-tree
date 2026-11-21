@@ -55,6 +55,7 @@ fn request(s: &Session, given: &[&str], generations: u32, kin: Option<AroundKin>
         roots: Some(ids),
         direction: None,
         print: None,
+        fold: None,
     }
 }
 
@@ -231,6 +232,7 @@ fn people_who_left_the_project_or_repeat_are_dropped() {
         roots: Some(vec![ivan, ivan, uuid::Uuid::from_u128(42)]),
         direction: None,
         print: None,
+        fold: None,
     };
     let m = s.chart_open(&req).unwrap();
     assert!(m.chosen_nodes.is_none());
@@ -285,6 +287,7 @@ fn heavy_twenty_people_of_a_5000_person_tree_open_in_reasonable_time() {
             roots: Some(chosen.clone()),
             direction: None,
             print: None,
+            fold: None,
         })
         .unwrap();
     let took = t.elapsed();
@@ -324,6 +327,7 @@ fn heavy_twenty_people_of_a_5000_person_tree_with_siblings_and_all_relatives() {
                 roots: Some(chosen.clone()),
                 direction: None,
                 print: None,
+                fold: None,
             })
             .unwrap();
         let took = t.elapsed();

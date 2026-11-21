@@ -62,6 +62,7 @@ fn open(s: &mut Session, given: &[&str], kin: AroundKin) -> (ChartMeta, ChartWin
             roots: Some(ids),
             direction: None,
             print: None,
+            fold: None,
         })
         .unwrap();
     let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();

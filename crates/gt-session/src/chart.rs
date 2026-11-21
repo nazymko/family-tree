@@ -790,7 +790,9 @@ impl Session {
             AroundKin::Line => AroundBase::Line,
         };
         let specs = self.open_specs(req);
-        let mut layout = if specs.is_empty() {
+        let fold = req.fold.unwrap_or(false);
+        // Folding lives in `around_open` (nothing opened there is exactly the base chart).
+        let mut layout = if specs.is_empty() && !fold {
             match kin {
                 AroundKin::All => gt_layout::around_all_kin(&src, root, g, &m, MAX_NODES),
                 AroundKin::Siblings => {
@@ -807,9 +809,9 @@ impl Session {
                 .flatten()
                 .collect();
             let source = OpenSource { src: &src, keep };
-            gt_layout::around_open(&source, root, g, base, &specs, false, &m, MAX_NODES)
+            gt_layout::around_open(&source, root, g, base, &specs, fold, &m, MAX_NODES)
         } else {
-            gt_layout::around_open(&src, root, g, base, &specs, false, &m, MAX_NODES)
+            gt_layout::around_open(&src, root, g, base, &specs, fold, &m, MAX_NODES)
         };
         let flags = if base == AroundBase::Line {
             gt_layout::open_flags(&LineSource(&src), &layout, base)
@@ -972,6 +974,7 @@ impl Session {
             links: &self.links,
             index: &self.index,
         };
+        let fold = req.fold.unwrap_or(false);
         let kin = match req.kin.unwrap_or(AroundKin::Line) {
             AroundKin::Line => gt_layout::ManyKin::Line,
             AroundKin::Siblings => gt_layout::ManyKin::Siblings,
@@ -983,12 +986,12 @@ impl Session {
                 &slots,
                 generations,
                 kin,
-                false,
+                fold,
                 &m,
                 MAX_NODES,
             )
         } else {
-            gt_layout::around_many_kin(&src, &slots, generations, kin, false, &m, MAX_NODES)
+            gt_layout::around_many_kin(&src, &slots, generations, kin, fold, &m, MAX_NODES)
         };
         layout.orient(Direction::Top, direction);
         let chosen_nodes: Vec<u32> = slots
