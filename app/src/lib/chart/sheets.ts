@@ -287,6 +287,57 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
   });
 }
 
+/** Names a box across layouts of one chart in different directions (node ids differ between them). */
+export type NodeKey = string;
+
+/**
+ * The key of every box of `scene`: `p:<person id>` for a person's box in full; for a repeated box (`dupOf` naming a box
+ * of the scene) `d:<person id>><key of the box at the other end of its first parent edge, else of its first partner
+ * edge>`; `l:<label>:<gen>` for a box without a person. A key that would repeat gets `#2`, `#3`… in scene order.
+ */
+export function nodeKeys(scene: Scene): Map<number, NodeKey> {
+  const byId = new Map(scene.nodes.map((n) => [n.id, n]));
+  const firstLink = new Map<number, number>();
+  for (const kind of ['parent', 'partner'] as const) {
+    for (const e of scene.edges) {
+      if (e.kind !== kind || !byId.has(e.from) || !byId.has(e.to)) continue;
+      if (!firstLink.has(e.from)) firstLink.set(e.from, e.to);
+      if (!firstLink.has(e.to)) firstLink.set(e.to, e.from);
+    }
+  }
+  const raw = new Map<number, string>();
+  const visiting = new Set<number>();
+  const base = (id: number): string => {
+    const hit = raw.get(id);
+    if (hit !== undefined) return hit;
+    const n = byId.get(id)!;
+    let k: string;
+    if (!n.person) k = `l:${n.label}:${n.gen}`;
+    else if (n.dupOf === null || !byId.has(n.dupOf)) k = `p:${n.person.id}`;
+    else {
+      const other = firstLink.get(id);
+      let at = '';
+      if (other !== undefined && !visiting.has(other)) {
+        visiting.add(id);
+        at = base(other);
+        visiting.delete(id);
+      }
+      k = `d:${n.person.id}>${at}`;
+    }
+    raw.set(id, k);
+    return k;
+  };
+  const out = new Map<number, NodeKey>();
+  const seen = new Map<string, number>();
+  for (const n of scene.nodes) {
+    const k = base(n.id);
+    const c = (seen.get(k) ?? 0) + 1;
+    seen.set(k, c);
+    out.set(n.id, c === 1 ? k : `${k}#${c}`);
+  }
+  return out;
+}
+
 /** Where the "→ sheet N" tag of a reference box is drawn, and how the text is anchored there. */
 export interface RefTag {
   x: number;

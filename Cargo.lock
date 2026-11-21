@@ -1943,6 +1943,7 @@ dependencies = [
 name = "gt-layout"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "proptest",
 ]
 

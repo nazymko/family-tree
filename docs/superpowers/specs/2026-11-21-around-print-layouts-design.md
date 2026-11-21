@@ -260,8 +260,8 @@ the biggest charts. "2–4x fewer pages" holds for medium charts and holds for b
 sizes. The plan's Task 5 measures the real numbers and prints them; its gates are readability, fill and correctness,
 not beating today's page count.
 
-### Open question for the owner
+### Owner decision 21.11.2026: names stay at 8 pt
 
-For charts above about 500 people the 8 pt floor and "2–4x fewer pages" cannot both hold. Which wins for big charts:
-names at ≥ 8 pt (more pages), or a lower floor (for example 6.5–7 pt) for fewer pages? Until answered, 8 pt rules;
-the floor is one constant (`SHEET_TARGET_PT`).
+The open question (for charts above about 500 people the 8 pt floor and "2–4x fewer pages" cannot both hold) is
+answered: **names stay at or above 8 pt, even if big charts get more pages.** `SHEET_TARGET_PT = 8`. Page count is
+never traded for a smaller name size, and no gate demands fewer pages than today's sets.
