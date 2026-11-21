@@ -534,7 +534,7 @@ describe('A3 print layouts on the around chart', () => {
     const all = texts.flat();
     // The packed pieces carry «Гілка: <surname> (<given name>)»; the cover has none.
     expect(all.some((x) => /^Гілка: \S+ \(\S+\)$/.test(x))).toBe(true);
-    const refs = all.filter((x) => x.startsWith('→ арк. ')).map((x) => Number(x.slice('→ арк. '.length)));
+    const refs = all.filter((x) => x.startsWith('→ арк. ')).flatMap((x) => x.slice('→ арк. '.length).split(', ').map(Number));
     expect(refs.length).toBeGreaterThan(0);
     for (const n of refs) expect(n >= 1 && n <= m, `→ арк. ${n}`).toBe(true);
   }, 60000);
@@ -551,6 +551,14 @@ describe('A3 print layouts on the around chart', () => {
         expect(text.some((x) => !x.startsWith('Гілка: ') && x.split(' ').includes(surname)), surname).toBe(true);
       }
     }
+  }, 60000);
+
+  it('children_elsewhere_print_as_one_box', async () => {
+    const { html } = await printSheets();
+    const all = pages(html).flat();
+    // A family's children on other sheets: one «Діти» box, its tag listing their sheets.
+    expect(all.filter((x) => x === 'Діти').length).toBeGreaterThan(0);
+    expect(all.some((x) => /^→ арк\. \d+(, \d+)*$/.test(x))).toBe(true);
   }, 60000);
 
   it('sheets_ignore_direction_setting', async () => {

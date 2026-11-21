@@ -26,6 +26,33 @@ const piecesA = cutPieces(cutA.scene, [famA.root], { fits: upTo(120) });
 const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 describe('viewsOf', () => {
+  it('children_on_other_pieces_share_one_box', () => {
+    let groups = 0;
+    for (const piece of piecesA) {
+      // In the cut scene: children (references here) of the same parents shown here, with their pieces.
+      const parentsOf = new Map<number, number[]>();
+      for (const e of cutA.scene.edges)
+        if (e.kind === 'parent' && piece.refs.has(e.to) && !piece.refs.has(e.from) && (piece.full.has(e.from) || piece.plain.has(e.from)))
+          parentsOf.set(e.to, [...(parentsOf.get(e.to) ?? []), e.from]);
+      const fams = new Map<string, number[]>();
+      for (const [c, ps] of parentsOf) fams.set([...ps].sort().join(','), [...(fams.get([...ps].sort().join(',')) ?? []), c]);
+      for (const v of viewsOf(piece, cutA, famA.dirs, OPTS)) {
+        const dk = famA.dirs.find((d) => d.direction === v.direction)!.keys;
+        const shown = new Set(v.scene.nodes.map((n) => dk.get(n.id)!));
+        const idOf = new Map(v.scene.nodes.map((n) => [dk.get(n.id)!, n.id]));
+        for (const kids of fams.values()) {
+          if (kids.length < 2) continue;
+          const here = kids.filter((c) => shown.has(cutA.keys.get(c)!));
+          expect(here.length, `piece ${piece.index} ${v.direction}`).toBe(1);
+          const rep = idOf.get(cutA.keys.get(here[0])!)!;
+          expect(v.groups.get(rep)).toEqual([...new Set(kids.map((c) => piece.refs.get(c)!))].sort((x, y) => x - y));
+          groups++;
+        }
+      }
+    }
+    expect(groups).toBeGreaterThan(0);
+  });
+
   it('same_people_every_direction', () => {
     const piece = piecesA[1];
     const keys = new Set([...piece.full, ...piece.refs.keys(), ...piece.plain].map((id) => cutA.keys.get(id)!));
@@ -33,8 +60,13 @@ describe('viewsOf', () => {
     expect(views.map((v) => v.direction)).toEqual(DIRS);
     for (const v of views) {
       const dk = famA.dirs.find((d) => d.direction === v.direction)!.keys;
-      expect(new Set(v.scene.nodes.map((n) => dk.get(n.id)!))).toEqual(keys);
-      expect(v.refs.size).toBe(piece.refs.size);
+      const shown = new Set(v.scene.nodes.map((n) => dk.get(n.id)!));
+      // Everyone in full and every plain repeat; references, except children sharing their family's one box.
+      for (const k of shown) expect(keys.has(k)).toBe(true);
+      for (const id of [...piece.full, ...piece.plain]) expect(shown.has(cutA.keys.get(id)!)).toBe(true);
+      const shared = [...v.groups.values()].length;
+      expect(v.refs.size).toBeGreaterThanOrEqual(shared);
+      expect(v.refs.size).toBeLessThanOrEqual(piece.refs.size);
     }
   });
 
@@ -92,7 +124,7 @@ describe('tags and lines', () => {
 
 function view(direction: ChartDirection, scale: number, w: number, h: number): PieceView {
   const bounds = { x: 0, y: 0, w, h };
-  return { direction, scene: { nodes: [], edges: [] }, refs: new Map(), flip: new Set(), bounds, standalone: { ...layoutA3(bounds), scale } };
+  return { direction, scene: { nodes: [], edges: [] }, refs: new Map(), flip: new Set(), groups: new Map(), bounds, standalone: { ...layoutA3(bounds), scale } };
 }
 
 describe('pickView', () => {

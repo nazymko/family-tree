@@ -82,11 +82,24 @@ export function relayPiece(scene: Scene, dir: ChartDirection, tags: Map<number, 
   );
   const byId = new Map(s.nodes.map((n) => [n.id, n]));
 
-  // Rows: boxes at one height, in order along the row.
+  // Rows: boxes at one height, in order along the row. Boxes whose heights overlap share a row (the layout's grids do
+  // not always line up with the rows beside them), so they keep their order too.
   const rowKey = (n: ChartNode) => Math.round(n.y * 2) / 2;
+  const band = new Map<number, number>();
+  {
+    const ys = [...s.nodes].sort((a, b) => a.y - b.y);
+    let start = -Infinity;
+    let end = -Infinity;
+    for (const n of ys) {
+      if (n.y >= end - 0.5) start = n.y;
+      end = Math.max(end, n.y + n.h);
+      band.set(n.id, start);
+    }
+  }
+  const bandOf = (n: ChartNode) => band.get(n.id)!;
   const rows = new Map<number, ChartNode[]>();
   for (const n of s.nodes) {
-    const k = rowKey(n);
+    const k = bandOf(n);
     const r = rows.get(k);
     if (r) r.push(n);
     else rows.set(k, [n]);
@@ -209,7 +222,7 @@ export function relayPiece(scene: Scene, dir: ChartDirection, tags: Map<number, 
     const ty1 = ty0 + rel.h;
     const tc = n.x + rel.x + rel.w / 2;
     for (const [k, r, ry0, ry1] of rowList) {
-      if (k === rowKey(n)) continue;
+      if (k === bandOf(n)) continue;
       if (ry1 <= ty0 || ry0 >= ty1) continue;
       const before = r.filter((m) => m.x + m.w / 2 < tc);
       const later = r.filter((m) => m.x + m.w / 2 >= tc);

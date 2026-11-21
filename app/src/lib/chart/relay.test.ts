@@ -5,6 +5,7 @@ import { sceneBounds, type Scene } from './picture';
 import { foldRuns, relayPiece } from './relay';
 import { nodeKeys } from './sheets';
 import { planSheets } from './sheetPlan';
+import { GROUP_TAG_MORE, tagDir, tagRect } from './pieceView';
 import { FAMS, loadFam } from './testing/famScenes';
 
 const W = 124;
@@ -110,6 +111,13 @@ describe('relayPiece', { timeout: 30_000 }, () => {
         for (const p of pg.pieces) {
           const v = p.view;
           expect(drawIssues(v.scene), `${f} piece ${p.index} ${v.direction}`).toEqual([]);
+          // A reference's tag lands on no box.
+          for (const n of v.scene.nodes) {
+            if (!v.refs.has(n.id)) continue;
+            const t = tagRect(n, tagDir(v, n.id), 60 * (1 + GROUP_TAG_MORE * ((v.groups.get(n.id)?.length ?? 1) - 1)), 14);
+            const hit = v.scene.nodes.filter((b) => t.x < b.x + b.w - 0.5 && b.x < t.x + t.w - 0.5 && t.y < b.y + b.h - 0.5 && b.y < t.y + t.h - 0.5);
+            expect(hit.map((b) => b.id), `${f} piece ${p.index} ${v.direction} tag of ${n.id}`).toEqual([]);
+          }
         }
     }
   });

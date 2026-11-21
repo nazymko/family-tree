@@ -40,6 +40,8 @@ export interface PlannedPiece {
   capY: number | null;
   /** Reference box node id (in `view.scene`) -> page holding that person in full. */
   refPages: Map<number, number>;
+  /** A box standing for several children on other pieces (`PieceView.groups`) -> the pages holding them, sorted. */
+  refGroups: Map<number, number[]>;
   unsplittable: boolean;
 }
 
@@ -84,7 +86,7 @@ export function planSheets(dirs: DirScene[], o: PlanOptions): SheetPlan {
     const lay = v.standalone;
     const x = (v.bounds.x - lay.cam.x) * lay.scale;
     const y = (v.bounds.y - lay.cam.y) * lay.scale;
-    const piece: PlannedPiece = { index: 0, top: null, siblingsOf: null, view: v, page: 1, x, y, capY: null, refPages: new Map(), unsplittable: false };
+    const piece: PlannedPiece = { index: 0, top: null, siblingsOf: null, view: v, page: 1, x, y, capY: null, refPages: new Map(), refGroups: new Map(), unsplittable: false };
     return { single: true, pages: [{ no: 1, orientation: lay.orientation, scale: lay.scale, namePt: printedPt(NAME_PX, lay.scale), pieces: [piece] }] };
   }
 
@@ -126,7 +128,8 @@ export function planSheets(dirs: DirScene[], o: PlanOptions): SheetPlan {
       const p = pieces[s.id];
       const view = views[s.id];
       const refPages = new Map([...view.refs].map(([id, k]) => [id, pageOf.get(k)!]));
-      return { index: p.index, top: p.top === null ? null : byId.get(p.top)!, siblingsOf: p.siblingsOf === null ? null : byId.get(p.siblingsOf)!, view, page: i + 1, x: s.x, y: s.y, capY: s.capY, refPages, unsplittable: p.unsplittable };
+      const refGroups = new Map([...view.groups].map(([id, ks]) => [id, [...new Set(ks.map((k) => pageOf.get(k)!))].sort((x, y) => x - y)]));
+      return { index: p.index, top: p.top === null ? null : byId.get(p.top)!, siblingsOf: p.siblingsOf === null ? null : byId.get(p.siblingsOf)!, view, page: i + 1, x: s.x, y: s.y, capY: s.capY, refPages, refGroups, unsplittable: p.unsplittable };
     }),
   }));
   return { single: false, pages };

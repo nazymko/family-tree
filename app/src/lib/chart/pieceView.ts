@@ -1,6 +1,6 @@
 import type { ChartNode, Rect } from '../api/types';
 import { layoutA3, targetScale, type A3Choice, type A3Layout } from './a3';
-import { opposite, type ChartDirection } from './direction';
+import { isHorizontal, opposite, type ChartDirection } from './direction';
 import { compactBoth, sceneBounds, type Scene } from './picture';
 import { relayPiece } from './relay';
 import { refTagAt, type NodeKey, type Piece } from './sheets';
@@ -30,6 +30,11 @@ export interface PieceView {
    * leaves the descendants' side, where the tag would sit on it). See `tagDir`.
    */
   flip: Set<number>;
+  /**
+   * Children of one family here who are on other pieces share one reference box: that box's node id -> the pieces
+   * holding them (sorted). The other children's boxes are left out of `scene` and `refs`.
+   */
+  groups: Map<number, number[]>;
   /** The scene's bounds with every reference tag. */
   bounds: Rect;
   /** The piece alone on an A3 page. */
@@ -46,6 +51,9 @@ export interface ViewOptions {
 
 /** The gap (world units) between a reference box and its tag, as the print draws it. */
 export const TAG_GAP = 2;
+
+/** How much wider a reference tag gets for each page more it lists (a tag of `tagW` holds one page number). */
+export const GROUP_TAG_MORE = 0.45;
 
 /** The rectangle a reference box's tag takes (see `refTagAt`), `w` x `h` world units. */
 export function tagRect(box: { x: number; y: number; w: number; h: number }, dir: ChartDirection, w: number, h: number): Rect {
@@ -94,19 +102,43 @@ export function viewsOf(piece: Piece, cut: DirScene, dirs: DirScene[], o: ViewOp
       const id = byKey.get(k);
       if (id !== undefined) refs.set(id, p);
     }
+    // Children of one family (their parents shown here) who are on other pieces: one box stands for them all.
+    const groups = new Map<number, number[]>();
+    const parentsOf = new Map<number, number[]>();
+    for (const e of d.scene.edges)
+      if (e.kind === 'parent' && refs.has(e.to) && keep.has(e.from) && !refs.has(e.from)) parentsOf.set(e.to, [...(parentsOf.get(e.to) ?? []), e.from]);
+    const fams = new Map<string, number[]>();
+    for (const [c, ps] of parentsOf) {
+      const k = [...ps].sort((a, b) => a - b).join(',');
+      fams.set(k, [...(fams.get(k) ?? []), c]);
+    }
+    const along = isHorizontal(d.direction) ? (n: ChartNode) => n.y : (n: ChartNode) => n.x;
+    const nodeOf = new Map(d.scene.nodes.map((n) => [n.id, n]));
+    for (const kids of fams.values()) {
+      if (kids.length < 2) continue;
+      const rep = kids.reduce((a, b) => (along(nodeOf.get(b)!) < along(nodeOf.get(a)!) ? b : a));
+      groups.set(rep, [...new Set(kids.map((c) => refs.get(c)!))].sort((a, b) => a - b));
+      for (const c of kids)
+        if (c !== rep) {
+          keep.delete(c);
+          refs.delete(c);
+        }
+    }
     // A reference box that is a parent of someone here has its line leave on the descendants' side: its tag goes on the
     // ancestors' side, which is free (its own parents are not on this piece).
     const flip = new Set<number>();
     for (const e of d.scene.edges) if (e.kind === 'parent' && refs.has(e.from) && keep.has(e.to)) flip.add(e.from);
     const dirOf = (id: number) => (flip.has(id) ? opposite(d.direction) : d.direction);
-    const occupied = (n: ChartNode): Rect => (refs.has(n.id) ? union(n, tagRect(n, dirOf(n.id), o.tagW, o.tagH)) : n);
+    // A group's tag lists several pages: wider.
+    const tagWOf = (id: number) => o.tagW * (1 + GROUP_TAG_MORE * ((groups.get(id)?.length ?? 1) - 1));
+    const occupied = (n: ChartNode): Rect => (refs.has(n.id) ? union(n, tagRect(n, dirOf(n.id), tagWOf(n.id), o.tagH)) : n);
     const kept = { nodes: d.scene.nodes.filter((n) => keep.has(n.id)), edges: d.scene.edges.filter((e) => keep.has(e.from) && keep.has(e.to)) };
-    const boundsOf = (sc: Scene) => sceneBounds(sc, sc.nodes.filter((n) => refs.has(n.id)).map((n) => tagRect(n, dirOf(n.id), o.tagW, o.tagH)));
+    const boundsOf = (sc: Scene) => sceneBounds(sc, sc.nodes.filter((n) => refs.has(n.id)).map((n) => tagRect(n, dirOf(n.id), tagWOf(n.id), o.tagH)));
     // Laid out again for this piece alone; the plain squeeze stays when it comes out smaller.
     const rel = new Map<number, Rect>();
     for (const n of kept.nodes) {
       if (!refs.has(n.id)) continue;
-      const r = tagRect(n, dirOf(n.id), o.tagW, o.tagH);
+      const r = tagRect(n, dirOf(n.id), tagWOf(n.id), o.tagH);
       rel.set(n.id, { ...r, x: r.x - n.x, y: r.y - n.y });
     }
     const squeezed = compactBoth(kept, 40, occupied);
@@ -122,7 +154,7 @@ export function viewsOf(piece: Piece, cut: DirScene, dirs: DirScene[], o: ViewOp
         bounds = b;
       }
     }
-    return { direction: d.direction, scene, refs, flip, bounds, standalone: layoutA3(bounds, o.choice, o.header) };
+    return { direction: d.direction, scene, refs, flip, groups, bounds, standalone: layoutA3(bounds, o.choice, o.header) };
   });
 }
 

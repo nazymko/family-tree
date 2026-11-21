@@ -3,7 +3,7 @@
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
   import { nodeKeys, refTagAt, screenFrames, type NodeKey, type PrintLayout } from './sheets';
-  import { planSheets, type PlannedPage, type SheetPlan } from './sheetPlan';
+  import { planSheets, type PlannedPage, type PlannedPiece, type SheetPlan } from './sheetPlan';
   import { tagDir, type DirScene } from './pieceView';
   import { CAPTION_MAX_MM, CAPTION_MM, CAPTION_PT } from './pack';
   import type { AroundKin, BranchDepth, OpenBranch, ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
@@ -1281,6 +1281,21 @@
     return t('picture.branchTitle', { name: given ? `${surname} (${given})` : surname });
   }
 
+  /** A piece's boxes as printed: a box standing for children on other pieces reads «Children», with no dates. */
+  function groupBoxes(pc: PlannedPiece): PlannedPiece['view']['scene'] {
+    const sc = pc.view.scene;
+    if (pc.refGroups.size === 0) return sc;
+    const label = t('picture.childrenRef');
+    return {
+      ...sc,
+      nodes: sc.nodes.map((n) =>
+        pc.refGroups.has(n.id) && n.person
+          ? { ...n, ahnen: null, relation: undefined, role: undefined, kinship: undefined, person: { ...n.person, name: label, lifespan: '', birthSurname: undefined, asRecorded: undefined } }
+          : n,
+      ),
+    };
+  }
+
   /** One direction's print chart for "sheets by branch", with the chart it came from. */
   interface PrintDirScene extends DirScene {
     meta: ChartMeta;
@@ -1375,7 +1390,7 @@
       warning: text.warning,
       paint: (ctx, p) => {
         pg.pieces.forEach((pc, i) => {
-          const v = pc.view;
+          const v = { ...pc.view, scene: groupBoxes(pc) };
           const m = dirs.find((d) => d.direction === v.direction)!.meta;
           const cam = { zoom: s, x: v.bounds.x - pc.x / s, y: v.bounds.y - pc.y / s };
           draw(ctx, v.scene, cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: m.rootNode, focusMore: new Set(m.chosenNodes ?? []), theme: th, kind, dir: v.direction, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(s), keep: i > 0 });
@@ -1394,7 +1409,8 @@
             const at = refTagAt({ x: pc.x + (n.x - b.x) * s, y: pc.y + (n.y - b.y) * s, w: n.w * s, h: n.h * s }, tagDir(pc.view, id), 2 * s);
             ctx.textAlign = at.align;
             ctx.textBaseline = at.baseline;
-            ctx.fillText(t('picture.sheetRef', { n: no }), at.x, at.y);
+            const many = pc.refGroups.get(id);
+            ctx.fillText(many && many.length > 1 ? t('picture.sheetRefMany', { n: many.join(', ') }) : t('picture.sheetRef', { n: many?.[0] ?? no }), at.x, at.y);
           }
         }
         // Each packed piece's caption, in its band above it.
