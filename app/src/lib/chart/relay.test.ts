@@ -81,6 +81,16 @@ describe('relayPiece', { timeout: 30_000 }, () => {
     expect(new Set(scene.nodes.filter((n) => n.gen === 1).map((n) => n.y)).size).toBe(2);
     expect(scene.nodes.find((n) => n.id === 30)!.y).toBe(176 + H + 8);
     expect(drawIssues(scene)).toEqual([]);
+    // The lines into the lower sub-rows come down the gap beside each child: no line runs along a sub-row.
+    const at = new Map(scene.nodes.map((n) => [n.id, n]));
+    for (const e of scene.edges) {
+      const kid = at.get(e.to)!;
+      for (let i = 0; i + 3 < e.pts.length; i += 2) {
+        if (Math.abs(e.pts[i + 1] - e.pts[i + 3]) > 0.5 || e.pts[i + 1] <= 72 + 0.5) continue;
+        expect(Math.abs(e.pts[i + 2] - e.pts[i]), `${e.from}>${e.to}`).toBeLessThanOrEqual(28);
+      }
+      expect(kid.y).toBeGreaterThan(0);
+    }
     const r = relayPiece(s, 'top', new Map(), 40, 6)!;
     expect(sceneBounds(r, []).w).toBeLessThan(sceneBounds(s, []).w * 0.6);
     expect(drawIssues(r)).toEqual([]);

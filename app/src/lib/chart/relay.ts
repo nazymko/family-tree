@@ -385,7 +385,7 @@ export function foldRuns(s: Scene, skip: Set<number> = new Set(), least = FOLD_M
   const rowKey = (n: ChartNode) => Math.round(n.y * 2) / 2;
   const rows = new Map<number, ChartNode[]>();
   for (const n of s.nodes) (rows.get(rowKey(n)) ?? rows.set(rowKey(n), []).get(rowKey(n))!).push(n);
-  const moved = new Map<number, { dx: number; dy: number; gx: number; sub: number }>();
+  const moved = new Map<number, { dx: number; dy: number; gx: number; side: 'left' | 'right'; sub: number }>();
   const extraBelow: { y: number; d: number }[] = [];
   // Each generation's bottom; a fold reaching past it pushes the deeper generations down (not the layout's own grids
   // of the same generation, which stand beside it).
@@ -468,9 +468,26 @@ export function foldRuns(s: Scene, skip: Set<number> = new Set(), least = FOLD_M
       const width = (q: number) => Math.max(...place.filter((p) => p.sub === q).map((p) => p.x + p.u[p.u.length - 1].x + w - p.u[0].x));
       // A lower sub-row reaching past the first would run under the next grid's line.
       if (subs < 2 || [...Array(subs).keys()].some((q) => width(q) > width(0) + 0.5)) continue;
-      const gx = x0 - sib / 2;
+      // A child of a lower sub-row is reached down the gap beside it (the one away from a partner), entering at its side:
+      // the gap must be clear of every unit of the sub-rows above (a box, or a couple's partner line).
+      const spans = place.map((p) => ({ sub: p.sub, x0: p.x, x1: p.x + p.u[p.u.length - 1].x + w - p.u[0].x }));
+      const entry = new Map<number, { gx: number; side: 'left' | 'right' }>();
+      let clear = true;
       for (const p of place)
-        for (const n of p.u) moved.set(n.id, { dx: p.x + (n.x - p.u[0].x) - n.x, dy: p.sub * (h + FOLD_GAP), gx, sub: p.sub });
+        for (const n of p.u) {
+          if (p.sub === 0 || !famOf.get(n.id)?.has(key!)) continue;
+          const nx = p.x + (n.x - p.u[0].x);
+          const side = n !== p.u[0] ? 'right' : 'left';
+          const gx = side === 'left' ? nx - sib / 2 : nx + w + sib / 2;
+          if (spans.some((q) => q.sub < p.sub && gx > q.x0 - 1 && gx < q.x1 + 1)) clear = false;
+          entry.set(n.id, { gx, side });
+        }
+      if (!clear) continue;
+      for (const p of place)
+        for (const n of p.u) {
+          const e = entry.get(n.id) ?? { gx: 0, side: 'left' as const };
+          moved.set(n.id, { dx: p.x + (n.x - p.u[0].x) - n.x, dy: p.sub * (h + FOLD_GAP), gx: e.gx, side: e.side, sub: p.sub });
+        }
       groups.push(all.map((n) => n.id));
       const g = all[0].gen;
       newBottom.set(g, Math.max(newBottom.get(g)!, y + sub * (h + FOLD_GAP) + h));
@@ -493,7 +510,8 @@ export function foldRuns(s: Scene, skip: Set<number> = new Set(), least = FOLD_M
       const py = py0 + down(py0);
       const bus = bus0 + down(bus0);
       if (m.sub === 0) return { ...e, pts: [px, py, px, bus, cx, bus, cx, kid.y] };
-      return { ...e, pts: [px, py, px, bus, m.gx, bus, m.gx, kid.y - FOLD_GAP / 2, cx, kid.y - FOLD_GAP / 2, cx, kid.y] };
+      const cy = kid.y + kid.h / 2;
+      return { ...e, pts: [px, py, px, bus, m.gx, bus, m.gx, cy, m.side === 'left' ? kid.x : kid.x + kid.w, cy] };
     }
     if (e.kind === 'partner' && m) return { ...e, pts: e.pts.map((v, i) => v + (i % 2 === 0 ? m.dx : m.dy + down(v))) };
     return { ...e, pts: e.pts.map((v, i) => (i % 2 === 1 ? v + down(v) : v)) };
