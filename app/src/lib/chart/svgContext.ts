@@ -70,6 +70,7 @@ export class SvgContext {
   private dash: number[] = [];
   private m: [number, number, number, number, number, number] = [1, 0, 0, 1, 0, 0];
   private measure: Measure;
+  private saved: { fillStyle: string; strokeStyle: string; lineWidth: number; globalAlpha: number; font: string; textAlign: CanvasTextAlign; textBaseline: CanvasTextBaseline; dash: number[]; m: [number, number, number, number, number, number] }[] = [];
 
   constructor(
     readonly width: number,
@@ -80,6 +81,18 @@ export class SvgContext {
   }
 
   // ---- state
+  /** Keeps the drawing state (styles, font, text anchors, dash, transform) for `restore`, as a canvas does. */
+  save(): void {
+    const { fillStyle, strokeStyle, lineWidth, globalAlpha, font, textAlign, textBaseline } = this;
+    this.saved.push({ fillStyle, strokeStyle, lineWidth, globalAlpha, font, textAlign, textBaseline, dash: [...this.dash], m: [...this.m] });
+  }
+  restore(): void {
+    const s = this.saved.pop();
+    if (!s) return;
+    ({ fillStyle: this.fillStyle, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth, globalAlpha: this.globalAlpha, font: this.font, textAlign: this.textAlign, textBaseline: this.textBaseline } = s);
+    this.dash = s.dash;
+    this.m = s.m;
+  }
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void {
     this.m = [a, b, c, d, e, f];
   }

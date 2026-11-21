@@ -2,7 +2,7 @@
   import { errMessage } from '../editors/errors';
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
-  import { refTagAt, sheetBounds, splitSheets, type PrintLayout } from './sheets';
+  import { branchNames, refTagAt, screenFrames, splitSheets, type PrintLayout, type Sheet } from './sheets';
   import type { AroundKin, BranchDepth, OpenBranch, ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
   import { added } from '../state/added.svelte';
   import { project } from '../state/project.svelte';
@@ -324,18 +324,33 @@
     }
   }
 
+  /** How long the chart on screen waits before it lays out the print chart for its sheet frames. */
+  const FRAMES_DELAY_MS = 250;
+  let framesTimer: ReturnType<typeof setTimeout> | null = null;
+
   /**
-   * The frames of the A3 sheets on the screen chart, cut the way a print cuts them (same centres, same "fits on A3"
-   * test), so the numbers match the printed sheets.
+   * The frames of the A3 sheets on the chart on screen, numbered as the print numbers them: the print chart is laid out
+   * and cut by the same helper the print uses ({@link cutA3Sheets}, for "Print on A3", which picks the orientation
+   * itself), and each sheet is framed around the screen boxes of its people. Runs a little after the chart opened (a
+   * quick change of the layout or the person lays out one print chart, not one per step); nothing is framed until it
+   * arrives, and a result for a chart that is no longer open is dropped.
    */
+  function scheduleFrames(m: ChartMeta, seq: number): void {
+    if (framesTimer) clearTimeout(framesTimer);
+    framesTimer = setTimeout(() => {
+      framesTimer = null;
+      void frameSheets(m, seq);
+    }, FRAMES_DELAY_MS);
+  }
+
   async function frameSheets(m: ChartMeta, seq: number): Promise<void> {
     try {
+      if (seq !== openSeq || printLayout !== 'sheets') return;
+      const cut = await cutA3Sheets('auto');
+      if (!cut || seq !== openSeq || printLayout !== 'sheets') return;
       const scene = await wholeScene(m);
       if (seq !== openSeq) return;
-      const centres = [...new Set([m.rootNode, ...(m.chosenNodes ?? [])])];
-      const header = a3Title.value;
-      const sheets = splitSheets(scene, centres, { fits: (s) => !layoutA3(sceneBounds(s), 'auto', header).tooSmall });
-      sheetRects = sheets.length > 1 ? sheetBounds(scene, sheets) : [];
+      sheetRects = screenFrames(cut.c.scene, cut.sheets, scene);
       invalidate();
     } catch {
       // The frames are a hint only: the chart stays usable without them.
@@ -343,6 +358,8 @@
   }
 
   function closeChart(): void {
+    if (framesTimer) clearTimeout(framesTimer);
+    framesTimer = null;
     activeTween?.cancel();
     cache?.dispose();
     cache = null;
@@ -399,7 +416,7 @@
     });
     cache = c;
     sheetRects = [];
-    if (kind === 'around' && printLayout === 'sheets') void frameSheets(m, seq);
+    if (kind === 'around' && printLayout === 'sheets') scheduleFrames(m, seq);
     c.onChange(() => {
       if (selected !== null) {
         const n = c.current()?.win.nodes.find((x) => x.id === selected);
@@ -631,6 +648,15 @@
       openSeq++;
       closeChart();
     };
+  });
+
+  // The print's direction and title block change how the sheets are cut: the frames follow.
+  $effect(() => {
+    void a3Direction.value;
+    void a3Title.value;
+    untrack(() => {
+      if (meta && kind === 'around' && printLayout === 'sheets') scheduleFrames(meta, openSeq);
+    });
   });
 
   // Opening or closing a side branch re-lays the chart out; the view and the selected person stay where they are.
@@ -1077,7 +1103,7 @@
    * a change of the choice while it runs does not reach its requests.
    */
   async function printChart(choice: A3Choice, layout: PrintLayout): Promise<A3Chart | null> {
-    if (!meta || !cache?.current()) return null;
+    if (!meta) return null;
     theme ??= themeFromCss();
     // White and transparent pages use the light colours whatever the app's theme is; the paper tint keeps the app's colours.
     const bg = a3Background.value;
@@ -1225,19 +1251,36 @@
     return words[words.length - 1] ?? '';
   }
 
+  /** The first word of the top person's name (their given name), for telling two sheets of one surname apart. */
+  function givenName(n: ChartNode | undefined): string {
+    const words = n?.person?.name.trim().split(/\s+/) ?? [];
+    return words.length > 1 ? words[0] : '';
+  }
+
+  /**
+   * The print chart of "sheets by branch" (as a print or save with `choice` lays it out: compact cards, stretched, in the
+   * best-fit direction when that is chosen) cut into A3 sheets. The print and the frames on screen both cut with this, so
+   * the numbers on screen are the printed ones.
+   */
+  async function cutA3Sheets(choice: A3Choice): Promise<{ c: A3Chart; sheets: Sheet[] } | null> {
+    const c = await printChart(choice, 'sheets');
+    if (!c) return null;
+    const centres = [...new Set([c.meta.rootNode, ...(c.meta.chosenNodes ?? [])])];
+    return { c, sheets: splitSheets(c.scene, centres, { fits: (s) => !layoutA3(sceneBounds(s), choice, c.look.header).tooSmall }) };
+  }
+
   /**
    * The folded chart cut into A3 sheets by branch (spec 2026-11-21, section B): the cover with the chart's title, then a
    * sheet per line titled with the line's surname, every sheet numbered "sheet N of M" and laid out at its own best scale.
    * A chart that does not split prints as one page, as "compact" does.
    */
   async function buildA3Sheets(choice: A3Choice, format: PictureFormat): Promise<BuiltPicture[] | null> {
-    const c = await printChart(choice, 'sheets');
-    if (!c) return null;
+    const cut = await cutA3Sheets(choice);
+    if (!cut) return null;
+    const { c, sheets } = cut;
     const title = chartTitle(kind, rootName);
     const sub = a3Sub();
     const header = c.look.header;
-    const centres = [...new Set([c.meta.rootNode, ...(c.meta.chosenNodes ?? [])])];
-    const sheets = splitSheets(c.scene, centres, { fits: (s) => !layoutA3(sceneBounds(s), choice, header).tooSmall });
     if (sheets.length <= 1) return [buildA3For(c, c.scene, c.pick.layout, format, { title, sub, warning: a3Warning(c) })];
     const byId = new Map(c.scene.nodes.map((n) => [n.id, n]));
     const total = sheets.length;
@@ -1248,6 +1291,10 @@
       ? `${t('picture.a3SmallSheets', { list: small.map((sh) => sh.no).join(', ') })} ${t('picture.a3Small', { pt: Math.round(smallest * 10) / 10 })}` +
         (c.mode === 'screen' ? ` ${t('picture.a3SmallBestHint')}` : '')
       : undefined;
+    // Two sheets of one surname (a line split twice) are told apart by the top person's given name.
+    const lines = sheets.filter((sh) => sh.top !== null);
+    const names = branchNames(lines.map((sh) => ({ surname: branchSurname(byId.get(sh.top!)), given: givenName(byId.get(sh.top!)) })));
+    const nameOf = new Map(lines.map((sh, i) => [sh.no, names[i]]));
     return sheets.map((sh, i) =>
       buildA3For(
         c,
@@ -1255,7 +1302,7 @@
         lays[i],
         format,
         {
-          title: sh.top === null ? title : t('picture.branchTitle', { name: branchSurname(byId.get(sh.top)) }),
+          title: sh.top === null ? title : t('picture.branchTitle', { name: nameOf.get(sh.no) ?? '' }),
           sub: `${t('picture.sheetOf', { n: sh.no, m: total })} · ${sub}`,
           warning: i === 0 ? warning : undefined,
         },

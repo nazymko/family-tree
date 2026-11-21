@@ -8,10 +8,10 @@ import type { ChartEdge, ChartKind, ChartNode } from '../api/types';
 import { setLanguage } from '../i18n';
 import type { PrintLayout } from './sheets';
 import { bigAround, capturePrints, servePrintCharts } from './testing/syntheticAround';
-import { SHEET_FRAME_MARGIN, draw, type Theme } from './renderer';
+import { draw, type Theme } from './renderer';
 import { SvgContext } from './svgContext';
-import { compactX, sceneBounds, type Scene } from './picture';
-import { sheetBounds, splitSheets } from './sheets';
+import { sceneBounds, type Scene } from './picture';
+import { screenFrames, splitSheets } from './sheets';
 import { layoutA3 } from './a3';
 import { notices } from '../ui/notices.svelte';
 import ChartCanvas from './ChartCanvas.svelte';
@@ -615,61 +615,52 @@ describe('picture menu on the whole tree', () => {
 });
 
 /**
- * Screenshots of the three layouts of the around chart, from a SYNTHETIC tree (invented names, about 250 people): run with
- * SHOTS_DIR=<folder> npx vitest run src/lib/chart/ChartPicture.test.ts -t "print layout screenshots"
- * Writes screen-today / screen-compact / screen-sheets .svg and the first sheets as printed (print-sheet-N.svg).
+ * Screenshots of the three layouts of the around chart, from a SYNTHETIC tree (invented names, about 280 people) laid out
+ * by the real engine. First write the layouts (keys only), then draw them:
+ *   SHOTS_DIR=<folder> cargo test -p gt-layout --test fold_shots -- --ignored   (writes <folder>/fold-*.json)
+ *   SHOTS_DIR=<folder> npx vitest run src/lib/chart/ChartPicture.test.ts -t "print layout screenshots"
+ * Writes screen-today / screen-compact / screen-sheets (whole, and a readable crop in light and dark) .svg and the first
+ * sheets as printed (print-sheet-N.svg).
  */
 describe.skipIf(!process.env.SHOTS_DIR)('print layout screenshots', () => {
   const GIVEN = ['Orest', 'Bohdana', 'Taras', 'Oksana', 'Lev', 'Halyna', 'Yaroslav', 'Mariika', 'Stepan', 'Daryna', 'Ihor', 'Zoriana'];
   const SUR = ['Bondar', 'Hrytsenko', 'Melnyk', 'Tkach'];
 
-  /** Ancestors laid out as a tidy binary tree above the centred person: leaves evenly spaced, a child between its parents. */
-  function synthetic(depth: number): ReturnType<typeof bigAround> {
+  /** The line a key belongs to (the fixture of `fold_shots.rs`: Ahnentafel keys, and 1000 + n * 100 + i for the brothers and sisters of n). */
+  const surname = (key: number): string => {
+    const k = key >= 1000 ? Math.floor((key - 1000) / 100) : key;
+    if (k < 4) return 'Testenko';
+    return SUR[(k >> (Math.floor(Math.log2(k)) - 2)) - 4];
+  };
+
+  /** A layout written by `fold_shots.rs`, with invented names. */
+  function loaded(name: string): ReturnType<typeof bigAround> {
+    const raw = JSON.parse(fs.readFileSync(`${process.env.SHOTS_DIR}/${name}.json`, 'utf8')) as {
+      root: number;
+      nodes: { id: number; key: number; x: number; y: number; w: number; h: number; gen: number; dupOf: number | null }[];
+      edges: { from: number; to: number; kind: ChartEdge['kind']; pts: number[] }[];
+    };
     const nav = { parent: null, child: null, prev: null, next: null };
-    const nodes: ChartNode[] = [];
-    const edges: ChartEdge[] = [];
-    let leaf = 0;
-    const mk = (gen: number, sur: string, x: number): number => {
-      const id = nodes.length + 1;
-      const name = `${GIVEN[(id * 7) % GIVEN.length]} ${sur}`;
-      nodes.push({ id, person: { id: `shot-${id}`, name, lifespan: `${1700 + gen * -40 + 300} – ${1760 + gen * -40 + 300}`, sex: id % 2 ? 'male' : 'female', living: false, private: false, siblingMarker: false }, x, y: (gen + depth + 1) * 110, w: 140, h: 60, gen, ahnen: null, dupOf: null, moreUp: false, moreDown: false, nav, label: name });
-      return id;
-    };
-    const link = (a: number, b: number, kind: ChartEdge['kind']) => {
-      const p = nodes[a - 1];
-      const c = nodes[b - 1];
-      edges.push({ from: a, to: b, kind, pts: [p.x + p.w / 2, p.y + p.h, c.x + c.w / 2, c.y] });
-    };
-    // Places the child's parents first (recursively) and then the child between them.
-    const person = (gen: number, sur: string, up: number): number => {
-      if (up === 0) return mk(gen, sur, leaf++ * 160);
-      const f = person(gen - 1, sur, up - 1);
-      const m = person(gen - 1, sur, up - 1);
-      const c = mk(gen, sur, (nodes[f - 1].x + nodes[m - 1].x) / 2);
-      link(f, m, 'partner');
-      link(f, c, 'parent');
-      link(m, c, 'parent');
-      return c;
-    };
-    const gps = SUR.map((s) => person(-2, s, depth));
-    const pair = (a: number, b: number, gen: number): number => {
-      const c = mk(gen, 'Testenko', (nodes[a - 1].x + nodes[b - 1].x) / 2);
-      link(a, b, 'partner');
-      link(a, c, 'parent');
-      link(b, c, 'parent');
-      return c;
-    };
-    const f = pair(gps[0], gps[1], -1);
-    const m = pair(gps[2], gps[3], -1);
-    const root = pair(f, m, 0);
-    return { nodes, edges, root };
+    const nodes: ChartNode[] = raw.nodes.map((n) => {
+      const label = `${GIVEN[(n.key * 7) % GIVEN.length]} ${surname(n.key)}`;
+      const born = 2000 + n.gen * 30 + (n.key % 9);
+      return { id: n.id, person: { id: `shot-${n.key}`, name: label, lifespan: `${born} – ${born + 60}`, sex: n.key % 2 ? 'female' : 'male', living: false, private: false, siblingMarker: false }, x: n.x, y: n.y, w: n.w, h: n.h, gen: n.gen, ahnen: null, dupOf: n.dupOf, moreUp: false, moreDown: false, nav, label };
+    });
+    return { nodes, edges: raw.edges, root: raw.root };
   }
 
-  const th: Theme = { paper: '#fbf8f1', rule: '#b9ad94', ink: '#241d12', ink2: '#6b5f49', ribbon: '#a8431f', wash: '#f2e6c9', font: 'Georgia, serif', serif: 'Georgia, serif' };
+  const light: Theme = { paper: '#FBFBF8', rule: '#C6CABF', ink: '#1B2230', ink2: '#5A6272', ribbon: '#9B2C3F', wash: '#F1DDE0', font: 'system-ui, sans-serif', serif: 'Georgia, serif' };
+  const dark: Theme = { ...light, paper: '#1A1F28', rule: '#2C3340', ink: '#E3E5DD', ink2: '#8A91A0', ribbon: '#E58A98', wash: '#3A1F26' };
 
-  function shot(scene: Scene, frames: ReturnType<typeof sheetBounds>, file: string, root: number): void {
-    const b = sceneBounds(scene);
-    const scale = 0.5;
+  type Frame = ReturnType<typeof screenFrames>[number];
+  const asScene = (c: ReturnType<typeof bigAround>): Scene => ({ nodes: c.nodes, edges: c.edges });
+
+  /** Draws `scene` (or the part `crop` of it) at `scale` into an SVG file. */
+  function shot(scene: Scene, frames: Frame[], file: string, root: number, opts: { th?: Theme; crop?: { x: number; y: number; w: number; h: number }; scale?: number } = {}): void {
+    const th = opts.th ?? light;
+    const b = opts.crop ?? sceneBounds(scene);
+    // Whole charts at most 4,000 px wide.
+    const scale = opts.scale ?? Math.min(0.5, 4000 / b.w);
     const pad = 40;
     const w = Math.ceil(b.w * scale + 2 * pad);
     const h = Math.ceil(b.h * scale + 2 * pad);
@@ -687,16 +678,25 @@ describe.skipIf(!process.env.SHOTS_DIR)('print layout screenshots', () => {
   }
 
   it('screens_as_today_compact_and_sheets', () => {
-    const big = synthetic(5);
-    expect(big.nodes.length).toBeGreaterThan(240);
-    const scene: Scene = { nodes: big.nodes, edges: big.edges };
-    shot(scene, [], 'screen-today.svg', big.root);
-    const compact = compactX(scene);
-    shot(compact, [], 'screen-compact.svg', big.root);
-    const sheets = splitSheets(compact, [big.root], { fits: (s) => !layoutA3(sceneBounds(s), 'auto', true).tooSmall });
+    const today = loaded('fold-off');
+    const compact = loaded('fold-on');
+    const print = loaded('fold-print');
+    expect(compact.nodes.length).toBeGreaterThan(240);
+    // Compact folds: the chart on screen is narrower than as today.
+    expect(sceneBounds(asScene(compact)).w).toBeLessThan(sceneBounds(asScene(today)).w * 0.9);
+    shot(asScene(today), [], 'screen-today.svg', today.root);
+    shot(asScene(compact), [], 'screen-compact.svg', compact.root);
+    // The frames: the print chart cut as the print cuts it, framed around the same people on screen.
+    const sheets = splitSheets(asScene(print), [print.root], { fits: (sc) => !layoutA3(sceneBounds(sc), 'auto', true).tooSmall });
     expect(sheets.length).toBeGreaterThan(1);
-    shot(compact, sheetBounds(compact, sheets), 'screen-sheets.svg', big.root);
-    expect(SHEET_FRAME_MARGIN).toBeGreaterThan(0);
+    const frames = screenFrames(asScene(print), sheets, asScene(compact));
+    shot(asScene(compact), frames, 'screen-sheets.svg', compact.root);
+    // A readable part: 2,400 px of the chart from just left of the second line sheet's frame (its label in view) on.
+    const [, b] = [...frames].sort((p, q) => p.x - q.x);
+    const all = sceneBounds(asScene(compact));
+    const crop = { x: b.x - 600, y: all.y - 40, w: 2400, h: all.h + 80 };
+    shot(asScene(compact), frames, 'screen-sheets-crop.svg', compact.root, { crop, scale: 0.8 });
+    shot(asScene(compact), frames, 'screen-sheets-crop-dark.svg', compact.root, { crop, scale: 0.8, th: dark });
   });
 
   it('prints_two_sheets', async () => {
@@ -707,7 +707,7 @@ describe.skipIf(!process.env.SHOTS_DIR)('print layout screenshots', () => {
     const openSpy = vi.spyOn(api, 'chartOpen');
     const saveSpy = vi.spyOn(api, 'savePicture');
     const platform = new MockPlatform();
-    servePrintCharts(api, openSpy, synthetic(5));
+    servePrintCharts(api, openSpy, loaded('fold-print'), loaded('fold-on'));
     render(Host, { props: { api, view: ChartCanvas, props: { kind: 'around', root, generations: 6, printLayout: 'sheets', onRecentre: vi.fn(), onOpenPerson: vi.fn() }, platform } });
     const canvas = screen.getByRole('application') as HTMLCanvasElement;
     attachContext(canvas);

@@ -56,6 +56,13 @@ describe('renderer', () => {
     const firstRect = ctx.calls.findIndex((c) => c.op === 'rect');
     const firstName = ctx.calls.findIndex((c) => c.op === 'fillText' && String(c.args[0]).startsWith('Person'));
     expect(firstRect).toBeLessThan(firstName);
+    // The frames' drawing state is their own: saved before them and given back after.
+    const save = ctx.calls.findIndex((c) => c.op === 'save');
+    const restore = ctx.calls.findIndex((c) => c.op === 'restore');
+    expect(save).toBeGreaterThanOrEqual(0);
+    expect(save).toBeLessThan(firstRect);
+    expect(restore).toBeGreaterThan(ctx.calls.findIndex((c) => c.op === 'fillText' && c.args[0] === 'sheet 3'));
+    expect(restore).toBeLessThan(firstName);
   });
 
   it('draws_text_when_full', () => {

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ChartEdge, ChartNode } from '../api/types';
 import type { Scene } from './picture';
-import { refTagAt, sheetBounds, splitSheets, type Sheet } from './sheets';
+import { branchNames, refTagAt, screenFrames, splitSheets, type Sheet } from './sheets';
+import { asPrintChart, bigAround } from './testing/syntheticAround';
 
 const nav = { parent: null, child: null, prev: null, next: null };
 
@@ -323,21 +324,52 @@ describe('refTagAt', () => {
   });
 });
 
-describe('sheetBounds', () => {
-  it('is_the_bounds_of_each_sheets_full_nodes_in_the_screen_scene_numbered_like_the_sheets', () => {
-    const t = new Tree();
-    const g = base(t);
-    for (const gp of [g.ff, g.fm, g.mf, g.mm]) chain(t, gp, 3, 1);
-    const scene = t.scene();
-    const sheets = splitSheets(scene, [g.c], { fits: always });
-    const frames = sheetBounds(scene, sheets);
-    expect(frames.map((f) => f.no)).toEqual(sheets.map((s) => s.no));
+describe('screenFrames', () => {
+  it('frames_each_line_sheet_of_the_print_around_the_same_people_on_screen_with_the_printed_number', () => {
+    const screen = bigAround();
+    const print = asPrintChart(screen);
+    const printScene: Scene = { nodes: print.nodes, edges: print.edges };
+    // Small sheets, so the print cuts every grandparent's line.
+    const sheets = splitSheets(printScene, [print.root], { fits: (sc) => sc.nodes.length <= 20 });
+    expect(sheets.length).toBeGreaterThan(2);
+    const frames = screenFrames(printScene, sheets, { nodes: screen.nodes, edges: screen.edges });
+    // Every line sheet, in the printed numbering; the cover is what lies outside the frames.
+    expect(frames.map((f) => f.no)).toEqual(sheets.filter((sh) => sh.top !== null).map((sh) => sh.no));
+    const personOf = new Map(print.nodes.map((n) => [n.id, n.person!.id]));
     for (const f of frames) {
-      const mine = scene.nodes.filter((n) => sheets[f.no - 1].ids.has(n.id));
+      const people = new Set([...sheets[f.no - 1].ids].map((id) => personOf.get(id)));
+      const mine = screen.nodes.filter((n) => people.has(n.person!.id));
+      expect(mine.length).toBe(people.size);
       expect(f.x).toBe(Math.min(...mine.map((n) => n.x)));
       expect(f.x + f.w).toBe(Math.max(...mine.map((n) => n.x + n.w)));
       expect(f.y).toBe(Math.min(...mine.map((n) => n.y)));
       expect(f.y + f.h).toBe(Math.max(...mine.map((n) => n.y + n.h)));
     }
+  });
+
+  it('frames_nothing_when_the_print_is_one_sheet', () => {
+    const screen = bigAround();
+    const scene: Scene = { nodes: screen.nodes, edges: screen.edges };
+    const cover = splitSheets(scene, [screen.root], { fits: always }).slice(0, 1);
+    expect(screenFrames(scene, cover, scene)).toEqual([]);
+  });
+});
+
+describe('branchNames', () => {
+  it('keeps_distinct_surnames_plain', () => {
+    expect(branchNames([{ surname: 'Bondar', given: 'Taras' }, { surname: 'Melnyk', given: 'Oksana' }])).toEqual(['Bondar', 'Melnyk']);
+  });
+
+  it('adds_the_given_name_to_a_shared_surname_and_a_number_when_that_is_shared_too', () => {
+    expect(
+      branchNames([
+        { surname: 'Bondar', given: 'Taras' },
+        { surname: 'Bondar', given: 'Orest' },
+        { surname: 'Tkach', given: 'Lev' },
+        { surname: 'Tkach', given: 'Lev' },
+        { surname: 'Melnyk', given: '' },
+        { surname: 'Melnyk', given: '' },
+      ]),
+    ).toEqual(['Bondar, Taras', 'Bondar, Orest', 'Tkach, Lev', 'Tkach, Lev (2)', 'Melnyk', 'Melnyk (2)']);
   });
 });

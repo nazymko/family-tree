@@ -319,19 +319,29 @@ export function refTagAt(box: { x: number; y: number; w: number; h: number }, di
 export type PrintLayout = 'today' | 'compact' | 'sheets';
 
 /**
- * Where each sheet of `sheets` falls on the screen scene `scene` it was cut from: the bounds of the nodes the sheet
- * shows in full (reference marks and repeats belong to other sheets' areas), in the scene's own coordinates. The
- * sheets' own scenes are compacted, so their coordinates are not these.
+ * The frames of the printed sheets on the chart on screen. `sheets` are cut from the print chart `print`, which has its
+ * own node ids and coordinates (compact cards, stretched, maybe turned to the best-fit direction), so each sheet is framed
+ * around the screen nodes of the same people in `screen` (matched by person id) and keeps its printed number. Only the
+ * line sheets get a frame: the cover (sheet 1) holds the middle of the chart, so its bounds would span the whole chart and
+ * cross every other frame; it is what lies outside the frames. One sheet: no frames.
  */
-export function sheetBounds(scene: Scene, sheets: readonly Sheet[]): { no: number; x: number; y: number; w: number; h: number }[] {
+export function screenFrames(print: Scene, sheets: readonly Sheet[], screen: Scene): { no: number; x: number; y: number; w: number; h: number }[] {
+  if (sheets.length <= 1) return [];
+  const personOf = new Map(print.nodes.map((n) => [n.id, n.person?.id ?? null]));
   const out: { no: number; x: number; y: number; w: number; h: number }[] = [];
   for (const sh of sheets) {
+    if (sh.top === null) continue;
+    const people = new Set<string>();
+    for (const id of sh.ids) {
+      const p = personOf.get(id);
+      if (p) people.add(p);
+    }
     let x0 = Infinity;
     let y0 = Infinity;
     let x1 = -Infinity;
     let y1 = -Infinity;
-    for (const n of scene.nodes) {
-      if (!sh.ids.has(n.id)) continue;
+    for (const n of screen.nodes) {
+      if (n.dupOf !== null || !n.person || !people.has(n.person.id)) continue;
       x0 = Math.min(x0, n.x);
       y0 = Math.min(y0, n.y);
       x1 = Math.max(x1, n.x + n.w);
@@ -340,4 +350,20 @@ export function sheetBounds(scene: Scene, sheets: readonly Sheet[]): { no: numbe
     if (x0 <= x1) out.push({ no: sh.no, x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
   }
   return out;
+}
+
+/**
+ * The names of the line sheets, told apart: a surname that two or more sheets share gets the top person's given name
+ * («Bondar, Taras»), and a name still shared gets « (2)», « (3)» in sheet order (the first keeps it plain).
+ */
+export function branchNames(tops: readonly { surname: string; given: string }[]): string[] {
+  const count = (list: string[], x: string) => list.filter((y) => y === x).length;
+  const surnames = tops.map((t) => t.surname);
+  const named = tops.map((t) => (count(surnames, t.surname) > 1 && t.given ? `${t.surname}, ${t.given}` : t.surname));
+  const seen = new Map<string, number>();
+  return named.map((n) => {
+    const k = (seen.get(n) ?? 0) + 1;
+    seen.set(n, k);
+    return k === 1 ? n : `${n} (${k})`;
+  });
 }
