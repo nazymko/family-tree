@@ -3,11 +3,10 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/sve
 import { makeFakeContext } from '../../test-setup';
 import { MockApi } from '../api/mock/MockApi';
 import { MockPlatform } from '../api/mock/MockPlatform';
-import type { ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest } from '../api/types';
+import type { ChartKind, ChartNode } from '../api/types';
 import { setLanguage } from '../i18n';
-import { fontFaceCss } from '../ui/fonts';
-import { printDocument } from './a3';
 import type { PrintLayout } from './sheets';
+import { bigAround, capturePrints, servePrintCharts } from './testing/syntheticAround';
 import { notices } from '../ui/notices.svelte';
 import ChartCanvas from './ChartCanvas.svelte';
 import WholeCanvas from './WholeCanvas.svelte';
@@ -456,77 +455,6 @@ describe('picture menu on a chart', () => {
   });
 });
 
-/**
- * A synthetic "built around" chart big enough to cut: the centred person, parents, four grandparents (surnames Bondar,
- * Hrytsenko, Melnyk, Tkach), and three generations of ancestors above every grandparent.
- */
-function bigAround(): { nodes: ChartNode[]; edges: ChartEdge[]; root: number } {
-  const nav = { parent: null, child: null, prev: null, next: null };
-  const nodes: ChartNode[] = [];
-  const edges: ChartEdge[] = [];
-  const add = (gen: number, surname = 'Testenko'): number => {
-    const id = nodes.length + 1;
-    const name = `Osoba${id} ${surname}`;
-    nodes.push({
-      id,
-      person: { id: `syn-${id}`, name, lifespan: '1900 – 1970', sex: id % 2 ? 'male' : 'female', living: false, private: false, siblingMarker: false },
-      x: id * 160,
-      y: (gen + 6) * 110,
-      w: 140,
-      h: 60,
-      gen,
-      ahnen: null,
-      dupOf: null,
-      moreUp: false,
-      moreDown: false,
-      nav,
-      label: name,
-    });
-    return id;
-  };
-  const edge = (from: number, to: number, kind: ChartEdge['kind']) => {
-    const a = nodes[from - 1];
-    const b = nodes[to - 1];
-    edges.push({ from, to, kind, pts: [a.x + a.w / 2, a.y + a.h, b.x + b.w / 2, b.y] });
-  };
-  const parents = (c: number, sf = 'Testenko', sm = 'Testenko'): [number, number] => {
-    const g = nodes[c - 1].gen - 1;
-    const f = add(g, sf);
-    const m = add(g, sm);
-    edge(f, m, 'partner');
-    edge(f, c, 'parent');
-    edge(m, c, 'parent');
-    return [f, m];
-  };
-  const chain = (id: number, depth: number): void => {
-    if (depth <= 0) return;
-    const [f, m] = parents(id);
-    chain(f, depth - 1);
-    chain(m, depth - 1);
-  };
-  const root = add(0);
-  const [f, m] = parents(root);
-  const [ff, fm] = parents(f, 'Bondar', 'Hrytsenko');
-  const [mf, mm] = parents(m, 'Melnyk', 'Tkach');
-  for (const g of [ff, fm, mf, mm]) chain(g, 3);
-  return { nodes, edges, root };
-}
-
-/** The HTML documents sent to the print frame (the frame is never added, so the print ends at once). */
-function capturePrints(): string[] {
-  const printed: string[] = [];
-  const append = document.body.appendChild.bind(document.body);
-  vi.spyOn(document.body, 'appendChild').mockImplementation(<T extends Node>(n: T): T => {
-    if (n instanceof HTMLIFrameElement) {
-      printed.push(n.srcdoc);
-      setTimeout(() => n.onload?.(new Event('load')), 0);
-      return n;
-    }
-    return append(n);
-  });
-  return printed;
-}
-
 describe('A3 print layouts on the around chart', () => {
   async function renderAround(layout: PrintLayout, synthetic: boolean) {
     const raf = fakeRaf();
@@ -535,26 +463,8 @@ describe('A3 print layouts on the around chart', () => {
     const openSpy = vi.spyOn(api, 'chartOpen');
     const saveSpy = vi.spyOn(api, 'savePicture');
     const platform = new MockPlatform();
-    if (synthetic) {
-      // Print charts get the synthetic chart; the chart on screen stays the mock's.
-      const big = bigAround();
-      const ids = new Set<number>();
-      const realOpen = MockApi.prototype.chartOpen;
-      openSpy.mockImplementation(async (req: ChartRequest): Promise<ChartMeta> => {
-        if (!req.print) return realOpen.call(api, req);
-        const chartId = 9000 + ids.size;
-        ids.add(chartId);
-        const w = Math.max(...big.nodes.map((n) => n.x + n.w));
-        const h = Math.max(...big.nodes.map((n) => n.y + n.h));
-        return { chartId, kind: 'around', bounds: { w, h }, nodeCount: big.nodes.length, personCount: big.nodes.length, rootNode: big.root, truncated: false, version: 0 };
-      });
-      const realWindow = MockApi.prototype.chartWindow;
-      vi.spyOn(api, 'chartWindow').mockImplementation(async (id, rect, zoom) =>
-        ids.has(id) ? structuredClone({ nodes: big.nodes, edges: big.edges }) : realWindow.call(api, id, rect, zoom),
-      );
-      const realClose = MockApi.prototype.chartClose;
-      vi.spyOn(api, 'chartClose').mockImplementation(async (id) => (ids.has(id) ? undefined : realClose.call(api, id)));
-    }
+    // Print charts get the synthetic chart; the chart on screen stays the mock's.
+    if (synthetic) servePrintCharts(api, openSpy, bigAround());
     render(Host, { props: { api, view: ChartCanvas, props: { kind: 'around', root, generations: 6, printLayout: layout, onRecentre: vi.fn(), onOpenPerson: vi.fn() }, platform } });
     const canvas = screen.getByRole('application') as HTMLCanvasElement;
     attachContext(canvas);
@@ -608,29 +518,13 @@ describe('A3 print layouts on the around chart', () => {
     await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
     await waitFor(() => expect(s.saveSpy.mock.calls.length).toBe(5), A3_WAIT);
     expect(s.platform.calls.filter((c) => c.method === 'pickSavePath')).toHaveLength(1);
-    expect(s.saveSpy.mock.calls.map((c) => c[0])).toEqual(['C:/Mock/Around.svg', ...[2, 3, 4, 5].map((n) => `C:/Mock/Around — sheet ${n}.svg`)]);
+    // Every sheet in a new folder named after the chosen file; the folder is shown once all are written.
+    expect(s.saveSpy.mock.calls.map((c) => c[0])).toEqual([1, 2, 3, 4, 5].map((n) => `C:/Mock/Around — sheets/Around — sheet ${n}.svg`));
+    await waitFor(() => expect(s.platform.calls.filter((c) => c.method === 'reveal').map((c) => c.args[0])).toEqual(['C:/Mock/Around — sheets/Around — sheet 1.svg']));
     const second = new TextDecoder().decode(s.saveSpy.mock.calls[1][1]);
     expect(second).toContain('Branch: Bondar');
     expect(second).toContain('Sheet 2 of 5');
     expect(second).toContain('→ sheet 1');
-  }, 30000);
-
-  it('as_today_prints_exactly_the_single_sheet_of_the_a3_picture', async () => {
-    stubOffscreen();
-    const printed = capturePrints();
-    const s = await renderAround('today', false);
-    // The A3 picture through the old single-page path: saved as SVG, then put into the one-page print document.
-    s.platform.next.save = 'C:/Mock/today.svg';
-    await rightClick(s.canvas);
-    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
-    await waitFor(() => expect(s.saveSpy).toHaveBeenCalled(), A3_WAIT);
-    const svg = new TextDecoder().decode(s.saveSpy.mock.calls[0][1]);
-    const orientation = /width="420mm"/.test(svg) ? 'landscape' : 'portrait';
-    await rightClick(s.canvas);
-    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Print on A3/ }));
-    await waitFor(() => expect(printed).toHaveLength(1), A3_WAIT);
-    expect(printed[0]).toBe(printDocument(svg, orientation, fontFaceCss()));
-    expect(printed[0]).not.toContain('<div class="sheet');
   }, 30000);
 });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ChartEdge, ChartNode } from '../api/types';
 import type { Scene } from './picture';
-import { splitSheets, type Sheet } from './sheets';
+import { refTagAt, splitSheets, type Sheet } from './sheets';
 
 const nav = { parent: null, child: null, prev: null, next: null };
 
@@ -298,5 +298,27 @@ describe('splitSheets', () => {
     chain(t, g.ff, 6, 2);
     const sheets = splitSheets(t.scene(), [g.c]);
     expect(sheets.length).toBeGreaterThan(2);
+  });
+});
+
+describe('refTagAt', () => {
+  const box = { x: 100, y: 200, w: 140, h: 60 };
+
+  it('puts_the_tag_on_the_side_away_from_the_ancestors_in_every_direction', () => {
+    // Ancestors above: the tag goes under the box.
+    expect(refTagAt(box, 'top', 3)).toEqual({ x: 170, y: 263, align: 'center', baseline: 'top' });
+    // Ancestors below: the connector leaves the bottom edge, so the tag goes over the box.
+    expect(refTagAt(box, 'bottom', 3)).toEqual({ x: 170, y: 197, align: 'center', baseline: 'bottom' });
+    // Ancestors on the left: the tag goes to the right of the box, and the other way round.
+    expect(refTagAt(box, 'left', 3)).toEqual({ x: 243, y: 230, align: 'left', baseline: 'middle' });
+    expect(refTagAt(box, 'right', 3)).toEqual({ x: 97, y: 230, align: 'right', baseline: 'middle' });
+  });
+
+  it('never_lands_inside_the_box', () => {
+    for (const d of ['top', 'bottom', 'left', 'right'] as const) {
+      const a = refTagAt(box, d, 2);
+      const inside = a.x > box.x && a.x < box.x + box.w && a.y > box.y && a.y < box.y + box.h;
+      expect(inside, d).toBe(false);
+    }
   });
 });

@@ -216,10 +216,14 @@ export function renderSvg(b: BuiltPicture): Uint8Array {
 /** A single picture as a set of one; nothing stays nothing. */
 const one = (b: BuiltPicture | null): BuiltPicture[] | null => (b ? [b] : null);
 
-/** The path of sheet `n` of a set saved as `dest`: the sheet suffix (" — sheet 2") before the extension. */
-export function sheetPath(dest: string, n: number): string {
-  const m = /^(.*?)(\.[^./\\]*)?$/.exec(dest)!;
-  return `${m[1]}${t('picture.sheetSuffix', { n })}${m[2] ?? ''}`;
+/** A chosen save path in parts: the folder, its separator, the file name without its ending, and the ending (".png"). */
+export function splitPath(dest: string): { dir: string; sep: string; base: string; ext: string } {
+  const cut = Math.max(dest.lastIndexOf('/'), dest.lastIndexOf('\\'));
+  const dir = cut >= 0 ? dest.slice(0, cut) : '';
+  const sep = cut >= 0 ? dest[cut] : '/';
+  const name = dest.slice(cut + 1);
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? { dir, sep, base: name.slice(0, dot), ext: name.slice(dot) } : { dir, sep, base: name, ext: '' };
 }
 
 /**
@@ -234,8 +238,11 @@ export async function savePicture(
 }
 
 /**
- * `savePicture` for a set of pictures (the A3 sheets of one chart): one save dialog, for the first; the others are written
- * next to it in the same format, named with the sheet suffix (`sheetPath`). One message when all are written.
+ * `savePicture` for a set of pictures (the A3 sheets of one chart). The save dialog runs once and gives the place and
+ * the name; a set of more than one goes into a NEW folder there named after it ("X — sheets", "X — sheets (2)" when
+ * taken, see `Api.makePictureFolder`), as "X — sheet 1.png" … "X — sheet M.png" in the chosen format, so nothing on
+ * the disk is replaced; the folder is then shown in the file manager (not on a phone). A single picture is saved at
+ * the chosen path, as always. One message when all are written.
  */
 export async function savePictures(
   deps: { api: Api; platform: Platform },
@@ -260,12 +267,18 @@ export async function savePictures(
       notices.show({ message: t('picture.nothing') });
       return;
     }
+    let paths = [dest];
+    if (set.length > 1) {
+      const { dir, sep, base, ext } = splitPath(dest);
+      const folder = await deps.api.makePictureFolder(dir, t('picture.sheetsFolder', { name: base }));
+      paths = set.map((_, i) => `${folder}${sep}${base}${t('picture.sheetSuffix', { n: i + 1 })}${ext}`);
+    }
     await later();
     await loadChartFonts();
     let smallest: PicturePlan | null = null;
     for (let i = 0; i < set.length; i++) {
       const built = set[i];
-      const path = i === 0 ? dest : sheetPath(dest, i + 1);
+      const path = paths[i];
       let plan = built.plan;
       let bytes: Uint8Array;
       if (format === 'svg') {
@@ -283,7 +296,9 @@ export async function savePictures(
       : t('picture.saved');
     const warnings = [...new Set(set.map((b) => b.warning).filter((w): w is string => !!w))];
     const message = warnings.length ? `${base} ${warnings.join(' ')}` : base;
-    notices.show({ message, ...(deps.platform.isMobile ? {} : { actionLabel: t('exp.reveal'), onaction: () => void deps.platform.reveal(dest) }) });
+    notices.show({ message, ...(deps.platform.isMobile ? {} : { actionLabel: t('exp.reveal'), onaction: () => void deps.platform.reveal(paths[0]) }) });
+    // A set went into a folder of its own: show it.
+    if (set.length > 1 && !deps.platform.isMobile) await deps.platform.reveal(paths[0]);
   } catch (e) {
     notices.show({ message: messageOf(e) });
   } finally {

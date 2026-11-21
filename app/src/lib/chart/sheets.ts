@@ -1,5 +1,6 @@
 import { layoutA3 } from './a3';
 import { compactX, sceneBounds, type Scene } from './picture';
+import { descendantsSide, type ChartDirection } from './direction';
 
 /**
  * Cutting a "built around" chart into A3 sheets by branch (spec 2026-11-21 "around print layouts", section B and
@@ -284,6 +285,34 @@ export function splitSheets(scene: Scene, centres: number[], opts: SplitOptions 
     }
     return { no, top: p.top, ids, refs, scene: sub(new Set([...ids, ...refs.keys(), ...plain])) };
   });
+}
+
+/** Where the "→ sheet N" tag of a reference box is drawn, and how the text is anchored there. */
+export interface RefTag {
+  x: number;
+  y: number;
+  align: 'center' | 'left' | 'right';
+  baseline: 'top' | 'bottom' | 'middle';
+}
+
+/**
+ * The place of a reference box's tag, `gap` away from the box (in the box's units) on the side away from its ancestors
+ * (`dir` is the side the ancestors are drawn on): the line to the ancestors leaves the box on their side, so the tag never
+ * sits on it, and the box's descendants are on another sheet, so that side is free.
+ */
+export function refTagAt(box: { x: number; y: number; w: number; h: number }, dir: ChartDirection, gap: number): RefTag {
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  switch (descendantsSide(dir)) {
+    case 'bottom':
+      return { x: cx, y: box.y + box.h + gap, align: 'center', baseline: 'top' };
+    case 'top':
+      return { x: cx, y: box.y - gap, align: 'center', baseline: 'bottom' };
+    case 'right':
+      return { x: box.x + box.w + gap, y: cy, align: 'left', baseline: 'middle' };
+    case 'left':
+      return { x: box.x - gap, y: cy, align: 'right', baseline: 'middle' };
+  }
 }
 
 /** How a "built around" chart is laid out for the page: as it always was, folded compactly, or cut into sheets by branch. */

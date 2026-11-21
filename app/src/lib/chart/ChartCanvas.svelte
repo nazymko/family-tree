@@ -2,7 +2,7 @@
   import { errMessage } from '../editors/errors';
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
-  import { splitSheets, type PrintLayout } from './sheets';
+  import { refTagAt, splitSheets, type PrintLayout } from './sheets';
   import type { AroundKin, BranchDepth, OpenBranch, ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
   import { added } from '../state/added.svelte';
   import { project } from '../state/project.svelte';
@@ -1141,19 +1141,20 @@
       paint: (ctx, p) => {
         draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: printFocus, focusMore: printMore, theme: th, kind, dir, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(lay.scale) });
         if (refs.size > 0) {
-          // "→ sheet N" under each reference box, the size of a card's dates on paper (kept between 6 and 9 pt).
+          // "→ sheet N" beside each reference box, on the side away from its ancestors (see refTagAt), the size of a
+          // card's dates on paper (kept between 6 and 9 pt).
           ctx.setTransform(p.scale, 0, 0, p.scale, 0, 0);
           const px = Math.min(9 * PT_PX, Math.max(A3_MIN_PT * PT_PX, CARD_SMALL_PX * lay.scale));
           ctx.font = `600 ${px}px ${th.font}`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'top';
           ctx.fillStyle = th.ink2;
+          const z = lay.cam.zoom;
           for (const [id, no] of refs) {
             const n = byId.get(id);
             if (!n) continue;
-            const x = (n.x + n.w / 2 - lay.cam.x) * lay.cam.zoom;
-            const y = (n.y + n.h - lay.cam.y) * lay.cam.zoom + 2 * lay.scale;
-            ctx.fillText(t('picture.sheetRef', { n: no }), x, y);
+            const at = refTagAt({ x: (n.x - lay.cam.x) * z, y: (n.y - lay.cam.y) * z, w: n.w * z, h: n.h * z }, dir, 2 * lay.scale);
+            ctx.textAlign = at.align;
+            ctx.textBaseline = at.baseline;
+            ctx.fillText(t('picture.sheetRef', { n: no }), at.x, at.y);
           }
         }
         if (!header) return;
@@ -1222,7 +1223,8 @@
     const small = sheets.filter((_, i) => lays[i].tooSmall);
     const smallest = Math.min(...small.map((sh) => lays[sh.no - 1].namePt));
     const warning = small.length
-      ? `${t('picture.a3SmallSheets', { list: small.map((sh) => sh.no).join(', ') })} ${t('picture.a3Small', { pt: Math.round(smallest * 10) / 10 })}`
+      ? `${t('picture.a3SmallSheets', { list: small.map((sh) => sh.no).join(', ') })} ${t('picture.a3Small', { pt: Math.round(smallest * 10) / 10 })}` +
+        (c.mode === 'screen' ? ` ${t('picture.a3SmallBestHint')}` : '')
       : undefined;
     return sheets.map((sh, i) =>
       buildA3For(

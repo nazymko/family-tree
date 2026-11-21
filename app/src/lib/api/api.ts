@@ -158,6 +158,8 @@ export interface Api {
   exportGedcom(opts: ExportOptions, dest: string, previewToken: string): Promise<{ bytes: number }>;
   /** Writes a chart picture (PNG bytes) to `dest`, replacing the file when it exists (the save dialog already asked). */
   savePicture(dest: string, bytes: Uint8Array): Promise<{ bytes: number }>;
+  /** Makes a NEW folder `name` in `dir` for a set of pictures (`name (2)`, `name (3)`… when taken) and returns its path. */
+  makePictureFolder(dir: string, name: string): Promise<string>;
 
   // --- Map view: what the map draws, and the offline place data (the one download is the person's own click) ---
   mapData(scope: MapScope): Promise<MapDataDto>;

@@ -4,6 +4,18 @@ import { MockApi } from './MockApi';
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 
+describe('MockApi.makePictureFolder', () => {
+  it('makes_a_new_folder_each_time_with_a_number_when_the_name_is_taken', async () => {
+    const api = new MockApi(fixtureTree(5));
+    api.existingPaths.add('C:/Mock/A — sheets (2)');
+    await expect(api.makePictureFolder('C:/Mock', 'A — sheets')).resolves.toBe('C:/Mock/A — sheets');
+    await expect(api.makePictureFolder('C:/Mock/', 'A — sheets')).resolves.toBe('C:/Mock/A — sheets (3)');
+    await expect(api.makePictureFolder('C:\\Pics', 'A')).resolves.toBe('C:\\Pics\\A');
+    await expect(api.makePictureFolder('C:/Mock', 'a/b')).rejects.toMatchObject({ code: 'invalid' });
+    expect(api.madeFolders).toEqual(['C:/Mock/A — sheets', 'C:/Mock/A — sheets (3)', 'C:\\Pics\\A']);
+  });
+});
+
 describe('MockApi.savePicture', () => {
   it('records_the_picture', async () => {
     const api = new MockApi(fixtureTree(5));

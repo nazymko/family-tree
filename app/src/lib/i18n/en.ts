@@ -1811,6 +1811,7 @@ export const en = {
     branchTitle: 'Branch: {name}',
     sheetRef: '→ sheet {n}',
     sheetSuffix: ' — sheet {n}',
+    sheetsFolder: '{name} — sheets',
     a3DirScreen: 'Direction: as on screen',
     a3DirBest: 'Direction: best fit',
     a3Title: 'Title block',
@@ -2614,6 +2615,9 @@ export const en = {
     savePictureFolder: 'That is a folder, not a file. Choose a file name and try again.',
     savePictureNoFolder: 'That folder does not exist. Choose another folder and try again.',
     savePictureFailed: 'Could not save the picture: {e}. Choose another place and try again.',
+    pictureFolderNoName: 'There is no folder name for the sheets. Choose a file name and try again.',
+    pictureFolderFailed: 'Could not make a folder for the sheets: {e}. Choose another place and try again.',
+    pictureFolderTooMany: 'Could not make a folder for the sheets: too many folders of that name. Choose another name and try again.',
     pictureNotMade: 'The picture could not be made. Try saving it again.',
     // The AI reader
     aiPictureOpen: 'The picture could not be opened. Choose a JPEG, PNG, WebP, GIF or TIFF picture.',
