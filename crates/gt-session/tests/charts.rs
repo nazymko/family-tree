@@ -77,6 +77,7 @@ fn pedigree_ged() -> String {
 
 fn pedigree_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
     ChartRequest {
+        open: None,
         kind: ChartKind::Pedigree,
         root: id_of(s, name),
         generations,
@@ -90,6 +91,7 @@ fn pedigree_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
 
 fn descendants_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
     ChartRequest {
+        open: None,
         kind: ChartKind::Descendants,
         root: id_of(s, name),
         generations,
@@ -244,6 +246,7 @@ fn lru_keeps_two_charts() {
 fn open_unknown_person_is_not_found() {
     let (_d, mut s) = open_ged(&pedigree_ged());
     let req = ChartRequest {
+        open: None,
         kind: ChartKind::Pedigree,
         root: Uuid::nil(),
         generations: 3,
@@ -573,6 +576,7 @@ fn relatives_ged() -> String {
 
 fn relatives_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
     ChartRequest {
+        open: None,
         kind: ChartKind::Relatives,
         root: id_of(s, name),
         generations,
@@ -978,6 +982,7 @@ fn whole_tree_commands_refuse_other_charts_and_other_charts_refuse_whole() {
         ErrorCode::Invalid
     );
     let req = ChartRequest {
+        open: None,
         kind: ChartKind::Whole,
         root: id_of(&s, "Me X"),
         generations: 3,

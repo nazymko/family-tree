@@ -252,6 +252,7 @@ fn chart_window_under_8ms() {
     let root = deep_root(&s);
     let meta = s
         .chart_open(&ChartRequest {
+            open: None,
             kind: ChartKind::Pedigree,
             root,
             generations: DEEP_GENERATIONS,
@@ -289,6 +290,7 @@ fn chart_open_pedigree_8_gens_under_50ms() {
     let (mut s, _) = open(&fixture());
     let root = deep_root(&s);
     let req = ChartRequest {
+        open: None,
         kind: ChartKind::Pedigree,
         root,
         generations: DEEP_GENERATIONS,

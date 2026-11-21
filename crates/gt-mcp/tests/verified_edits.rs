@@ -431,7 +431,10 @@ fn birth_link(host: &TestHost, fam: Uuid, child: Uuid) {
         s.apply(EditCommand::LinkChild {
             family: fam,
             child,
-            rel: (gt_session::ParentRelId::Birth, gt_session::ParentRelId::Birth),
+            rel: (
+                gt_session::ParentRelId::Birth,
+                gt_session::ParentRelId::Birth,
+            ),
             preferred: true,
         })
         .unwrap();
@@ -443,7 +446,9 @@ fn move_child_replaces_the_mother_when_both_families_have_two_parents() {
     let host = empty_host();
     let f = families(&host);
     let src = source(&host);
-    let mother_b = with(&host, |s| add_person(s, draft("Olha", "Testenko", None, Some("1858"))));
+    let mother_b = with(&host, |s| {
+        add_person(s, draft("Olha", "Testenko", None, Some("1858")))
+    });
     let other = couple(&host, f.father, mother_b);
     birth_link(&host, f.both, f.child);
     with(&host, |s| {
@@ -472,8 +477,12 @@ fn move_child_still_refuses_a_second_birth_mother_through_another_family() {
     let host = empty_host();
     let f = families(&host);
     let src = source(&host);
-    let mother_b = with(&host, |s| add_person(s, draft("Olha", "Testenko", None, Some("1858"))));
-    let mother_c = with(&host, |s| add_person(s, draft("Hanna", "Other", None, Some("1859"))));
+    let mother_b = with(&host, |s| {
+        add_person(s, draft("Olha", "Testenko", None, Some("1858")))
+    });
+    let mother_c = with(&host, |s| {
+        add_person(s, draft("Hanna", "Other", None, Some("1859")))
+    });
     let other = couple(&host, f.father, mother_b);
     let third = couple(&host, mother_c, f.father);
     birth_link(&host, f.both, f.child);
@@ -485,7 +494,10 @@ fn move_child_still_refuses_a_second_birth_mother_through_another_family() {
         json!({"batch": batch, "person": f.child, "from_family": f.both, "to_family": other,
                "evidence": evidence(src), "reason": "r"}),
     );
-    assert!(m.contains("parent in that role") || m.contains("birth family"), "{m}");
+    assert!(
+        m.contains("parent in that role") || m.contains("birth family"),
+        "{m}"
+    );
     assert!(child_in(&host, f.both, f.child));
     assert!(!child_in(&host, other, f.child));
 }

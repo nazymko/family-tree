@@ -145,6 +145,7 @@ fn run(people: usize, families: usize, writes: usize, notes: usize) {
         "chart_open descendants (6 gen)",
         med(3, || {
             s.chart_open(&ChartRequest {
+                open: None,
                 kind: ChartKind::Descendants,
                 root: who,
                 generations: 6,

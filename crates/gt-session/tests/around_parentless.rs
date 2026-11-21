@@ -70,6 +70,7 @@ fn open(s: &mut Session, given: &[&str], kin: AroundKin) -> (ChartMeta, ChartWin
     let ids: Vec<_> = given.iter().map(|g| find(s.tree(), g)).collect();
     let m = s
         .chart_open(&ChartRequest {
+            open: None,
             kind: ChartKind::Around,
             root: ids[0],
             generations: 255,
@@ -227,6 +228,7 @@ fn own_brothers_and_sisters_in_a_family_without_partners() {
     let id = find(s.tree(), "Petro");
     let m = s
         .chart_open(&ChartRequest {
+            open: None,
             kind: ChartKind::Relatives,
             root: id,
             generations: 2,

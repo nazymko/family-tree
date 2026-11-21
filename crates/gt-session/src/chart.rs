@@ -2,9 +2,9 @@
 //! chart, served as viewport windows. At most two charts stay open (least recently used goes).
 
 use crate::dto::{
-    AroundKin, ChartEdge, ChartKind, ChartLocation, ChartMeta, ChartNav, ChartNode, ChartRequest,
-    ChartSize, ChartWindow, EdgeKindDto, Kinship, KinshipKind, OutlineGroupKind, OutlineItem,
-    PersonRef, Rect, RoleDto, RoleKind, SexKind, WholeBlockDto, WholeMeta,
+    AroundKin, BranchDepth, ChartEdge, ChartKind, ChartLocation, ChartMeta, ChartNav, ChartNode,
+    ChartRequest, ChartSize, ChartWindow, EdgeKindDto, Kinship, KinshipKind, OutlineGroupKind,
+    OutlineItem, PersonRef, Rect, RoleDto, RoleKind, SexKind, WholeBlockDto, WholeMeta,
 };
 use crate::error::{ApiError, ErrorCode};
 use crate::index::{Links, PersonIndex};
@@ -13,8 +13,8 @@ use crate::relation::{relation_label, relation_role};
 use crate::session::Session;
 use gt_core::tree::Tree;
 use gt_layout::{
-    BlockKind, ChartSource, Direction, EdgeKind, Key, Layout, Metrics, Rel, RelativesOptions,
-    WholeExtras, WholeFamily, WholeInput,
+    AroundBase, BlockKind, ChartSource, Direction, EdgeKind, Key, Layout, Metrics, Rel,
+    RelativesOptions, WholeExtras, WholeFamily, WholeInput,
 };
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
@@ -71,6 +71,34 @@ impl ChartSource for LineSource<'_, '_> {
             kids.retain(|k| !marker(k));
         }
         u
+    }
+}
+
+/// [`TreeSource`] for a chart of one line with openings: no unnamed-siblings markers among the children, except
+/// of the people in `keep` (the parents of people whose brothers and sisters are opened).
+struct OpenSource<'a, 'b> {
+    src: &'a TreeSource<'b>,
+    keep: std::collections::HashSet<Key>,
+}
+
+impl ChartSource for OpenSource<'_, '_> {
+    fn parents(&self, p: Key) -> [Option<Key>; 2] {
+        self.src.parents(p)
+    }
+
+    fn birth_sort(&self, p: Key) -> Option<i32> {
+        self.src.birth_sort(p)
+    }
+
+    fn unions(&self, p: Key) -> Vec<(Option<Key>, Vec<Key>)> {
+        if self.keep.contains(&p) {
+            return self.src.unions(p);
+        }
+        LineSource(self.src).unions(p)
+    }
+
+    fn child_families(&self, p: Key) -> Vec<([Option<Key>; 2], Vec<Key>)> {
+        self.src.child_families(p)
     }
 }
 
@@ -755,11 +783,77 @@ impl Session {
         };
         let m = *m;
         let g = u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
-        match req.kin.unwrap_or(AroundKin::Line) {
-            AroundKin::All => gt_layout::around_all_kin(&src, root, g, &m, MAX_NODES),
-            AroundKin::Siblings => gt_layout::around_with_siblings(&src, root, g, &m, MAX_NODES),
-            AroundKin::Line => gt_layout::around(&LineSource(&src), root, g, &m, MAX_NODES),
+        let kin = req.kin.unwrap_or(AroundKin::Line);
+        let base = match kin {
+            AroundKin::All => AroundBase::All,
+            AroundKin::Siblings => AroundBase::Siblings,
+            AroundKin::Line => AroundBase::Line,
+        };
+        let specs = self.open_specs(req);
+        let mut layout = if specs.is_empty() {
+            match kin {
+                AroundKin::All => gt_layout::around_all_kin(&src, root, g, &m, MAX_NODES),
+                AroundKin::Siblings => {
+                    gt_layout::around_with_siblings(&src, root, g, &m, MAX_NODES)
+                }
+                AroundKin::Line => gt_layout::around(&LineSource(&src), root, g, &m, MAX_NODES),
+            }
+        } else if base == AroundBase::Line {
+            // The line shows no unnamed-siblings markers, except among the brothers and sisters that were opened.
+            let keep = specs
+                .iter()
+                .filter(|o| o.siblings.is_some())
+                .flat_map(|o| src.parents(o.key))
+                .flatten()
+                .collect();
+            let source = OpenSource { src: &src, keep };
+            gt_layout::around_open(&source, root, g, base, &specs, &m, MAX_NODES)
+        } else {
+            gt_layout::around_open(&src, root, g, base, &specs, &m, MAX_NODES)
+        };
+        let flags = if base == AroundBase::Line {
+            gt_layout::open_flags(&LineSource(&src), &layout, base)
+        } else {
+            gt_layout::open_flags(&src, &layout, base)
+        };
+        for (n, (sib, kids)) in layout.nodes.iter_mut().zip(flags) {
+            n.can_open_siblings = sib;
+            n.can_open_children = kids;
+            n.opened = n.dup_of.is_none()
+                && specs
+                    .iter()
+                    .any(|o| o.key == n.key && (o.siblings.is_some() || o.children.is_some()));
         }
+        layout
+    }
+
+    /// The openings of a chart built around one person, as the layout takes them: people who are not in the project
+    /// and unnamed-siblings markers are left out, and so are entries that open nothing.
+    fn open_specs(&self, req: &ChartRequest) -> Vec<gt_layout::OpenSpec> {
+        let depth = |d: Option<BranchDepth>| {
+            d.map(|d| match d {
+                BranchDepth::Children => gt_layout::BranchDepth::Children,
+                BranchDepth::All => gt_layout::BranchDepth::All,
+            })
+        };
+        req.open
+            .iter()
+            .flatten()
+            .filter_map(|o| {
+                let key = self.index.slot(o.person)?;
+                let real = self
+                    .index
+                    .summaries
+                    .get(key as usize)
+                    .is_some_and(|s| !s.sibling_marker);
+                let spec = gt_layout::OpenSpec {
+                    key,
+                    siblings: depth(o.siblings),
+                    children: depth(o.children),
+                };
+                (real && (spec.siblings.is_some() || spec.children.is_some())).then_some(spec)
+            })
+            .collect()
     }
 
     /// The side the ancestors of a chart of `kind` are drawn on, from the settings.
@@ -1554,6 +1648,9 @@ impl Session {
                     relation,
                     role: role_dto,
                     kinship,
+                    can_open_siblings: n.can_open_siblings.then_some(true),
+                    can_open_children: n.can_open_children.then_some(true),
+                    opened: n.opened.then_some(true),
                 }
             })
             .collect();

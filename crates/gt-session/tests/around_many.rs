@@ -46,6 +46,7 @@ fn everything() -> Rect {
 fn request(s: &Session, given: &[&str], generations: u32, kin: Option<AroundKin>) -> ChartRequest {
     let ids: Vec<_> = given.iter().map(|g| find(s.tree(), g)).collect();
     ChartRequest {
+        open: None,
         kind: ChartKind::Around,
         root: ids[0],
         generations,
@@ -221,6 +222,7 @@ fn people_who_left_the_project_or_repeat_are_dropped() {
     let (_d, mut s) = open_tree(&tree_of(KOVAL));
     let ivan = find(s.tree(), "Ivan");
     let req = ChartRequest {
+        open: None,
         kind: ChartKind::Around,
         root: ivan,
         generations: 255,
@@ -274,6 +276,7 @@ fn heavy_twenty_people_of_a_5000_person_tree_open_in_reasonable_time() {
     let t = Instant::now();
     let m = s
         .chart_open(&ChartRequest {
+            open: None,
             kind: ChartKind::Around,
             root: chosen[0],
             generations: 255,
@@ -312,6 +315,7 @@ fn heavy_twenty_people_of_a_5000_person_tree_with_siblings_and_all_relatives() {
         let t = Instant::now();
         let m = s
             .chart_open(&ChartRequest {
+                open: None,
                 kind: ChartKind::Around,
                 root: chosen[0],
                 generations: 255,

@@ -2,7 +2,7 @@
   import { errMessage } from '../editors/errors';
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
-  import type { AroundKin, ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
+  import type { AroundKin, BranchDepth, OpenBranch, ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
   import { added } from '../state/added.svelte';
   import { project } from '../state/project.svelte';
   import { undoState as undo } from '../state/undo.svelte';
@@ -47,6 +47,8 @@
     onAunts,
     kin = 'line',
     onKin,
+    openings = [],
+    onOpenings,
     onOpened,
     onSelect,
     onBuildAround,
@@ -73,6 +75,10 @@
     kin?: AroundKin;
     /** Shows the "Relatives" choice (line only, brothers and sisters, all relatives) in the toolbar when given. */
     onKin?: (kin: AroundKin) => void;
+    /** Chart built around one person: the side branches opened per person. */
+    openings?: OpenBranch[];
+    /** Shows the controls to open the brothers and sisters, or the children, of the selected person when given. */
+    onOpenings?: (open: OpenBranch[]) => void;
     /** Called with the chart meta each time a chart is (re)opened. */
     onOpened?: (meta: ChartMeta) => void;
     /** Called whenever the selected node changes (also from the keyboard). */
@@ -323,7 +329,7 @@
 
   function chartRequest(direction?: ChartDirection, print = false): ChartRequest {
     const req: ChartRequest =
-      kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? (many ? { kind, root, generations, kin, roots } : { kind, root, generations, kin }) : { kind, root, generations };
+      kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? (many ? { kind, root, generations, kin, roots } : openings.length > 0 ? { kind, root, generations, kin, open: openings } : { kind, root, generations, kin }) : { kind, root, generations };
     return direction ? { ...req, direction, ...(print ? { print } : {}) } : req;
   }
 
@@ -595,6 +601,33 @@
       closeChart();
     };
   });
+
+  // Opening or closing a side branch re-lays the chart out; the view and the selected person stay where they are.
+  let lastOpenings = untrack(() => JSON.stringify(openings));
+  $effect(() => {
+    const now = JSON.stringify(openings);
+    if (now === lastOpenings) return;
+    lastOpenings = now;
+    untrack(() => {
+      if (kind === 'around' && !many) void open(true);
+    });
+  });
+
+  /** Set the depth of one opening of the selected person (null: closed); entries that open nothing are dropped. */
+  function setOpening(person: Id, field: 'siblings' | 'children', depth: BranchDepth | null): void {
+    const cur = openings.find((o) => o.person === person) ?? { person };
+    const next: OpenBranch = { ...cur };
+    if (depth) next[field] = depth;
+    else delete next[field];
+    const rest = openings.filter((o) => o.person !== person);
+    onOpenings?.(next.siblings || next.children ? [...rest, next] : rest);
+  }
+  const depthOf = (person: Id, field: 'siblings' | 'children'): string => openings.find((o) => o.person === person)?.[field] ?? 'off';
+  const depthOptions = (kids: boolean) => [
+    { value: 'off', label: t('chartCanvas.openOff') },
+    { value: 'children', label: kids ? t('chartCanvas.openKids') : t('chartCanvas.openWithChildren') },
+    { value: 'all', label: t('chartCanvas.openAll') },
+  ];
 
   // Edits, undo and redo bump project.rev (and change the undo state); reopen so the chart shows the new tree.
   const undoState = () => `${project.rev}|${undo.canUndo}|${undo.undoLabel}|${undo.canRedo}|${undo.redoLabel}`;
@@ -1274,7 +1307,23 @@
         />
       </div>
     {/if}
-    <ChartPictureMenu bind:this={pictureMenu} ona3={pictureA3} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
+    {#if onOpenings && !many}
+      {@const sel = realPerson(selNode)}
+      {#if sel && selNode?.canOpenSiblings}
+        <div class="tool" data-testid="open-siblings">
+          <Segmented legend={t('chartCanvas.openSiblings')} options={depthOptions(false)} value={depthOf(sel.id, 'siblings')} onchange={(v) => setOpening(sel.id, 'siblings', v === 'off' ? null : (v as BranchDepth))} />
+        </div>
+      {/if}
+      {#if sel && selNode?.canOpenChildren}
+        <div class="tool" data-testid="open-children">
+          <Segmented legend={t('chartCanvas.openChildren')} options={depthOptions(true)} value={depthOf(sel.id, 'children')} onchange={(v) => setOpening(sel.id, 'children', v === 'off' ? null : (v as BranchDepth))} />
+        </div>
+      {/if}
+      {#if openings.length > 0}
+        <Button onclick={() => onOpenings([])}>{t('chartCanvas.clearOpenings')}</Button>
+      {/if}
+    {/if}
+    <ChartPictureMenu bind:this={pictureMenu} personCount={openings.length > 0 ? meta?.personCount : undefined} ona3={pictureA3} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
     <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
     {#if onGenerations}
       <div class="gens">

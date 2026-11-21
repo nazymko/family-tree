@@ -1847,6 +1847,13 @@ export const en = {
     kinLine: 'Line only',
     kinSiblings: 'Brothers and sisters',
     kinAll: 'All relatives',
+    openSiblings: 'Brothers and sisters',
+    openChildren: 'Children',
+    openOff: 'Off',
+    openWithChildren: 'With children',
+    openKids: 'Children',
+    openAll: 'All descendants',
+    clearOpenings: 'Clear all openings',
   },
   whole: {
     title: 'Whole tree',

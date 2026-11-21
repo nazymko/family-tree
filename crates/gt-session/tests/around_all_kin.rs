@@ -54,6 +54,7 @@ fn everything() -> Rect {
 
 fn open(s: &mut Session, kin: Option<AroundKin>, generations: u32) -> (ChartMeta, ChartWindow) {
     let req = ChartRequest {
+        open: None,
         kind: ChartKind::Around,
         root: find(s.tree(), "Ivan Petrovych"),
         generations,

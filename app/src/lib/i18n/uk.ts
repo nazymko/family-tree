@@ -1856,6 +1856,13 @@ export const uk: Messages = {
     kinLine: 'Лише лінія',
     kinSiblings: 'Брати й сестри',
     kinAll: 'Уся рідня',
+    openSiblings: 'Брати й сестри',
+    openChildren: 'Діти',
+    openOff: 'Вимкнено',
+    openWithChildren: 'З дітьми',
+    openKids: 'Діти',
+    openAll: 'Усі нащадки',
+    clearOpenings: 'Скасувати всі розкриття',
   },
   whole: {
     title: 'Увесь родовід',
