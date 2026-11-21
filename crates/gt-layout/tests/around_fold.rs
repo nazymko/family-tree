@@ -411,22 +411,25 @@ fn which_groups_fold() {
         distinct_ys(&l, &big_sibs(1)) >= 2,
         "the person's siblings fold"
     );
-    // An outer group: the father's (2) siblings stand left of him, outside the line.
-    assert!(
-        distinct_ys(&l, &big_sibs(2)) >= 2,
-        "the father's siblings fold"
-    );
+    // Outer groups (on the side away from the middle): the father's (2) siblings left of him, the mother's (3) right
+    // of her, and so on up the line.
     assert!(right(&l, &big_sibs(2)) < node(&l, 2).rect.x);
-    // Inner groups: the father's mother (5) would have her siblings on her right, between her couple and the father;
-    // the mother's father (6) on his left, between his couple and the mother. Folded, they hang on the outer side.
-    assert!(distinct_ys(&l, &big_sibs(5)) >= 2, "an inner group folds");
-    assert!(right(&l, &big_sibs(5)) < node(&l, 4).rect.x);
-    assert!(distinct_ys(&l, &big_sibs(6)) >= 2, "an inner group folds");
-    assert!(left(&l, &big_sibs(6)) > node(&l, 7).rect.x + node(&l, 7).rect.w);
-    // Every group of the chart folds.
-    for n in 1..16u32 {
+    assert!(left(&l, &big_sibs(3)) > node(&l, 3).rect.x);
+    for n in [2, 3, 4, 7, 8, 10, 13, 15] {
         assert!(distinct_ys(&l, &big_sibs(n)) >= 2, "siblings of {n} fold");
     }
+    // Inner groups stand between their ancestor's couple and the couple's child: folded, their grid would stand in the
+    // way of the line to the child, so they stay in one row, in their place (the father's mother 5 has hers on her
+    // right, the mother's father 6 on his left).
+    for n in [5, 6, 9, 11, 12, 14] {
+        assert_eq!(
+            distinct_ys(&l, &big_sibs(n)),
+            1,
+            "siblings of {n} stay in one row"
+        );
+    }
+    assert!(left(&l, &big_sibs(5)) > node(&l, 5).rect.x);
+    assert!(right(&l, &big_sibs(6)) < node(&l, 6).rect.x);
 }
 
 #[test]
@@ -458,16 +461,127 @@ fn several_people_fold_too() {
             aspect(&off)
         );
         if kin == ManyKin::All {
+            // Some of the ancestors' brothers and sisters fold (the others would add crossing lines).
+            let folded = (2..16u32)
+                .filter(|&n| distinct_ys(&on, &big_sibs(n)) >= 2)
+                .count();
+            assert!(folded > 0, "some ancestors' siblings fold");
             for n in 2..16u32 {
-                assert!(distinct_ys(&on, &big_sibs(n)) >= 2, "siblings of {n} fold");
                 assert_children_linked(&on, 2 * n, &big_sibs(n));
                 assert_children_linked(&on, 2 * n + 1, &big_sibs(n));
             }
+            let (q0, q1) = (gt_layout::quality(&off), gt_layout::quality(&on));
+            assert!(q1.line_crossings <= q0.line_crossings);
             eprintln!(
-                "several people, all: aspect {} -> {}",
+                "several people, all: aspect {} -> {}, {folded} of 14 ancestor groups fold",
                 aspect(&off),
                 aspect(&on)
             );
         }
+    }
+}
+
+/// Ivan (1) with 3 generations of ancestors (7 couples, Ahnentafel keys 2..15); Ivan and the ancestors below the top
+/// row have 14 brothers and sisters without partners or children.
+fn three_generations() -> (MapSource, Vec<OpenSpec>) {
+    let mut s = MapSource::default();
+    let mut open = Vec::new();
+    for n in 1..8u32 {
+        let mut kids: Vec<Key> = (0..14).map(|i| 1000 + n * 100 + i).collect();
+        kids.insert(7, n);
+        s.family(Some(2 * n), Some(2 * n + 1), &kids);
+        open.push(sib(n, BranchDepth::All));
+    }
+    (s, open)
+}
+
+/// Folding never adds a crossing line, a line through a card or an overlap, for the chart around one person and for
+/// the chart of several people.
+#[test]
+fn folding_adds_no_crossing() {
+    let m = Metrics::default();
+    let check = |what: &str, off: &Layout, on: &Layout| {
+        let (q0, q1) = (gt_layout::quality(off), gt_layout::quality(on));
+        assert!(
+            q1.line_crossings <= q0.line_crossings,
+            "{what}: crossings folded {} unfolded {}",
+            q1.line_crossings,
+            q0.line_crossings
+        );
+        assert!(
+            q1.lines_through_boxes <= q0.lines_through_boxes,
+            "{what}: {q1:?}"
+        );
+        assert_eq!(q1.box_overlaps, 0, "{what}");
+    };
+    let (big, big_open) = big_chart();
+    let (three, three_open) = three_generations();
+    let mut cases: Vec<(String, MapSource, Vec<OpenSpec>, u8)> = vec![
+        (
+            "around".into(),
+            around_family(),
+            vec![sib(2, BranchDepth::All)],
+            ALL,
+        ),
+        (
+            "open".into(),
+            open_family(),
+            vec![sib(6, BranchDepth::All)],
+            ALL,
+        ),
+        ("5 children".into(), with_children(5).0, Vec::new(), ALL),
+        ("18 children".into(), with_children(18).0, Vec::new(), ALL),
+        (
+            "12 mixed".into(),
+            mixed_children(12, &[3, 9]).0,
+            Vec::new(),
+            ALL,
+        ),
+        (
+            "20 mixed".into(),
+            mixed_children(20, &[3, 9]).0,
+            Vec::new(),
+            ALL,
+        ),
+        ("three generations".into(), three, three_open, 3),
+        ("big chart".into(), big, big_open, 4),
+    ];
+    for wide in [&[4][..], &[5][..], &[1][..], &[4, 5][..], &[4, 1, 5][..]] {
+        cases.push((
+            format!("wide {wide:?}"),
+            wide_siblings_family(wide),
+            Vec::new(),
+            ALL,
+        ));
+    }
+    for (name, s, open, gens) in &cases {
+        for base in [AroundBase::Line, AroundBase::Siblings, AroundBase::All] {
+            for open in [&[][..], &open[..]] {
+                let off = around_open(s, 1, *gens, base, open, false, &m, 100_000);
+                let on = around_open(s, 1, *gens, base, open, true, &m, 100_000);
+                check(&format!("{name} {base:?} open {}", open.len()), &off, &on);
+            }
+        }
+        for kin in [ManyKin::Siblings, ManyKin::All] {
+            let off = around_many_kin(s, &[1], *gens, kin, false, &m, 100_000);
+            let on = around_many_kin(s, &[1], *gens, kin, true, &m, 100_000);
+            check(&format!("{name} {kin:?} [1]"), &off, &on);
+        }
+    }
+    // Two chosen people: Ivan and his first brother.
+    for (name, s, gens) in [
+        ("three generations", three_generations().0, 3),
+        ("big chart", big_chart().0, 4),
+    ] {
+        let off = around_many_kin(&s, &[1, 1100], gens, ManyKin::All, false, &m, 100_000);
+        let on = around_many_kin(&s, &[1, 1100], gens, ManyKin::All, true, &m, 100_000);
+        check(&format!("{name} All [1, 1100]"), &off, &on);
+        let a3 = std::f32::consts::SQRT_2;
+        eprintln!(
+            "{name} several people: aspect {} -> {}",
+            aspect(&off),
+            aspect(&on)
+        );
+        assert!((aspect(&on) - a3).abs() <= (aspect(&off) - a3).abs());
     }
 }
