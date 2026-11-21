@@ -88,6 +88,7 @@ describe('viewsOf', () => {
         const byId = new Map(v.scene.nodes.map((n) => [n.id, n]));
         const b = v.bounds;
         for (const id of v.refs.keys()) {
+          if (v.groups.has(id)) continue; // names its sheets inside, no tag
           const r = tagRect(byId.get(id)!, tagDir(v, id), OPTS.tagW, OPTS.tagH);
           expect(r.x >= b.x - 1e-6 && r.y >= b.y - 1e-6 && r.x + r.w <= b.x + b.w + 1e-6 && r.y + r.h <= b.y + b.h + 1e-6).toBe(true);
           for (const n of v.scene.nodes) if (n.id !== id && overlaps(r, n)) expect.fail(`piece ${piece.index} ${v.direction}: tag of ${id} on box ${n.id}`);
@@ -105,6 +106,7 @@ describe('tags and lines', () => {
         flipped += v.flip.size;
         const byId = new Map(v.scene.nodes.map((n) => [n.id, n]));
         for (const id of v.refs.keys()) {
+          if (v.groups.has(id)) continue; // names its sheets inside, no tag
           const r = tagRect(byId.get(id)!, tagDir(v, id), OPTS.tagW, OPTS.tagH);
           for (const e of v.scene.edges) {
             if (e.from !== id && e.to !== id) continue;
@@ -124,7 +126,7 @@ describe('tags and lines', () => {
 
 function view(direction: ChartDirection, scale: number, w: number, h: number): PieceView {
   const bounds = { x: 0, y: 0, w, h };
-  return { direction, scene: { nodes: [], edges: [] }, refs: new Map(), flip: new Set(), groups: new Map(), bounds, standalone: { ...layoutA3(bounds), scale } };
+  return { direction, scene: { nodes: [], edges: [] }, refs: new Map(), flip: new Set(), side: new Map(), groups: new Map(), bounds, standalone: { ...layoutA3(bounds), scale } };
 }
 
 describe('pickView', () => {

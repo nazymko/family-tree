@@ -30,6 +30,8 @@ export interface PieceView {
    * leaves the descendants' side, where the tag would sit on it). See `tagDir`.
    */
   flip: Set<number>;
+  /** Reference boxes whose tag had to go elsewhere (both ends of the box were on a line): the side it went to. See `tagDir`. */
+  side: Map<number, ChartDirection>;
   /**
    * Children of one family here who are on other pieces share one reference box: that box's node id -> the pieces
    * holding them (sorted). The other children's boxes are left out of `scene` and `refs`.
@@ -52,9 +54,6 @@ export interface ViewOptions {
 /** The gap (world units) between a reference box and its tag, as the print draws it. */
 export const TAG_GAP = 2;
 
-/** How much wider a reference tag gets for each page more it lists (a tag of `tagW` holds one page number). */
-export const GROUP_TAG_MORE = 0.45;
-
 /** The re-lays tried for a piece: [shortest run folded (0: none), grid ratio]; the smallest wins. */
 const FOLDS: [number, number][] = [
   [0, 3],
@@ -71,9 +70,12 @@ export function tagRect(box: { x: number; y: number; w: number; h: number }, dir
 }
 
 /** The direction to give `refTagAt` / `tagRect` for the tag of reference box `id` of a view. */
-export function tagDir(v: Pick<PieceView, 'direction' | 'flip'>, id: number): ChartDirection {
-  return v.flip.has(id) ? opposite(v.direction) : v.direction;
+export function tagDir(v: Pick<PieceView, 'direction' | 'flip'> & { side?: Map<number, ChartDirection> }, id: number): ChartDirection {
+  return v.side?.get(id) ?? (v.flip.has(id) ? opposite(v.direction) : v.direction);
 }
+
+/** Whether two rectangles overlap by more than a hair (a line is a rectangle of no width). */
+const hits = (a: Rect, b: Rect): boolean => a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5 && a.y < b.y + b.h - 0.5 && b.y < a.y + a.h - 0.5;
 
 const union = (a: Rect, b: Rect): Rect => {
   const x = Math.min(a.x, b.x);
@@ -136,16 +138,17 @@ export function viewsOf(piece: Piece, cut: DirScene, dirs: DirScene[], o: ViewOp
     const flip = new Set<number>();
     for (const e of d.scene.edges) if (e.kind === 'parent' && refs.has(e.from) && keep.has(e.to)) flip.add(e.from);
     const dirOf = (id: number) => (flip.has(id) ? opposite(d.direction) : d.direction);
-    // A group's tag lists several pages: wider.
-    const tagWOf = (id: number) => o.tagW * (1 + GROUP_TAG_MORE * ((groups.get(id)?.length ?? 1) - 1));
-    const occupied = (n: ChartNode): Rect => (refs.has(n.id) ? union(n, tagRect(n, dirOf(n.id), tagWOf(n.id), o.tagH)) : n);
+    // A box standing for children elsewhere carries its sheets inside (where a person's dates go): no tag beside it.
+    const tagged = (id: number) => refs.has(id) && !groups.has(id);
+    const tagWOf = () => o.tagW;
+    const occupied = (n: ChartNode): Rect => (tagged(n.id) ? union(n, tagRect(n, dirOf(n.id), tagWOf(), o.tagH)) : n);
     const kept = { nodes: d.scene.nodes.filter((n) => keep.has(n.id)), edges: d.scene.edges.filter((e) => keep.has(e.from) && keep.has(e.to)) };
-    const boundsOf = (sc: Scene) => sceneBounds(sc, sc.nodes.filter((n) => refs.has(n.id)).map((n) => tagRect(n, dirOf(n.id), tagWOf(n.id), o.tagH)));
+    const boundsOf = (sc: Scene) => sceneBounds(sc, sc.nodes.filter((n) => tagged(n.id)).map((n) => tagRect(n, dirOf(n.id), tagWOf(), o.tagH)));
     // Laid out again for this piece alone; the plain squeeze stays when it comes out smaller.
     const rel = new Map<number, Rect>();
     for (const n of kept.nodes) {
-      if (!refs.has(n.id)) continue;
-      const r = tagRect(n, dirOf(n.id), tagWOf(n.id), o.tagH);
+      if (!tagged(n.id)) continue;
+      const r = tagRect(n, dirOf(n.id), tagWOf(), o.tagH);
       rel.set(n.id, { ...r, x: r.x - n.x, y: r.y - n.y });
     }
     const squeezed = compactBoth(kept, 40, occupied);
@@ -162,7 +165,29 @@ export function viewsOf(piece: Piece, cut: DirScene, dirs: DirScene[], o: ViewOp
         bounds = b;
       }
     }
-    return { direction: d.direction, scene, refs, flip, groups, bounds, standalone: layoutA3(bounds, o.choice, o.header) };
+    // A tag still on a line (a partner's family line passing the ancestors' side) goes to the other side when that is free.
+    const segs = scene.edges.flatMap((e) => {
+      const out: Rect[] = [];
+      for (let i = 0; i + 3 < e.pts.length; i += 2) {
+        const x = Math.min(e.pts[i], e.pts[i + 2]);
+        const y = Math.min(e.pts[i + 1], e.pts[i + 3]);
+        out.push({ x, y, w: Math.abs(e.pts[i + 2] - e.pts[i]), h: Math.abs(e.pts[i + 3] - e.pts[i + 1]) });
+      }
+      return out;
+    });
+    const blocked = (t: Rect) => segs.some((r) => hits(t, r)) || scene.nodes.some((n) => hits(t, n));
+    // The two sides along the row come last (a tag there sits under or beside the box, between its neighbours).
+    const side = new Map<number, ChartDirection>();
+    for (const n of scene.nodes) {
+      if (!tagged(n.id)) continue;
+      const first = dirOf(n.id);
+      if (!blocked(tagRect(n, first, tagWOf(), o.tagH))) continue;
+      const across: ChartDirection[] = isHorizontal(first) ? ['top', 'bottom'] : ['left', 'right'];
+      const free = [opposite(first), ...across].find((dd) => !blocked(tagRect(n, dd, tagWOf(), o.tagH)));
+      if (free) side.set(n.id, free);
+    }
+    if (side.size) bounds = sceneBounds(scene, scene.nodes.filter((n) => tagged(n.id)).map((n) => tagRect(n, side.get(n.id) ?? dirOf(n.id), tagWOf(), o.tagH)));
+    return { direction: d.direction, scene, refs, flip, side, groups, bounds, standalone: layoutA3(bounds, o.choice, o.header) };
   });
 }
 

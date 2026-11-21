@@ -5,7 +5,7 @@ import { sceneBounds, type Scene } from './picture';
 import { foldRuns, relayPiece } from './relay';
 import { nodeKeys } from './sheets';
 import { planSheets } from './sheetPlan';
-import { GROUP_TAG_MORE, tagDir, tagRect } from './pieceView';
+import { tagDir, tagRect } from './pieceView';
 import { FAMS, loadFam } from './testing/famScenes';
 
 const W = 124;
@@ -20,6 +20,13 @@ const line = (from: number, to: number, px: number, py: number, bus: number, kid
   pts: [px, py, px, bus, kid.x + W / 2, bus, kid.x + W / 2, kid.y],
 });
 const partner = (a: ChartNode, b: ChartNode): ChartEdge => ({ from: a.id, to: b.id, kind: 'partner', pts: [a.x + W, a.y + H / 2, b.x, b.y + H / 2] });
+
+/** The straight pieces of a line: [x0, y0, x1, y1]. */
+const segments = (e: ChartEdge): [number, number, number, number][] => {
+  const out: [number, number, number, number][] = [];
+  for (let i = 0; i + 3 < e.pts.length; i += 2) out.push([e.pts[i], e.pts[i + 1], e.pts[i + 2], e.pts[i + 3]]);
+  return out;
+};
 
 /** Boxes overlap; a line point lies inside a box it does not belong to; a line leaves its boxes. */
 export function drawIssues(s: Scene): string[] {
@@ -139,10 +146,13 @@ describe('relayPiece', { timeout: 30_000 }, () => {
           expect(drawIssues(v.scene), `${f} piece ${p.index} ${v.direction}`).toEqual([]);
           // A reference's tag lands on no box.
           for (const n of v.scene.nodes) {
-            if (!v.refs.has(n.id)) continue;
-            const t = tagRect(n, tagDir(v, n.id), 60 * (1 + GROUP_TAG_MORE * ((v.groups.get(n.id)?.length ?? 1) - 1)), 14);
+            if (!v.refs.has(n.id) || v.groups.has(n.id)) continue;
+            const t = tagRect(n, tagDir(v, n.id), 60, 14);
             const hit = v.scene.nodes.filter((b) => t.x < b.x + b.w - 0.5 && b.x < t.x + t.w - 0.5 && t.y < b.y + b.h - 0.5 && b.y < t.y + t.h - 0.5);
             expect(hit.map((b) => b.id), `${f} piece ${p.index} ${v.direction} tag of ${n.id}`).toEqual([]);
+            // ... nor on a line.
+            const crossed = v.scene.edges.filter((e) => segments(e).some(([x0, y0, x1, y1]) => Math.max(x0, x1) > t.x + 0.5 && Math.min(x0, x1) < t.x + t.w - 0.5 && Math.max(y0, y1) > t.y + 0.5 && Math.min(y0, y1) < t.y + t.h - 0.5));
+            expect(crossed.map((e) => `${e.from}>${e.to}`), `${f} piece ${p.index} ${v.direction} tag of ${n.id} on a line`).toEqual([]);
           }
         }
     }

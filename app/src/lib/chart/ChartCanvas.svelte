@@ -1262,18 +1262,20 @@
     return t('picture.branchTitle', { name: given ? `${surname} (${given})` : surname });
   }
 
-  /** A piece's boxes as printed: a box standing for children on other pieces reads «Children», with no dates. */
+  /** A piece's boxes as printed: a box standing for children on other pieces reads «Children» over their sheets. */
   function groupBoxes(pc: PlannedPiece): PlannedPiece['view']['scene'] {
     const sc = pc.view.scene;
     if (pc.refGroups.size === 0) return sc;
     const label = t('picture.childrenRef');
+    const sheets = (pages: number[]) => (pages.length > 1 ? t('picture.sheetRefMany', { n: pages.join(', ') }) : t('picture.sheetRef', { n: pages[0] }));
     return {
       ...sc,
-      nodes: sc.nodes.map((n) =>
-        pc.refGroups.has(n.id) && n.person
-          ? { ...n, ahnen: null, relation: undefined, role: undefined, kinship: undefined, person: { ...n.person, name: label, lifespan: '', birthSurname: undefined, asRecorded: undefined } }
-          : n,
-      ),
+      nodes: sc.nodes.map((n) => {
+        const pages = pc.refGroups.get(n.id);
+        return pages && n.person
+          ? { ...n, ahnen: null, relation: undefined, role: undefined, kinship: undefined, person: { ...n.person, name: label, lifespan: sheets(pages), birthSurname: undefined, asRecorded: undefined } }
+          : n;
+      }),
     };
   }
 
@@ -1386,12 +1388,12 @@
           const b = pc.view.bounds;
           for (const [id, no] of pc.refPages) {
             const n = byId.get(id);
-            if (!n) continue;
+            // A box standing for children elsewhere names its sheets inside.
+            if (!n || pc.refGroups.has(id)) continue;
             const at = refTagAt({ x: pc.x + (n.x - b.x) * s, y: pc.y + (n.y - b.y) * s, w: n.w * s, h: n.h * s }, tagDir(pc.view, id), 2 * s);
             ctx.textAlign = at.align;
             ctx.textBaseline = at.baseline;
-            const many = pc.refGroups.get(id);
-            ctx.fillText(many && many.length > 1 ? t('picture.sheetRefMany', { n: many.join(', ') }) : t('picture.sheetRef', { n: many?.[0] ?? no }), at.x, at.y);
+            ctx.fillText(t('picture.sheetRef', { n: no }), at.x, at.y);
           }
         }
         // Each packed piece's caption, in its band above it.
