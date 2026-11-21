@@ -3,7 +3,8 @@
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
   import { nodeKeys, refTagAt, screenFrames, type NodeKey, type PrintLayout } from './sheets';
-  import { planSheets, type PlannedPage, type PlannedPiece, type SheetPlan } from './sheetPlan';
+  import type { PlannedPage, PlannedPiece, SheetPlan } from './sheetPlan';
+  import { planSheetsAsync, sheetJob } from './sheetPlanJob';
   import { tagDir, type DirScene } from './pieceView';
   import { CAPTION_MAX_MM, CAPTION_MM, CAPTION_PT } from './pack';
   import type { AroundKin, BranchDepth, OpenBranch, ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
@@ -335,14 +336,17 @@
    * The frames of the A3 sheets on the chart on screen, numbered as the print numbers them: they show the very plan the
    * print and the save use ({@link plannedSheets}, in the orientation last chosen), each piece framed around the screen
    * boxes of its people. Runs a little after the chart opened (a quick change of the layout or the person lays out one
-   * print chart, not one per step); nothing is framed until it arrives, and a result
+   * print chart, not one per step), the plan made off the main thread; nothing is framed until it arrives, and a result
    * for a chart that is no longer open is dropped.
    */
   function scheduleFrames(m: ChartMeta, seq: number): void {
     if (framesTimer) clearTimeout(framesTimer);
     framesTimer = setTimeout(() => {
       framesTimer = null;
-      void frameSheets(m, seq);
+      // After the chart is drawn and the page is idle (the plan itself is made in a worker).
+      const go = () => void frameSheets(m, seq);
+      if (typeof requestIdleCallback === 'function') requestIdleCallback(go, { timeout: 1000 });
+      else go();
     }, FRAMES_DELAY_MS);
   }
 
@@ -1345,7 +1349,7 @@
     meter.font = `600 ${tagPx}px ${look.th.font}`;
     const tagW = meter.measureText(t('picture.sheetRef', { n: 99 })).width / ts;
     const tagH = (tagPx * 1.2) / ts;
-    const plan = planSheets(dirs, { choice, header: look.header, screenDir: cut.direction, centres, capW, tagW, tagH });
+    const plan = await planSheetsAsync(sheetJob(dirs, { choice, header: look.header, screenDir: cut.direction, centres, tagW, tagH }, capW));
     return { dirs, look, plan };
   }
 
