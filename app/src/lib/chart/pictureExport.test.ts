@@ -8,7 +8,7 @@ import { en } from '../i18n/en';
 import { uk } from '../i18n/uk';
 import { notices } from '../ui/notices.svelte';
 import { planPicture } from './picture';
-import { captionText, chartTitle, renderPng, renderSvg, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
+import { captionText, chartTitle, renderPng, renderSvg, savePicture, savePictures, suggestedName, type BuiltPicture } from './pictureExport';
 
 const PNG_HEAD = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -321,5 +321,51 @@ describe('savePicture', () => {
     setLanguage('uk');
     await savePicture({ api: s.api, platform: s.platform }, { fileName: 'x.png', build: async () => built(), setBusy: s.setBusy });
     expect(notices.current?.message).toBe('Зображення збережено');
+  });
+});
+
+describe('savePictures', () => {
+  function setup() {
+    stubCanvas();
+    const api = new MockApi(fixtureTree(5));
+    const platform = new MockPlatform();
+    const busy: boolean[] = [];
+    return { api, platform, busy, setBusy: (b: boolean) => busy.push(b) };
+  }
+
+  it('asks_once_and_writes_the_other_sheets_next_to_the_first_with_the_sheet_suffix', async () => {
+    const s = setup();
+    setLanguage('uk');
+    const build = vi.fn(async () => [built(), built(), built()]);
+    await savePictures({ api: s.api, platform: s.platform }, { fileName: 'X.png', build, setBusy: s.setBusy });
+    expect(s.platform.calls.filter((c) => c.method === 'pickSavePath')).toHaveLength(1);
+    expect(build).toHaveBeenCalledOnce();
+    expect(build).toHaveBeenCalledWith('png');
+    expect(s.api.savedPictures.map((p) => p.dest)).toEqual(['C:/Mock/X.png', 'C:/Mock/X — арк. 2.png', 'C:/Mock/X — арк. 3.png']);
+    expect(s.api.savedPictures.every((p) => p.bytes[0] === 0x89)).toBe(true);
+    expect(notices.current?.message).toBe('Зображення збережено');
+    expect(s.busy).toEqual([true, false]);
+  });
+
+  it('keeps_the_chosen_format_for_every_sheet', async () => {
+    const s = setup();
+    s.platform.next.save = 'C:/Mock/Around - Ivan Koval (A3).svg';
+    const build = vi.fn(async () => [built(), built()]);
+    await savePictures({ api: s.api, platform: s.platform }, { fileName: 'x.png', build, setBusy: s.setBusy });
+    expect(build).toHaveBeenCalledWith('svg');
+    expect(s.api.savedPictures.map((p) => p.dest)).toEqual(['C:/Mock/Around - Ivan Koval (A3).svg', 'C:/Mock/Around - Ivan Koval (A3) — sheet 2.svg']);
+    expect(new TextDecoder().decode(s.api.savedPictures[1].bytes)).toMatch(/^<\?xml/);
+  });
+
+  it('writes_nothing_when_cancelled_and_reports_an_empty_set', async () => {
+    const s = setup();
+    s.platform.next.save = null;
+    const build = vi.fn(async () => [built()]);
+    await savePictures({ api: s.api, platform: s.platform }, { fileName: 'x.png', build, setBusy: s.setBusy });
+    expect(build).not.toHaveBeenCalled();
+    s.platform.next.save = undefined;
+    await savePictures({ api: s.api, platform: s.platform }, { fileName: 'x.png', build: async () => [], setBusy: s.setBusy });
+    expect(notices.current?.message).toBe('There is nothing to save yet.');
+    expect(s.api.savedPictures).toHaveLength(0);
   });
 });

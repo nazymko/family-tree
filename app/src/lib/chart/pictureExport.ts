@@ -3,7 +3,7 @@ import type { ChartKind } from '../api/types';
 import { currentTag, t, type MessageKey } from '../i18n';
 import { notices } from '../ui/notices.svelte';
 import { CAPTION_H, MARGIN, formatOf, pictureFileName, scalePlan, type PictureFormat, type PicturePlan, type PictureScope } from './picture';
-import { printDocument, printHtml, type A3Orientation } from './a3';
+import { printDocument, printDocumentPages, printHtml, type A3Orientation } from './a3';
 import { SvgContext, escapeXml, parseFont } from './svgContext';
 import { fontFaceCss, loadChartFonts } from '../ui/fonts';
 
@@ -213,6 +213,15 @@ export function renderSvg(b: BuiltPicture): Uint8Array {
   return new TextEncoder().encode(ctx.toSvg(b.transparent ? null : b.theme.paper, plan.view, caption, physical));
 }
 
+/** A single picture as a set of one; nothing stays nothing. */
+const one = (b: BuiltPicture | null): BuiltPicture[] | null => (b ? [b] : null);
+
+/** The path of sheet `n` of a set saved as `dest`: the sheet suffix (" — sheet 2") before the extension. */
+export function sheetPath(dest: string, n: number): string {
+  const m = /^(.*?)(\.[^./\\]*)?$/.exec(dest)!;
+  return `${m[1]}${t('picture.sheetSuffix', { n })}${m[2] ?? ''}`;
+}
+
 /**
  * Asks where to save (PNG or SVG), builds and paints the picture, writes it and tells the user. `setBusy` lets the chart
  * show "Saving the picture…" while it works; the work waits for a frame first so that message can appear.
@@ -220,6 +229,17 @@ export function renderSvg(b: BuiltPicture): Uint8Array {
 export async function savePicture(
   deps: { api: Api; platform: Platform },
   args: { fileName: string; build: (format: PictureFormat) => Promise<BuiltPicture | null>; setBusy: (busy: boolean) => void },
+): Promise<void> {
+  return savePictures(deps, { ...args, build: async (format) => one(await args.build(format)) });
+}
+
+/**
+ * `savePicture` for a set of pictures (the A3 sheets of one chart): one save dialog, for the first; the others are written
+ * next to it in the same format, named with the sheet suffix (`sheetPath`). One message when all are written.
+ */
+export async function savePictures(
+  deps: { api: Api; platform: Platform },
+  args: { fileName: string; build: (format: PictureFormat) => Promise<BuiltPicture[] | null>; setBusy: (busy: boolean) => void },
 ): Promise<void> {
   const dest = await deps.platform.pickSavePath({
     title: t('picture.dialogTitle'),
@@ -235,27 +255,34 @@ export async function savePicture(
   args.setBusy(true);
   try {
     await yieldFrame();
-    const built = await args.build(format);
-    if (!built) {
+    const set = await args.build(format);
+    if (!set || set.length === 0) {
       notices.show({ message: t('picture.nothing') });
       return;
     }
     await later();
     await loadChartFonts();
-    let plan = built.plan;
-    let bytes: Uint8Array;
-    if (format === 'svg') {
-      bytes = renderSvg(built);
-    } else {
-      ({ bytes, plan } = await renderPngAdaptive(built));
+    let smallest: PicturePlan | null = null;
+    for (let i = 0; i < set.length; i++) {
+      const built = set[i];
+      const path = i === 0 ? dest : sheetPath(dest, i + 1);
+      let plan = built.plan;
+      let bytes: Uint8Array;
+      if (format === 'svg') {
+        bytes = renderSvg(built);
+      } else {
+        ({ bytes, plan } = await renderPngAdaptive(built));
+      }
+      await deps.api.savePicture(path, bytes);
+      if (deps.platform.isMobile && deps.platform.deliver && !(await deps.platform.deliver(path))) return;
+      if (format === 'png' && plan.reduced && (!smallest || plan.percent < smallest.percent)) smallest = plan;
+      if (i < set.length - 1) await later();
     }
-    await deps.api.savePicture(dest, bytes);
-    if (deps.platform.isMobile && deps.platform.deliver && !(await deps.platform.deliver(dest))) return;
-    const scaled = format === 'png' && plan.reduced;
-    const base = scaled
-      ? t('picture.savedScaled', { percent: plan.percent }) + (plan.percent < 50 ? ` ${t('picture.svgHint')}` : '')
+    const base = smallest
+      ? t('picture.savedScaled', { percent: smallest.percent }) + (smallest.percent < 50 ? ` ${t('picture.svgHint')}` : '')
       : t('picture.saved');
-    const message = built.warning ? `${base} ${built.warning}` : base;
+    const warnings = [...new Set(set.map((b) => b.warning).filter((w): w is string => !!w))];
+    const message = warnings.length ? `${base} ${warnings.join(' ')}` : base;
     notices.show({ message, ...(deps.platform.isMobile ? {} : { actionLabel: t('exp.reveal'), onaction: () => void deps.platform.reveal(dest) }) });
   } catch (e) {
     notices.show({ message: messageOf(e) });
@@ -266,21 +293,33 @@ export async function savePicture(
 
 /** Builds the A3 picture as SVG and sends it to the system print dialog. */
 export async function printPicture(args: { build: (format: PictureFormat) => Promise<BuiltPicture | null>; setBusy: (busy: boolean) => void }): Promise<void> {
+  return printPictures({ ...args, build: async (format) => one(await args.build(format)) });
+}
+
+/**
+ * Builds a set of A3 pictures (the sheets of one chart) as SVG and sends them to the system print dialog as one document,
+ * a page per picture. A single picture prints exactly as `printDocument` lays out one page.
+ */
+export async function printPictures(args: { build: (format: PictureFormat) => Promise<BuiltPicture[] | null>; setBusy: (busy: boolean) => void }): Promise<void> {
   args.setBusy(true);
   try {
     await yieldFrame();
-    const built = await args.build('svg');
-    if (!built || !built.pageMm) {
+    const set = await args.build('svg');
+    if (!set || set.length === 0 || set.some((b) => !b.pageMm)) {
       notices.show({ message: t('picture.nothing') });
       return;
     }
     await later();
     await loadChartFonts();
-    // Paper has no transparency: a transparent picture prints on white.
-    const forPaper: BuiltPicture = built.transparent ? { ...built, transparent: false, theme: { ...built.theme, paper: '#FFFFFF' } } : built;
-    const svg = new TextDecoder().decode(renderSvg(forPaper));
-    await printHtml(printDocument(svg, built.pageMm.orientation, fontFaceCss()));
-    if (built.warning) notices.show({ message: built.warning });
+    const pages = set.map((built) => {
+      // Paper has no transparency: a transparent picture prints on white.
+      const forPaper: BuiltPicture = built.transparent ? { ...built, transparent: false, theme: { ...built.theme, paper: '#FFFFFF' } } : built;
+      return { svg: new TextDecoder().decode(renderSvg(forPaper)), orientation: built.pageMm!.orientation };
+    });
+    const fonts = fontFaceCss();
+    await printHtml(pages.length === 1 ? printDocument(pages[0].svg, pages[0].orientation, fonts) : printDocumentPages(pages, fonts));
+    const warnings = [...new Set(set.map((b) => b.warning).filter((w): w is string => !!w))];
+    if (warnings.length) notices.show({ message: warnings.join(' ') });
   } catch (e) {
     notices.show({ message: messageOf(e) });
   } finally {

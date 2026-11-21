@@ -2,7 +2,7 @@
   import { errMessage } from '../editors/errors';
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
-  import type { PrintLayout } from './sheets';
+  import { splitSheets, type PrintLayout } from './sheets';
   import type { AroundKin, BranchDepth, OpenBranch, ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
   import { added } from '../state/added.svelte';
   import { project } from '../state/project.svelte';
@@ -25,8 +25,8 @@
   import ChartPictureMenu from './ChartPictureMenu.svelte';
   import { createDoubleTap, createLongPress, isTouchPointer } from '../ui/longPress';
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
-  import { captionText, chartTitle, later, printPicture, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
-  import { A3_SUB_PT, A3_TITLE_PT, PT_PX, ellipsize, layoutA3, mmToPx, nameFloorPx, printDirection, printStretch, stretchScene, type A3Choice } from './a3';
+  import { captionText, chartTitle, later, printPicture, printPictures, savePicture, savePictures, suggestedName, type BuiltPicture } from './pictureExport';
+  import { A3_MIN_PT, A3_SUB_PT, A3_TITLE_PT, CARD_SMALL_PX, PT_PX, ellipsize, layoutA3, mmToPx, nameFloorPx, printDirection, printStretch, stretchScene, type A3Background, type A3Choice, type A3DirectionMode, type A3Layout, type DirectionFit } from './a3';
   import { a3Background, a3Direction, a3Title } from './a3Pref.svelte';
   import { namesAsRecorded, oldTypeface } from '../ui/namesPref.svelte';
   import { loadOldTypeface } from '../ui/fonts';
@@ -1031,26 +1031,42 @@
     };
   }
 
-  /** The whole chart laid out on one A3 page: title block on top, the chart scaled to fill the rest. */
-  async function buildA3(choice: A3Choice, format: PictureFormat): Promise<BuiltPicture | null> {
+  /** Colours and title choice of an A3 picture, read once when it starts. */
+  interface A3Look {
+    th: Theme;
+    bg: A3Background;
+    header: boolean;
+  }
+
+  /** The print chart of an A3 picture in its chosen direction, cards stretched for their text (see printChart). */
+  interface A3Chart {
+    scene: Scene;
+    pick: DirectionFit;
+    meta: ChartMeta;
+    look: A3Look;
+    mode: A3DirectionMode;
+  }
+
+  /**
+   * Lays the chart out for an A3 print. A print keeps the direction on the screen; with "best fit" chosen it lays the chart
+   * out in every direction and keeps the one that prints largest. The screen's direction is not changed either way.
+   * The layouts are print charts: compact, outside the two-chart limit, so no chart the person has open is closed. Each is
+   * closed as soon as its boxes are read, whatever happens. `layout` is the print layout chosen when the print started:
+   * a change of the choice while it runs does not reach its requests.
+   */
+  async function printChart(choice: A3Choice, layout: PrintLayout): Promise<A3Chart | null> {
     if (!meta || !cache?.current()) return null;
     theme ??= themeFromCss();
     // White and transparent pages use the light colours whatever the app's theme is; the paper tint keeps the app's colours.
     const bg = a3Background.value;
     const th = bg === 'paper' ? theme : lightPrintTheme(theme);
     const header = a3Title.value;
-    // A print keeps the direction on the screen; with "best fit" chosen it lays the chart out in every direction and keeps the
-    // one that prints largest. The screen's direction is not changed either way.
-    // The layouts are print charts: compact, outside the two-chart limit, so no chart the person has open is closed. Each is
-    // closed as soon as its boxes are read, whatever happens.
     const mode = a3Direction.value;
-    // The layout chosen when the print started: a change of the choice while it runs does not reach its requests.
-    const layoutAtStart = printLayout;
     // Measures the cards' text as the picture draws it (with a real canvas when there is one).
     const meter = new SvgContext(1, 1) as unknown as CanvasRenderingContext2D;
     const found: { direction: ChartDirection; scene: Scene; meta: ChartMeta; bounds: Rect }[] = [];
     for (const d of mode === 'best' ? DIRECTIONS : [dirNow]) {
-      const probe = await api.chartOpen(chartRequest(d, true, layoutAtStart));
+      const probe = await api.chartOpen(chartRequest(d, true, layout));
       try {
         const laid = await wholeScene(probe);
         // Cards whose text needs more room (a long name on three lines, the relationship under the dates) make every card
@@ -1069,17 +1085,43 @@
     }
     const pick = printDirection(found, dirNow, mode, choice, header);
     const chosen = found.find((f) => f.direction === pick.direction)!;
-    const scene = chosen.scene;
-    if (scene.nodes.length === 0) return null;
-    // The centre person (and the others it is built around) are the ones of the print chart, not the screen's box numbers.
-    const printFocus = chosen.meta.rootNode;
-    const printMore = new Set(chosen.meta.chosenNodes ?? []);
-    const lay = pick.layout;
-    const pxScale = format === 'svg' ? 1 : lay.pngScale;
-    const title = chartTitle(kind, rootName);
+    if (chosen.scene.nodes.length === 0) return null;
+    return { scene: chosen.scene, pick, meta: chosen.meta, look: { th, bg, header }, mode };
+  }
+
+  /** The tree name and today's date, for the right-hand part of an A3 title block. */
+  function a3Sub(): string {
     const treeName = settings.value.treeName.trim();
     const date = new Date().toLocaleDateString(currentTag(), { year: 'numeric', month: 'long', day: 'numeric' });
-    const sub = treeName ? `${treeName} · ${date}` : date;
+    return treeName ? `${treeName} · ${date}` : date;
+  }
+
+  /** The "names are small" warning of a single A3 page. */
+  function a3Warning(c: A3Chart): string | undefined {
+    const lay = c.pick.layout;
+    if (!lay.tooSmall) return undefined;
+    return t('picture.a3Small', { pt: Math.round(lay.namePt * 10) / 10 }) + (c.mode === 'screen' ? ` ${t('picture.a3SmallBestHint')}` : '');
+  }
+
+  /**
+   * One A3 page of a print chart: `scene` drawn with the page layout `lay`, the title block (`title` on the left, `sub` on
+   * the right), and under every box of `refs` a small tag naming the sheet that shows the person in full.
+   */
+  function buildA3For(
+    c: A3Chart,
+    scene: Scene,
+    lay: A3Layout,
+    format: PictureFormat,
+    text: { title: string; sub: string; warning?: string },
+    refs: Map<number, number> = new Map(),
+  ): BuiltPicture {
+    const { th, bg, header } = c.look;
+    // The centre person (and the others it is built around) are the ones of the print chart, not the screen's box numbers.
+    const printFocus = c.meta.rootNode;
+    const printMore = new Set(c.meta.chosenNodes ?? []);
+    const dir = c.pick.direction;
+    const pxScale = format === 'svg' ? 1 : lay.pngScale;
+    const byId = new Map(scene.nodes.map((n) => [n.id, n]));
     const plan = {
       cam: lay.cam,
       view: { ...lay.px },
@@ -1095,11 +1137,25 @@
       transparent: bg === 'transparent',
       caption: '',
       pageMm: { ...lay.mm, orientation: lay.orientation },
-      warning: lay.tooSmall
-        ? t('picture.a3Small', { pt: Math.round(lay.namePt * 10) / 10 }) + (mode === 'screen' ? ` ${t('picture.a3SmallBestHint')}` : '')
-        : undefined,
+      warning: text.warning,
       paint: (ctx, p) => {
-        draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: printFocus, focusMore: printMore, theme: th, kind, dir: pick.direction, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(lay.scale) });
+        draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: printFocus, focusMore: printMore, theme: th, kind, dir, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(lay.scale) });
+        if (refs.size > 0) {
+          // "→ sheet N" under each reference box, the size of a card's dates on paper (kept between 6 and 9 pt).
+          ctx.setTransform(p.scale, 0, 0, p.scale, 0, 0);
+          const px = Math.min(9 * PT_PX, Math.max(A3_MIN_PT * PT_PX, CARD_SMALL_PX * lay.scale));
+          ctx.font = `600 ${px}px ${th.font}`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.fillStyle = th.ink2;
+          for (const [id, no] of refs) {
+            const n = byId.get(id);
+            if (!n) continue;
+            const x = (n.x + n.w / 2 - lay.cam.x) * lay.cam.zoom;
+            const y = (n.y + n.h - lay.cam.y) * lay.cam.zoom + 2 * lay.scale;
+            ctx.fillText(t('picture.sheetRef', { n: no }), x, y);
+          }
+        }
         if (!header) return;
         // Title block: the chart name on the left, the tree name and date on the right, a rule under both.
         const left = lay.area.x;
@@ -1109,10 +1165,10 @@
         ctx.textBaseline = 'alphabetic';
         // The tree name and date go to the right (at most 45% of the width); the chart name gets the rest. Long ones end in an ellipsis.
         ctx.font = `${A3_SUB_PT * PT_PX}px ${th.font}`;
-        const subText = ellipsize((x) => ctx.measureText(x).width, sub, (right - left) * 0.45);
+        const subText = ellipsize((x) => ctx.measureText(x).width, text.sub, (right - left) * 0.45);
         const subW = ctx.measureText(subText).width;
         ctx.font = `600 ${A3_TITLE_PT * PT_PX}px ${th.serif}`;
-        const titleText = ellipsize((x) => ctx.measureText(x).width, title, right - left - subW - mmToPx(8));
+        const titleText = ellipsize((x) => ctx.measureText(x).width, text.title, right - left - subW - mmToPx(8));
         ctx.textAlign = 'left';
         ctx.fillStyle = th.ink;
         ctx.fillText(titleText, left, top - mmToPx(6));
@@ -1130,12 +1186,73 @@
     };
   }
 
+  /** The whole chart laid out on one A3 page: title block on top, the chart scaled to fill the rest. */
+  async function buildA3(choice: A3Choice, format: PictureFormat, layout: PrintLayout): Promise<BuiltPicture | null> {
+    const c = await printChart(choice, layout);
+    if (!c) return null;
+    return buildA3For(c, c.scene, c.pick.layout, format, { title: chartTitle(kind, rootName), sub: a3Sub(), warning: a3Warning(c) });
+  }
+
+  /** The surname a branch sheet is named after: the top person's birth surname when one is shown, else the last word of the name. */
+  function branchSurname(n: ChartNode | undefined): string {
+    if (!n) return '';
+    if (!n.person) return n.label;
+    if (n.person.birthSurname) return n.person.birthSurname;
+    const words = n.person.name.trim().split(/\s+/);
+    return words[words.length - 1] ?? '';
+  }
+
+  /**
+   * The folded chart cut into A3 sheets by branch (spec 2026-11-21, section B): the cover with the chart's title, then a
+   * sheet per line titled with the line's surname, every sheet numbered "sheet N of M" and laid out at its own best scale.
+   * A chart that does not split prints as one page, as "compact" does.
+   */
+  async function buildA3Sheets(choice: A3Choice, format: PictureFormat): Promise<BuiltPicture[] | null> {
+    const c = await printChart(choice, 'sheets');
+    if (!c) return null;
+    const title = chartTitle(kind, rootName);
+    const sub = a3Sub();
+    const header = c.look.header;
+    const centres = [...new Set([c.meta.rootNode, ...(c.meta.chosenNodes ?? [])])];
+    const sheets = splitSheets(c.scene, centres, { fits: (s) => !layoutA3(sceneBounds(s), choice, header).tooSmall });
+    if (sheets.length <= 1) return [buildA3For(c, c.scene, c.pick.layout, format, { title, sub, warning: a3Warning(c) })];
+    const byId = new Map(c.scene.nodes.map((n) => [n.id, n]));
+    const total = sheets.length;
+    const lays = sheets.map((sh) => layoutA3(sceneBounds(sh.scene), choice, header));
+    const small = sheets.filter((_, i) => lays[i].tooSmall);
+    const smallest = Math.min(...small.map((sh) => lays[sh.no - 1].namePt));
+    const warning = small.length
+      ? `${t('picture.a3SmallSheets', { list: small.map((sh) => sh.no).join(', ') })} ${t('picture.a3Small', { pt: Math.round(smallest * 10) / 10 })}`
+      : undefined;
+    return sheets.map((sh, i) =>
+      buildA3For(
+        c,
+        sh.scene,
+        lays[i],
+        format,
+        {
+          title: sh.top === null ? title : t('picture.branchTitle', { name: branchSurname(byId.get(sh.top)) }),
+          sub: `${t('picture.sheetOf', { n: sh.no, m: total })} · ${sub}`,
+          warning: i === 0 ? warning : undefined,
+        },
+        sh.refs,
+      ),
+    );
+  }
+
   function pictureA3(choice: A3Choice, print: boolean): void {
     if (savingPicture) return;
     const setBusy = (b: boolean) => (savingPicture = b);
-    if (print) return void printPicture({ build: (f) => buildA3(choice, f), setBusy });
+    // The layout chosen when the print started: a change of the choice while it runs does not reach its requests.
+    const layout = printLayout;
     const name = pictureFileName(`${chartTitle(kind, rootName)} (A3)`);
-    void savePicture({ api, platform }, { fileName: name, build: (f) => buildA3(choice, f), setBusy });
+    if (kind === 'around' && layout === 'sheets') {
+      const build = (f: PictureFormat) => buildA3Sheets(choice, f);
+      if (print) return void printPictures({ build, setBusy });
+      return void savePictures({ api, platform }, { fileName: name, build, setBusy });
+    }
+    if (print) return void printPicture({ build: (f) => buildA3(choice, f, layout), setBusy });
+    void savePicture({ api, platform }, { fileName: name, build: (f) => buildA3(choice, f, layout), setBusy });
   }
 
   function savePictureAs(scope: PictureScope): void {

@@ -28,6 +28,7 @@ import {
   printHtml,
   mmToPx,
   printDocument,
+  printDocumentPages,
   printedPt,
   pxToMm,
   type NameLine,
@@ -212,6 +213,29 @@ describe('A3 page text and print frame', () => {
     const html = printDocument('<svg><text>Ѳеодоръ</text></svg>', 'portrait', `${face}</style><script>`);
     expect(html).toContain("font-family: 'GT Old Cyrillic'");
     expect(html).not.toContain('</style><script>');
+    expect(html.indexOf('GT Old Cyrillic')).toBeLessThan(html.indexOf('@page'));
+  });
+
+  it('prints_a_set_of_sheets_as_one_document_one_page_each', () => {
+    const html = printDocumentPages(
+      [
+        { svg: '<?xml version="1.0"?>\n<svg id="a"></svg>', orientation: 'landscape' },
+        { svg: '<svg id="b"></svg>', orientation: 'portrait' },
+        { svg: '<svg id="c"></svg>', orientation: 'landscape' },
+      ],
+      "@font-face { font-family: 'GT Old Cyrillic'; }",
+    );
+    expect(html.match(/<svg/g)).toHaveLength(3);
+    expect(html).not.toContain('<?xml');
+    // A break after every page but the last.
+    expect(html.match(/break-after:page/g)).toHaveLength(2);
+    expect(html).toContain('@page land{size:A3 landscape;margin:0}');
+    expect(html).toContain('@page port{size:A3 portrait;margin:0}');
+    // Each page takes its own paper: the portrait one names the portrait page.
+    const blocks = html.split('<div class="sheet').slice(1);
+    expect(blocks.map((b) => /page:(\w+)/.exec(b)?.[1])).toEqual(['land', 'port', 'land']);
+    expect(blocks[1]).toContain('width:297mm;height:420mm');
+    expect(blocks[2]).not.toContain('break-after:page');
     expect(html.indexOf('GT Old Cyrillic')).toBeLessThan(html.indexOf('@page'));
   });
 });
