@@ -317,3 +317,27 @@ export function refTagAt(box: { x: number; y: number; w: number; h: number }, di
 
 /** How a "built around" chart is laid out for the page: as it always was, folded compactly, or cut into sheets by branch. */
 export type PrintLayout = 'today' | 'compact' | 'sheets';
+
+/**
+ * Where each sheet of `sheets` falls on the screen scene `scene` it was cut from: the bounds of the nodes the sheet
+ * shows in full (reference marks and repeats belong to other sheets' areas), in the scene's own coordinates. The
+ * sheets' own scenes are compacted, so their coordinates are not these.
+ */
+export function sheetBounds(scene: Scene, sheets: readonly Sheet[]): { no: number; x: number; y: number; w: number; h: number }[] {
+  const out: { no: number; x: number; y: number; w: number; h: number }[] = [];
+  for (const sh of sheets) {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const n of scene.nodes) {
+      if (!sh.ids.has(n.id)) continue;
+      x0 = Math.min(x0, n.x);
+      y0 = Math.min(y0, n.y);
+      x1 = Math.max(x1, n.x + n.w);
+      y1 = Math.max(y1, n.y + n.h);
+    }
+    if (x0 <= x1) out.push({ no: sh.no, x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  }
+  return out;
+}

@@ -1821,6 +1821,8 @@ export const uk: Messages = {
     sheetRef: '→ арк. {n}',
     sheetSuffix: ' — арк. {n}',
     sheetsFolder: '{name} — аркуші',
+    openFailed: 'Теку не вдалося відкрити; відкрийте її у файловому менеджері.',
+    sheetFrame: 'арк. {n}',
     a3DirScreen: 'Напрямок: як на екрані',
     a3DirBest: 'Напрямок: найкраще вміщення',
     a3Title: 'Заголовок',

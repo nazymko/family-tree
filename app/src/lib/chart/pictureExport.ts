@@ -295,10 +295,16 @@ export async function savePictures(
       ? t('picture.savedScaled', { percent: smallest.percent }) + (smallest.percent < 50 ? ` ${t('picture.svgHint')}` : '')
       : t('picture.saved');
     const warnings = [...new Set(set.map((b) => b.warning).filter((w): w is string => !!w))];
-    const message = warnings.length ? `${base} ${warnings.join(' ')}` : base;
+    let message = warnings.length ? `${base} ${warnings.join(' ')}` : base;
+    // A set went into a folder of its own: show it. Failing to open it is only a note on the saved message.
+    if (set.length > 1 && !deps.platform.isMobile) {
+      try {
+        await deps.platform.reveal(paths[0]);
+      } catch {
+        message += ` ${t('picture.openFailed')}`;
+      }
+    }
     notices.show({ message, ...(deps.platform.isMobile ? {} : { actionLabel: t('exp.reveal'), onaction: () => void deps.platform.reveal(paths[0]) }) });
-    // A set went into a folder of its own: show it.
-    if (set.length > 1 && !deps.platform.isMobile) await deps.platform.reveal(paths[0]);
   } catch (e) {
     notices.show({ message: messageOf(e) });
   } finally {

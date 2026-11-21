@@ -354,6 +354,16 @@ describe('savePictures', () => {
     expect(s.platform.calls.findIndex((c) => c.method === 'reveal')).toBe(s.platform.calls.length - 1);
   });
 
+  it('keeps_the_saved_message_when_opening_the_folder_fails', async () => {
+    const s = setup();
+    vi.spyOn(s.platform, 'reveal').mockRejectedValue(new Error('no file manager'));
+    await savePictures({ api: s.api, platform: s.platform }, { fileName: 'X.png', build: async () => [built(), built()], setBusy: s.setBusy });
+    expect(s.api.savedPictures).toHaveLength(2);
+    expect(notices.current?.message).toContain('Picture saved');
+    expect(notices.current?.message).toContain('could not be opened');
+    expect(s.busy.at(-1)).toBe(false);
+  });
+
   it('takes_a_numbered_folder_when_the_name_is_taken', async () => {
     const s = setup();
     s.api.existingPaths.add('C:/Mock/X — sheets');

@@ -1812,6 +1812,8 @@ export const en = {
     sheetRef: '→ sheet {n}',
     sheetSuffix: ' — sheet {n}',
     sheetsFolder: '{name} — sheets',
+    openFailed: 'The folder could not be opened; open it from the file manager.',
+    sheetFrame: 'sheet {n}',
     a3DirScreen: 'Direction: as on screen',
     a3DirBest: 'Direction: best fit',
     a3Title: 'Title block',

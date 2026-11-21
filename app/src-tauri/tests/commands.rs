@@ -876,10 +876,27 @@ fn make_picture_folder_rejects_a_missing_folder_or_a_bad_name() {
         (dir.path().join("missing").to_str().unwrap().to_string(), "x"),
         (base.to_string(), ""),
         (base.to_string(), ".."),
-        (base.to_string(), "a/b"),
     ] {
         let err = invoke(&w, "make_picture_folder", json!({ "dir": d, "name": n })).unwrap_err();
         assert_eq!(err["code"], "invalid", "{d} {n}");
+    }
+}
+
+#[test]
+fn make_picture_folder_sanitises_windows_invalid_characters() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, w) = app_with(state_in(dir.path()));
+    let base = dir.path().to_str().unwrap();
+    for (name, want) in [
+        ("a<b>c:d\"e/f\\g|h?i*j", "a_b_c_d_e_f_g_h_i_j"),
+        ("../evil", ".._evil"),
+        ("tab\there\u{7}", "tab_here_"),
+        ("sheets.", "sheets_"),
+        ("sheets . ", "sheets _"),
+    ] {
+        let out = invoke(&w, "make_picture_folder", json!({ "dir": base, "name": name })).unwrap();
+        assert_eq!(out, json!(dir.path().join(want).to_str().unwrap()), "{name}");
+        assert!(dir.path().join(want).is_dir(), "{name}");
     }
 }
 

@@ -1142,12 +1142,22 @@ pub fn make_picture_folder_impl(dir: &str, name: &str) -> ApiResult<String> {
     if name.is_empty()
         || name == "."
         || name == ".."
-        || name.contains(['/', '\\'])
     {
         return Err(invalid(
             "There is no folder name for the sheets. Choose a file name and try again.",
         ));
     }
+    // Characters Windows refuses in a name (and the separators, so the folder cannot leave `dir`) become "_"; so does a
+    // trailing dot or space, which Windows drops silently.
+    let mut name: String = name
+        .chars()
+        .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
+        .collect();
+    if name.ends_with(['.', ' ']) {
+        name.pop();
+        name.push('_');
+    }
+    let name = name.as_str();
     let parent = Path::new(dir);
     if dir.trim().is_empty() || !parent.is_dir() {
         return Err(invalid(

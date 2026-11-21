@@ -2,7 +2,7 @@
   import { errMessage } from '../editors/errors';
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
-  import { refTagAt, splitSheets, type PrintLayout } from './sheets';
+  import { refTagAt, sheetBounds, splitSheets, type PrintLayout } from './sheets';
   import type { AroundKin, BranchDepth, OpenBranch, ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
   import { added } from '../state/added.svelte';
   import { project } from '../state/project.svelte';
@@ -18,7 +18,7 @@
   import Select from '../ui/Select.svelte';
   import { centerOn, fit, panBy, tween, viewRect, zoomAt, type Camera } from './camera';
   import { hitHandle, hitTest, neighbor, type Dir } from './hit';
-  import { draw, lightPrintTheme, printCardsNeed, themeFromCss, type Theme } from './renderer';
+  import { draw, lightPrintTheme, printCardsNeed, themeFromCss, type SheetFrame, type Theme } from './renderer';
   import { SvgContext } from './svgContext';
   import { WindowCache } from './window';
   import AddRelativeMenu from './AddRelativeMenu.svelte';
@@ -150,6 +150,8 @@
   let openSeq = 0;
   let activeTween: { cancel(): void } | null = null;
   let theme: Theme | null = null;
+  /** The A3 sheets' frames on the screen chart; only with the "sheets" layout of an around chart. */
+  let sheetRects: Omit<SheetFrame, 'label'>[] = [];
   let rootNodeId = 0;
   let pendingAnnounce = false;
   // Relatives chart: the person the previous chart was centred on, to glide from when re-centring.
@@ -210,7 +212,7 @@
     const ctx = canvas.getContext('2d');
     if (!cur || !ctx) return;
     theme ??= themeFromCss();
-    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, focusMore: chosenMore, marked: new Set(markedIds), theme, kind, dir: dirNow, badged: agentChanges.unreviewed });
+    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, focusMore: chosenMore, marked: new Set(markedIds), theme, kind, dir: dirNow, badged: agentChanges.unreviewed, sheetFrames: sheetRects.map((r) => ({ ...r, label: t('picture.sheetFrame', { n: r.no }) })) });
   }
 
   $effect(() => {
@@ -322,6 +324,24 @@
     }
   }
 
+  /**
+   * The frames of the A3 sheets on the screen chart, cut the way a print cuts them (same centres, same "fits on A3"
+   * test), so the numbers match the printed sheets.
+   */
+  async function frameSheets(m: ChartMeta, seq: number): Promise<void> {
+    try {
+      const scene = await wholeScene(m);
+      if (seq !== openSeq) return;
+      const centres = [...new Set([m.rootNode, ...(m.chosenNodes ?? [])])];
+      const header = a3Title.value;
+      const sheets = splitSheets(scene, centres, { fits: (s) => !layoutA3(sceneBounds(s), 'auto', header).tooSmall });
+      sheetRects = sheets.length > 1 ? sheetBounds(scene, sheets) : [];
+      invalidate();
+    } catch {
+      // The frames are a hint only: the chart stays usable without them.
+    }
+  }
+
   function closeChart(): void {
     activeTween?.cancel();
     cache?.dispose();
@@ -378,6 +398,8 @@
       }
     });
     cache = c;
+    sheetRects = [];
+    if (kind === 'around' && printLayout === 'sheets') void frameSheets(m, seq);
     c.onChange(() => {
       if (selected !== null) {
         const n = c.current()?.win.nodes.find((x) => x.id === selected);

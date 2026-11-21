@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ChartEdge, ChartNode } from '../api/types';
 import type { Scene } from './picture';
-import { refTagAt, splitSheets, type Sheet } from './sheets';
+import { refTagAt, sheetBounds, splitSheets, type Sheet } from './sheets';
 
 const nav = { parent: null, child: null, prev: null, next: null };
 
@@ -319,6 +319,25 @@ describe('refTagAt', () => {
       const a = refTagAt(box, d, 2);
       const inside = a.x > box.x && a.x < box.x + box.w && a.y > box.y && a.y < box.y + box.h;
       expect(inside, d).toBe(false);
+    }
+  });
+});
+
+describe('sheetBounds', () => {
+  it('is_the_bounds_of_each_sheets_full_nodes_in_the_screen_scene_numbered_like_the_sheets', () => {
+    const t = new Tree();
+    const g = base(t);
+    for (const gp of [g.ff, g.fm, g.mf, g.mm]) chain(t, gp, 3, 1);
+    const scene = t.scene();
+    const sheets = splitSheets(scene, [g.c], { fits: always });
+    const frames = sheetBounds(scene, sheets);
+    expect(frames.map((f) => f.no)).toEqual(sheets.map((s) => s.no));
+    for (const f of frames) {
+      const mine = scene.nodes.filter((n) => sheets[f.no - 1].ids.has(n.id));
+      expect(f.x).toBe(Math.min(...mine.map((n) => n.x)));
+      expect(f.x + f.w).toBe(Math.max(...mine.map((n) => n.x + n.w)));
+      expect(f.y).toBe(Math.min(...mine.map((n) => n.y)));
+      expect(f.y + f.h).toBe(Math.max(...mine.map((n) => n.y + n.h)));
     }
   });
 });
