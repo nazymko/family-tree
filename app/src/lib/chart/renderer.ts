@@ -72,7 +72,6 @@ export const SHEET_FRAME_MARGIN = 12;
 
 function drawSheetFrames(ctx: CanvasRenderingContext2D, frames: readonly SheetFrame[], theme: Theme, z: number): void {
   const m = SHEET_FRAME_MARGIN;
-  ctx.save();
   ctx.strokeStyle = theme.ink2;
   ctx.fillStyle = theme.ink2;
   ctx.lineWidth = 1 / z;
@@ -85,10 +84,9 @@ function drawSheetFrames(ctx: CanvasRenderingContext2D, frames: readonly SheetFr
   ctx.setLineDash([]);
   const px = Math.max(12, 14 / z);
   ctx.font = `${px}px ${theme.font}`;
-  ctx.textBaseline = 'top';
+  ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
-  for (const f of frames) ctx.fillText(f.label, f.x - m + px * 0.4, f.y - m + px * 0.3);
-  ctx.restore();
+  for (const f of frames) ctx.fillText(f.label, f.x - m + px * 0.4, f.y - m + px * 1.2);
 }
 
 /** The check-mark badge and frame of the boxes marked with Shift+click. */
