@@ -45,7 +45,7 @@ describe('Note sources on the person page', () => {
     const create = await $('//*[contains(normalize-space(.),"Create source")][@role="option"]');
     await create.waitForClickable({ timeout: 20000 });
     await create.click();
-    await click('Save citation');
+    await (await $('//*[@role="dialog"]//button[normalize-space(.)="Add citation"]')).click();
     await $('//*[@data-testid="note-citations"]').waitForDisplayed({ timeout: 20000 });
 
     await click('Story');
