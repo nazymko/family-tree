@@ -2425,7 +2425,8 @@ export class MockApi implements Api {
       place,
       total: shown.length,
       offset,
-      items: shown.slice(offset, offset + limit),
+      // As the app answers: the name of a place under the one asked about, nothing for the place itself.
+      items: shown.slice(offset, offset + limit).map((e) => ({ ...e, place: e.place && e.place !== place.id ? (this.db.places.get(e.place)?.name ?? null) : null })),
       overviewTotal: base.length,
       byKind: [...byKind].map(([kind, count]) => ({ kind, count })),
       byDecade: [...byDecade].sort((a, b) => a[0] - b[0]).map(([decade, count]) => ({ decade, count })),

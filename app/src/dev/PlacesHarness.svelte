@@ -1,6 +1,6 @@
 <script lang="ts">
   // Dev-only page (places.html): the Places view on MockApi with invented records, for screenshots.
-  // Query: ?lang=uk|en &theme=dark &view=events|import &who=ours|others &kind=death
+  // Query: ?lang=uk|en &theme=dark &view=events|import &who=ours|others &kind=death &row=0 (clicks that row)
   import { setApi } from '../lib/api/context';
   import { MockApi } from '../lib/api/mock/MockApi';
   import { MockPlatform } from '../lib/api/mock/MockPlatform';
@@ -47,8 +47,19 @@
       await click(() => [...document.querySelectorAll<HTMLElement>('button')].find((b) => /Import records|Імпорт записів/.test(b.textContent ?? '')));
       await click(() => [...document.querySelectorAll<HTMLElement>('button')].find((b) => /Choose files|Обрати файли/.test(b.textContent ?? '')));
       await wait(300);
-      await click(() => [...document.querySelectorAll<HTMLElement>('button')].find((b) => /^(Preview|Перегляд)$/.test(b.textContent?.trim() ?? '')));
     }
+    const kind = q.get('kind');
+    if (kind) {
+      const sel = document.querySelector<HTMLSelectElement>('select');
+      if (sel) {
+        sel.value = kind;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      await wait(400);
+    }
+    // ?row=N: click the Nth row of the events list, so its detail shows.
+    const row = q.get('row');
+    if (row !== null) await click(() => document.querySelectorAll<HTMLElement>('[role=option]')[Number(row)]);
   })();
 </script>
 
