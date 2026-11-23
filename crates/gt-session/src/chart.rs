@@ -707,7 +707,7 @@ impl Session {
             }
             ChartKind::Relatives => {
                 let o = RelativesOptions {
-                    generations: u8::try_from(req.generations.clamp(1, 6)).unwrap_or(6),
+                    generations: u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX),
                     aunts: req.aunts_uncles.unwrap_or(true),
                 };
                 gt_layout::relatives(&src, root, &o, &m, MAX_NODES)

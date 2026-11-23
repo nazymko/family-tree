@@ -1593,7 +1593,7 @@
   const ALL_GENERATIONS = 255;
   const genRange = $derived(kind === 'relatives' ? { min: 1, max: 6 } : kind === 'around' ? { min: 1, max: 8 } : { min: 3, max: 8 });
   /** Pedigree and the chart built around a person can show every generation. */
-  const canShowAll = $derived(kind === 'pedigree' || kind === 'around');
+  const canShowAll = $derived(kind === 'pedigree' || kind === 'around' || kind === 'relatives');
   const genOptions = $derived(
     Array.from({ length: genRange.max - genRange.min + 1 }, (_, i) => genRange.min + i).map((n) => ({
       value: String(n),

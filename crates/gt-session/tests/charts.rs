@@ -702,6 +702,59 @@ fn relatives_generations_are_clamped() {
     assert!(m0.node_count >= 1);
 }
 
+/// "Show all" on the relatives chart: past 6 generations every ancestor and descendant is shown.
+#[test]
+fn relatives_show_all_goes_past_six_generations() {
+    // P01 is the child of P02, ... up to P20; the middle person has 9 ancestors and 10 descendants...
+    let (_d, mut s) = open_ged(&chain_ged(20));
+    let count = |s: &mut Session, name: &str, g: u32| {
+        s.chart_open(&relatives_req(s, name, g)).unwrap().node_count
+    };
+    let all = count(&mut s, "P10 L", 255);
+    assert_eq!(all, 20, "every ancestor and descendant");
+    let six = count(&mut s, "P10 L", 6);
+    assert!(six < all, "6 generations show fewer ({six})");
+    assert_eq!(count(&mut s, "P01 L", 255), 20);
+    assert!(count(&mut s, "P01 L", 6) < 20);
+    assert_eq!(count(&mut s, "P20 L", 255), 20);
+}
+
+#[test]
+fn relatives_show_all_is_bounded_on_a_big_tree() {
+    // 160 children with 160 children each: about 25.8k people, more than MAX_NODES.
+    let mut recs = vec![indi(1, "Root /R/", "M", "")];
+    let mut n = 1000u32;
+    let mut fams = String::from("0 @F0@ FAM
+1 HUSB @I1@
+");
+    let mut kids = Vec::new();
+    for i in 0..160u32 {
+        let c = 2 + i;
+        recs.push(indi(c, &format!("C{i} /R/"), "M", ""));
+        fams.push_str(&format!("1 CHIL @I{c}@
+"));
+        let mut f = format!("0 @F{}@ FAM
+1 HUSB @I{c}@
+", 200 + i);
+        for _ in 0..160 {
+            recs.push(indi(n, &format!("G{n} /R/"), "U", ""));
+            f.push_str(&format!("1 CHIL @I{n}@
+"));
+            n += 1;
+        }
+        kids.push(f);
+    }
+    recs.push(fams);
+    recs.extend(kids);
+    let (_d, mut s) = open_ged(&ged(&recs));
+    let t = std::time::Instant::now();
+    let m = s.chart_open(&relatives_req(&s, "Root R", 255)).unwrap();
+    let took = t.elapsed();
+    eprintln!("relatives show-all on {n} people: {} nodes in {took:?}", m.node_count);
+    assert!(m.node_count > 1000 && m.node_count as usize <= gt_session::chart::MAX_NODES);
+    assert!(took < std::time::Duration::from_secs(20), "{took:?}");
+}
+
 /// Petro's father Ivan has a sister Zoya (11) with a daughter Nina (12); their parents are Mykola and Hanna.
 fn relatives_cousins_ged() -> String {
     ged(&[
