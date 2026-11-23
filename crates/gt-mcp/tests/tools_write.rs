@@ -138,6 +138,10 @@ fn write_needs_batch() {
             "set_own_map_layer_corners",
             json!({"media": id, "ozi_map_path": "C:/x.map"}),
         ),
+        (
+            "add_place_records",
+            json!({"place": id, "records": [{"kind": "birth", "people": [{"given": "A"}]}]}),
+        ),
     ];
     for (tool, args) in writes {
         let message = call_err(&host, tool, args);
@@ -1460,6 +1464,8 @@ fn only_the_tools_named_here_can_write() {
             // Old maps on the Map: added with their placement; placed again only while the agent's own.
             "add_map_layer",
             "set_own_map_layer_corners",
+            // Records about other people, added to a place from a book.
+            "add_place_records",
         ]
     );
 }

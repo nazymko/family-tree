@@ -82,7 +82,7 @@ fn an_older_project_s_godparent_participants_become_godparents() {
     }
     {
         let c = Connection::open(dir.join("tree.db")).unwrap();
-        c.execute_batch("ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; PRAGMA user_version = 11;")
+        c.execute_batch("DROP TABLE place_record_person; DROP TABLE place_record; ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; PRAGMA user_version = 11;")
             .unwrap();
     }
     let p = Project::open(&dir).unwrap();

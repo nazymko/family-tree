@@ -754,6 +754,11 @@ pub enum EditCommand {
         families: Vec<DraftFamily>,
         attach_picture: bool,
     },
+    /// Makes a place from text, smallest place first ("Village, District, Oblast"), reusing the
+    /// ones that exist. The place's id comes back as the result's focus.
+    CreatePlace {
+        text: String,
+    },
     /// Sets the point of a place on the map, or clears it (both absent). Millionths of a degree
     /// (the command stays comparable): lat -90..90, lon -180..180, times 1,000,000.
     SetPlaceCoordinates {
@@ -851,6 +856,7 @@ impl EditCommand {
             EditCommand::UpdateAudioClip { .. } => "Edit clip".into(),
             EditCommand::DeleteAudioClip { .. } => "Delete clip".into(),
             EditCommand::ImportDraft { .. } => "Add traced people".into(),
+            EditCommand::CreatePlace { .. } => "Add place".into(),
             EditCommand::SetPlaceCoordinates { lat_e6, lon_e6, .. } => {
                 if lat_e6.is_none() && lon_e6.is_none() {
                     "Clear place coordinates".into()

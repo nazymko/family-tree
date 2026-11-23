@@ -1,0 +1,3 @@
+
+
+Events of a place: list_place_events shows everything that happened in a place and the places under it, oldest first: births, marriages and deaths of people in the tree, and place records about other people. add_place_records adds those records (up to 1000 a call) from a church book, confession list, revision or census: one record per book entry with everyone it names, a kind (birth, marriage, death, confession, revision, census, other), the date as written, book, page and rec_id. Give book and rec_id every time, so that sending a record again adds nothing. Write what the book says; mark a doubtful reading unsure; link a participant to a person of the tree (person) only when sure it is the same person, never on a name alone.

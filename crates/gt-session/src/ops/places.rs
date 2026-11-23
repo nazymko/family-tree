@@ -94,6 +94,11 @@ pub(super) fn place_for_text(p: &mut Planner, input: &str) -> Result<Option<Uuid
     Ok(Some(leaf))
 }
 
+/// A place made from text (or found); its id is the plan's focus.
+pub(super) fn create(p: &mut Planner, input: &str) -> Result<Option<Uuid>, ApiError> {
+    place_for_text(p, input)
+}
+
 /// Sets (both given) or clears (both absent) the point of a place. Millionths of a degree.
 pub(super) fn set_coordinates(
     p: &mut Planner,

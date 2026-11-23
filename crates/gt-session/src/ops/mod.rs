@@ -486,6 +486,7 @@ pub fn plan_with(
             source_file,
             number,
         } => person::add_number(&mut p, *person, source_file, number)?,
+        C::CreatePlace { text } => places::create(&mut p, text)?,
         C::SetPlaceCoordinates {
             place,
             lat_e6,
