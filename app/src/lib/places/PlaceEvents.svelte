@@ -14,6 +14,7 @@
   import { project } from '../state/project.svelte';
   import type { Id, PlaceEventDto, PlaceEventsPage, PlaceEventsWho, PlaceOption } from '../api/types';
   import { t, plural, type MessageKey } from '../i18n';
+  import { summarize } from './eventSummary';
 
   let { place, onOpenPerson, refresh = 0 }: { place: PlaceOption; onOpenPerson: (id: Id) => void; refresh?: number } = $props();
   const api = getApi();
@@ -31,6 +32,9 @@
   /** Bumped whenever the first page is read again, so the list starts over with it. */
   let epoch = $state(0);
   let seq = 0;
+  /** The events read so far by position, so the detail panel can show the chosen row. */
+  let known = new Map<number, PlaceEventDto>();
+  let chosen = $state(-1);
 
   const kindLabel = (k: string) => (KINDS as readonly string[]).includes(k) ? t(`places.kinds.${k}` as MessageKey) : k;
   const whoOptions = $derived([
@@ -64,6 +68,8 @@
       const r = await api.placeEvents(queryFor(0, PAGE));
       if (mine !== seq) return;
       page = r;
+      known = new Map(r.items.map((e, i) => [i, e]));
+      chosen = -1;
       failed = false;
       epoch++;
     } catch {
@@ -78,7 +84,9 @@
   });
 
   async function loadPage(offset: number, limit: number): Promise<unknown[]> {
-    return (await api.placeEvents(queryFor(offset, limit))).items;
+    const items = (await api.placeEvents(queryFor(offset, limit))).items;
+    items.forEach((e, i) => known.set(offset + i, e));
+    return items;
   }
 
   const maxDecade = $derived(Math.max(1, ...(page?.byDecade ?? []).map((d) => d.count)));
@@ -103,7 +111,7 @@
     query = '';
   }
   const asEvent = (item: unknown) => item as PlaceEventDto | null;
-  const names = (e: PlaceEventDto) => e.people.filter((p) => p.name || p.asWritten);
+  const detail = $derived(chosen >= 0 ? (known.get(chosen) ?? null) : null);
 </script>
 
 <section class="events" aria-labelledby="pe-title">
@@ -174,8 +182,8 @@
             pageSize={PAGE}
             {loadPage}
             initialPage={{ offset: 0, items: page.items }}
-            selectedIndex={-1}
-            onSelect={() => {}}
+            selectedIndex={chosen}
+            onSelect={(i) => (chosen = i)}
             onActivate={() => {}}
             ariaLabel={t('places.list')}
             keyPrefix="place-events"
@@ -189,15 +197,23 @@
                     <Badge tone={e.ours ? 'ribbon' : 'neutral'}>{kindLabel(e.kind)}</Badge>
                   </div>
                   <div class="who">
-                    {#each names(e).slice(0, 6) as p, i (i)}
-                      {#if p.person}
-                        <button type="button" class="rel" title={t('places.openPerson', { name: p.name })} onclick={() => onOpenPerson(p.person!)}>{p.name}</button>
+                    {#each summarize(e) as seg, i (i)}
+                      {#if 'text' in seg}
+                        <span class="sep">{seg.text}</span>
+                      {:else if seg.person.person}
+                        <button
+                          type="button"
+                          class="rel"
+                          title={t('places.openPerson', { name: seg.person.name })}
+                          onclick={(ev) => {
+                            ev.stopPropagation();
+                            onOpenPerson(seg.person.person!);
+                          }}>{seg.person.name}</button
+                        >
                       {:else}
-                        <span class="other" title={p.asWritten}>{p.name || p.asWritten}</span>
+                        <span class="other" title={seg.person.asWritten}>{seg.person.name || seg.person.asWritten}</span>
                       {/if}
-                      {#if p.role}<span class="role">{p.role}{p.age ? `, ${p.age}` : ''}</span>{/if}
                     {/each}
-                    {#if names(e).length > 6}<span class="role">+{names(e).length - 6}</span>{/if}
                   </div>
                   <div class="src">
                     {#if e.book}
@@ -210,6 +226,49 @@
             {/snippet}
           </PagedList>
         {/key}
+      </div>
+      <div class="detail" aria-live="polite">
+        {#if detail}
+          {@const d = detail}
+          <h3>{t('places.detailTitle')} · {d.date || (d.year ?? t('places.undated'))} · {kindLabel(d.kind)}{d.place ? ` · ${t('places.placeIn', { place: d.place })}` : ''}</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>{t('places.colName')}</th><th>{t('places.colRole')}</th><th>{t('places.colAge')}</th><th>{t('places.colEstate')}</th><th>{t('places.colNote')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each d.people as p, i (i)}
+                <tr class:rel-row={!!p.person}>
+                  <td>
+                    {#if p.person}
+                      <button type="button" class="rel" title={t('places.openPerson', { name: p.name })} onclick={() => onOpenPerson(p.person!)}>{p.name}</button>
+                      <Badge tone="ribbon">{t('places.relativeMark')}</Badge>
+                    {:else}
+                      {p.name || p.asWritten}
+                    {/if}
+                    {#if p.asWritten && p.asWritten !== p.name}<small>{t('places.writtenAs', { name: p.asWritten })}</small>{/if}
+                  </td>
+                  <td>{p.role}</td>
+                  <td>{p.age}</td>
+                  <td>{p.estate}</td>
+                  <td>{p.note}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+          <p class="source">
+            <b>{t('places.sourceTitle')}:</b>
+            {#if d.book}
+              {t('places.sourceBook', { book: d.book })}{d.page ? `, ${t('places.sourcePage', { page: d.page })}` : ''}{d.recId ? `, ${t('places.record', { id: d.recId })}` : ''}
+            {:else}
+              {t('places.sourceNone')}
+            {/if}
+            {#if d.note}<span class="enote"> · {d.note}</span>{/if}
+          </p>
+        {:else}
+          <p class="note">{t('places.detailHint')}</p>
+        {/if}
       </div>
     {/if}
   {/if}
@@ -354,9 +413,41 @@
     text-decoration: underline;
     cursor: pointer;
   }
-  .role {
+  .sep {
     color: var(--ink-3);
-    font-size: var(--t-xs);
+  }
+  .detail {
+    border: 1px solid var(--rule);
+    border-radius: var(--r-1);
+    padding: var(--s-3) var(--s-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+  }
+  .detail h3,
+  .detail p {
+    margin: 0;
+  }
+  .detail table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .detail th,
+  .detail td {
+    text-align: start;
+    padding: var(--s-1) var(--s-3);
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  .detail small {
+    display: block;
+    color: var(--ink-3);
+  }
+  .rel-row {
+    background: var(--paper-2);
+  }
+  .source {
+    color: var(--ink-3);
   }
   .src {
     display: flex;

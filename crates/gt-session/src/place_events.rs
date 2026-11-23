@@ -328,7 +328,14 @@ impl Session {
             .people
             .iter()
             .map(|p| {
-                let relative = p.person.filter(|id| self.tree.persons.contains_key(id));
+                // A private person is left out of the list, as in the events of the tree: the record's own
+                // wording stays, the link to the tree does not.
+                let relative = p.person.filter(|id| {
+                    self.tree
+                        .persons
+                        .get(id)
+                        .is_some_and(|x| !x.common.private && !x.sibling_marker)
+                });
                 ours |= relative.is_some();
                 let written = [p.given.trim(), p.patronymic.trim(), p.surname.trim()]
                     .iter()

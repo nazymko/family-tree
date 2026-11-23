@@ -77,6 +77,7 @@ describe('Places view', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Choose files…' }));
     expect(await within(dialog).findByText('BK-2')).toBeInTheDocument();
     expect(within(dialog).getByText(/540 rows, 200 records in 2 books/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Create Hirka' }));
     await user.click(within(dialog).getByRole('button', { name: 'Preview' }));
     expect(await within(dialog).findByText(/200 to add, 0 already stored/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Import' }));
@@ -87,8 +88,68 @@ describe('Places view', () => {
     await user.click(screen.getByRole('button', { name: 'Import records…' }));
     const again = await screen.findByRole('dialog');
     await user.click(within(again).getByRole('button', { name: 'Choose files…' }));
+    // Hirka was created by the first import, so it is an existing place now and is chosen by itself.
     await user.click(await within(again).findByRole('button', { name: 'Preview' }));
     expect(await within(again).findByText(/0 to add, 200 already stored/)).toBeInTheDocument();
     expect(within(again).getByRole('button', { name: 'Import' })).toBeDisabled();
   });
+
+  it('defaults_each_village_to_the_place_named_like_it_and_never_to_another', async () => {
+    const { user, api } = await mount();
+    const run = vi.spyOn(api, 'placeImportPreview');
+    await user.click(screen.getByRole('button', { name: 'Import records…' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Choose files…' }));
+    await within(dialog).findByText('BK-2');
+    // Zelenivka is an existing place and is chosen; Hirka is not one, so its field is empty and offers the name.
+    expect((within(dialog).getByRole('combobox', { name: /^Place: BK-1 Zelenivka/ }) as HTMLInputElement).value).toMatch(/^Zelenivka/);
+    expect((within(dialog).getByRole('combobox', { name: /^Place: BK-2 Hirka/ }) as HTMLInputElement).value).toBe('');
+    expect(within(dialog).getByText('No place named Hirka yet.')).toBeInTheDocument();
+    expect(within(dialog).getAllByRole('button', { name: /^Create / })).toHaveLength(1);
+    await user.click(within(dialog).getByRole('button', { name: 'Preview' }));
+    await within(dialog).findByText(/to add/);
+    const mapping = run.mock.calls[0][1];
+    expect(mapping.find((m) => m.village === 'Hirka')?.place).toBeNull();
+    expect(mapping.find((m) => m.village === 'Zelenivka')?.place).toBe(demoPlaceId(api));
+  });
+
+  it('shows_the_principal_people_of_each_kind_in_the_row', async () => {
+    const { user } = await mount();
+    await user.click(screen.getByRole('radio', { name: 'Others' }));
+    const rows = () => within(screen.getByRole('listbox', { name: 'Events of the place' })).getAllByRole('option');
+    await user.selectOptions(screen.getByLabelText('Kind'), 'birth');
+    await waitFor(() => expect(rows().length).toBeGreaterThan(0));
+    const birth = rows()[0].textContent ?? '';
+    expect(birth).toMatch(/\w+ Bondar|\w+ \w+/);
+    expect(birth).toMatch(/·.*Petro .* & Hanna /);
+    await user.selectOptions(screen.getByLabelText('Kind'), 'marriage');
+    await waitFor(() => expect(rows()[0].textContent).toMatch(/×/));
+    await user.selectOptions(screen.getByLabelText('Kind'), 'death');
+    await waitFor(() => expect(rows()[0].textContent).toMatch(/, age 40/));
+    await user.selectOptions(screen.getByLabelText('Kind'), 'census');
+    await waitFor(() => expect(rows()[0].textContent).toMatch(/\+2 members/));
+    // The row names only the head; a click shows everyone with role, age, note and the source.
+    expect(rows()[0].textContent).not.toMatch(/Stepan/);
+    await user.click(rows()[0]);
+    const detail = await screen.findByRole('heading', { name: /Everyone in this event/ });
+    const panel = detail.parentElement!;
+    expect(within(panel).getByText('wife')).toBeInTheDocument();
+    expect(within(panel).getByText('son')).toBeInTheDocument();
+    expect(panel.textContent).toMatch(/Book BK-1, page \d+, record bk1:\d+/);
+  });
+
+  it('marks_relatives_in_the_detail_and_links_them_to_the_person', async () => {
+    const { user, onOpenPerson, demo } = await mount();
+    await user.click(screen.getByRole('radio', { name: 'Relatives' }));
+    const list = await screen.findByRole('listbox', { name: 'Events of the place' });
+    await user.click(within(list).getAllByRole('option')[0]);
+    const panel = (await screen.findByRole('heading', { name: /Everyone in this event/ })).parentElement!;
+    expect(within(panel).getByText('in the family tree')).toBeInTheDocument();
+    await user.click(within(panel).getByRole('button', { name: /Ivan/ }));
+    expect(onOpenPerson).toHaveBeenCalledWith(demo.relatives[0]);
+  });
 });
+
+function demoPlaceId(api: MockApi): string | undefined {
+  return [...(api as unknown as { db: { places: Map<string, { id: string; name: string }> } }).db.places.values()].find((p) => p.name === 'Zelenivka')?.id;
+}

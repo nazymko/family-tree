@@ -32,6 +32,8 @@
   let paths = $state<string[]>([]);
   let scan = $state<PlaceImportScanDto | null>(null);
   let choices = $state<Record<string, Choice>>({});
+  /** The existing place each row starts with: the one named like its village, if any. */
+  let options = $state<Record<string, PlaceOption | null>>({});
   let preview = $state<PlaceImportPreviewDto | null>(null);
   let busy = $state(false);
   let error = $state('');
@@ -45,6 +47,7 @@
     paths = [];
     scan = null;
     choices = {};
+    options = {};
     preview = null;
     error = '';
     progress = null;
@@ -59,16 +62,30 @@
     busy = true;
     try {
       paths = picked;
-      scan = await api.placeImportScan(picked);
+      const found = await api.placeImportScan(picked);
+      const opts: Record<string, PlaceOption | null> = {};
+      for (const g of found.groups) opts[keyOf(g)] = await matchVillage(g.village);
       preview = null;
-      choices = Object.fromEntries(
-        scan.groups.map((g) => [keyOf(g), defaultPlace ? ({ placeId: defaultPlace.id } as Choice) : null]),
-      );
+      options = opts;
+      choices = Object.fromEntries(found.groups.map((g) => [keyOf(g), opts[keyOf(g)] ? ({ placeId: opts[keyOf(g)]!.id } as Choice) : null]));
+      scan = found;
     } catch (e) {
       scan = null;
       error = errMessage(e, t('placeImport.scanFailed'));
     } finally {
       busy = false;
+    }
+  }
+
+  const fold = (s: string) => s.trim().toLocaleLowerCase();
+  /** An existing place whose own name is the village's (the open place first when it is one); never another village. */
+  async function matchVillage(village: string): Promise<PlaceOption | null> {
+    if (!village.trim()) return null;
+    try {
+      const same = (await api.suggestPlaces(village.trim(), 20)).filter((p) => fold(p.name) === fold(village));
+      return same.find((p) => p.id === defaultPlace?.id) ?? same[0] ?? null;
+    } catch {
+      return null;
     }
   }
 
@@ -167,14 +184,26 @@
                   <td class="pick">
                     <PlacePicker
                       label={`${t('placeImport.place')}: ${g.book} ${g.village}`.trim()}
-                      value={defaultPlace && choices[keyOf(g)]?.placeId === defaultPlace.id ? defaultPlace : null}
+                      value={options[keyOf(g)] ?? null}
                       text=""
                       onChange={(v) => {
                         choices[keyOf(g)] = v;
                         preview = null;
                       }}
                     />
-                    {#if choices[keyOf(g)]?.placeText}<small>{t('placeImport.createdAs', { text: choices[keyOf(g)]!.placeText! })}</small>{/if}
+                    {#if choices[keyOf(g)]?.placeText}
+                      <small>{t('placeImport.createdAs', { text: choices[keyOf(g)]!.placeText! })}</small>
+                    {:else if !choices[keyOf(g)] && g.village.trim()}
+                      <small>{t('placeImport.suggestNew', { name: g.village })}</small>
+                      <button
+                        type="button"
+                        class="suggest"
+                        onclick={() => {
+                          choices[keyOf(g)] = { placeText: g.village.trim() };
+                          preview = null;
+                        }}>{t('placeImport.createSuggested', { name: g.village })}</button
+                      >
+                    {/if}
                   </td>
                   {#if preview}<td class="num">{l?.new ?? 0}</td><td class="num">{l?.duplicates ?? 0}</td>{/if}
                 </tr>
@@ -254,6 +283,18 @@
   }
   .pick {
     min-width: 18rem;
+  }
+  .suggest {
+    display: block;
+    margin-top: var(--s-1);
+    border: 0;
+    background: none;
+    padding: 0;
+    font: inherit;
+    font-size: var(--t-xs);
+    color: var(--ribbon);
+    text-decoration: underline;
+    cursor: pointer;
   }
   .total {
     font-weight: 500;

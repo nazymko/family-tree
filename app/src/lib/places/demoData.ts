@@ -5,6 +5,23 @@ import type { PlaceEventDto } from '../api/types';
 const OTHERS = ['Bondar', 'Melnyk', 'Shevchuk', 'Tkach', 'Savchenko', 'Kravets'];
 const GIVEN = ['Danylo', 'Hanna', 'Petro', 'Olena', 'Stepan', 'Maria'];
 
+const who = (name: string, role: string, age = '', note = '') => ({ name, asWritten: '', role, age, estate: '', note, person: null, living: false });
+
+/** The people one record names, by kind: a birth has parents, a marriage two spouses, a list a household. */
+function crowd(kind: string, given: string, surname: string) {
+  const me = `${given} ${surname}`;
+  switch (kind) {
+    case 'birth':
+      return [who(me, 'child'), who(`Petro ${surname}`, 'father', '30'), who(`Hanna ${surname}`, 'mother', '25', 'midwife present')];
+    case 'marriage':
+      return [who(me, 'groom', '22'), who(`Olena ${surname}a`, 'bride', '19')];
+    case 'death':
+      return [who(me, 'deceased', '40')];
+    default:
+      return [who(me, 'head', '45'), who(`Maria ${surname}`, 'wife', '40'), who(`Stepan ${surname}`, 'son', '12')];
+  }
+}
+
 /** A village with two relatives born in it and `n` records about other people, 1820 to 1899. */
 export async function seedPlaceDemo(api: MockApi, n = 60) {
   const born = (given: string, surname: string, year: string) =>
@@ -27,7 +44,7 @@ export async function seedPlaceDemo(api: MockApi, n = 60) {
       date: String(year),
       year,
       place: place.id,
-      people: [{ name: `${GIVEN[i % GIVEN.length]} ${surname}`, asWritten: '', role: kind === 'birth' ? 'child' : 'head', age: kind === 'death' ? '40' : '', estate: '', note: '', person: null, living: false }],
+      people: crowd(kind, GIVEN[i % GIVEN.length], surname),
       book: 'BK-1',
       page: String(10 + (i % 30)),
       recId: `bk1:${i}`,
