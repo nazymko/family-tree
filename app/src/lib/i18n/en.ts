@@ -1196,7 +1196,7 @@ export const en = {
     note: 'Note',
     noteHint: 'Markdown is kept as you write it. Link to a person with genetree://person/ followed by their id.',
     noteStory: 'Story (readable retelling)',
-    noteStoryHint: 'Shown in the story view instead of the note above, which stays as written. Keep every fact, name, date and doubt; leave out the references. Empty: the story view shortens the note itself.',
+    noteStoryHint: 'Shown in the story view instead of the note above, which stays as written. Keep every fact, name, date and doubt; leave out the references. Empty: the story view shows the note as written, with its references.',
     addEvent: 'Add event',
     editEvent: 'Edit {kind}',
     groupLife: 'Life',
@@ -1386,6 +1386,10 @@ export const en = {
     childrenKept: 'Children are kept. They stay in the tree and are only unlinked from this family.',
     keepFamily: 'Keep family',
     gone: 'This family no longer exists.',
+  },
+  noteSources: {
+    referred: 'Sources named in this note',
+    all: 'Sources ({n})',
   },
   citation: {
     untitled: 'Untitled source',

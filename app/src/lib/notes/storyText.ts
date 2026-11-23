@@ -19,8 +19,8 @@ const RULES: RegExp[] = [
   new RegExp(`${NOT_LETTER_BEFORE}\\p{Lu}{2,}[${L}]{0,4}\\s*\\d{1,5}-\\d{1,5}-\\d{1,6}[${L}]?${NOT_LETTER_AFTER}`, 'gu'),
   // Fond, inventory, file and sheet: ф. 259, оп. 51, спр. 14, арк. 5зв
   new RegExp(`${NOT_LETTER_BEFORE}(?:ф|оп|спр|арк)\\.\\s*\\d[\\d\\-–/]*(?:\\s*(?:зв|об)\\.?)?[${L}]?(?![\\d])`, 'giu'),
-  // Pages: PDF с. 29, с. 29, стор. 29-30, p. 5
-  new RegExp(`(?:PDF\\s*)?${NOT_LETTER_BEFORE}(?:с|стор|pp?|pag)\\.\\s*\\d+(?:\\s*[-–]\\s*\\d+)?`, 'giu'),
+  // Pages: PDF с. 29, PDF-с. 29, PDF – с. 29, PDF, с. 29, с. 29, стор. 29-30, p. 5
+  new RegExp(`(?:PDF\\s*[-–—,]?\\s*)?${NOT_LETTER_BEFORE}(?:с|стор|pp?|pag)\\.\\s*\\d+(?:\\s*[-–]\\s*\\d+)?`, 'giu'),
   // Record numbers: № 47, ж. № 38, запис № 5
   new RegExp(`(?:${NOT_LETTER_BEFORE}(?:ж|ч|запис|акт)\\.?\\s*)?(?:№|N[oо]\\.?)\\s*\\d+[${L}]?`, 'giu'),
   // Hypothesis tags: ГІПОТЕЗИ H24, гіпотеза H7, P29, H7
@@ -77,8 +77,6 @@ export interface StoryView {
 export function storyOf(note: { text: string; story?: string | null }): StoryView {
   const written = note.story?.trim();
   if (written) return { text: written, cleaned: false };
-  const text = cleanForStory(note.text);
-  // Nothing left to read: show the original rather than an empty note.
-  if (!text) return { text: note.text, cleaned: false };
-  return { text, cleaned: text !== note.text.trim() };
+  // A research note (no written story) keeps its text as written: stripping the references hides where the facts come from.
+  return { text: note.text, cleaned: false };
 }
