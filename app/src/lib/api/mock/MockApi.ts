@@ -1282,7 +1282,7 @@ export class MockApi implements Api {
   async chartOpen(req: ChartRequest): Promise<ChartMeta> {
     if (req.kind === 'whole') throw invalid('The whole tree has no starting person. Open it with the whole-tree command.');
     if (this.person(req.root).siblingMarker) throw markerEntry(req.root);
-    const generations = Math.max(1, Math.min(req.generations, req.kind === 'pedigree' || req.kind === 'around' ? 255 : 20));
+    const generations = Math.max(1, Math.min(req.generations, req.kind === 'pedigree' || req.kind === 'around' || req.kind === 'relatives' ? 255 : 20));
     if (req.kind === 'around') {
       const chosen = [req.root, ...(req.roots ?? [])].filter((id, i, all) => all.indexOf(id) === i && this.db.persons.has(id) && !this.person(id).siblingMarker);
       if (chosen.length > 1) return this.openAroundMany(chosen, req.kin ?? 'line');
@@ -1319,7 +1319,7 @@ export class MockApi implements Api {
         ? layoutPedigree(req.root, generations, src)
         : req.kind === 'descendants'
           ? layoutDescendants(req.root, generations, src)
-          : layoutRelatives(req.root, Math.min(generations, 6), req.auntsUncles ?? true, src);
+          : layoutRelatives(req.root, generations, req.auntsUncles ?? true, src);
     if (req.kind === 'around') {
       const flags = openFlags(laid as RelLayout, openBase, openBase === 'line' ? line : src);
       laid.nodes.forEach((n, i) => {
