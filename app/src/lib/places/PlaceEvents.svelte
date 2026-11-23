@@ -316,6 +316,8 @@
     gap: var(--s-4);
     align-items: center;
     height: 100%;
+    width: 100%;
+    box-sizing: border-box;
     padding: 0 var(--s-4);
     border-bottom: 1px solid var(--rule);
     overflow: hidden;

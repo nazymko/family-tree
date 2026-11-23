@@ -74,17 +74,17 @@
 
   /** New places are made once each, here, before the mapping goes to the app. */
   async function resolve(): Promise<PlaceImportMapDto[]> {
-    const made = new Map<string, Id>();
+    const made: Record<string, Id> = {};
     const out: PlaceImportMapDto[] = [];
     for (const g of scan?.groups ?? []) {
       const c = choices[keyOf(g)];
       let place: Id | null = c?.placeId ?? null;
       if (!place && c?.placeText) {
-        let id = made.get(c.placeText);
+        let id: Id | undefined = made[c.placeText];
         if (!id) {
           const r = await api.apply({ type: 'createPlace', text: c.placeText }, { silent: true });
           id = r.focus ?? undefined;
-          if (id) made.set(c.placeText, id);
+          if (id) made[c.placeText] = id;
         }
         place = id ?? null;
         choices[keyOf(g)] = place ? { placeId: place } : c;
@@ -142,7 +142,7 @@
 
       {#if scan}
         <p>{t('placeImport.found', { rows: scan.rows, records: scan.groups.reduce((n, g) => n + g.records, 0), groups: scan.groups.length })}</p>
-        {#if scan.badRows > 0}<p class="warn">{t('placeImport.badRows', { n: scan.badRows })}</p>{/if}
+        {#if scan.badRows > 0}<p class="warn">{plural('placeImport.badRows', scan.badRows)}</p>{/if}
         <p>{t('placeImport.mapIntro')}</p>
         <div class="table-wrap">
           <table>

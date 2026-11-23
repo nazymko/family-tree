@@ -2381,6 +2381,10 @@ export class MockApi implements Api {
   // ------------------------------------------------------------------ map
 
   async placeEvents(q: PlaceEventsQuery): Promise<PlaceEventsPage> {
+    const yearOf = (text: string): number | null => {
+      const m = /(\d{4})/.exec(text);
+      return m ? Number(m[1]) : null;
+    };
     const place = this.db.places.get(q.place);
     if (!place) throw missing('place', q.place);
     const under = (id: Id | undefined) => {
@@ -2396,7 +2400,7 @@ export class MockApi implements Api {
         const kind = e.kind === 'birth' || e.kind === 'death' ? e.kind : e.kind === 'marriage' ? 'marriage' : 'other';
         all.push({
           key: `e:${e.id}`, source: 'tree', ours: true, kind, kindDetail: e.kind, date: e.date?.display ?? '',
-          year: /(\d{4})/.exec(e.date?.display ?? '')?.[1] ? Number(/(\d{4})/.exec(e.date!.display)![1]) : null, place: e.place?.id ?? null,
+          year: yearOf(e.date?.display ?? ''), place: e.place?.id ?? null,
           people: [{ name: n?.display ?? '', asWritten: '', role: '', age: '', estate: '', note: '', person: person.id, living: false }],
           book: '', page: '', recId: '', note: '', unsure: false,
         });
@@ -2428,6 +2432,7 @@ export class MockApi implements Api {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async placeImportScan(_paths: string[]): Promise<PlaceImportScanDto> {
     return structuredClone(this.placeImportSample);
   }

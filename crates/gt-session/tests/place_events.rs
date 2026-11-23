@@ -170,7 +170,11 @@ fn sub_places_are_included_and_a_linked_record_is_ours() {
     // The district holds Dubky's events, and says which village each one is in.
     let page = s.place_events(&q(district)).unwrap();
     assert_eq!(page.total, 6);
-    assert!(page.items.iter().all(|i| i.place.as_deref() == Some("Dubky")));
+    assert!(
+        page.items
+            .iter()
+            .all(|i| i.place.as_deref() == Some("Dubky"))
+    );
     let mut f = q(district);
     f.who = Some(PlaceEventsWho::Ours);
     // Four tree events and the record that names Ivan.
@@ -265,7 +269,10 @@ fn an_index_file_groups_rows_into_records_by_book_and_village() {
         },
     ];
     let pre = s.place_import_preview(&parsed, &map).unwrap();
-    assert_eq!((pre.total_new, pre.total_duplicates, pre.unmapped), (3, 0, 1));
+    assert_eq!(
+        (pre.total_new, pre.total_duplicates, pre.unmapped),
+        (3, 0, 1)
+    );
     let (parts, unmapped) = parsed.split(&map);
     assert_eq!(unmapped, 1);
     let mut added = 0;
@@ -284,10 +291,18 @@ fn an_index_file_groups_rows_into_records_by_book_and_village() {
     assert_eq!(revision.people.len(), 2);
     assert_eq!(revision.people[0].age, "40");
     let d = s.place_events(&q(dubky_place)).unwrap();
-    let death = d.items.iter().find(|i| i.kind == "death" && i.source == "record").unwrap();
+    let death = d
+        .items
+        .iter()
+        .find(|i| i.kind == "death" && i.source == "record")
+        .unwrap();
     assert!(death.unsure);
     assert_eq!(death.year, Some(1851));
-    let birth = d.items.iter().find(|i| i.rec_id == "MB-1:Dubky:1850:birth:1").unwrap();
+    let birth = d
+        .items
+        .iter()
+        .find(|i| i.rec_id == "MB-1:Dubky:1850:birth:1")
+        .unwrap();
     assert_eq!(birth.people.len(), 2);
     assert_eq!(birth.people[0].as_written, "Данило Бондар");
     assert_eq!(birth.page, "4");

@@ -180,7 +180,9 @@ fn list_place_events<H: Host>(host: &H, _ctx: &AgentCtx, args: &Value) -> ToolRe
         who: Some(who),
         query,
         offset: u32::try_from(offset).ok(),
-        limit: u32::try_from(limit).ok().map(|l| l.min(PLACE_EVENTS_PAGE_MAX)),
+        limit: u32::try_from(limit)
+            .ok()
+            .map(|l| l.min(PLACE_EVENTS_PAGE_MAX)),
     };
     let page = host.with_session(&mut |s: &mut Session| s.place_events(&q))?;
     let mut out = serde_json::to_value(&page)

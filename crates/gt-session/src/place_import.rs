@@ -133,18 +133,14 @@ pub struct ParsedIndex {
     pub records: Vec<(PlaceImportKey, PlaceRecordInput)>,
 }
 
-fn io_err(path: &std::path::Path, e: &std::io::Error) -> ApiError {
-    ApiError::new(
-        ErrorCode::Io,
-        format!("Could not read {}: {e}", path.display()),
-    )
-}
-
 /// The village in `<code>:<village>:<year>:<section>:<no>`, or none.
 pub fn village_of(rec_id: &str) -> String {
     let parts: Vec<&str> = rec_id.split(':').collect();
     if parts.len() >= 5 {
-        parts.get(1).map(|s| s.trim().to_string()).unwrap_or_default()
+        parts
+            .get(1)
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default()
     } else {
         String::new()
     }
@@ -163,13 +159,14 @@ pub fn parse_index_files(paths: &[PathBuf]) -> Result<ParsedIndex, ApiError> {
     let mut out = ParsedIndex::default();
     let mut at: HashMap<(String, String), usize> = HashMap::new();
     for path in paths {
-        let file = std::fs::File::open(path).map_err(|e| io_err(path, &e))?;
+        let file =
+            std::fs::File::open(path).map_err(|e| crate::transfer::io_err("read", path, &e))?;
         out.files += 1;
         let mut cols: [usize; 16] = std::array::from_fn(|i| i);
         let mut width = COLUMNS.len();
         let mut first = true;
         for line in BufReader::new(file).split(b'\n') {
-            let bytes = line.map_err(|e| io_err(path, &e))?;
+            let bytes = line.map_err(|e| crate::transfer::io_err("read", path, &e))?;
             let text = String::from_utf8_lossy(&bytes);
             let line = text.trim_end_matches(['\r', '\n']);
             let line = if first {

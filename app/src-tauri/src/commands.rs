@@ -1225,10 +1225,7 @@ pub fn save_picture(request: tauri::ipc::Request<'_>) -> ApiResult<BytesWritten>
 pub fn make_picture_folder_impl(dir: &str, name: &str) -> ApiResult<String> {
     let invalid = |m: &str| ApiError::new(ErrorCode::Invalid, m);
     let name = name.trim();
-    if name.is_empty()
-        || name == "."
-        || name == ".."
-    {
+    if name.is_empty() || name == "." || name == ".." {
         return Err(invalid(
             "There is no folder name for the sheets. Choose a file name and try again.",
         ));
@@ -1237,7 +1234,13 @@ pub fn make_picture_folder_impl(dir: &str, name: &str) -> ApiResult<String> {
     // trailing dot or space, which Windows drops silently.
     let mut name: String = name
         .chars()
-        .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
+        .map(|c| {
+            if c.is_control() || r#"<>:"/\|?*"#.contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
     if name.ends_with(['.', ' ']) {
         name.pop();
@@ -1262,7 +1265,9 @@ pub fn make_picture_folder_impl(dir: &str, name: &str) -> ApiResult<String> {
             Err(e) => {
                 return Err(ApiError::new(
                     ErrorCode::Io,
-                    format!("Could not make a folder for the sheets: {e}. Choose another place and try again."),
+                    format!(
+                        "Could not make a folder for the sheets: {e}. Choose another place and try again."
+                    ),
                 ));
             }
         }

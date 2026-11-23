@@ -13,12 +13,7 @@ fn village(host: &TestHost) -> (Uuid, Uuid) {
         let mut d = draft("Hryhorii", "Koval", None, Some("1860"));
         d.birth_place_text = Some("Zelenivka, Testova district".into());
         let person = add_person(s, d);
-        let place = s
-            .tree()
-            .events
-            .values()
-            .find_map(|e| e.place)
-            .unwrap();
+        let place = s.tree().events.values().find_map(|e| e.place).unwrap();
         (person, place)
     })
 }
@@ -43,7 +38,10 @@ fn an_agent_adds_records_and_reads_the_places_events() {
             record("a:2", "death", "12.03.1851", "Bondar"),
         ]}),
     );
-    assert_eq!((r["added"].as_u64(), r["duplicates"].as_u64()), (Some(2), Some(0)));
+    assert_eq!(
+        (r["added"].as_u64(), r["duplicates"].as_u64()),
+        (Some(2), Some(0))
+    );
 
     // The same again adds nothing.
     let again = call(
@@ -57,22 +55,47 @@ fn an_agent_adds_records_and_reads_the_places_events() {
     let all = call(&host, "list_place_events", json!({"place": place}));
     // Hryhorii's birth and the two records, in year order.
     assert_eq!(all["total"], json!(3));
-    let years: Vec<_> = all["items"].as_array().unwrap().iter().map(|i| i["year"].clone()).collect();
+    let years: Vec<_> = all["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["year"].clone())
+        .collect();
     assert_eq!(years, vec![json!(1850), json!(1851), json!(1860)]);
     assert_eq!(all["items"][2]["people"][0]["person"], json!(person));
     assert_eq!(all["items"][0]["book"], json!("BK-9"));
 
-    let others = call(&host, "list_place_events", json!({"place": place, "who": "others"}));
+    let others = call(
+        &host,
+        "list_place_events",
+        json!({"place": place, "who": "others"}),
+    );
     assert_eq!(others["total"], json!(2));
-    let ours = call(&host, "list_place_events", json!({"place": place, "who": "ours"}));
+    let ours = call(
+        &host,
+        "list_place_events",
+        json!({"place": place, "who": "ours"}),
+    );
     assert_eq!(ours["total"], json!(1));
-    let deaths = call(&host, "list_place_events", json!({"place": place, "kinds": ["death"]}));
+    let deaths = call(
+        &host,
+        "list_place_events",
+        json!({"place": place, "kinds": ["death"]}),
+    );
     assert_eq!(deaths["total"], json!(1));
-    let named = call(&host, "list_place_events", json!({"place": place, "query": "bondar", "limit": 1}));
+    let named = call(
+        &host,
+        "list_place_events",
+        json!({"place": place, "query": "bondar", "limit": 1}),
+    );
     assert_eq!(named["total"], json!(2));
     assert_eq!(named["items"].as_array().unwrap().len(), 1);
     assert_eq!(named["nextOffset"], json!(1));
-    let ranged = call(&host, "list_place_events", json!({"place": place, "year_from": 1851, "year_to": 1855}));
+    let ranged = call(
+        &host,
+        "list_place_events",
+        json!({"place": place, "year_from": 1851, "year_to": 1855}),
+    );
     assert_eq!(ranged["total"], json!(1));
 }
 

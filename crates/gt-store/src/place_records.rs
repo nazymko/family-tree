@@ -23,11 +23,21 @@ pub const PLACE_RECORD_KINDS: [&str; 7] = [
 pub fn kind_from_section(section: &str) -> &'static str {
     let s = section.trim().to_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| s.contains(w));
-    if has(&["birth", "born", "bapt", "christ", "народж", "хрещ", "нарожд", "рожд"]) {
+    if has(&[
+        "birth",
+        "born",
+        "bapt",
+        "christ",
+        "народж",
+        "хрещ",
+        "нарожд",
+        "рожд",
+    ]) {
         "birth"
     } else if has(&["marr", "wedd", "шлюб", "вінч", "брак", "бракос"]) {
         "marriage"
-    } else if has(&["death", "died", "burial", "смерт", "помер", "похов", "умер"]) {
+    } else if has(&["death", "died", "burial", "смерт", "помер", "похов", "умер"])
+    {
         "death"
     } else if has(&["confess", "сповід", "сповѣд", "исповед", "спов"]) {
         "confession"
@@ -327,7 +337,11 @@ impl Project {
             if id.is_empty() {
                 continue;
             }
-            if st.query_row(params![book, id], |_| Ok(())).optional()?.is_some() {
+            if st
+                .query_row(params![book, id], |_| Ok(()))
+                .optional()?
+                .is_some()
+            {
                 n += 1;
             }
         }

@@ -271,9 +271,11 @@ impl Session {
                 .iter()
                 .find(|x| match x.target {
                     ParticipantRef::Person(q) => q == p,
-                    ParticipantRef::Family(f) => self.tree.families.get(&f).is_some_and(|f| {
-                        f.partner1 == Some(p) || f.partner2 == Some(p)
-                    }),
+                    ParticipantRef::Family(f) => self
+                        .tree
+                        .families
+                        .get(&f)
+                        .is_some_and(|f| f.partner1 == Some(p) || f.partner2 == Some(p)),
                 })
                 .map(|x| role_text(&x.role).to_lowercase())
                 .unwrap_or_default()

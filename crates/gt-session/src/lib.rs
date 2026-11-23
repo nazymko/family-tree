@@ -66,17 +66,17 @@ pub use map::{
 };
 pub use map_layers::{MapLayerDto, OziPlacementDto, prepare_map_file};
 pub use names::{display_name, lifespan};
+pub use ops::VERSION_GROUP_MAX;
 pub use place_events::{
-    DecadeCount, KindCount, PLACE_EVENTS_PAGE_MAX, PLACE_RECORD_PEOPLE_MAX, PLACE_RECORDS_BATCH_MAX,
-    PlaceEventDto, PlaceEventPersonDto, PlaceEventsPage, PlaceEventsQuery, PlaceEventsWho,
-    coarse_kind, place_record_kinds,
+    DecadeCount, KindCount, PLACE_EVENTS_PAGE_MAX, PLACE_RECORD_PEOPLE_MAX,
+    PLACE_RECORDS_BATCH_MAX, PlaceEventDto, PlaceEventPersonDto, PlaceEventsPage, PlaceEventsQuery,
+    PlaceEventsWho, coarse_kind, place_record_kinds,
 };
 pub use place_import::{
     IMPORT_CHUNK, ParsedIndex, PlaceImportGroupDto, PlaceImportKey, PlaceImportLineDto,
     PlaceImportMapDto, PlaceImportPreviewDto, PlaceImportProgressDto, PlaceImportResultDto,
     PlaceImportScanDto, parse_index_files,
 };
-pub use ops::VERSION_GROUP_MAX;
 pub use session::{Session, SessionClock};
 pub use settings::SettingsPatch;
 pub use touched::people_reached;
