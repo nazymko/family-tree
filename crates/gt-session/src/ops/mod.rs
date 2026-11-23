@@ -15,6 +15,7 @@ pub use media::VERSION_GROUP_MAX;
 pub(crate) use media::{can_turn, plan_attach};
 mod person;
 pub(crate) use person::agent_number;
+pub(crate) mod place_merge;
 pub mod places;
 mod quick_add;
 pub(crate) mod verified;

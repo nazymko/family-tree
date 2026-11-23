@@ -142,6 +142,8 @@ fn write_needs_batch() {
             "add_place_records",
             json!({"place": id, "records": [{"kind": "birth", "people": [{"given": "A"}]}]}),
         ),
+        ("add_place", json!({"name": "Zelenivka"})),
+        ("merge_places", json!({"keep_id": id, "merge_ids": [id]})),
     ];
     for (tool, args) in writes {
         let message = call_err(&host, tool, args);
@@ -1466,6 +1468,9 @@ fn only_the_tools_named_here_can_write() {
             "set_own_map_layer_corners",
             // Records about other people, added to a place from a book.
             "add_place_records",
+            // The one place an agent makes (never twice), and the merge of duplicate places.
+            "add_place",
+            "merge_places",
         ]
     );
 }

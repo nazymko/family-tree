@@ -2,14 +2,15 @@
 //! place records about others), and adding place records from church books and the like.
 
 use crate::tools_read::{ToolResult, answer, invalid, str_arg, uuid_arg};
-use crate::tools_write::{batch_arg, with_batch};
+use crate::tools_write::{batch_arg, degrees, long, optional_uuid, short, with_batch};
 use crate::{AgentCtx, Host, Tool};
 use gt_session::{
-    ApiError, PLACE_EVENTS_PAGE_MAX, PLACE_RECORD_PEOPLE_MAX, PLACE_RECORDS_BATCH_MAX,
-    PlaceEventsQuery, PlaceEventsWho, Session, place_record_kinds,
+    AgentWrite, ApiError, PLACE_EVENTS_PAGE_MAX, PLACE_MERGE_MAX, PLACE_RECORD_PEOPLE_MAX,
+    PLACE_RECORDS_BATCH_MAX, PlaceEventsQuery, PlaceEventsWho, Session, place_record_kinds,
 };
 use gt_store::PlaceRecordInput;
 use serde_json::{Value, json};
+use uuid::Uuid;
 
 pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
     let kinds = json!(place_record_kinds());
@@ -66,6 +67,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
                 "properties": {
                     "place": {"type": "string", "description": "The place's id (from list_places)."},
                     "kinds": {"type": "array", "items": {"type": "string", "enum": kinds}},
+                    "kind": {"type": "string", "enum": kinds, "description": "One kind; the same as kinds with one name. Give kind or kinds, not both."},
                     "year_from": {"type": "integer"},
                     "year_to": {"type": "integer"},
                     "who": {"type": "string", "enum": ["all", "ours", "others"], "default": "all", "description": "ours: events of people in the tree and records that name one of them; others: records about other people."},
@@ -77,6 +79,35 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
                 "additionalProperties": false,
             }),
             call: list_place_events::<H>,
+        },
+        Tool {
+            name: "add_place",
+            description: "Makes a place that is missing, such as a village the records name that list_places does not have. Give its name, optionally its type (village, town, district, region, country...), its parent place (the district or region it lies in, from list_places; leave out for a top-level place), coordinates with their source, and a note. A place of the same name (or alternative name, ignoring case) under the same parent is never made twice: the answer then has alreadyThere and the existing id, which you use. Search list_places first, and make the parents first when they are missing too. The change is in the log under your name and the owner can undo it with the batch.",
+            schema: with_batch(
+                &["name"],
+                json!({
+                    "name": text("The place's name as it is written now, such as Verbka."),
+                    "type": text("What it is: village, town, district, region, country..."),
+                    "parent": {"type": "string", "description": "The id of the place it lies in (from list_places or an earlier add_place)."},
+                    "lat": {"type": "number", "minimum": -90, "maximum": 90, "description": "Latitude in decimal degrees, south negative. Needs lon and source."},
+                    "lon": {"type": "number", "minimum": -180, "maximum": 180, "description": "Longitude in decimal degrees, west negative."},
+                    "source": text("Where the coordinates (or the place) come from, briefly: GeoNames 702550, Wikipedia: ..."),
+                    "note": {"type": "string", "maxLength": 4000, "description": "Optional: how you know it is this place, such as the district and parish the records name."},
+                }),
+            ),
+            call: add_place::<H>,
+        },
+        Tool {
+            name: "merge_places",
+            description: "Merges duplicate places into one: everything that names a place in merge_ids (events of people, pictures, place records from books, places under it) then names keep_id, the names, notes and citations of the merged places go to keep_id, and the merged places are removed, all in one step the owner can undo with the batch (the log has one change group, Merge places). A research note on keep_id lists what was merged. Only for places that are the very same place: the same village in the same district, not namesakes elsewhere; when unsure, leave them and say so in your report. Refused when keep_id is among merge_ids, or when a merged place is an ancestor of keep_id. Merge the child places first when two duplicates each have a child of the same name. The answer counts what was repointed.",
+            schema: with_batch(
+                &["keep_id", "merge_ids"],
+                json!({
+                    "keep_id": {"type": "string", "description": "The id of the place that stays."},
+                    "merge_ids": {"type": "array", "minItems": 1, "maxItems": PLACE_MERGE_MAX, "items": {"type": "string"}, "description": "The ids of the duplicates to merge into it."},
+                }),
+            ),
+            call: merge_places::<H>,
         },
     ]
 }
@@ -141,8 +172,21 @@ fn list_place_events<H: Host>(host: &H, _ctx: &AgentCtx, args: &Value) -> ToolRe
         Some("others") => PlaceEventsWho::Others,
         Some(_) => return Err(invalid("who is all, ours or others.".into())),
     };
-    let kinds: Option<Vec<String>> = match args.get("kinds") {
+    let one = match args.get("kind") {
         None | Some(Value::Null) => None,
+        Some(Value::String(k)) if place_record_kinds().contains(&k.as_str()) => Some(k.clone()),
+        Some(_) => {
+            return Err(invalid(format!(
+                "kind is one of {}. To ask for several, give kinds as a list.",
+                place_record_kinds().join(", ")
+            )));
+        }
+    };
+    if one.is_some() && args.get("kinds").is_some_and(|k| !k.is_null()) {
+        return Err(invalid("Give kind or kinds, not both.".into()));
+    }
+    let kinds: Option<Vec<String>> = match args.get("kinds") {
+        None | Some(Value::Null) => one.map(|k| vec![k]),
         Some(Value::Array(a)) => Some(
             a.iter()
                 .map(|k| {
@@ -194,4 +238,82 @@ fn list_place_events<H: Host>(host: &H, _ctx: &AgentCtx, args: &Value) -> ToolRe
         fields.insert("nextOffset".into(), json!(end));
     }
     answer(&out)
+}
+
+fn add_place<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let name = str_arg(args, "name")?.to_string();
+    let kind = short(args, "type")?;
+    let parent = optional_uuid(args, "parent")?;
+    let point = match (args.get("lat"), args.get("lon")) {
+        (None | Some(Value::Null), None | Some(Value::Null)) => None,
+        (Some(_), Some(_)) => Some((
+            degrees(args, "lat", -90.0, 90.0)?,
+            degrees(args, "lon", -180.0, 180.0)?,
+        )),
+        _ => return Err(invalid("Give both lat and lon, or neither.".into())),
+    };
+    let source = short(args, "source")?;
+    let note = long(args, "note")?;
+    let (write, reached) = host.with_session(&mut |s: &mut Session| {
+        s.add_place_as_agent(
+            &name,
+            kind.as_deref(),
+            parent,
+            point,
+            source.as_deref(),
+            note.as_deref(),
+            ctx,
+            batch,
+        )
+    })?;
+    match write {
+        AgentWrite::AlreadyThere { record } => answer(&json!({"id": record, "alreadyThere": true})),
+        AgentWrite::Done(result) => {
+            if !reached.is_empty() {
+                host.changed(&reached, ctx);
+            }
+            answer(&json!({"id": result.focus, "touched": result.touched}))
+        }
+    }
+}
+
+fn merge_places<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let keep = uuid_arg(args, "keep_id")?;
+    let list = args
+        .get("merge_ids")
+        .and_then(Value::as_array)
+        .filter(|l| !l.is_empty())
+        .ok_or_else(|| invalid("merge_ids must be a list of at least one place id.".into()))?;
+    let merge: Vec<Uuid> = list
+        .iter()
+        .map(|v| {
+            v.as_str()
+                .and_then(|t| Uuid::parse_str(t).ok())
+                .ok_or_else(|| invalid("merge_ids must be place ids.".into()))
+        })
+        .collect::<Result<_, _>>()?;
+    let (outcome, reached) = host
+        .with_session(&mut |s: &mut Session| s.merge_places_as_agent(keep, &merge, ctx, batch))?;
+    let mut touched = reached;
+    touched.push(keep);
+    host.changed(&touched, ctx);
+    let c = &outcome.counts;
+    answer(&json!({
+        "id": keep,
+        "removed": outcome.removed,
+        "repointed": {
+            "events": c.events,
+            "media": c.media,
+            "placeRecords": outcome.place_records,
+            "childPlaces": c.child_places,
+        },
+        "keptFromMerged": {
+            "names": c.names_added,
+            "notes": c.notes,
+            "citations": c.citations,
+            "pictures": c.pictures,
+        },
+    }))
 }

@@ -67,6 +67,18 @@ impl Session {
         actor: Actor,
         batch: Option<Uuid>,
     ) -> Result<(), ApiError> {
+        self.commit_adjusting(cs, actor, batch, &gt_store::PlaceRecordAdjust::default())
+    }
+
+    /// [`Session::commit`], with the place records that follow a place merge (or its undo) moved in
+    /// the same transaction.
+    pub(crate) fn commit_adjusting(
+        &mut self,
+        cs: &ChangeSet,
+        actor: Actor,
+        batch: Option<Uuid>,
+        adjust: &gt_store::PlaceRecordAdjust,
+    ) -> Result<(), ApiError> {
         let people = self.people_of(cs);
         apply_to_tree_tracked(&mut self.tree, cs, &mut self.edit.removed_at);
         // One pass over the tree gives both maps; the flags that differ are stored with the edit.
@@ -76,7 +88,7 @@ impl Session {
             .filter(|(id, v)| self.living.get(id) != Some(v))
             .map(|(id, v)| (*id, *v))
             .collect();
-        if let Err(e) = self.project.apply_changes(
+        if let Err(e) = self.project.apply_changes_adjusting(
             cs,
             &changed,
             &LogMeta {
@@ -84,6 +96,7 @@ impl Session {
                 batch,
                 people,
             },
+            adjust,
         ) {
             apply_to_tree_tracked(&mut self.tree, &cs.inverse(), &mut self.edit.removed_at);
             return Err(e.into());
@@ -352,7 +365,16 @@ impl Session {
             changes: done.writes,
         };
         if !cs.changes.is_empty() {
-            self.commit(&cs, Actor::User, None)?;
+            // The undo of a place merge also puts back the place records it moved, but only when
+            // all of it goes: the places are back then, and the records have somewhere to be.
+            let restore = (done.skipped.is_empty()
+                && self.project.place_records_moved_by(g.group)?)
+            .then_some(g.group);
+            let adjust = gt_store::PlaceRecordAdjust {
+                moves: Vec::new(),
+                restore_group: restore,
+            };
+            self.commit_adjusting(&cs, Actor::User, None, &adjust)?;
             self.drop_unreferenced_files(&cs);
         }
         Ok(UndoReport {

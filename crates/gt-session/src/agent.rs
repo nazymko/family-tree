@@ -56,7 +56,9 @@ pub enum AgentWrite {
 }
 
 mod godparents;
+mod places;
 mod verified;
+pub use places::{PLACE_MERGE_MAX, PlaceMergeOutcome};
 pub use verified::{EventCorrection, NameCorrection, VerifiedEvidence};
 
 fn refused(msg: impl Into<String>) -> ApiError {
@@ -126,7 +128,7 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         )),
         // Agents fill an empty point through `set_place_coordinates_as_agent`, with a source.
         C::CreatePlace { .. } => Err(refused(
-            "A place is made by the owner, or by an event or media that names it.",
+            "A place is made by the owner, by an event or media that names it, or with add_place.",
         )),
         C::SetPlaceCoordinates { .. } => Err(refused(
             "Give a place its coordinates with set_place_coordinates, with the source. Only the \

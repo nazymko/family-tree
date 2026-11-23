@@ -1842,7 +1842,7 @@ fn correct_event_date<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolRe
 }
 
 /// A number of degrees from `min` to `max` named `name`.
-fn degrees(args: &Value, name: &str, min: f64, max: f64) -> Result<f64, ApiError> {
+pub(crate) fn degrees(args: &Value, name: &str, min: f64, max: f64) -> Result<f64, ApiError> {
     args.get(name)
         .and_then(Value::as_f64)
         .filter(|v| v.is_finite() && (min..=max).contains(v))
