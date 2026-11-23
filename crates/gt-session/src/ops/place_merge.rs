@@ -58,6 +58,7 @@ fn research_note(text: String, now: i64) -> Note {
 
 /// A new place with a name, a kind, a parent, optionally a point (decimal degrees) and a research
 /// note. Returns the change set and the place's id.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_add_place(
     tree: &Tree,
     name: &str,

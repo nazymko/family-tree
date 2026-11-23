@@ -162,7 +162,7 @@ fn a_merge_repoints_everything_and_one_undo_puts_it_back() {
     assert_eq!(person_place(&w.s, "Maria"), Some(south));
     assert_eq!(person_place(&w.s, "Petro"), Some(plain));
     let log_before = w.s.place_record_total(south).unwrap();
-    assert_eq!(log_before, 2 + 0, "the mill has no records");
+    assert_eq!(log_before, 2, "the mill has no records");
 
     let (out, reached) =
         w.s.merge_places_as_agent(north, &[south, plain], &me(), w.batch)
@@ -215,10 +215,10 @@ fn a_merge_repoints_everything_and_one_undo_puts_it_back() {
     assert_eq!(w.s.tree().places[&w.mill].parent, Some(south));
     assert!(w.s.tree().places.contains_key(&south));
     assert!(w.s.tree().places.contains_key(&plain));
-    assert_eq!(w.s.place_record_total(south).unwrap(), 2 + 0);
+    assert_eq!(w.s.place_record_total(south).unwrap(), 2);
     assert_eq!(w.s.place_record_total(plain).unwrap(), 1);
     // North had none before; the one record added after the merge stays there.
-    assert_eq!(w.s.place_record_total(north).unwrap(), 1 + 0 + 0);
+    assert_eq!(w.s.place_record_total(north).unwrap(), 1);
 }
 
 #[test]
