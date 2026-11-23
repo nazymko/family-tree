@@ -85,6 +85,10 @@ command_list!(
     suggest_places,
     suggest_sources,
     map_data,
+    place_events,
+    place_import_scan,
+    place_import_preview,
+    place_import_run,
     add_map_layer_file,
     find_ozi_map,
     ozi_corners,
@@ -601,6 +605,88 @@ pub fn map_data(
     scope: gt_session::MapScope,
 ) -> ApiResult<gt_session::MapDataDto> {
     state.with_session(|s| Ok(s.map_data(&scope)))
+}
+
+// ------------------------------------------------------------ events of a place
+
+/// The event `place_import_run` emits while it adds records.
+pub const PLACE_IMPORT_PROGRESS_EVENT: &str = "place-import-progress";
+
+/// One page of the events that happened in a place and the places under it.
+#[tauri::command(async)]
+pub fn place_events(
+    state: State<'_, AppState>,
+    query: gt_session::PlaceEventsQuery,
+) -> ApiResult<gt_session::PlaceEventsPage> {
+    state.with_session(|s| s.place_events(&query))
+}
+
+/// Reads index files (TSV) and says which books and villages they hold. Touches no tree.
+#[tauri::command]
+pub async fn place_import_scan<R: Runtime>(
+    app: AppHandle<R>,
+    paths: Vec<String>,
+) -> ApiResult<gt_session::PlaceImportScanDto> {
+    blocking(&app, move |_| {
+        let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+        Ok(gt_session::parse_index_files(&paths)?.scan())
+    })
+    .await
+}
+
+/// What importing the files under this mapping would add and what is stored already.
+#[tauri::command]
+pub async fn place_import_preview<R: Runtime>(
+    app: AppHandle<R>,
+    paths: Vec<String>,
+    mapping: Vec<gt_session::PlaceImportMapDto>,
+) -> ApiResult<gt_session::PlaceImportPreviewDto> {
+    blocking(&app, move |s| {
+        let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+        let parsed = gt_session::parse_index_files(&paths)?;
+        s.with_session(|se| se.place_import_preview(&parsed, &mapping))
+    })
+    .await
+}
+
+/// Adds the records, a chunk at a time: the files are read without the tree's lock, and each chunk
+/// takes it only for its own transaction, so the rest of the app keeps answering meanwhile.
+#[tauri::command]
+pub async fn place_import_run<R: Runtime>(
+    app: AppHandle<R>,
+    paths: Vec<String>,
+    mapping: Vec<gt_session::PlaceImportMapDto>,
+) -> ApiResult<gt_session::PlaceImportResultDto> {
+    let emitter = app.clone();
+    blocking(&app, move |s| {
+        let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+        let parsed = gt_session::parse_index_files(&paths)?;
+        let (parts, unmapped) = parsed.split(&mapping);
+        let total: u32 = parts.iter().map(|(_, _, r)| r.len() as u32).sum();
+        let (mut done, mut added, mut duplicates) = (0u32, 0u32, 0u32);
+        let progress = |done: u32| {
+            let _ = emitter.emit(
+                PLACE_IMPORT_PROGRESS_EVENT,
+                gt_session::PlaceImportProgressDto { done, total },
+            );
+        };
+        progress(0);
+        for (_, place, records) in &parts {
+            for chunk in records.chunks(gt_session::IMPORT_CHUNK) {
+                let out = s.with_session(|se| se.add_place_records(*place, chunk, None))?;
+                added += out.added;
+                duplicates += out.duplicates;
+                done += chunk.len() as u32;
+                progress(done);
+            }
+        }
+        Ok(gt_session::PlaceImportResultDto {
+            added,
+            duplicates,
+            unmapped,
+        })
+    })
+    .await
 }
 
 /// Copies a picture into the tree and lays it on the Map as an old map. Corners come from

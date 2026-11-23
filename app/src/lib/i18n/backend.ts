@@ -44,6 +44,7 @@ const EDIT_KEYS: Record<string, [label: MessageKey, done: MessageKey]> = {
   'Delete clip': ['edit.deleteClip', 'edit.doneClipDeleted'],
   'Correct date': ['edit.correctDate', 'edit.doneDateCorrected'],
   'Record number': ['edit.recordNumber', 'edit.doneNumberRecorded'],
+  'Add place': ['edit.addPlace', 'edit.donePlaceAdded'],
   'Set place coordinates': ['edit.setPlaceCoordinates', 'edit.donePlaceCoordinatesSet'],
   'Clear place coordinates': ['edit.clearPlaceCoordinates', 'edit.donePlaceCoordinatesCleared'],
   'Lay map on the Map': ['edit.layMap', 'edit.doneMapLaid'],

@@ -18,6 +18,7 @@ export type Route =
   | { name: 'sources'; id?: Id }
   | { name: 'media' }
   | { name: 'map' }
+  | { name: 'places' }
   | { name: 'log' }
   | { name: 'trace' }
   | { name: 'settings' };
