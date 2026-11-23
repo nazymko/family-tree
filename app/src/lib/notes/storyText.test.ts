@@ -38,17 +38,23 @@ describe('cleanForStory', () => {
   });
 });
 
+describe('page prefix', () => {
+  it('leaves_no_dangling_PDF_prefix', () => {
+    expect(cleanForStory('Запис (PDF-с. 437).')).toBe('Запис.');
+    expect(cleanForStory('Запис PDF – с. 437 тут')).toBe('Запис тут');
+    expect(cleanForStory('Запис PDF, с. 437 тут')).toBe('Запис тут');
+    expect(cleanForStory('Запис (127-1012-1719, PDF с. 618)')).not.toMatch(/PDF/);
+  });
+});
+
 describe('storyOf', () => {
   it('prefers_the_written_story', () => {
     expect(storyOf({ text: 'Born 1890 (ДАХеО 1-2-3).', story: ' Born in 1890. ' })).toEqual({ text: 'Born in 1890.', cleaned: false });
   });
 
-  it('cleans_the_text_when_there_is_no_story_and_says_so', () => {
-    expect(storyOf({ text: 'Born 1890 (ДАХеО 1-2-3).', story: null })).toEqual({ text: 'Born 1890.', cleaned: true });
-    expect(storyOf({ text: 'Born 1890.' })).toEqual({ text: 'Born 1890.', cleaned: false });
-  });
-
-  it('shows_the_original_when_nothing_readable_is_left', () => {
-    expect(storyOf({ text: 'ДАХеО 1-2-3' })).toEqual({ text: 'ДАХеО 1-2-3', cleaned: false });
+  it('keeps_a_research_note_with_its_references_when_there_is_no_story', () => {
+    const text = 'Архів 1, ф. 1, оп. 2, спр. 3, PDF с. 10, ч. 5';
+    expect(storyOf({ text, story: null })).toEqual({ text, cleaned: false });
+    expect(storyOf({ text: 'ЦДІАК 127-1012-1603, PDF-с. 437, ч. 15' }).text).toBe('ЦДІАК 127-1012-1603, PDF-с. 437, ч. 15');
   });
 });

@@ -58,11 +58,11 @@ describe('the toggle next to the notes', () => {
 
     // Both lists changed, not only the one next to the clicked toggle.
     for (const l of lists) {
-      expect(within(l).queryByText(/ДАХеО/)).toBeNull();
-      expect(within(l).getByText('Born 1890, maybe in Lisky?')).toBeInTheDocument();
+      // The research note keeps its references; only the written story reads clean.
+      expect(within(l).getByText(/ДАХеО 1-2-3/)).toBeInTheDocument();
       expect(within(l).getByText('A written retelling.')).toBeInTheDocument();
-      // Only the note that has no written story says it was shortened.
-      expect(within(l).getAllByTestId('note-shortened')).toHaveLength(1);
+      expect(within(l).queryByText(/PDF с\. 29/)).toBeNull();
+      expect(within(l).queryAllByTestId('note-shortened')).toHaveLength(0);
     }
     for (const g of toggles) {
       expect(within(g).getByRole('button', { name: 'Story' })).toHaveAttribute('aria-pressed', 'true');
@@ -88,6 +88,6 @@ describe('the toggle next to the notes', () => {
     story.focus();
     await user.keyboard('{Enter}');
     expect(story).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getAllByText('скорочено з дослідницької примітки').length).toBeGreaterThan(0);
+    expect(screen.queryByText('скорочено з дослідницької примітки')).toBeNull();
   });
 });

@@ -51,6 +51,7 @@
   import { t, plural, currentTag, type MessageKey } from '../i18n';
   import NotesViewToggle from '../notes/NotesViewToggle.svelte';
   import NoteShortened from '../notes/NoteShortened.svelte';
+  import NoteCitations from '../notes/NoteCitations.svelte';
   import { shownNote } from '../notes/notesView.svelte';
   import { agentLabel, editLabel, eventKindLabel } from '../i18n/backend';
   import { withSexIcon } from '../ui/sex';
@@ -749,6 +750,7 @@
           <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
           <p class="note-text">{shownNote(n).text}</p>
           <NoteShortened note={n} />
+          <NoteCitations text={n.text} citations={detail.citations} onOpen={(c) => (dialog = { kind: 'citation', citation: c })} />
           <VoiceSamples items={n.media} />
           <div class="btns">
             <Button onclick={() => (dialog = { kind: 'note', note: n })} aria-label={t('person.editNote', { kind: t(`noteKind.${n.kind}`) })}>{t('common.edit')}</Button>
