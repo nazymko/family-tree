@@ -59,7 +59,8 @@ fn rules_are_the_owners_rules_verbatim_plus_living() {
     assert_eq!(
         rest,
         [
-            "You may never make a person count as alive. You may make someone count as dead only when the tree then shows them more than 100 years old or as an ancestor of someone who counts as dead. Any other change of whether a person counts as alive or dead is the owner's: leave a note and report it."
+            "You may never make a person count as alive. You may make someone count as dead only when the tree then shows them more than 100 years old or as an ancestor of someone who counts as dead. Any other change of whether a person counts as alive or dead is the owner's: leave a note and report it.",
+            "Places: when the records name a place that list_places does not have, make it with add_place (its type, its parent place, a note). It never makes a place twice: a place of that name under that parent answers alreadyThere with the existing id. Duplicate places that are the very same place are merged with merge_places (keep_id and merge_ids): events, pictures, place records and places under them follow, and the owner can undo the merge with the batch. Never merge namesakes in other districts; list the doubtful ones in your report."
         ]
     );
     assert!(

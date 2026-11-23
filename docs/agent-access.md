@@ -182,8 +182,11 @@ revisions and censuses. Two tools serve it.
   person of the tree in `person` only when sure it is the same person. With `book` and `rec_id` a record is unique: sending
   it again adds nothing, and the answer says `alreadyThere`. These records are a bulk side table: they are not in the change
   log and not undone with the batch.
-- `list_place_events` (inputs: the `place`, `kinds`, `year_from`, `year_to`, `who` = `all`, `ours` or `others`, a name `query`,
+- `list_place_events` (inputs: the `place`, `kind` or `kinds`, `year_from`, `year_to`, `who` = `all`, `ours` or `others`, a name `query`,
   `offset` and `limit` up to 200) reads the list oldest first, undated last, with the counts by kind and decade.
+
+- `add_place` (inputs: the batch, `name`, optionally `type`, `parent` (a place id), `lat` and `lon` with a `source`, and a `note`) makes a place that is missing. A place of the same name (or an alternative name, ignoring case) under the same parent is never made twice: the answer is `alreadyThere` with the existing id. It is one change in the log and the batch undoes it. An agent has no other way to make a place (`CreatePlace` stays the owner's).
+- `merge_places` (inputs: the batch, `keep_id`, `merge_ids`) merges duplicate places into one, in one undoable step: events and media of the merged places, the place records from books and the places under them are moved to `keep_id`, its names, notes, citations and pictures gain those of the merged ones, and the merged places are removed. A research note on the kept place lists what was merged. Refused when `keep_id` is among `merge_ids` or a merged place is an ancestor of `keep_id`. The answer counts what was repointed. The place records move in the same transaction and come back with an undo of the batch.
 
 ### Places on the map
 
