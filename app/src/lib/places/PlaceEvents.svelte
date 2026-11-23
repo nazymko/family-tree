@@ -33,7 +33,7 @@
   let epoch = $state(0);
   let seq = 0;
   /** The events read so far by position, so the detail panel can show the chosen row. */
-  let known = new Map<number, PlaceEventDto>();
+  let known: Record<number, PlaceEventDto> = {};
   let chosen = $state(-1);
 
   const kindLabel = (k: string) => (KINDS as readonly string[]).includes(k) ? t(`places.kinds.${k}` as MessageKey) : k;
@@ -68,7 +68,7 @@
       const r = await api.placeEvents(queryFor(0, PAGE));
       if (mine !== seq) return;
       page = r;
-      known = new Map(r.items.map((e, i) => [i, e]));
+      known = Object.fromEntries(r.items.map((e, i) => [i, e]));
       chosen = -1;
       failed = false;
       epoch++;
@@ -85,7 +85,7 @@
 
   async function loadPage(offset: number, limit: number): Promise<unknown[]> {
     const items = (await api.placeEvents(queryFor(offset, limit))).items;
-    items.forEach((e, i) => known.set(offset + i, e));
+    items.forEach((e, i) => (known[offset + i] = e));
     return items;
   }
 
@@ -111,7 +111,7 @@
     query = '';
   }
   const asEvent = (item: unknown) => item as PlaceEventDto | null;
-  const detail = $derived(chosen >= 0 ? (known.get(chosen) ?? null) : null);
+  const detail = $derived(chosen >= 0 ? (known[chosen] ?? null) : null);
 </script>
 
 <section class="events" aria-labelledby="pe-title">
