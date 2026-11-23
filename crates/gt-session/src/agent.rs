@@ -125,6 +125,9 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
             "Only the owner orders the maps on the Map. Say in your report which map should lie over which.",
         )),
         // Agents fill an empty point through `set_place_coordinates_as_agent`, with a source.
+        C::CreatePlace { .. } => Err(refused(
+            "A place is made by the owner, or by an event or media that names it.",
+        )),
         C::SetPlaceCoordinates { .. } => Err(refused(
             "Give a place its coordinates with set_place_coordinates, with the source. Only the \
              owner clears a place's point or moves one somebody else set.",

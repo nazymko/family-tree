@@ -12,6 +12,13 @@ import type {
   LogFilterDto,
   LogRowDto,
   MediaDto,
+  PlaceEventsQuery,
+  PlaceEventsPage,
+  PlaceImportScanDto,
+  PlaceImportMapDto,
+  PlaceImportPreviewDto,
+  PlaceImportResultDto,
+  PlaceImportProgressDto,
   RecordingDto,
   RecordHomeDto,
   RecordRefDto,
@@ -272,6 +279,24 @@ export class TauriApi implements Api {
       return await invoke<{ bytes: number }>('save_picture', bytes, { headers: { 'x-gt-path': path } });
     } catch (e) {
       throw toApiError(e);
+    }
+  }
+  placeEvents(query: PlaceEventsQuery): Promise<PlaceEventsPage> {
+    return call('place_events', { query });
+  }
+  placeImportScan(paths: string[]): Promise<PlaceImportScanDto> {
+    return call('place_import_scan', { paths });
+  }
+  placeImportPreview(paths: string[], mapping: PlaceImportMapDto[]): Promise<PlaceImportPreviewDto> {
+    return call('place_import_preview', { paths, mapping });
+  }
+  async placeImportRun(paths: string[], mapping: PlaceImportMapDto[], onProgress?: (p: PlaceImportProgressDto) => void): Promise<PlaceImportResultDto> {
+    let unlisten: (() => void) | null = null;
+    try {
+      if (onProgress) unlisten = await listen<PlaceImportProgressDto>('place-import-progress', (e) => onProgress(e.payload));
+      return await call<PlaceImportResultDto>('place_import_run', { paths, mapping });
+    } finally {
+      unlisten?.();
     }
   }
   mapData(scope: MapScope): Promise<MapDataDto> {

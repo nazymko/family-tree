@@ -140,7 +140,7 @@ fn schema_6_project_gains_the_rotation_column_and_its_pictures_stay_unturned() {
 }
 
 /// Takes a project back from schema 8: no place on media, no clip columns on media links.
-const DROP_CLIPS: &str = "ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; \
+const DROP_CLIPS: &str = "DROP TABLE place_record_person; DROP TABLE place_record; ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; \
     ALTER TABLE media_link DROP COLUMN clip_id; \
     ALTER TABLE media_link DROP COLUMN clip_start_ms; ALTER TABLE media_link DROP COLUMN clip_end_ms; \
     ALTER TABLE media_link DROP COLUMN clip_label;";
@@ -194,7 +194,7 @@ fn schema_8_project_gains_the_media_place_column_and_its_media_have_no_place() {
         // What a schema 8 app left behind: a recording, no place column.
         let c = Connection::open(dir.join("tree.db")).unwrap();
         c.execute_batch(
-            "ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; PRAGMA user_version = 8; \
+            "DROP TABLE place_record_person; DROP TABLE place_record; ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; PRAGMA user_version = 8; \
              INSERT INTO media(id, seq, private, path, mime) \
              VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.ogg', 'audio/ogg');",
         )
@@ -202,7 +202,7 @@ fn schema_8_project_gains_the_media_place_column_and_its_media_have_no_place() {
     }
     let p = Project::open(&dir).unwrap();
     assert_eq!(p.schema_version(), SCHEMA_VERSION);
-    assert_eq!(SCHEMA_VERSION, 14);
+    assert_eq!(SCHEMA_VERSION, 15);
     let has: i64 = p
         .conn()
         .query_row(
@@ -314,7 +314,7 @@ fn schema_9_project_gains_the_source_kind_columns_and_its_sources_have_no_kind()
     {
         let c = Connection::open(dir.join("tree.db")).unwrap();
         c.execute_batch(
-            "ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; \
+            "DROP TABLE place_record_person; DROP TABLE place_record; ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; \
              ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; \
              PRAGMA user_version = 9; \
              INSERT INTO source(id, seq, private, title) \
@@ -342,7 +342,7 @@ fn schema_10_project_gains_the_version_column_and_its_media_are_in_no_group() {
         // What a schema 10 app left behind: two pictures, no version column.
         let c = Connection::open(dir.join("tree.db")).unwrap();
         c.execute_batch(
-            "ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; PRAGMA user_version = 10; \
+            "DROP TABLE place_record_person; DROP TABLE place_record; ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; PRAGMA user_version = 10; \
              INSERT INTO media(id, seq, private, path, mime) \
              VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.jpg', 'image/jpeg'), \
                     ('00000000-0000-0000-0000-0000000000a2', 1, 0, 'media/cd/cd.jpg', 'image/jpeg');",
@@ -411,15 +411,15 @@ fn schema_12_project_gains_the_map_layer_column_and_a_layer_reads_back() {
         // What a schema 12 app left behind: one picture, no map layer column.
         let c = Connection::open(dir.join("tree.db")).unwrap();
         c.execute_batch(
-            "ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; PRAGMA user_version = 12; \
+            "DROP TABLE place_record_person; DROP TABLE place_record; ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; PRAGMA user_version = 12; \
              INSERT INTO media(id, seq, private, path, mime) \
              VALUES ('00000000-0000-0000-0000-0000000000b1', 0, 0, 'media/ab/ab.jpg', 'image/jpeg');",
         )
         .unwrap();
     }
     let p = Project::open(&dir).unwrap();
-    assert_eq!(p.schema_version(), 14);
-    assert_eq!(SCHEMA_VERSION, 14);
+    assert_eq!(p.schema_version(), 15);
+    assert_eq!(SCHEMA_VERSION, 15);
     let tree = p.load_tree().unwrap();
     assert!(tree.media.values().all(|m| m.map_layer.is_none()));
     // A layer written by this version reads back; JSON that does not read is no layer.

@@ -42,6 +42,7 @@
   import FamilyView from './FamilyView.svelte';
   import type { IconName } from '../ui/icons';
   import { getApi, getPlatform } from '../api/context';
+  import PlacesView from '../places/PlacesView.svelte';
   import { notices } from '../ui/notices.svelte';
   import type { Id, PersonDetail, PersonRef, SearchHitDto } from '../api/types';
   import { nav, type Route } from '../state/nav.svelte';
@@ -59,7 +60,7 @@
   const api = getApi();
   const platform = getPlatform();
 
-  type NavName = 'family' | 'people' | 'whole' | 'pedigree' | 'descendants' | 'relatives' | 'sources' | 'media' | 'map' | 'log' | 'settings';
+  type NavName = 'family' | 'people' | 'whole' | 'pedigree' | 'descendants' | 'relatives' | 'sources' | 'media' | 'map' | 'places' | 'log' | 'settings';
   const ITEMS: { name: NavName; label: MessageKey; icon: IconName }[] = [
     { name: 'family', label: 'nav.family', icon: 'family' },
     { name: 'people', label: 'nav.people', icon: 'people' },
@@ -70,6 +71,7 @@
     { name: 'sources', label: 'nav.sources', icon: 'sources' },
     { name: 'media', label: 'nav.media', icon: 'media' },
     { name: 'map', label: 'nav.map', icon: 'map' },
+    { name: 'places', label: 'nav.places', icon: 'places' },
     { name: 'log', label: 'nav.log', icon: 'log' },
   ];
 
@@ -485,6 +487,8 @@
           {#await import('../map/MapView.svelte') then { default: MapView }}
             <MapView onOpenPerson={openPerson} />
           {/await}
+        {:else if nav.route.name === 'places'}
+          <PlacesView onOpenPerson={openPerson} />
         {:else if nav.route.name === 'trace'}
           <TraceView />
         {:else if nav.route.name === 'settings'}

@@ -78,6 +78,7 @@ const DYNAMIC_OK: Record<string, string> = {
   'app/src-tauri/src/settings_file.rs|e.to_string()': 'agent-access settings, see above',
   'crates/gt-session/src/map_layers.rs|f.reason.clone()': 'the reason of an `AttachFailure` from `prepare_attach`: the reasons a file was not attached, worded below',
   'crates/gt-session/src/ozi.rs|msg': 'the helper `bad` itself',
+  'crates/gt-session/src/place_events.rs|m': 'the helper `invalid` itself',
 };
 
 const { messages, dynamic } = extractMessages(sources, /gt-session\/src\/error\.rs$/);

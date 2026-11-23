@@ -60,6 +60,13 @@ import type {
   GazetteerStatusDto,
   MapDataDto,
   MapScope,
+  PlaceEventsQuery,
+  PlaceEventsPage,
+  PlaceImportScanDto,
+  PlaceImportMapDto,
+  PlaceImportPreviewDto,
+  PlaceImportResultDto,
+  PlaceImportProgressDto,
   MapLayerInput,
   OziPlacementDto,
 } from './types';
@@ -163,6 +170,14 @@ export interface Api {
 
   // --- Map view: what the map draws, and the offline place data (the one download is the person's own click) ---
   mapData(scope: MapScope): Promise<MapDataDto>;
+  /** One page of what happened in a place and the places under it: events of the tree and place records about others. */
+  placeEvents(query: PlaceEventsQuery): Promise<PlaceEventsPage>;
+  /** Reads index files (TSV) and says which books and villages they hold. Changes nothing. */
+  placeImportScan(paths: string[]): Promise<PlaceImportScanDto>;
+  /** What importing would add and what is stored already. */
+  placeImportPreview(paths: string[], mapping: PlaceImportMapDto[]): Promise<PlaceImportPreviewDto>;
+  /** Adds the records; `onProgress` hears how many are done. */
+  placeImportRun(paths: string[], mapping: PlaceImportMapDto[], onProgress?: (p: PlaceImportProgressDto) => void): Promise<PlaceImportResultDto>;
   /** Copies a picture into the tree and lays it on the Map as an old map; corners from `layer.corners`, else from the OziExplorer .map file. Returns its media id. */
   addMapLayerFile(path: string, title: string | null, layer: MapLayerInput, oziMapPath?: string | null): Promise<Id>;
   /** The OziExplorer .map file next to a picture that names it, or null. */

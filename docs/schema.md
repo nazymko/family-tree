@@ -200,6 +200,27 @@ A note or story, written in Markdown. Links to people and places use `genetree:/
 - `shared`: `1` if the note is shared between several records rather than owned by one.
 - `story`: a readable retelling of `text` (schema 14), shown in the app's story view; null when the note has none, as on every older row. It never replaces `text`.
 
+## Place records
+
+Records about people who are not in the tree, for a place's list of events. A bulk side table beside the tree: not in the change log, not in undo, never rewritten by a save of the tree, and not in a GEDCOM export.
+
+### `place_record`
+One record of a church book, confession list, revision or census (schema 15).
+- `id`: integer key.
+- `place_id`: the `place` the record happened in. No foreign key: a place that is gone leaves its records unreachable, and undoing the place's removal brings them back.
+- `kind`: `birth`, `marriage`, `death`, `confession`, `revision`, `census` or `other`.
+- `date`: the date as the book gives it, partial dates allowed; `year`: the sortable year read from it (null when none).
+- `book`, `page`, `rec_id`: the source. `rec_id` with `book` is unique when `rec_id` is not empty, so adding the same index twice adds nothing.
+- `note`, `unsure` (`1` when the reading or the identification is doubtful).
+- `search`: the participants' names in lower case, for the name search.
+- `batch_id`: the agent batch that added it, when an agent did; `added_ms`: when (Unix ms).
+
+### `place_record_person`
+A person named in a record.
+- `record_id`: the `place_record`; `ord`: position in the record.
+- `role`, `given`, `patronymic`, `surname`, `as_written`, `estate`, `age`, `note`: as the book gives them.
+- `person_id`: the person of the tree this participant is, when a relative; null otherwise. No foreign key.
+
 ## Polymorphic links and external ids
 
 ### `citation_link`

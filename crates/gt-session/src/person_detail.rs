@@ -80,7 +80,7 @@ pub fn is_fact(k: &EventKind) -> bool {
     )
 }
 
-fn role_text(r: &Role) -> String {
+pub(crate) fn role_text(r: &Role) -> String {
     match r {
         Role::Other(t) => t.clone(),
         other => enum_id(other),

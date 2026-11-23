@@ -23,6 +23,8 @@ pub mod map_layers;
 pub mod merge;
 mod mp4_tracks;
 pub mod ozi;
+pub mod place_events;
+pub mod place_import;
 pub use merge::{CopySizeDto, CopyZipDto, MergePreviewDto, MergeResultDto};
 pub mod names;
 pub mod ops;
@@ -65,6 +67,16 @@ pub use map::{
 pub use map_layers::{MapLayerDto, OziPlacementDto, prepare_map_file};
 pub use names::{display_name, lifespan};
 pub use ops::VERSION_GROUP_MAX;
+pub use place_events::{
+    DecadeCount, KindCount, PLACE_EVENTS_PAGE_MAX, PLACE_RECORD_PEOPLE_MAX,
+    PLACE_RECORDS_BATCH_MAX, PlaceEventDto, PlaceEventPersonDto, PlaceEventsPage, PlaceEventsQuery,
+    PlaceEventsWho, coarse_kind, place_record_kinds,
+};
+pub use place_import::{
+    IMPORT_CHUNK, ParsedIndex, PlaceImportGroupDto, PlaceImportKey, PlaceImportLineDto,
+    PlaceImportMapDto, PlaceImportPreviewDto, PlaceImportProgressDto, PlaceImportResultDto,
+    PlaceImportScanDto, parse_index_files,
+};
 pub use session::{Session, SessionClock};
 pub use settings::SettingsPatch;
 pub use touched::people_reached;

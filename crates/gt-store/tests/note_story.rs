@@ -13,7 +13,7 @@ fn schema_13_project_gains_the_note_story_column_and_old_notes_have_none() {
         // What a schema 13 app left behind: a note, no story column.
         let c = Connection::open(dir.join("tree.db")).unwrap();
         c.execute_batch(
-            "ALTER TABLE note DROP COLUMN story; PRAGMA user_version = 13; \
+            "DROP TABLE place_record_person; DROP TABLE place_record; ALTER TABLE note DROP COLUMN story; PRAGMA user_version = 13; \
              INSERT INTO note(id, seq, private, kind, text, shared) \
              VALUES ('00000000-0000-0000-0000-0000000000c1', 0, 0, 'General', 'Born 1890.', 0);",
         )

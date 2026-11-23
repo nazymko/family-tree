@@ -75,6 +75,7 @@ export const commandFixtureMap = {
     attachPicture: true,
   },
   addSiblingMarker: { type: 'addSiblingMarker', family: `${ID}3` },
+  createPlace: { type: 'createPlace', text: 'Zelenivka, Testova oblast' },
   setPlaceCoordinates: { type: 'setPlaceCoordinates', place: `${ID}7`, latE6: 50123456, lonE6: 30654321 },
   setMapLayer: {
     type: 'setMapLayer',

@@ -52,6 +52,15 @@ import type {
   LocationWarningDto,
   MediaDto,
   MediaLinkDto,
+  PlaceEventsQuery,
+  PlaceEventsPage,
+  PlaceEventDto,
+  PlaceImportScanDto,
+  PlaceImportMapDto,
+  PlaceImportPreviewDto,
+  PlaceImportResultDto,
+  PlaceImportProgressDto,
+
   NameDto,
   NoteDto,
   OutlineItem,
@@ -288,6 +297,7 @@ const LABELS: Record<EditCommand['type'], string> = {
   deleteAudioClip: 'Delete clip',
   importDraft: 'Add traced people',
   setPlaceCoordinates: 'Set place coordinates',
+  createPlace: 'Add place',
   setMapLayer: 'Change map layer',
   reorderMapLayers: 'Reorder map layers',
   setMapLayersVisible: 'Show maps on the Map',
@@ -2370,6 +2380,85 @@ export class MockApi implements Api {
 
   // ------------------------------------------------------------------ map
 
+  async placeEvents(q: PlaceEventsQuery): Promise<PlaceEventsPage> {
+    const yearOf = (text: string): number | null => {
+      const m = /(\d{4})/.exec(text);
+      return m ? Number(m[1]) : null;
+    };
+    const place = this.db.places.get(q.place);
+    if (!place) throw missing('place', q.place);
+    const under = (id: Id | undefined) => {
+      const p = id ? this.db.places.get(id) : undefined;
+      return !!p && (p.id === place.id || p.full.endsWith(`, ${place.full}`));
+    };
+    const all: PlaceEventDto[] = [];
+    for (const person of this.db.persons.values()) {
+      if (person.private || person.siblingMarker) continue;
+      const n = person.names.find((x) => x.preferred) ?? person.names[0];
+      for (const e of person.events) {
+        if (e.private || e.negative || !under(e.place?.id)) continue;
+        const kind = e.kind === 'birth' || e.kind === 'death' ? e.kind : e.kind === 'marriage' ? 'marriage' : 'other';
+        all.push({
+          key: `e:${e.id}`, source: 'tree', ours: true, kind, kindDetail: e.kind, date: e.date?.display ?? '',
+          year: yearOf(e.date?.display ?? ''), place: e.place?.id ?? null,
+          people: [{ name: n?.display ?? '', asWritten: '', role: '', age: '', estate: '', note: '', person: person.id, living: false }],
+          book: '', page: '', recId: '', note: '', unsure: false,
+        });
+      }
+    }
+    for (const r of this.placeRecords) if (under(r.place)) all.push(r);
+    const fold1 = (x: string) => x.toLowerCase();
+    const who = q.who ?? 'all';
+    const base = all.filter((e) => (who === 'all' || (who === 'ours') === e.ours) && (!q.query || e.people.some((p) => fold1(`${p.name} ${p.asWritten}`).includes(fold1(q.query!)))));
+    const byKind = new Map<string, number>();
+    const byDecade = new Map<number, number>();
+    for (const e of base) {
+      byKind.set(e.kind, (byKind.get(e.kind) ?? 0) + 1);
+      if (e.year != null) byDecade.set(Math.floor(e.year / 10) * 10, (byDecade.get(Math.floor(e.year / 10) * 10) ?? 0) + 1);
+    }
+    const shown = base
+      .filter((e) => (!q.kinds?.length || q.kinds.includes(e.kind)) && (q.yearFrom == null || (e.year != null && e.year >= q.yearFrom)) && (q.yearTo == null || (e.year != null && e.year <= q.yearTo)))
+      .sort((a, b) => (a.year ?? 1e9) - (b.year ?? 1e9));
+    const offset = q.offset ?? 0;
+    const limit = Math.min(q.limit ?? 100, 500);
+    return structuredClone({
+      place,
+      total: shown.length,
+      offset,
+      items: shown.slice(offset, offset + limit),
+      overviewTotal: base.length,
+      byKind: [...byKind].map(([kind, count]) => ({ kind, count })),
+      byDecade: [...byDecade].sort((a, b) => a[0] - b[0]).map(([decade, count]) => ({ decade, count })),
+    });
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async placeImportScan(_paths: string[]): Promise<PlaceImportScanDto> {
+    return structuredClone(this.placeImportSample);
+  }
+
+  async placeImportPreview(_paths: string[], mapping: PlaceImportMapDto[]): Promise<PlaceImportPreviewDto> {
+    const lines = this.placeImportSample.groups.map((g) => {
+      const m = mapping.find((x) => x.book === g.book && x.village === g.village);
+      const dup = m?.place && this.placeImported.has(`${g.book}|${g.village}`) ? g.records : 0;
+      return { book: g.book, village: g.village, place: m?.place ?? null, records: g.records, new: m?.place ? g.records - dup : 0, duplicates: dup };
+    });
+    return {
+      lines,
+      totalNew: lines.reduce((n, l) => n + l.new, 0),
+      totalDuplicates: lines.reduce((n, l) => n + l.duplicates, 0),
+      unmapped: lines.filter((l) => !l.place).reduce((n, l) => n + l.records, 0),
+    };
+  }
+
+  async placeImportRun(paths: string[], mapping: PlaceImportMapDto[], onProgress?: (p: PlaceImportProgressDto) => void): Promise<PlaceImportResultDto> {
+    const pre = await this.placeImportPreview(paths, mapping);
+    const total = pre.totalNew;
+    onProgress?.({ done: total, total });
+    for (const l of pre.lines) if (l.place) this.placeImported.add(`${l.book}|${l.village}`);
+    return { added: pre.totalNew, duplicates: pre.totalDuplicates, unmapped: pre.unmapped };
+  }
+
   async mapData(scope: MapScope): Promise<MapDataDto> {
     const parents = (p: Id): Id[] => [...new Set([...this.db.families.values()].filter((f) => f.children.some((c) => c.person === p)).flatMap((f) => [f.partner1, f.partner2]).filter((x): x is Id => !!x))];
     const real = (id: Id) => {
@@ -2490,6 +2579,11 @@ export class MockApi implements Api {
   }
 
   private gaz = new Set<string>();
+  /** Place records about people outside the tree (a test or a screenshot seeds them). */
+  placeRecords: (PlaceEventDto & { place: Id; ourPerson?: Id })[] = [];
+  /** What `placeImportScan` answers, whatever the paths: the mock reads no files. */
+  placeImportSample: PlaceImportScanDto = { files: 0, rows: 0, badRows: 0, groups: [] };
+  private placeImported = new Set<string>();
 
   async gazetteerStatus(): Promise<GazetteerStatusDto> {
     return { countries: [...this.gaz].map((country) => ({ country, rows: MOCK_GAZETTEER.length, bytes: 1_200_000 })), attribution: 'Place data: GeoNames (geonames.org), CC BY 4.0.' };
@@ -3262,6 +3356,11 @@ export class MockApi implements Api {
         if ((m.mime ?? '').startsWith('audio/') || m.mime === 'application/pdf') throw invalid('Only a picture can be turned.');
         m.rotation = cmd.rotation;
         return { focus: null, touched: [m.id] };
+      }
+
+      case 'createPlace': {
+        const place = this.ensurePlace(cmd.text);
+        return { focus: place.id, touched: [place.id] };
       }
 
       case 'setPlaceCoordinates': {

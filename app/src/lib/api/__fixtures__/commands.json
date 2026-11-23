@@ -298,6 +298,10 @@
     "family": "018f3a6e-0000-7000-8000-000000000003"
   },
   {
+    "type": "createPlace",
+    "text": "Zelenivka, Testova oblast"
+  },
+  {
     "type": "setPlaceCoordinates",
     "place": "018f3a6e-0000-7000-8000-000000000007",
     "latE6": 50123456,

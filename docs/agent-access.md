@@ -169,6 +169,22 @@ child to the right family with `link_people`.
   is refused.
 - Asking again after the link is gone answers that it is already so; a person who was never a child of that family is refused.
 
+### Events of a place
+
+The Places page lists everything that happened in a place and the places under it: births, marriages, deaths and other
+events of people in the family tree, and place records about other people, from church books, confession lists,
+revisions and censuses. Two tools serve it.
+
+- `add_place_records` (inputs: the batch, the `place`, and up to 1000 `records`) adds records about people who are **not**
+  in the tree. A record has a `kind` (`birth`, `marriage`, `death`, `confession`, `revision`, `census` or `other`), a `date`
+  as the book writes it (a partial date is fine; the sortable `year` is read from it), `book`, `page`, `rec_id`, a `note`,
+  `unsure`, and `people`: for each given name, patronymic, surname, `as_written`, `role`, `estate`, `age` and a note. Put a
+  person of the tree in `person` only when sure it is the same person. With `book` and `rec_id` a record is unique: sending
+  it again adds nothing, and the answer says `alreadyThere`. These records are a bulk side table: they are not in the change
+  log and not undone with the batch.
+- `list_place_events` (inputs: the `place`, `kinds`, `year_from`, `year_to`, `who` = `all`, `ours` or `others`, a name `query`,
+  `offset` and `limit` up to 200) reads the list oldest first, undated last, with the counts by kind and decade.
+
 ### Places on the map
 
 The Map shows an event only when its place has coordinates. An agent can give a place its point with the tool
