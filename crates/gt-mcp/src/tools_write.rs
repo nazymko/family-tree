@@ -220,6 +220,18 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             call: remove_own_event::<H>,
         },
         Tool {
+            name: "remove_own_citation",
+            description: "Takes back a citation you made yourself (add_citation), when it points to a record that was misread or the wrong one. Give the reason. Allowed only for a citation you created, in this batch or an earlier one, that nobody has changed since; a citation the owner, an import or another connection made is refused: leave a note and list it in your report. It removes only that citation and its links to persons, events, names and notes: the source stays. A research note on each person or family that held it records what was removed and why. It is in the log under your name and the owner can undo it with the batch, which brings the citation back with its links. A citation already removed answers alreadyThere.",
+            schema: with_batch(
+                &["citation", "reason"],
+                json!({
+                    "citation": id("The citation you made, which to remove."),
+                    "reason": writing("Why the citation is wrong, and who or which source showed it."),
+                }),
+            ),
+            call: remove_own_citation::<H>,
+        },
+        Tool {
             name: "add_event",
             description: "Adds an event to a person or a family. Give one of them. A birth year goes on the birth event (kind birth), with its date. Never invent a date: with no date in the source, leave it out and put what the source says in a note. Inferences go in a note too. A person has one birth, death, burial and cremation; a different version of one goes in a note. An event may make someone count as dead only when the tree then shows them more than 100 years old or as an ancestor of someone who counts as dead; any other change of whether someone counts as alive or dead is refused: only the owner can do that, so leave a note and put it in your report.",
             schema: event_fields(
@@ -1250,6 +1262,23 @@ fn remove_own_event<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResu
             Ok((write, reached, None))
         },
         |_, _| Some(event),
+    )
+}
+
+fn remove_own_citation<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let citation = uuid_arg(args, "citation")?;
+    let reason = long(args, "reason")?
+        .filter(|r| !r.trim().is_empty())
+        .ok_or_else(|| invalid("reason must say why this citation is wrong.".into()))?;
+    apply(
+        host,
+        ctx,
+        |s, _| {
+            let (write, reached) = s.remove_own_citation(citation, &reason, ctx, batch)?;
+            Ok((write, reached, None))
+        },
+        |_, _| Some(citation),
     )
 }
 

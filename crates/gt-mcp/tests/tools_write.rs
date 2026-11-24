@@ -148,6 +148,10 @@ fn write_needs_batch() {
         ("move_place", json!({"place_id": id, "new_parent_id": null})),
         ("update_place", json!({"place_id": id})),
         ("remove_own_event", json!({"event": id, "reason": "x"})),
+        (
+            "remove_own_citation",
+            json!({"citation": id, "reason": "x"}),
+        ),
     ];
     for (tool, args) in writes {
         let message = call_err(&host, tool, args);
@@ -1428,6 +1432,8 @@ fn only_the_tools_named_here_can_write() {
             "remove_own_child_link",
             // Takes back only an event the agent made itself.
             "remove_own_event",
+            // Takes back only a citation the agent made itself; the source stays.
+            "remove_own_citation",
             "add_event",
             "add_note",
             "add_source",
