@@ -56,8 +56,10 @@ pub enum AgentWrite {
 }
 
 mod godparents;
+mod place_edit;
 mod places;
 mod verified;
+pub use place_edit::{PLACE_NAMES_MAX, PlaceEdit};
 pub use places::{PLACE_MERGE_MAX, PlaceMergeOutcome};
 pub use verified::{EventCorrection, NameCorrection, VerifiedEvidence};
 

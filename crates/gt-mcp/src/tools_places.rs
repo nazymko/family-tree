@@ -5,8 +5,9 @@ use crate::tools_read::{ToolResult, answer, invalid, str_arg, uuid_arg};
 use crate::tools_write::{batch_arg, degrees, long, optional_uuid, short, with_batch};
 use crate::{AgentCtx, Host, Tool};
 use gt_session::{
-    AgentWrite, ApiError, PLACE_EVENTS_PAGE_MAX, PLACE_MERGE_MAX, PLACE_RECORD_PEOPLE_MAX,
-    PLACE_RECORDS_BATCH_MAX, PlaceEventsQuery, PlaceEventsWho, Session, place_record_kinds,
+    AgentWrite, ApiError, PLACE_EVENTS_PAGE_MAX, PLACE_MERGE_MAX, PLACE_NAMES_MAX,
+    PLACE_RECORD_PEOPLE_MAX, PLACE_RECORDS_BATCH_MAX, PlaceEdit, PlaceEventsQuery, PlaceEventsWho,
+    Session, place_record_kinds,
 };
 use gt_store::PlaceRecordInput;
 use serde_json::{Value, json};
@@ -96,6 +97,45 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
                 }),
             ),
             call: add_place::<H>,
+        },
+        Tool {
+            name: "delete_place",
+            description: "Deletes a place that nothing refers to: an empty duplicate, or a place you made by mistake. Refused, with the counts, when any event, place record from a book, picture, citation or place under it refers to the place; merge such a duplicate into the right place with merge_places instead. Only an empty place can go. One change in the log under your name; the owner can undo it with the batch, which brings the place back.",
+            schema: with_batch(
+                &["place_id"],
+                json!({"place_id": {"type": "string", "description": "The id of the empty place."}}),
+            ),
+            call: delete_place::<H>,
+        },
+        Tool {
+            name: "move_place",
+            description: "Puts a place under another parent place, or at the top level when new_parent_id is null. Everything that names the place, and the places under it, move with it. Refused when the new parent is the place itself or one of its descendants. One change in the log; the owner can undo it with the batch. A place already under that parent answers alreadyThere.",
+            schema: with_batch(
+                &["place_id", "new_parent_id"],
+                json!({
+                    "place_id": {"type": "string", "description": "The id of the place to move."},
+                    "new_parent_id": {"type": ["string", "null"], "description": "The id of the new parent place, or null for a top-level place."},
+                }),
+            ),
+            call: move_place::<H>,
+        },
+        Tool {
+            name: "update_place",
+            description: "Edits a place's names, type and coordinates. name renames the primary (first) name; add_alt_names and remove_alt_names change the alternative names (a leftover name after a merge goes with remove_alt_names). The primary name cannot be removed: rename the place with name first. type sets what it is (village, church, district...). lat and lon need their source, as in add_place, and replace only coordinates you set yourself. Each field left out stays as it is. One change in the log; the owner can undo it with the batch.",
+            schema: with_batch(
+                &["place_id"],
+                json!({
+                    "place_id": {"type": "string", "description": "The id of the place to edit."},
+                    "name": text("The new primary name."),
+                    "type": text("What it is: village, town, district, region, church..."),
+                    "add_alt_names": {"type": "array", "maxItems": PLACE_NAMES_MAX, "items": text("An alternative name.")},
+                    "remove_alt_names": {"type": "array", "maxItems": PLACE_NAMES_MAX, "items": text("An alternative name to remove.")},
+                    "lat": {"type": "number", "minimum": -90, "maximum": 90, "description": "Latitude in decimal degrees, south negative. Needs lon and source."},
+                    "lon": {"type": "number", "minimum": -180, "maximum": 180, "description": "Longitude in decimal degrees, west negative."},
+                    "source": text("Where the coordinates come from, briefly: GeoNames 702550, Wikipedia: ..."),
+                }),
+            ),
+            call: update_place::<H>,
         },
         Tool {
             name: "merge_places",
@@ -316,4 +356,88 @@ fn merge_places<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
             "pictures": c.pictures,
         },
     }))
+}
+
+fn delete_place<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let place = uuid_arg(args, "place_id")?;
+    let (write, reached) =
+        host.with_session(&mut |s: &mut Session| s.delete_place_as_agent(place, ctx, batch))?;
+    if !reached.is_empty() {
+        host.changed(&reached, ctx);
+    }
+    match write {
+        AgentWrite::AlreadyThere { record } => answer(&json!({"id": record, "alreadyThere": true})),
+        AgentWrite::Done(result) => answer(&json!({"deleted": place, "touched": result.touched})),
+    }
+}
+
+fn move_place<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let place = uuid_arg(args, "place_id")?;
+    let parent = match args.get("new_parent_id") {
+        None => {
+            return Err(invalid(
+                "Give new_parent_id: a place id, or null for the top level.".into(),
+            ));
+        }
+        Some(Value::Null) => None,
+        Some(_) => Some(uuid_arg(args, "new_parent_id")?),
+    };
+    let (write, reached) =
+        host.with_session(&mut |s: &mut Session| s.move_place_as_agent(place, parent, ctx, batch))?;
+    if !reached.is_empty() {
+        host.changed(&reached, ctx);
+    }
+    match write {
+        AgentWrite::AlreadyThere { record } => answer(&json!({"id": record, "alreadyThere": true})),
+        AgentWrite::Done(result) => answer(&json!({"id": place, "touched": result.touched})),
+    }
+}
+
+fn names_arg(args: &Value, name: &str) -> Result<Vec<String>, ApiError> {
+    match args.get(name) {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(a)) if a.len() <= PLACE_NAMES_MAX => a
+            .iter()
+            .map(|v| {
+                v.as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| invalid(format!("{name} is a list of names.")))
+            })
+            .collect(),
+        Some(_) => Err(invalid(format!(
+            "{name} is a list of at most {PLACE_NAMES_MAX} names."
+        ))),
+    }
+}
+
+fn update_place<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let place = uuid_arg(args, "place_id")?;
+    let point = match (args.get("lat"), args.get("lon")) {
+        (None | Some(Value::Null), None | Some(Value::Null)) => None,
+        (Some(_), Some(_)) => Some((
+            degrees(args, "lat", -90.0, 90.0)?,
+            degrees(args, "lon", -180.0, 180.0)?,
+        )),
+        _ => return Err(invalid("Give both lat and lon, or neither.".into())),
+    };
+    let edit = PlaceEdit {
+        name: short(args, "name")?,
+        kind: short(args, "type")?,
+        add_alt_names: names_arg(args, "add_alt_names")?,
+        remove_alt_names: names_arg(args, "remove_alt_names")?,
+        point,
+        source: short(args, "source")?,
+    };
+    let (write, reached) = host
+        .with_session(&mut |s: &mut Session| s.update_place_as_agent(place, &edit, ctx, batch))?;
+    if !reached.is_empty() {
+        host.changed(&reached, ctx);
+    }
+    match write {
+        AgentWrite::AlreadyThere { record } => answer(&json!({"id": record, "alreadyThere": true})),
+        AgentWrite::Done(result) => answer(&json!({"id": place, "touched": result.touched})),
+    }
 }
