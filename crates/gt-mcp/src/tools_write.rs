@@ -208,6 +208,18 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             call: remove_own_child_link::<H>,
         },
         Tool {
+            name: "remove_own_event",
+            description: "Takes back an event you made yourself (add_event, or one made with another tool), when a source showed it is wrong: a death or birth that is disproven, an event put on the wrong person. Give the reason. Allowed only for an event you created, in this batch or an earlier one, that nobody has changed since; an event the owner, an import or another connection made is refused: leave a note and list it in your report. The event goes with its citations and links, and a research note on each person or family it was about records what was removed and why. It is in the log under your name and the owner can undo it with the batch, which brings the event back with its citations. A removal that would change whether someone counts as alive or dead is refused (the owner decides that). An event already removed answers alreadyThere.",
+            schema: with_batch(
+                &["event", "reason"],
+                json!({
+                    "event": id("The event you made, which to remove."),
+                    "reason": writing("Why the event is wrong, and who or which source showed it."),
+                }),
+            ),
+            call: remove_own_event::<H>,
+        },
+        Tool {
             name: "add_event",
             description: "Adds an event to a person or a family. Give one of them. A birth year goes on the birth event (kind birth), with its date. Never invent a date: with no date in the source, leave it out and put what the source says in a note. Inferences go in a note too. A person has one birth, death, burial and cremation; a different version of one goes in a note. An event may make someone count as dead only when the tree then shows them more than 100 years old or as an ancestor of someone who counts as dead; any other change of whether someone counts as alive or dead is refused: only the owner can do that, so leave a note and put it in your report.",
             schema: event_fields(
@@ -1221,6 +1233,23 @@ fn remove_own_child_link<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> Too
             Ok((write, reached, None))
         },
         |_, _| Some(person),
+    )
+}
+
+fn remove_own_event<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let event = uuid_arg(args, "event")?;
+    let reason = long(args, "reason")?
+        .filter(|r| !r.trim().is_empty())
+        .ok_or_else(|| invalid("reason must say why this event is wrong.".into()))?;
+    apply(
+        host,
+        ctx,
+        |s, _| {
+            let (write, reached) = s.remove_own_event(event, &reason, ctx, batch)?;
+            Ok((write, reached, None))
+        },
+        |_, _| Some(event),
     )
 }
 

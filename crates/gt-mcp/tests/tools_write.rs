@@ -144,6 +144,10 @@ fn write_needs_batch() {
         ),
         ("add_place", json!({"name": "Zelenivka"})),
         ("merge_places", json!({"keep_id": id, "merge_ids": [id]})),
+        ("delete_place", json!({"place_id": id})),
+        ("move_place", json!({"place_id": id, "new_parent_id": null})),
+        ("update_place", json!({"place_id": id})),
+        ("remove_own_event", json!({"event": id, "reason": "x"})),
     ];
     for (tool, args) in writes {
         let message = call_err(&host, tool, args);
@@ -1422,6 +1426,8 @@ fn only_the_tools_named_here_can_write() {
             "remove_own_empty_family",
             // Takes back only the agent's own child link, with a reason kept in a note.
             "remove_own_child_link",
+            // Takes back only an event the agent made itself.
+            "remove_own_event",
             "add_event",
             "add_note",
             "add_source",
@@ -1470,6 +1476,10 @@ fn only_the_tools_named_here_can_write() {
             "add_place_records",
             // The one place an agent makes (never twice), and the merge of duplicate places.
             "add_place",
+            // Housekeeping after an agent's own work: an empty place goes, a place moves or is edited.
+            "delete_place",
+            "move_place",
+            "update_place",
             "merge_places",
         ]
     );

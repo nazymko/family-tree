@@ -89,7 +89,11 @@ pub const INSTRUCTIONS: &str = concat!(
      (person, family, reason), in this batch or an earlier one, when it turns out the child \
      belongs to other parents; then link the child to the right family with link_people. It \
      removes only that link, and a note on the person records the family and the reason. A link \
-     anyone else made is refused: leave a note and list it in your report.\n"
+     anyone else made is refused: leave a note and list it in your report.\n\n\
+     Taking back an event: remove_own_event (event, reason) removes an event you made yourself, in this \
+     batch or an earlier one, that nobody has changed since, when a source showed it is wrong. Its \
+     citations go with it and a note on the person records the reason. An event the owner made is \
+     refused: leave a note and list it in your report. The batch undoes it.\n"
 );
 
 /// What the server needs from the app. Used as a generic bound only.
