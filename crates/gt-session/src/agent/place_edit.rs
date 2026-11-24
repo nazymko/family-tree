@@ -11,7 +11,7 @@ use crate::ops::places::full_text;
 use crate::ops::{Planner, new_common};
 use crate::session::Session;
 use gt_core::model::{
-    Event, Family, Note, NoteKind, ParticipantRef, Person, Place, PlaceName, Role,
+    Citation, Event, Family, Note, NoteKind, ParticipantRef, Person, Place, PlaceName, Role,
 };
 use gt_store::{Actor, ChangeSet};
 use uuid::Uuid;
@@ -445,5 +445,133 @@ impl Session {
         let cs = pl.finish("Remove event".into());
         self.check_living(&cs)?;
         self.commit_as_agent(&cs, ctx, batch, focus)
+    }
+
+    /// Takes back a citation this connection created, in this batch or an earlier one, that nobody
+    /// has changed since (`record_is_own`). The citation is taken off every record that holds it
+    /// (persons, names, families, child links, events, places, notes and the rest) and deleted;
+    /// its source stays untouched. A research note on each person or family that held it records
+    /// what was removed and why, in the same change, so one undo brings all of it back. A citation
+    /// the owner or anyone else made is refused.
+    pub fn remove_own_citation(
+        &mut self,
+        citation: Uuid,
+        reason: &str,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(refused(
+                "Give the reason: why this citation is wrong and who or what showed it.",
+            ));
+        }
+        if reason.chars().count() > CORRECTION_REASON_MAX {
+            return Err(refused(
+                "The reason holds up to 1000 characters: put the rest in a note.",
+            ));
+        }
+        let Some(c) = self.tree.citations.get(&citation).cloned() else {
+            if self
+                .project
+                .last_writers(citation)?
+                .first()
+                .is_some_and(|(by, op)| *by == Some(ctx.id) && *op == gt_store::ChangeOp::Create)
+            {
+                return Ok((AgentWrite::AlreadyThere { record: citation }, Vec::new()));
+            }
+            return Err(ApiError::not_found("citation", citation));
+        };
+        let rows: Vec<Written> = self
+            .project
+            .last_writers(citation)?
+            .into_iter()
+            .map(|(by, _)| by)
+            .zip(self.project.rows_of(citation)?)
+            .collect();
+        if !record_is_own(&rows, ctx.id) {
+            return Err(refused(
+                "Only a citation you made yourself, which nobody has changed since, can be                  taken back. A citation the owner, an import or another connection made                  stays: leave a note and list it in your report.",
+            ));
+        }
+        let (_, now) = (self.clock.0)();
+        let of_source = c
+            .source
+            .map(|s| format!(" of source {s}"))
+            .unwrap_or_default();
+        let text = format!(
+            "Removed the citation{of_source} (citation {citation}), which an agent had entered.              Reason: {reason}"
+        );
+        let mut pl = Planner::new(&self.tree, now, self.day_order());
+        let mut focus = None;
+        let mut noted: Vec<Uuid> = Vec::new();
+        let tree = &self.tree;
+        macro_rules! strip {
+            ($map:ident, $ty:ty) => {
+                for (id, r) in &tree.$map {
+                    if r.common.citations.contains(&citation) {
+                        let mut r: $ty = r.clone();
+                        r.common.citations.retain(|x| *x != citation);
+                        r.common.changed = Some(now);
+                        pl.put(r);
+                        let _ = id;
+                    }
+                }
+            };
+        }
+        for (id, p) in &tree.persons {
+            let on_person = p.common.citations.contains(&citation);
+            let on_name = p.names.iter().any(|n| n.citations.contains(&citation));
+            if on_person || on_name {
+                let mut p = p.clone();
+                p.common.citations.retain(|x| *x != citation);
+                for n in &mut p.names {
+                    n.citations.retain(|x| *x != citation);
+                }
+                let n = research_note(text.clone(), now);
+                p.common.notes.push(n.common.id);
+                p.common.changed = Some(now);
+                pl.put(n);
+                pl.put(p);
+                noted.push(*id);
+                focus = focus.or(Some(*id));
+            }
+        }
+        for (id, f) in &tree.families {
+            let on_family = f.common.citations.contains(&citation);
+            let on_child = f.children.iter().any(|ch| ch.citations.contains(&citation));
+            if on_family || on_child {
+                let mut f = f.clone();
+                f.common.citations.retain(|x| *x != citation);
+                for ch in &mut f.children {
+                    ch.citations.retain(|x| *x != citation);
+                }
+                let n = research_note(text.clone(), now);
+                f.common.notes.push(n.common.id);
+                f.common.changed = Some(now);
+                pl.put(n);
+                pl.put(f);
+                noted.push(*id);
+                focus = focus.or(Some(*id));
+            }
+        }
+        strip!(events, Event);
+        strip!(places, Place);
+        strip!(sources, gt_core::model::Source);
+        strip!(repositories, gt_core::model::Repository);
+        strip!(media, gt_core::model::Media);
+        strip!(notes, Note);
+        for (id, r) in &tree.citations {
+            if *id != citation && r.common.citations.contains(&citation) {
+                let mut r: Citation = r.clone();
+                r.common.citations.retain(|x| *x != citation);
+                pl.put(r);
+            }
+        }
+        pl.abandon(&[], &c.common.notes, true);
+        pl.remove::<Citation>(citation);
+        let cs = pl.finish("Remove citation".into());
+        self.commit_as_agent(&cs, ctx, batch, focus.or(Some(citation)))
     }
 }

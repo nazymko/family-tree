@@ -93,7 +93,10 @@ pub const INSTRUCTIONS: &str = concat!(
      Taking back an event: remove_own_event (event, reason) removes an event you made yourself, in this \
      batch or an earlier one, that nobody has changed since, when a source showed it is wrong. Its \
      citations go with it and a note on the person records the reason. An event the owner made is \
-     refused: leave a note and list it in your report. The batch undoes it.\n"
+     refused: leave a note and list it in your report. The batch undoes it.\n\n\
+     Taking back a citation: remove_own_citation (citation, reason) removes a citation you made \
+     yourself, when it points to a misread record. Only that citation and its links go; the \
+     source stays. A citation the owner made is refused. The batch undoes it.\n"
 );
 
 /// What the server needs from the app. Used as a generic bound only.

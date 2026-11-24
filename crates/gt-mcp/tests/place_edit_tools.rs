@@ -252,3 +252,108 @@ fn remove_own_event_takes_back_an_agent_event_with_its_citations() {
         );
     });
 }
+
+#[test]
+fn remove_own_citation_takes_back_an_agent_citation_and_keeps_the_source() {
+    use gt_session::{CitationArg, CitationInput, EditCommand, OwnerKind, OwnerRef, SourceRef};
+    let host = empty_host();
+    let (person, _) = owner_birth(&host);
+    let b = begin(&host);
+    let src = uuid(&call(
+        &host,
+        "add_source",
+        json!({"batch": b, "title": "Book"}),
+    ));
+    let mine = uuid(&call(
+        &host,
+        "add_citation",
+        json!({"batch": b, "target": {"kind": "person", "id": person}, "source": src, "page": "12"}),
+    ));
+    end(&host, &b);
+    // The owner cites the same source on the same person.
+    let theirs = with(&host, |s| {
+        let before: Vec<Uuid> = s.tree().citations.keys().copied().collect();
+        s.apply(EditCommand::AddCitation {
+            target: OwnerRef {
+                kind: OwnerKind::Person,
+                id: person,
+            },
+            citation: CitationArg::New(CitationInput {
+                source: SourceRef::Id(src),
+                page: Some("99".into()),
+                date_raw: None,
+                text: None,
+                quality: None,
+                evidence: None,
+            }),
+        })
+        .unwrap();
+        *s.tree()
+            .citations
+            .keys()
+            .find(|k| !before.contains(k))
+            .unwrap()
+    });
+    assert_eq!(with(&host, |s| s.tree().citations.len()), 2);
+
+    let b = begin(&host);
+    let msg = call_err(
+        &host,
+        "remove_own_citation",
+        json!({"citation": mine, "reason": "Misread"}),
+    );
+    assert!(msg.contains("begin_batch"), "{msg}");
+    let msg = call_err(
+        &host,
+        "remove_own_citation",
+        json!({"batch": b, "citation": theirs, "reason": "Misread"}),
+    );
+    assert!(msg.contains("yourself"), "{msg}");
+    assert!(with(&host, |s| s.tree().citations.contains_key(&theirs)));
+    call_err(
+        &host,
+        "remove_own_citation",
+        json!({"batch": b, "citation": mine}),
+    );
+    call_err(
+        &host,
+        "remove_own_citation",
+        json!({"batch": b, "citation": mine, "reason": "  "}),
+    );
+    assert!(with(&host, |s| s.tree().citations.contains_key(&mine)));
+
+    call(
+        &host,
+        "remove_own_citation",
+        json!({"batch": b, "citation": mine, "reason": "The page names another Ivan"}),
+    );
+    with(&host, |s| {
+        assert!(!s.tree().citations.contains_key(&mine));
+        assert!(s.tree().citations.contains_key(&theirs));
+        assert!(s.tree().sources.contains_key(&src), "the source survives");
+        let p = &s.tree().persons[&person];
+        assert!(!p.common.citations.contains(&mine));
+        assert!(p.common.citations.contains(&theirs));
+        assert!(
+            p.common
+                .notes
+                .iter()
+                .any(|n| s.tree().notes[n].text.contains("another Ivan"))
+        );
+    });
+
+    // The batch's undo brings the citation back with its link, and the note goes.
+    let batch_id: Uuid = b.as_str().unwrap().parse().unwrap();
+    with(&host, |s| s.undo_batch(batch_id).unwrap());
+    with(&host, |s| {
+        assert!(s.tree().citations.contains_key(&mine));
+        assert!(s.tree().persons[&person].common.citations.contains(&mine));
+        assert!(
+            !s.tree().persons[&person]
+                .common
+                .notes
+                .iter()
+                .any(|n| s.tree().notes[n].text.contains("another Ivan"))
+        );
+    });
+}

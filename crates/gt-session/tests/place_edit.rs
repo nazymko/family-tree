@@ -345,3 +345,93 @@ fn update_place_edits_names_type_and_coordinates() {
     assert_eq!(s.tree().places[&id].lat, None);
     assert_eq!(s.tree().places[&id].kind, None);
 }
+
+#[test]
+fn remove_own_citation_refuses_the_owners_and_removes_only_the_agents() {
+    let (_d, mut s) = open_with(|t| {
+        let source = Source {
+            common: common(),
+            title: Some("Synthetic register".into()),
+            author: None,
+            publication: None,
+            abbreviation: None,
+            text: None,
+            repositories: vec![],
+            kind: None,
+            issuer: None,
+            doc_number: None,
+            doc_date: None,
+        };
+        let sid = source.common.id;
+        let cit = Citation {
+            common: common(),
+            source: Some(sid),
+            page: None,
+            date: None,
+            text: None,
+            quality: None,
+            evidence: Evidence {
+                original: None,
+                primary_info: None,
+                direct: None,
+            },
+        };
+        let cid = cit.common.id;
+        t.sources.insert(sid, source);
+        t.citations.insert(cid, cit);
+        let person = *t.persons.keys().next().unwrap();
+        t.persons
+            .get_mut(&person)
+            .unwrap()
+            .common
+            .citations
+            .push(cid);
+    });
+    let owner_cit = *s.tree().citations.keys().next().unwrap();
+    let person = *s.tree().persons.keys().next().unwrap();
+    let source = *s.tree().sources.keys().next().unwrap();
+    let batch = s.begin_batch(&me(), "Cite", None).unwrap();
+    s.apply_as_agent(
+        EditCommand::AddCitation {
+            target: OwnerRef {
+                kind: OwnerKind::Person,
+                id: person,
+            },
+            citation: CitationArg::New(CitationInput {
+                source: SourceRef::Id(source),
+                page: Some("5".into()),
+                date_raw: None,
+                text: None,
+                quality: None,
+                evidence: None,
+            }),
+        },
+        &me(),
+        batch,
+    )
+    .unwrap();
+    let mine = *s
+        .tree()
+        .citations
+        .keys()
+        .find(|k| **k != owner_cit)
+        .unwrap();
+    s.end_batch(&me(), batch, "Cited").unwrap();
+    let batch = s.begin_batch(&me(), "Take back", None).unwrap();
+
+    let msg = refused(s.remove_own_citation(owner_cit, "Misread", &me(), batch));
+    assert!(msg.contains("yourself"), "{msg}");
+    let msg = refused(s.remove_own_citation(mine, "  ", &me(), batch));
+    assert!(msg.contains("reason"), "{msg}");
+    assert_eq!(s.tree().citations.len(), 2);
+
+    s.remove_own_citation(mine, "Misread", &me(), batch)
+        .unwrap();
+    assert_eq!(s.tree().citations.len(), 1);
+    assert!(s.tree().citations.contains_key(&owner_cit));
+    assert!(s.tree().sources.contains_key(&source));
+    s.end_batch(&me(), batch, "Done.").unwrap();
+    s.undo_batch(batch).unwrap();
+    assert!(s.tree().citations.contains_key(&mine));
+    assert!(s.tree().persons[&person].common.citations.contains(&mine));
+}
