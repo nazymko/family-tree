@@ -19,6 +19,8 @@ const media = (id: string, over: Partial<MediaDto> = {}): MediaDto => ({
   width: 800,
   height: 600,
   sha256: null,
+  transcription: [],
+  rotation: 0,
   ...over,
 });
 const link = (m: MediaDto, primary = false): MediaLinkDto => ({ media: m, primary });

@@ -2,7 +2,7 @@ use crate::migrate::{MIGRATIONS, migrate, user_version};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA_VERSION: i32 = 5;
+pub const SCHEMA_VERSION: i32 = 15;
 const DB_FILE: &str = "tree.db";
 const LOCK_FILE: &str = ".gene-tree.lock";
 const SUBDIRS: [&str; 3] = ["media", "thumbs", "backups"];
@@ -42,10 +42,26 @@ fn acquire_lock(dir: &Path) -> Result<std::fs::File, StoreError> {
         .truncate(false)
         .write(true)
         .open(dir.join(LOCK_FILE))?;
+    lock_file(file, dir)
+}
+
+#[cfg(not(target_os = "android"))]
+fn lock_file(file: std::fs::File, dir: &Path) -> Result<std::fs::File, StoreError> {
     match file.try_lock() {
         Ok(()) => Ok(file),
         Err(std::fs::TryLockError::WouldBlock) => Err(StoreError::Locked(dir.to_path_buf())),
         Err(std::fs::TryLockError::Error(e)) => Err(StoreError::Io(e)),
+    }
+}
+
+/// Android's std reports `try_lock() not supported`, but the kernel's flock(2) works there.
+#[cfg(target_os = "android")]
+fn lock_file(file: std::fs::File, dir: &Path) -> Result<std::fs::File, StoreError> {
+    use rustix::fs::{FlockOperation, flock};
+    match flock(&file, FlockOperation::NonBlockingLockExclusive) {
+        Ok(()) => Ok(file),
+        Err(e) if e == rustix::io::Errno::WOULDBLOCK => Err(StoreError::Locked(dir.to_path_buf())),
+        Err(e) => Err(StoreError::Io(e.into())),
     }
 }
 
@@ -189,6 +205,14 @@ impl Project {
     pub fn conn(&self) -> &Connection {
         &self.conn
     }
+
+    /// Moves the write-ahead log into `tree.db` without closing anything. A phone calls this when the app goes to
+    /// the background, where the system may end the process without any shutdown hook.
+    pub fn checkpoint(&self) -> Result<(), StoreError> {
+        self.conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -224,6 +248,19 @@ mod tests {
         let p = Project::open(&dir).unwrap();
         drop(p);
         assert_eq!(std::fs::read_dir(dir.join("backups")).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_checkpoint_empties_the_wal_and_keeps_the_project_open() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("p");
+        let mut p = Project::create(&dir).unwrap();
+        p.meta_set("k", "v").unwrap();
+        assert!(dir.join("tree.db-wal").metadata().unwrap().len() > 0);
+        p.checkpoint().unwrap();
+        assert_eq!(dir.join("tree.db-wal").metadata().unwrap().len(), 0);
+        p.meta_set("k2", "v2").unwrap();
+        assert_eq!(p.meta_get("k").unwrap().as_deref(), Some("v"));
     }
 
     #[test]

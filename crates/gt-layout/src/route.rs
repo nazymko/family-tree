@@ -477,8 +477,24 @@ fn slide_trunks(fams: &mut [Fam], nodes: &[Node], sep: f32) {
             // The nearest free position to the centre, then the one farthest from the clash.
             let mut best: Option<(f32, f32)> = None; // (x, closest clash; infinity = free)
             let steps = ((hi - lo) / 2.0 / SLIDE_STEP).floor() as i32;
+            // Ties go to the side the children are on, so two families that leave one card do not cross: the one
+            // whose children stand left takes the left place.
+            let to_kids = if kids.is_empty() {
+                0.0
+            } else {
+                kids.iter()
+                    .map(|&k| nodes[k as usize].rect.cx())
+                    .sum::<f32>()
+                    / kids.len() as f32
+                    - base
+            };
+            let signs = if to_kids < 0.0 {
+                [-1.0, 1.0]
+            } else {
+                [1.0, -1.0]
+            };
             for n in 0..=steps {
-                for sign in [1.0, -1.0] {
+                for sign in signs {
                     if n == 0 && sign < 0.0 {
                         continue;
                     }

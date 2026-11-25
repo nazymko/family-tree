@@ -15,12 +15,26 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub const THUMB_PX: u32 = 256;
 /// Longest side of a preview in pixels.
 pub const PREVIEW_PX: u32 = 1600;
-/// Images with more pixels than this are stored but never decoded.
-pub const MAX_PIXELS: u64 = 100_000_000;
+/// Images with more pixels than this are stored but never decoded. A scanned two-verst sheet is
+/// about 11 000 x 10 000 pixels (110 million), so the limit leaves room for those: decoded once, as
+/// 8-bit RGB, such a sheet takes about 330 MB while its preview is made.
+pub const MAX_PIXELS: u64 = 160_000_000;
 const MAX_SIDE: u32 = 32_768;
 const MAX_ALLOC: u64 = 1024 * 1024 * 1024;
 const JPEG_QUALITY: u8 = 82;
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Held while a whole picture is decoded for an agent, so parallel calls cannot each take the
+/// memory of a full decode at once.
+static DECODING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Runs `f` while no other agent call is decoding a picture.
+pub fn one_decode_at_a_time<T>(f: impl FnOnce() -> T) -> T {
+    let _one = DECODING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    f()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThumbSize {
@@ -103,7 +117,26 @@ pub(crate) fn image_dims(path: &Path) -> Option<(u32, u32)> {
     Some(if turned { (h, w) } else { (w, h) })
 }
 
-fn flatten_to_rgb(img: &DynamicImage) -> (u32, u32, Vec<u8>) {
+/// Decodes the whole picture, within the same limits as a preview, to prove it is one.
+pub(crate) fn decodes(path: &Path) -> Result<(), ApiError> {
+    let mut reader = ImageReader::open(path)
+        .and_then(ImageReader::with_guessed_format)
+        .map_err(|_| ApiError::new(ErrorCode::Invalid, "cannot read image"))?;
+    reader.limits(limits());
+    let (w, h) = reader.into_dimensions().map_err(map_image_err)?;
+    if u64::from(w) * u64::from(h) > MAX_PIXELS {
+        return Err(too_large());
+    }
+    let mut reader = ImageReader::open(path)
+        .and_then(ImageReader::with_guessed_format)
+        .map_err(|_| ApiError::new(ErrorCode::Invalid, "cannot read image"))?;
+    reader.limits(limits());
+    reader.decode().map(|_| ()).map_err(map_image_err)
+}
+
+/// The picture as 8-bit RGB, a transparent one on white. Takes the picture so that an RGB one is
+/// not copied (a large scan would otherwise need its memory twice).
+fn flatten_to_rgb(img: DynamicImage) -> (u32, u32, Vec<u8>) {
     if img.color().has_alpha() {
         let rgba = img.to_rgba8();
         let (w, h) = rgba.dimensions();
@@ -117,7 +150,7 @@ fn flatten_to_rgb(img: &DynamicImage) -> (u32, u32, Vec<u8>) {
         }
         (w, h, out)
     } else {
-        let rgb = img.to_rgb8();
+        let rgb = img.into_rgb8();
         let (w, h) = rgb.dimensions();
         (w, h, rgb.into_raw())
     }
@@ -158,8 +191,7 @@ pub fn render_px(bytes: &[u8], px: u32) -> Result<Vec<u8>, ApiError> {
     }
     decoder.set_limits(limits()).map_err(map_image_err)?;
     let img = DynamicImage::from_decoder(decoder).map_err(map_image_err)?;
-    let (w, h, rgb) = flatten_to_rgb(&img);
-    drop(img);
+    let (w, h, rgb) = flatten_to_rgb(img);
     let (w, h, rgb) = resized(w, h, rgb, px)?;
     let mut out = DynamicImage::ImageRgb8(
         image::RgbImage::from_raw(w, h, rgb)

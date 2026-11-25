@@ -91,14 +91,67 @@ fn write_needs_batch() {
         ("add_sibling_marker", json!({"family": id})),
         ("remove_own_empty_family", json!({"family": id})),
         (
+            "remove_own_child_link",
+            json!({"person": id, "family": id, "reason": "x"}),
+        ),
+        (
             "set_number",
             json!({"person": id, "source_file": "a", "number": "1"}),
         ),
         ("set_sex", json!({"person": id, "sex": "male"})),
         ("update_own_note", json!({"note": id, "text": "A note"})),
+        (
+            "rewrite_note",
+            json!({"note": id, "text": "A note", "reason": "x"}),
+        ),
         ("update_own_event", json!({"event": id})),
         ("update_own_name", json!({"person": id, "name": id})),
         ("update_own_citation", json!({"citation": id})),
+        (
+            "add_media",
+            json!({"file_path": "C:/x.jpg", "target": {"kind": "person", "id": id}}),
+        ),
+        ("set_media_transcription", json!({"media": id, "text": "x"})),
+        (
+            "correct_event_date",
+            json!({"event": id, "date": "1901", "reason": "x"}),
+        ),
+        (
+            "set_place_coordinates",
+            json!({"place": id, "lat": 1, "lon": 1, "source": "x"}),
+        ),
+        (
+            "update_own_media_region",
+            json!({"media": id, "region": id, "text": "x"}),
+        ),
+        ("set_media_rotation", json!({"media": id, "rotation": 90})),
+        (
+            "group_media_versions",
+            json!({"primary": id, "others": [id]}),
+        ),
+        ("update_own_media", json!({"media": id, "title": "x"})),
+        (
+            "add_map_layer",
+            json!({"file_path": "C:/x.jpg", "title": "x", "source": "x"}),
+        ),
+        (
+            "set_own_map_layer_corners",
+            json!({"media": id, "ozi_map_path": "C:/x.map"}),
+        ),
+        (
+            "add_place_records",
+            json!({"place": id, "records": [{"kind": "birth", "people": [{"given": "A"}]}]}),
+        ),
+        ("add_place", json!({"name": "Zelenivka"})),
+        ("merge_places", json!({"keep_id": id, "merge_ids": [id]})),
+        ("delete_place", json!({"place_id": id})),
+        ("move_place", json!({"place_id": id, "new_parent_id": null})),
+        ("update_place", json!({"place_id": id})),
+        ("remove_own_event", json!({"event": id, "reason": "x"})),
+        (
+            "remove_own_citation",
+            json!({"citation": id, "reason": "x"}),
+        ),
     ];
     for (tool, args) in writes {
         let message = call_err(&host, tool, args);
@@ -532,7 +585,8 @@ fn a_write_that_would_change_alive_or_dead_is_refused() {
     let before = records(&host);
     let was = call(&host, "get_person", json!({"id": id}))["living"].clone();
     assert_eq!(was, true);
-    for (kind, date) in [("death", "1950"), ("burial", "1950"), ("birth", "1801")] {
+    // A death with no age or descendant to show for it stays the owner's.
+    for (kind, date) in [("death", "1950"), ("burial", "1950"), ("cremation", "1950")] {
         let message = call_err(
             &host,
             "add_event",
@@ -542,6 +596,16 @@ fn a_write_that_would_change_alive_or_dead_is_refused() {
     }
     assert_eq!(call(&host, "get_person", json!({"id": id}))["living"], was);
     assert_eq!(records(&host), before);
+    // A birth more than 100 years ago may make him count as dead.
+    call(
+        &host,
+        "add_event",
+        json!({"batch": batch, "person": id, "kind": "birth", "date": "1801"}),
+    );
+    assert_eq!(
+        call(&host, "get_person", json!({"id": id}))["living"],
+        false
+    );
 }
 
 #[test]
@@ -1314,6 +1378,7 @@ fn the_owners_edit_between_two_writes_is_no_obstacle() {
                 id: parsed,
             },
             note: gt_session::NoteInput {
+                story: None,
                 id: None,
                 kind: gt_session::NoteKindDto::General,
                 text: "The owner's".into(),
@@ -1363,17 +1428,102 @@ fn only_the_tools_named_here_can_write() {
             "add_family",
             "add_name",
             "remove_own_empty_family",
+            // Takes back only the agent's own child link, with a reason kept in a note.
+            "remove_own_child_link",
+            // Takes back only an event the agent made itself.
+            "remove_own_event",
+            // Takes back only a citation the agent made itself; the source stays.
+            "remove_own_citation",
             "add_event",
             "add_note",
             "add_source",
+            "update_own_source",
             "add_citation",
             "add_sibling_marker",
             "set_number",
             "set_sex",
             "update_own_note",
+            "set_note_story",
+            // The owner's rewrite of any note: a reason in the log label, the old text kept in the log.
+            "rewrite_note",
             "update_own_event",
             "update_own_name",
             "update_own_citation",
+            // The one change to what is there: a confirmed birth or death date, with a reason
+            // kept in a note, and never one that changes who counts as alive or dead.
+            "correct_event_date",
+            // A point for a place with none, with its source; the agent corrects only its own.
+            "set_place_coordinates",
+            // Copies a checked picture or PDF in, through the same gate as a link.
+            "add_media",
+            // Pieces of text on a picture: the gate lets an agent change only its own.
+            "set_media_transcription",
+            "update_own_media_region",
+            // Clips of a recording: links of their own; an agent changes only its own, deletes none.
+            "add_audio_clip",
+            "update_own_audio_clip",
+            // How a picture is shown: on the agent's own, or one nobody has turned.
+            "set_media_rotation",
+            // Files of one page in other quality, shown as one: never a group someone else made.
+            "group_media_versions",
+            // Title, description, date and place of a media record: its own, or what is empty.
+            "update_own_media",
+            // Godparents of a baptism: added as items of the event; taken off only the agent's own.
+            "add_godparent",
+            "remove_own_godparent",
+            "correct_name",
+            "correct_event",
+            "move_child",
+            "correct_note",
+            // Old maps on the Map: added with their placement; placed again only while the agent's own.
+            "add_map_layer",
+            "set_own_map_layer_corners",
+            // Records about other people, added to a place from a book.
+            "add_place_records",
+            // The one place an agent makes (never twice), and the merge of duplicate places.
+            "add_place",
+            // Housekeeping after an agent's own work: an empty place goes, a place moves or is edited.
+            "delete_place",
+            "move_place",
+            "update_place",
+            "merge_places",
         ]
     );
+}
+
+#[test]
+fn a_family_left_with_no_parents_does_not_hold_a_child_back() {
+    let host = empty_host();
+    // The owner adds a father and later deletes him: the family stays, with the child and no parents.
+    let child = owners_person(&host, "Ivan", None);
+    with(&host, |s| {
+        let father = add_relative(
+            s,
+            child,
+            Relation::Father,
+            draft("Pavlo", "Koval", None, None),
+        );
+        s.apply(EditCommand::DeletePerson { id: father }).unwrap();
+    });
+    let batch = begin(&host);
+    let real = add(&host, &batch, "Pavlo");
+    let family = call(
+        &host,
+        "add_family",
+        json!({"batch": batch, "partner1": real}),
+    )["id"]
+        .clone();
+    call(
+        &host,
+        "link_people",
+        json!({"batch": batch, "person": child.to_string(), "relation": {"as": "child", "family": family}}),
+    );
+    let linked = with(&host, |s| {
+        let id: Uuid = family.as_str().unwrap().parse().unwrap();
+        s.tree().families[&id]
+            .children
+            .iter()
+            .any(|l| l.person == child)
+    });
+    assert!(linked);
 }

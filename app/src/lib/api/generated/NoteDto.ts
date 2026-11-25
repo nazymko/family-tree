@@ -2,7 +2,11 @@
 import type { MediaLinkDto } from "./MediaLinkDto";
 import type { NoteKindDto } from "./NoteKindDto";
 
-export type NoteDto = { id: string, kind: NoteKindDto, text: string, shared: boolean, lang: string | null, 
+export type NoteDto = { id: string, kind: NoteKindDto, text: string, 
+/**
+ * The readable retelling of `text`, when the note has one.
+ */
+story: string | null, shared: boolean, lang: string | null, 
 /**
  * Voice samples (and any other media) attached to the note.
  */

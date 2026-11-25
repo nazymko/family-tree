@@ -15,7 +15,6 @@ use serde_json::{Value, json};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::{Mutex, PoisonError};
 use uuid::Uuid;
 
 const PAGE_DEFAULT: u64 = 50;
@@ -41,9 +40,8 @@ const PICTURE_MAX_PX: u64 = 4096;
 const PICTURE_MIN_PX: u64 = 16;
 /// A picture is decoded and shrunk, so its file may be bigger than what goes back.
 const PICTURE_FILE_MAX: u64 = 256 * 1024 * 1024;
-const BLOB_MAX: u64 = 8 * 1024 * 1024;
-/// Decoding takes a lot of memory for a short while, so only one picture is decoded at a time.
-static DECODING: Mutex<()> = Mutex::new(());
+/// The largest file sent back whole; add_media refuses a bigger PDF for that reason.
+const BLOB_MAX: u64 = gt_session::AGENT_PDF_MAX;
 
 pub(crate) type ToolResult = Result<Vec<Value>, ApiError>;
 
@@ -246,7 +244,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         },
         Tool {
             name: "get_media",
-            description: "A media file's details and the file itself: a picture as an image, shrunk to max_size pixels on its longest side, so a smaller max_size means a smaller answer; a sound recording (a note's voice sample) as its details only, never its bytes; anything else, or a picture that cannot be decoded, as a blob of up to 8 MiB.",
+            description: "A media file's details and the file itself: a picture as an image, shrunk to max_size pixels on its longest side, so a smaller max_size means a smaller answer. The image is upright by its EXIF orientation and not turned by the saved rotation (0, 90, 180 or 270 clockwise, in the details) the app shows it with: the transcription's x, y, w and h are fractions of this very image; a sound recording as its details only, never its bytes: durationMs and duration (m:ss) when its length can be read, its transcript pieces with startMs, endMs and speaker, the sources it is on, and clips: every stretch of it linked to a note, citation, event, person or family, with the record, its times and label, and yours: true on the clips you made and may change with update_own_audio_clip; anything else, or a picture that cannot be decoded, as a blob of up to 8 MiB.",
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -521,7 +519,7 @@ fn tree_summary<H: Host>(host: &H, _: &AgentCtx, _: &Value) -> ToolResult {
         let info = s.info();
         let tree = s.tree();
         Ok(json!({
-            "name": info.name,
+            "name": if s.settings().tree_name.is_empty() { info.name.clone() } else { s.settings().tree_name.clone() },
             "counts": {
                 "people": tree.persons.values().filter(|p| !p.sibling_marker).count(),
                 "families": tree.families.len(),
@@ -804,12 +802,16 @@ fn get_around_chart<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult
             }
         }
         let rows = s.around_people(&gt_session::ChartRequest {
+            open: None,
             kind: gt_session::ChartKind::Around,
             root: people[0],
             generations,
             aunts_uncles: None,
             kin: Some(kin),
             roots: Some(people.clone()),
+            direction: None,
+            print: None,
+            fold: None,
         })?;
         let items: Vec<Value> = rows
             .people
@@ -1118,7 +1120,12 @@ fn list_repositories<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResul
                 .map(|(id, r)| (*id, texts([Some(&r.name), r.address.as_ref()])))
                 .collect()
         },
-        |s, id| s.tree().repositories.get(&id).map(records::repository_row),
+        |s, id| {
+            s.tree()
+                .repositories
+                .get(&id)
+                .map(|r| records::repository_row(s, r))
+        },
     )
 }
 
@@ -1166,7 +1173,7 @@ fn list_citations<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     )
 }
 
-fn get_media<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
+fn get_media<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
     let id = uuid_arg(args, "id")?;
     let max_size = optional_u64(args, "max_size")?
         .unwrap_or(PICTURE_DEFAULT_PX)
@@ -1186,11 +1193,40 @@ fn get_media<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
             .map(str::to_string)
             .or_else(|| media.mime.clone())
             .unwrap_or_default();
-        Ok((
-            records::media_full(s, media),
-            (mime, sound),
-            s.media_original_path(id).ok(),
-        ))
+        let mut details = records::media_full(s, media);
+        // Which pieces of the transcription this agent may still change or remove.
+        let own = s.own_text_regions(id, ctx.id)?;
+        if let Some(rows) = details
+            .get_mut("transcription")
+            .and_then(Value::as_array_mut)
+        {
+            for (row, yours) in rows.iter_mut().zip(own) {
+                row["yours"] = json!(yours);
+            }
+        }
+        if sound {
+            let rec = s.get_recording(id)?;
+            details["sources"] = json!(rec.sources);
+            let mut clips = Vec::with_capacity(rec.clips.len());
+            for c in &rec.clips {
+                let yours = s.own_clips(c.target, ctx.id)?.contains(&c.clip.id);
+                clips.push(json!({
+                    "id": c.clip.id,
+                    "startMs": c.clip.start_ms,
+                    "endMs": c.clip.end_ms,
+                    "start": gt_core::time::format_ms(c.clip.start_ms),
+                    "end": gt_core::time::format_ms(c.clip.end_ms),
+                    "label": c.clip.label,
+                    "target": {"kind": c.target.kind, "id": c.target.id},
+                    "title": c.title,
+                    "eventKind": c.event_kind,
+                    "person": c.person.as_ref().map(|p| json!({"id": p.id, "name": p.name})),
+                    "yours": yours,
+                }));
+            }
+            details["clips"] = json!(clips);
+        }
+        Ok((details, (mime, sound), s.media_original_path(id).ok()))
     })?;
     let (mime, sound) = mime;
     let block = match path {
@@ -1210,11 +1246,9 @@ fn get_media<H: Host>(host: &H, _: &AgentCtx, args: &Value) -> ToolResult {
     Ok(vec![json_block(&details)?, block])
 }
 
-/// Runs `f` while no other picture is being decoded.
-fn one_decode_at_a_time<T>(f: impl FnOnce() -> T) -> T {
-    let _one = DECODING.lock().unwrap_or_else(PoisonError::into_inner);
-    f()
-}
+/// Decoding takes a lot of memory for a short while, so only one picture is decoded at a time,
+/// here and in add_media's check alike.
+use gt_session::one_decode_at_a_time;
 
 fn picture_block(path: &Path, max_size: u64, id: Uuid, mime: &str) -> Value {
     let too_big = std::fs::metadata(path).is_ok_and(|m| m.len() > PICTURE_FILE_MAX);

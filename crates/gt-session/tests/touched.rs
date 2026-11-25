@@ -216,6 +216,7 @@ fn event_input(
         negative: false,
         private: false,
         preferred: true,
+        godparents: None,
         participants,
     }
 }
@@ -236,6 +237,7 @@ fn person_owner(id: Uuid) -> EventOwner {
 
 fn plain_note(text: &str) -> NoteInput {
     NoteInput {
+        story: None,
         id: None,
         kind: NoteKindDto::General,
         text: text.into(),
@@ -255,6 +257,9 @@ fn new_citation(source: Uuid) -> CitationArg {
 
 fn media_record(name: &str) -> gt_core::model::Media {
     gt_core::model::Media {
+        version_of: None,
+        map_layer: None,
+        place: None,
         common: gt_core::model::Common {
             id: Uuid::now_v7(),
             private: false,
@@ -272,6 +277,8 @@ fn media_record(name: &str) -> gt_core::model::Media {
         date: None,
         description: None,
         sha256: None,
+        transcription: Vec::new(),
+        rotation: None,
     }
 }
 
@@ -288,6 +295,7 @@ fn with_media() -> (Tree, Uuid, Uuid) {
         media,
         primary: false,
         region: None,
+        clip: None,
     };
     tree.families
         .get_mut(&family)
@@ -461,6 +469,8 @@ fn media_commands_reach_those_who_show_the_picture() {
     let everyone_in_family = ["Ivan", "Olena", "Petro", "Stefan"];
 
     let edit = EditCommand::UpdateMedia {
+        place_text: None,
+        place_id: None,
         id: on_family,
         title: Some("The wedding".into()),
         description: None,

@@ -498,6 +498,32 @@ fn huge_image_stored_but_no_preview() {
     assert!(s.media_bytes(id, MediaSize::Original).is_ok());
 }
 
+/// A scanned two-verst sheet (10 831 x 9 714 pixels, 105 million) was refused as too large to
+/// preview. It is kept whole and gets a 1600-pixel preview.
+#[test]
+#[ignore = "heavy: runs before merge"]
+fn heavy_two_verst_sheet_gets_a_preview() {
+    let (_d, mut s, eva, src) = setup();
+    let (w, h) = (10_831, 9_714);
+    let sheet = DynamicImage::ImageLuma8(image::GrayImage::from_pixel(w, h, image::Luma([200])));
+    let p = write(&src, "sheet.jpg", &encode(&sheet, ImageFormat::Jpeg));
+    drop(sheet);
+    let r = s
+        .attach_files(person(eva), std::slice::from_ref(&p))
+        .unwrap();
+    assert!(reasons(&r).is_empty(), "{:?}", reasons(&r));
+    let id = r.attached[0].id;
+    let (preview, _) = s.media_bytes(id, MediaSize::Preview).unwrap();
+    assert_eq!(decode_dims(&preview), (1600, 1435));
+    let (original, _) = s.media_bytes(id, MediaSize::Original).unwrap();
+    let dims = image::ImageReader::new(Cursor::new(&original))
+        .with_guessed_format()
+        .unwrap()
+        .into_dimensions()
+        .unwrap();
+    assert_eq!(dims, (w, h));
+}
+
 #[test]
 fn corrupt_image_is_attached_but_has_no_thumb() {
     let (_d, mut s, eva, src) = setup();
@@ -577,7 +603,7 @@ fn media_bytes_unknown_id_not_found() {
 #[test]
 fn stored_paths_outside_media_are_never_served() {
     let mut tree = tree_of(SAMPLE);
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let secret = write(dir.path(), "secret.jpg", &jpeg(10, 10, [1, 1, 1]));
     let inside_project = write(
         &dir.path().join("project"),
@@ -601,6 +627,9 @@ fn stored_paths_outside_media_are_never_served() {
         tree.media.insert(
             id,
             Media {
+                version_of: None,
+                map_layer: None,
+                place: None,
                 common: Common {
                     id,
                     private: false,
@@ -618,6 +647,8 @@ fn stored_paths_outside_media_are_never_served() {
                 date: None,
                 description: None,
                 sha256: Some("../../../etc/passwd".into()),
+                transcription: Vec::new(),
+                rotation: None,
             },
         );
     }
@@ -745,4 +776,60 @@ fn heavy_big_file_with_bogus_tiff_header_is_cheap() {
     assert_eq!(s.exif_suggestion(id).unwrap(), None);
     assert!(s.media_bytes(id, MediaSize::Thumb).is_err());
     assert!(t.elapsed().as_secs() < 5, "took {:?}", t.elapsed());
+}
+
+// ---- web links ----
+
+#[test]
+fn web_links_come_from_the_description_and_from_a_source_holding_the_picture() {
+    let (_d, mut s, eva, src) = setup();
+    let a = write(&src, "a.jpg", &jpeg(30, 20, [5, 5, 5]));
+    let id = s
+        .attach_files(person(eva), std::slice::from_ref(&a))
+        .unwrap()
+        .attached[0]
+        .id;
+    assert!(
+        s.get_person(eva).unwrap().media[0]
+            .media
+            .web_links
+            .is_empty()
+    );
+
+    s.apply(EditCommand::UpdateMedia {
+        id,
+        title: None,
+        description: Some("From https://scans.example.org/rec/1, page 2.".into()),
+        date_raw: None,
+        place_text: None,
+        place_id: None,
+    })
+    .unwrap();
+    let made = s
+        .apply(EditCommand::SaveSource {
+            source: SourceInput {
+                title: Some("Parish book".into()),
+                publication: Some("Online (https://archive.example.org/book/7).".into()),
+                ..Default::default()
+            },
+        })
+        .unwrap();
+    let source = made.touched[0];
+    s.attach_files(
+        OwnerRef {
+            kind: OwnerKind::Source,
+            id: source,
+        },
+        &[a],
+    )
+    .unwrap();
+
+    let links = &s.get_person(eva).unwrap().media[0].media.web_links;
+    assert_eq!(
+        links,
+        &[
+            "https://scans.example.org/rec/1",
+            "https://archive.example.org/book/7"
+        ]
+    );
 }

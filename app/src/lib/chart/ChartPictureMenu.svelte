@@ -1,12 +1,17 @@
 <script lang="ts">
   import Button from '../ui/Button.svelte';
   import ContextMenu from '../ui/ContextMenu.svelte';
+  import IconButton from '../ui/IconButton.svelte';
+  import { compact } from '../ui/compact.svelte';
   import type { MenuItem } from '../ui/Menu.svelte';
   import { getApi } from '../api/context';
   import type { Id } from '../api/types';
   import { parentFacts, type ParentFacts } from '../family/addOptions';
-  import { t } from '../i18n';
+  import { plural, t } from '../i18n';
   import type { PictureScope } from './picture';
+  import type { A3Choice } from './a3';
+  import { a3Background, a3Direction, a3Title } from './a3Pref.svelte';
+  import { namesAsRecorded, oldTypeface } from '../ui/namesPref.svelte';
   import { relativeItems } from './relativeItems';
 
   /**
@@ -18,12 +23,18 @@
     hasSelection,
     busy = false,
     onpick,
+    ona3,
     restoreFocus,
     onOpenPerson,
+    personCount,
   }: {
+    /** The number of people on the chart, shown with the print item so a big chart is not a surprise. */
+    personCount?: number;
     hasSelection: boolean;
     busy?: boolean;
     onpick: (scope: PictureScope) => void;
+    /** The A3 print page: save it (PNG or SVG) or print it, in the chosen orientation. */
+    ona3?: (choice: A3Choice, print: boolean) => void;
     /** Gives focus back to the chart when the menu closes after being opened from the chart. */
     restoreFocus: () => void;
     /** Shows "Open person" in the person section when given. */
@@ -84,6 +95,26 @@
       title: hasSelection ? undefined : t('picture.selectFirst'),
     },
     { label: t('picture.screen'), onselect: () => onpick('screen') },
+    ...(ona3
+      ? [
+          // The direction of the print: as on the screen (the default) or the one that prints largest. Kept for next time.
+          { label: t('picture.a3DirScreen'), checked: a3Direction.value === 'screen', onselect: () => a3Direction.set('screen'), separatorBefore: true },
+          { label: t('picture.a3DirBest'), checked: a3Direction.value === 'best', onselect: () => a3Direction.set('best') },
+          // The title block (the caption strip of a saved picture, the header of an A3 page) and the background: kept for next time.
+          // They also apply to "Save as picture" above.
+          { label: t('picture.a3Title'), checked: a3Title.value, onselect: () => a3Title.set(!a3Title.value), separatorBefore: true },
+          { label: t('picture.a3BgPaper'), checked: a3Background.value === 'paper', onselect: () => a3Background.set('paper'), separatorBefore: true },
+          { label: t('picture.a3BgWhite'), checked: a3Background.value === 'white', onselect: () => a3Background.set('white') },
+          { label: t('picture.a3BgTransparent'), checked: a3Background.value === 'transparent', onselect: () => a3Background.set('transparent') },
+          { label: t('picture.a3'), onselect: () => ona3('auto', false) },
+          { label: t('picture.a3Landscape'), onselect: () => ona3('landscape', false) },
+          { label: t('picture.a3Portrait'), onselect: () => ona3('portrait', false) },
+          { label: personCount === undefined ? t('picture.a3Print') : `${t('picture.a3Print')} (${plural('chart.onChart', personCount)})`, onselect: () => ona3('auto', true) },
+        ]
+      : []),
+    // Modern names or the spelling of the sources, on the chart and in saved pictures and prints. Kept for next time.
+    { label: t('picture.namesAsRecorded'), checked: namesAsRecorded.value, onselect: () => namesAsRecorded.set(!namesAsRecorded.value), separatorBefore: true },
+    { label: t('picture.oldTypeface'), checked: oldTypeface.value, onselect: () => oldTypeface.set(!oldTypeface.value) },
   ]);
 
   const items = $derived<MenuItem[]>(personItems.length ? [...personItems, ...saveItems.map((i, k) => (k === 0 ? { ...i, separatorBefore: true } : i))] : saveItems);
@@ -92,7 +123,11 @@
 <!-- A press on the button must not count as a press outside the open menu, or the button could never close it. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <span class="wrap" bind:this={wrap} onmousedown={(e) => e.stopPropagation()}>
-  <Button disabled={busy} aria-haspopup="menu" aria-expanded={at !== null} onclick={fromButton}>{t('picture.save')}</Button>
+  {#if compact.value}
+    <IconButton label={t('picture.save')} icon="download" disabled={busy} aria-haspopup="menu" aria-expanded={at !== null} onclick={fromButton} />
+  {:else}
+    <Button disabled={busy} aria-haspopup="menu" aria-expanded={at !== null} onclick={fromButton}>{t('picture.save')}</Button>
+  {/if}
 </span>
 {#if at}
   <ContextMenu label={personItems.length ? t('chartAdd.menuLabel') : t('picture.menuLabel')} {items} x={at.x} y={at.y} onclose={close} />

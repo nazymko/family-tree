@@ -27,6 +27,7 @@ fn add_note(id: Uuid, text: &str) -> EditCommand {
     EditCommand::SaveNote {
         target: person_owner(id),
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: text.into(),
@@ -38,6 +39,7 @@ fn edit_note(owner: Uuid, note: Uuid, text: &str) -> EditCommand {
     EditCommand::SaveNote {
         target: person_owner(owner),
         note: NoteInput {
+            story: None,
             id: Some(note),
             kind: NoteKindDto::General,
             text: text.into(),
@@ -83,6 +85,7 @@ fn birth(owner: Uuid, raw: &str) -> EditCommand {
             negative: false,
             private: false,
             preferred: true,
+            godparents: None,
             participants: None,
         },
     }

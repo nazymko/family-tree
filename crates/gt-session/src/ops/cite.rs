@@ -81,6 +81,19 @@ pub(super) fn with_owner<R>(
             p.put(x);
             Ok((r, None))
         }
+        OwnerKind::Source => {
+            // A source holds pictures of itself (a photographed document); its notes and
+            // citations are not shown anywhere, so none are added to it.
+            let mut x: Source = p.get(target.id)?;
+            let r = f(&mut Fields {
+                notes: None,
+                citations: None,
+                media: Some(&mut x.common.media),
+            })?;
+            x.common.changed = Some(now);
+            p.put(x);
+            Ok((r, None))
+        }
         OwnerKind::Citation => {
             let mut x: Citation = p.get(target.id)?;
             let r = f(&mut common_fields(&mut x.common))?;
@@ -142,6 +155,9 @@ pub(super) fn save_note(
             let mut n: Note = p.get(id)?;
             n.kind = note_kind(input.kind, Some(&n.kind));
             n.text = input.text.clone();
+            if let Some(story) = &input.story {
+                n.story = Some(story.trim().to_string()).filter(|s| !s.is_empty());
+            }
             n.common.changed = Some(p.now);
             (id, n)
         }
@@ -152,6 +168,11 @@ pub(super) fn save_note(
                 text: input.text.clone(),
                 lang: None,
                 shared: false,
+                story: input
+                    .story
+                    .as_ref()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty()),
             };
             (n.common.id, n)
         }
@@ -200,6 +221,71 @@ fn set_opt(slot: &mut Option<String>, v: &Option<String>) {
     }
 }
 
+/// Sets the kind, the document details and the first repository from the input. A field the input
+/// leaves out stays; an empty text clears it.
+fn set_details(p: &mut Planner, s: &mut Source, input: &SourceInput) {
+    if let Some(k) = &input.kind {
+        s.kind = SourceKind::parse(k);
+    }
+    set_opt(&mut s.issuer, &input.issuer);
+    set_opt(&mut s.doc_number, &input.doc_number);
+    if let Some(d) = &input.doc_date_raw {
+        s.doc_date = parse_date(Some(d), p.order);
+    }
+    if input.archive.is_none() && input.call_number.is_none() {
+        return;
+    }
+    let current = s.repositories.first().cloned();
+    let archive_name = match &input.archive {
+        Some(a) => text(Some(a)),
+        None => current.as_ref().and_then(|r| {
+            p.tree
+                .repositories
+                .get(&r.repository)
+                .map(|r| r.name.clone())
+        }),
+    };
+    let call_number = match &input.call_number {
+        Some(c) => text(Some(c)),
+        None => current.as_ref().and_then(|r| r.call_number.clone()),
+    };
+    let Some(name) = archive_name else {
+        // No archive: the first repository goes away, with its call number.
+        if !s.repositories.is_empty() {
+            s.repositories.remove(0);
+        }
+        return;
+    };
+    let id = match p
+        .tree
+        .repositories
+        .values()
+        .find(|r| r.name.trim().eq_ignore_ascii_case(&name))
+    {
+        Some(r) => r.common.id,
+        None => {
+            let r = Repository {
+                common: new_common(p.now),
+                name,
+                address: None,
+                urls: Vec::new(),
+            };
+            let id = r.common.id;
+            p.put(r);
+            id
+        }
+    };
+    let new = RepoRef {
+        repository: id,
+        call_number,
+    };
+    if s.repositories.is_empty() {
+        s.repositories.push(new);
+    } else {
+        s.repositories[0] = new;
+    }
+}
+
 pub(super) fn save_source(p: &mut Planner, input: &SourceInput) -> Result<Option<Uuid>, ApiError> {
     match input.id {
         Some(id) => {
@@ -209,6 +295,7 @@ pub(super) fn save_source(p: &mut Planner, input: &SourceInput) -> Result<Option
             set_opt(&mut s.publication, &input.publication);
             set_opt(&mut s.abbreviation, &input.abbreviation);
             set_opt(&mut s.text, &input.text);
+            set_details(p, &mut s, input);
             s.common.changed = Some(p.now);
             p.put(s);
         }
@@ -216,7 +303,7 @@ pub(super) fn save_source(p: &mut Planner, input: &SourceInput) -> Result<Option
             let Some(title) = text(input.title.as_deref()) else {
                 return Err(invalid("Enter a source title."));
             };
-            p.put(Source {
+            let mut s = Source {
                 common: new_common(p.now),
                 title: Some(title),
                 author: text(input.author.as_deref()),
@@ -224,7 +311,13 @@ pub(super) fn save_source(p: &mut Planner, input: &SourceInput) -> Result<Option
                 abbreviation: text(input.abbreviation.as_deref()),
                 text: text(input.text.as_deref()),
                 repositories: Vec::new(),
-            });
+                kind: None,
+                issuer: None,
+                doc_number: None,
+                doc_date: None,
+            };
+            set_details(p, &mut s, input);
+            p.put(s);
         }
     }
     Ok(None)
@@ -252,6 +345,10 @@ fn source_for(p: &mut Planner, source: &SourceRef) -> Result<Uuid, ApiError> {
                 abbreviation: None,
                 text: None,
                 repositories: Vec::new(),
+                kind: None,
+                issuer: None,
+                doc_number: None,
+                doc_date: None,
             };
             let id = s.common.id;
             p.put(s);

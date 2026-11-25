@@ -9,7 +9,7 @@
   /** The backend's refusals that the app words itself, in the language in use. */
   const KNOWN_REASONS: Record<string, MessageKey> = {
     'only sound recordings can be attached to a note': 'voice.onlySoundOnNote',
-    'sound recordings can only be attached to a note': 'voice.soundOnlyOnNote',
+    'sound recordings can only be attached to a note or a source': 'voice.soundOnlyOnNote',
   };
   /** One line per failed file, e.g. "scan.exe: unsupported type; we attach ...". `owner` is what the files were for. */
   export function failureLine(f: { path: string; reason: string }, owner: 'note' | 'other' = 'other'): string {
@@ -107,7 +107,9 @@
   }
 
   async function pick() {
-    const paths = await platform.pickFiles({ title: t('media.pickTitle'), extensions: MEDIA_EXTENSIONS });
+    // A source also takes the recording it is (an interview), so its picker offers sound files too.
+    const extensions = target.kind === 'source' ? [...MEDIA_EXTENSIONS, ...AUDIO_EXTENSIONS] : MEDIA_EXTENSIONS;
+    const paths = await platform.pickFiles({ title: t('media.pickTitle'), extensions });
     await attach(paths);
   }
 </script>

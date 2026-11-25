@@ -1,9 +1,18 @@
+import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { listen } from '@tauri-apps/api/event';
 import type { AgentChangeEvent, Platform } from '../api';
 import { installE2eHooks, type E2eHooks } from './e2eHooks';
+
+/** A phone or tablet (the Android shell). */
+export const isAndroid = (): boolean => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+
+interface MobileInfo {
+  treesDir: string;
+  cacheDir: string;
+}
 
 const filters = (extensions?: string[]) => (extensions?.length ? [{ name: 'Files', extensions }] : undefined);
 
@@ -12,18 +21,56 @@ export class TauriPlatform implements Platform {
   /** Test hooks (debug builds with GT_E2E=1 only); `null` in every real run. */
   private hooks: Promise<E2eHooks | null> = installE2eHooks();
 
+  readonly isMobile: boolean = isAndroid();
+  private info: Promise<MobileInfo> | null = null;
+  /** The name the person was offered for a file made for saving, by the path it was made at. */
+  private offered = new Map<string, string>();
+
+  private mobileInfo(): Promise<MobileInfo> {
+    this.info ??= invoke<MobileInfo>('mobile_info');
+    return this.info;
+  }
+
+  /** Android hands out documents as content:// addresses; copy each into the app's cache so every command reads a plain path. */
+  private stage(uri: string): Promise<string> {
+    // The document's real name (Android's picker addresses often end in an id, not the name): asked from the shell.
+    let name: string | null;
+    try {
+      name = (window as unknown as { GeneTreeBars?: { displayName?: (u: string) => string } }).GeneTreeBars?.displayName?.(uri) ?? null;
+    } catch {
+      name = null;
+    }
+    return invoke<string>('mobile_stage_pick', { uri, name: name || null });
+  }
+
+  async treesDir(): Promise<string> {
+    return (await this.mobileInfo()).treesDir;
+  }
+
+  async deliver(path: string): Promise<boolean> {
+    if (!this.isMobile) return true;
+    const name = this.offered.get(path) ?? path.split(/[\\/]/).pop() ?? 'file';
+    const dest = await save({ title: name, defaultPath: name });
+    if (!dest) return false;
+    await invoke('mobile_deliver', { src: path, dest });
+    this.offered.delete(path);
+    return true;
+  }
+
   async pickFile(opts: { title: string; extensions?: string[] }): Promise<string | null> {
     const h = await this.hooks;
     if (h) return h.nextDialog();
     const r = await open({ title: opts.title, multiple: false, directory: false, filters: filters(opts.extensions) });
-    return typeof r === 'string' ? r : null;
+    if (typeof r !== 'string') return null;
+    return this.isMobile ? this.stage(r) : r;
   }
 
   async pickFiles(opts: { title: string; extensions?: string[] }): Promise<string[]> {
     const h = await this.hooks;
     if (h) return h.nextDialog()?.split('|') ?? [];
     const r = await open({ title: opts.title, multiple: true, directory: false, filters: filters(opts.extensions) });
-    return Array.isArray(r) ? r : [];
+    const picked = Array.isArray(r) ? r : [];
+    return this.isMobile ? Promise.all(picked.map((u) => this.stage(u))) : picked;
   }
 
   async pickFolder(title: string): Promise<string | null> {
@@ -36,6 +83,14 @@ export class TauriPlatform implements Platform {
   async pickSavePath(opts: { title: string; defaultName: string; extensions: string[]; filters?: { name: string; extensions: string[] }[] }): Promise<string | null> {
     const h = await this.hooks;
     if (h) return h.nextDialog();
+    if (this.isMobile) {
+      // The file is made in the app's cache and handed to the person afterwards (`deliver`): the save dialog of
+      // Android answers with a content:// address no command can write to by path.
+      const dir = (await this.mobileInfo()).cacheDir.replace(/[\\/]+$/, '');
+      const path = `${dir}/export/${opts.defaultName.replace(/[\\/:*?"<>|]/g, '_')}`;
+      this.offered.set(path, opts.defaultName);
+      return path;
+    }
     return save({ title: opts.title, defaultPath: opts.defaultName, filters: opts.filters ?? filters(opts.extensions) });
   }
 
@@ -88,6 +143,13 @@ export class TauriPlatform implements Platform {
   }
 
   reveal(path: string): Promise<void> {
+    // There is no file manager to show a folder in on a phone; callers leave the action out when `isMobile`.
+    if (this.isMobile) return Promise.resolve();
     return revealItemInDir(path);
+  }
+
+  openUrl(url: string): Promise<void> {
+    if (!/^https?:\/\//i.test(url)) return Promise.reject(new Error('Only http and https addresses can be opened'));
+    return openUrl(url);
   }
 }

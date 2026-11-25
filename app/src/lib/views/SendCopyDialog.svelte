@@ -8,6 +8,7 @@
   import { plural, t } from '../i18n';
   import { errMessage } from '../editors/errors';
   import { fileOf, sizeText } from './mergeText';
+  import { handOver, revealAction } from '../ui/mobile';
 
   let { onClose }: { onClose: () => void } = $props();
 
@@ -34,6 +35,14 @@
     };
   });
 
+  /** "130 people, 2 photos, 4 recordings": a part with nothing in it is left out. */
+  function sizeParts(s: CopySizeDto): string {
+    const parts = [plural('merge.sendPeopleCount', s.people)];
+    if (s.photos > 0 || s.recordings === 0) parts.push(plural('merge.sendPhotoCount', s.photos));
+    if (s.recordings > 0) parts.push(plural('merge.sendRecordingCount', s.recordings));
+    return parts.join(', ');
+  }
+
   async function make() {
     error = '';
     const dest = await platform.pickSavePath({
@@ -45,10 +54,11 @@
     making = true;
     try {
       const r = await api.sendCopyZip(dest);
+      // On a phone the zip was made in the app's cache: the system save / share sheet takes it from there.
+      if (!(await handOver(platform, r.path))) return;
       notices.show({
         message: t('merge.sendDone', { file: fileOf(r.path), size: sizeText(r.bytes) }),
-        actionLabel: t('merge.reveal'),
-        onaction: () => void platform.reveal(r.path),
+        ...revealAction(platform, r.path, t('merge.reveal')),
       });
       onClose();
     } catch (e) {
@@ -79,8 +89,7 @@
       <p class="size">
         {t('merge.sendSize', {
           size: sizeText(size.bytes),
-          people: plural('merge.sendPeopleCount', size.people),
-          photos: plural('merge.sendPhotoCount', size.photos),
+          parts: sizeParts(size),
         })}
       </p>
     {:else}

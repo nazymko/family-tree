@@ -44,7 +44,10 @@ fn owners_of(tree: &Tree, set: &HashSet<Uuid>) -> Vec<Uuid> {
         .repositories
         .iter()
         .filter(|(_, x)| holds(&x.common, set));
-    let media = tree.media.iter().filter(|(_, x)| holds(&x.common, set));
+    let media = tree
+        .media
+        .iter()
+        .filter(|(_, x)| holds(&x.common, set) || x.place.iter().any(has));
     let notes = tree.notes.iter().filter(|(_, x)| holds(&x.common, set));
 
     persons
@@ -115,6 +118,11 @@ pub fn people_reached(tree: &Tree, changed: &[Uuid]) -> Vec<Uuid> {
                 }
             }
         }
+        // A godparent's page lists who they stood godparent for.
+        e.godparents
+            .iter()
+            .filter_map(|g| g.person)
+            .for_each(&mut add);
     }
     out
 }

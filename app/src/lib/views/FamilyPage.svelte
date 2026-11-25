@@ -6,6 +6,9 @@
   import FamilyEditor from '../editors/FamilyEditor.svelte';
   import { errMessage } from '../editors/errors';
   import { t } from '../i18n';
+  import NotesViewToggle from '../notes/NotesViewToggle.svelte';
+  import NoteShortened from '../notes/NoteShortened.svelte';
+  import { shownNote } from '../notes/notesView.svelte';
   import { eventKindLabel } from '../i18n/backend';
   import VoiceSamples from '../media/VoiceSamples.svelte';
   import { nav } from '../state/nav.svelte';
@@ -67,7 +70,7 @@
     {#if nav.canBack}
       <Button onclick={() => nav.back()}>{t('chart.back')}</Button>
     {/if}
-    <h1 id="family-page-title"><bdi dir="auto">{title}</bdi></h1>
+    <h1 id="family-page-title" tabindex="-1" data-family-id={id}><bdi dir="auto">{title}</bdi></h1>
     {#if family && partners.length > 0}
       <Button variant="quiet" onclick={() => (editing = true)}>{t('family.editFamily')}</Button>
     {/if}
@@ -99,7 +102,7 @@
       {:else}
         <ul class="events">
           {#each family.events as e (e.id)}
-            <li>
+            <li data-event-id={e.id}>
               <span class="kind">{eventKindLabel(e.kind, e.label)}</span>
               <EventSummary event={e} />
             </li>
@@ -126,18 +129,27 @@
 
     <section aria-labelledby="family-page-notes">
       <h2 id="family-page-notes">{t('person.familyNotes')}</h2>
+      {#if family.notes.length > 0}<NotesViewToggle />{/if}
       {#if family.notes.length === 0}
         <p class="none">{t('familyPage.noNotes')}</p>
       {:else}
         {#each family.notes as n (n.id)}
-          <div class="note">
+          <div class="note" data-note-id={n.id}>
             <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
-            <p class="note-text">{n.text}</p>
+            <p class="note-text">{shownNote(n).text}</p>
+            <NoteShortened note={n} />
             <VoiceSamples items={n.media} />
           </div>
         {/each}
       {/if}
     </section>
+
+    {#if family.media?.some((l) => l.clip)}
+      <section aria-labelledby="family-page-clips">
+        <h2 id="family-page-clips">{t('rec.clips')}</h2>
+        <VoiceSamples items={family.media} />
+      </section>
+    {/if}
   {/if}
 </article>
 

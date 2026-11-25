@@ -83,6 +83,145 @@ fn open_newer_schema_refused() {
 }
 
 #[test]
+fn schema_5_project_gains_the_transcription_column() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // What a schema 5 app left behind: no transcription column.
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            &format!("{DROP_CLIPS} ALTER TABLE media DROP COLUMN rotation; ALTER TABLE media DROP COLUMN transcription_json; PRAGMA user_version = 5;"),
+        )
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
+    let has: i64 = p
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('media') WHERE name = 'transcription_json'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(has, 1);
+}
+
+#[test]
+fn schema_6_project_gains_the_rotation_column_and_its_pictures_stay_unturned() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // What a schema 6 app left behind: a picture, no rotation column.
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            &format!("{DROP_CLIPS} ALTER TABLE media DROP COLUMN rotation; PRAGMA user_version = 6; \
+             INSERT INTO media(id, seq, private, path, mime) \
+             VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.jpg', 'image/jpeg');"),
+        )
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
+    let has: i64 = p
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('media') WHERE name = 'rotation'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(has, 1);
+    let tree = p.load_tree().unwrap();
+    let m = tree.media.values().next().unwrap();
+    assert_eq!((m.rotation, m.shown_rotation()), (None, 0));
+}
+
+/// Takes a project back from schema 8: no place on media, no clip columns on media links.
+const DROP_CLIPS: &str = "DROP TABLE place_record_person; DROP TABLE place_record; ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; \
+    ALTER TABLE media_link DROP COLUMN clip_id; \
+    ALTER TABLE media_link DROP COLUMN clip_start_ms; ALTER TABLE media_link DROP COLUMN clip_end_ms; \
+    ALTER TABLE media_link DROP COLUMN clip_label;";
+
+#[test]
+fn schema_7_project_gains_the_clip_columns_and_its_links_stay_whole() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // What a schema 7 app left behind: a person linked to a recording, no clip columns.
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(&format!(
+            "{DROP_CLIPS} PRAGMA user_version = 7; \
+             INSERT INTO media(id, seq, private, path, mime) \
+             VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.ogg', 'audio/ogg'); \
+             INSERT INTO person(id, seq, private, sex) \
+             VALUES ('00000000-0000-0000-0000-0000000000b1', 0, 0, 'unknown'); \
+             INSERT INTO media_link(id, target_type, target_id, pos, media_id, \"primary\") \
+             VALUES ('00000000-0000-0000-0000-0000000000c1', 'person', \
+             '00000000-0000-0000-0000-0000000000b1', 0, '00000000-0000-0000-0000-0000000000a1', 0);"
+        ))
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
+    let has: i64 = p
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('media_link') WHERE name LIKE 'clip_%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(has, 4);
+    let tree = p.load_tree().unwrap();
+    let person = tree.persons.values().next().unwrap();
+    assert_eq!(person.common.media.len(), 1);
+    assert_eq!(
+        person.common.media[0].clip, None,
+        "an old link is to the whole recording"
+    );
+}
+
+#[test]
+fn schema_8_project_gains_the_media_place_column_and_its_media_have_no_place() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // What a schema 8 app left behind: a recording, no place column.
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            "DROP TABLE place_record_person; DROP TABLE place_record; ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; PRAGMA user_version = 8; \
+             INSERT INTO media(id, seq, private, path, mime) \
+             VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.ogg', 'audio/ogg');",
+        )
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
+    assert_eq!(SCHEMA_VERSION, 15);
+    let has: i64 = p
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('media') WHERE name = 'place_id'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(has, 1);
+    let tree = p.load_tree().unwrap();
+    assert_eq!(tree.media.values().next().unwrap().place, None);
+    // The upgrade left a backup of the schema 8 file beside it.
+    let backups = std::fs::read_dir(dir.join("backups"))
+        .map(|d| d.count())
+        .unwrap_or(0);
+    assert!(backups >= 1, "no pre-migration backup");
+}
+
+#[test]
 fn schema_doc_lists_every_table() {
     let doc = include_str!("../../../docs/schema.md");
     let tmp = tempfile::tempdir().unwrap();
@@ -165,4 +304,143 @@ fn second_open_is_locked_until_the_first_is_dropped() {
     );
     drop(first);
     drop(Project::open(&dir).unwrap());
+}
+
+#[test]
+fn schema_9_project_gains_the_source_kind_columns_and_its_sources_have_no_kind() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            "DROP TABLE place_record_person; DROP TABLE place_record; ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; \
+             ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; \
+             PRAGMA user_version = 9; \
+             INSERT INTO source(id, seq, private, title) \
+             VALUES ('00000000-0000-0000-0000-0000000000b1', 0, 0, 'Parish book');",
+        )
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
+    let tree = p.load_tree().unwrap();
+    let s = tree.sources.values().next().unwrap();
+    assert_eq!(s.title.as_deref(), Some("Parish book"));
+    assert_eq!(
+        (&s.kind, &s.issuer, &s.doc_number, &s.doc_date),
+        (&None, &None, &None, &None)
+    );
+}
+
+#[test]
+fn schema_10_project_gains_the_version_column_and_its_media_are_in_no_group() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // What a schema 10 app left behind: two pictures, no version column.
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            "DROP TABLE place_record_person; DROP TABLE place_record; ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; PRAGMA user_version = 10; \
+             INSERT INTO media(id, seq, private, path, mime) \
+             VALUES ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/ab/ab.jpg', 'image/jpeg'), \
+                    ('00000000-0000-0000-0000-0000000000a2', 1, 0, 'media/cd/cd.jpg', 'image/jpeg');",
+        )
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), SCHEMA_VERSION);
+    let has: i64 = p
+        .conn()
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('media') WHERE name = 'version_of'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(has, 1);
+    let tree = p.load_tree().unwrap();
+    assert!(tree.media.values().all(|m| m.version_of.is_none()));
+    assert!(tree.version_index().is_empty());
+}
+
+#[test]
+fn versions_read_back_and_a_gone_or_chained_primary_is_mended() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("New.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // a2 and a3 are versions of a1; a4 names a record that is gone; a5 names a version (a2).
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            "INSERT INTO media(id, seq, private, path, mime, version_of) VALUES \
+             ('00000000-0000-0000-0000-0000000000a1', 0, 0, 'media/a1.jpg', 'image/jpeg', NULL), \
+             ('00000000-0000-0000-0000-0000000000a2', 1, 0, 'media/a2.jpg', 'image/jpeg', '00000000-0000-0000-0000-0000000000a1'), \
+             ('00000000-0000-0000-0000-0000000000a3', 2, 0, 'media/a3.jpg', 'image/jpeg', '00000000-0000-0000-0000-0000000000a1'), \
+             ('00000000-0000-0000-0000-0000000000a4', 3, 0, 'media/a4.jpg', 'image/jpeg', '00000000-0000-0000-0000-0000000000ff'), \
+             ('00000000-0000-0000-0000-0000000000a5', 4, 0, 'media/a5.jpg', 'image/jpeg', '00000000-0000-0000-0000-0000000000a2');",
+        )
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    let tree = p.load_tree().unwrap();
+    let id = |n: u128| gt_core::Uuid::from_u128(n);
+    let of = |n: u128| tree.media[&id(n)].version_of;
+    assert_eq!(of(0xa1), None);
+    assert_eq!(of(0xa2), Some(id(0xa1)));
+    assert_eq!(of(0xa3), Some(id(0xa1)));
+    assert_eq!(of(0xa4), None, "a primary that is gone reads as none");
+    assert_eq!(
+        of(0xa5),
+        Some(id(0xa1)),
+        "a chain reads as its first primary"
+    );
+    assert_eq!(
+        tree.version_group(id(0xa3)),
+        vec![id(0xa1), id(0xa2), id(0xa3), id(0xa5)]
+    );
+}
+
+#[test]
+fn schema_12_project_gains_the_map_layer_column_and_a_layer_reads_back() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Old.genetree");
+    drop(Project::create(&dir).unwrap());
+    {
+        // What a schema 12 app left behind: one picture, no map layer column.
+        let c = Connection::open(dir.join("tree.db")).unwrap();
+        c.execute_batch(
+            "DROP TABLE place_record_person; DROP TABLE place_record; ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; PRAGMA user_version = 12; \
+             INSERT INTO media(id, seq, private, path, mime) \
+             VALUES ('00000000-0000-0000-0000-0000000000b1', 0, 0, 'media/ab/ab.jpg', 'image/jpeg');",
+        )
+        .unwrap();
+    }
+    let p = Project::open(&dir).unwrap();
+    assert_eq!(p.schema_version(), 15);
+    assert_eq!(SCHEMA_VERSION, 15);
+    let tree = p.load_tree().unwrap();
+    assert!(tree.media.values().all(|m| m.map_layer.is_none()));
+    // A layer written by this version reads back; JSON that does not read is no layer.
+    p.conn()
+        .execute_batch(
+            "UPDATE media SET map_layer_json = '{\"series\":\"Three-verst map\",\"year\":\"1865\",\
+             \"corners\":[{\"lat_e6\":50600000,\"lon_e6\":30000000},{\"lat_e6\":50600000,\"lon_e6\":31200000},\
+             {\"lat_e6\":49900000,\"lon_e6\":31200000},{\"lat_e6\":49900000,\"lon_e6\":30000000}],\
+             \"opacity\":60,\"visible\":true,\"pos\":0}'; \
+             INSERT INTO media(id, seq, private, path, mime, map_layer_json) \
+             VALUES ('00000000-0000-0000-0000-0000000000b2', 1, 0, 'media/cd/cd.jpg', 'image/jpeg', 'not json');",
+        )
+        .unwrap();
+    let tree = p.load_tree().unwrap();
+    let laid: Vec<_> = tree
+        .media
+        .values()
+        .filter_map(|m| m.map_layer.as_ref())
+        .collect();
+    assert_eq!(laid.len(), 1);
+    assert_eq!(laid[0].year.as_deref(), Some("1865"));
+    assert_eq!(laid[0].opacity, 60);
+    assert_eq!(laid[0].corners.unwrap()[2].lon_e6, 31_200_000);
 }

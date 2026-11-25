@@ -5,17 +5,22 @@
   import type { ChartNode, ChartWindow, Id, Rect, SearchHitDto, WholeMeta } from '../api/types';
   import { added } from '../state/added.svelte';
   import { project } from '../state/project.svelte';
+  import { settings } from '../state/settings.svelte';
+  import TextField from '../ui/TextField.svelte';
   import { undoState as undo } from '../state/undo.svelte';
   import Button from '../ui/Button.svelte';
   import Combobox from '../ui/Combobox.svelte';
   import DirectionControl from '../ui/DirectionControl.svelte';
   import { arrowStep, isHorizontal, type ChartDirection } from './direction';
   import IconButton from '../ui/IconButton.svelte';
+  import Menu, { type MenuItem } from '../ui/Menu.svelte';
+  import { compact } from '../ui/compact.svelte';
   import { centerOn, fit, fitZoom, panBy, tween, viewRect, ZOOM_MIN, zoomAt, type Camera } from './camera';
+  import { createDoubleTap, createLongPress, isTouchPointer } from '../ui/longPress';
   import { hitTest, neighbor, type Dir } from './hit';
   import Minimap from './Minimap.svelte';
   import { WindowCache } from './window';
-  import { drawWhole, wholeThemeFromCss, type WholeTheme } from './wholeRenderer';
+  import { drawWhole, headingIsOverlay, headingSize, wholeThemeFromCss, type WholeTheme } from './wholeRenderer';
   import { nodeLabel } from '../i18n/relation';
   import { plural, t, localeStore } from '../i18n';
   import { founderOf } from './wholeStart';
@@ -23,6 +28,8 @@
   import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
   import { agentChanges } from '../state/agentChanges.svelte';
+  import { namesAsRecorded, oldTypeface } from '../ui/namesPref.svelte';
+  import { loadOldTypeface } from '../ui/fonts';
   import { compactX, isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
   import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
 
@@ -110,6 +117,26 @@
     if (!meta) return ZOOM_MIN;
     return Math.max(0.004, Math.min(ZOOM_MIN, fitZoom(meta.meta.bounds, size) * 0.9));
   }
+
+  // Switching "names as recorded" redraws the cards.
+  $effect(() => {
+    void namesAsRecorded.value;
+    untrack(() => invalidate());
+  });
+
+  // The old typeface of names as recorded: fetched before the cards are drawn with it, and the cards redraw once it is there.
+  $effect(() => {
+    if (!oldTypeface.value) {
+      untrack(() => invalidate());
+      return;
+    }
+    let live = true;
+    void loadOldTypeface().then(() => live && invalidate());
+    untrack(() => invalidate());
+    return () => {
+      live = false;
+    };
+  });
 
   function invalidate(): void {
     dirty = true;
@@ -660,9 +687,15 @@
   const pointers = new Map<number, { x: number; y: number }>();
   let drag: { x: number; y: number; moved: boolean } | null = null;
   let pinch = 0;
+  // A finger held on a card opens the same menu as a right-click; two quick taps open the person like a double-click.
+  const press = createLongPress({ onLongPress: (p) => openMenuAt(p.x, p.y) });
+  const taps = createDoubleTap();
+  let lastPointerType = '';
 
   function onpointerdown(e: PointerEvent): void {
     if (e.button === 2) return; // the context menu handles the right button
+    lastPointerType = e.pointerType;
+    press.pointerdown(e);
     canvas?.focus();
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try {
@@ -679,6 +712,7 @@
   }
 
   function onpointermove(e: PointerEvent): void {
+    press.pointermove(e);
     const p = pointers.get(e.pointerId);
     if (!p) return;
     const dx = e.clientX - p.x;
@@ -703,7 +737,8 @@
   }
 
   function onpointerup(e: PointerEvent): void {
-    const wasClick = drag !== null && !drag.moved && pointers.size === 1;
+    const heldOpen = press.pointerup(e);
+    const wasClick = !heldOpen && drag !== null && !drag.moved && pointers.size === 1;
     pointers.delete(e.pointerId);
     if (pointers.size < 2) pinch = 0;
     drag = null;
@@ -712,6 +747,10 @@
     if (!cur) return;
     const w = toWorld(e);
     const n = hitTest(cur.win, w.x, w.y);
+    if (isTouchPointer(e) && taps.tap(e.clientX, e.clientY)) {
+      if (realPerson(n ?? null)) onOpenPerson(realPerson(n ?? null)!.id);
+      return;
+    }
     if (e.shiftKey) {
       if (n) toggleMark(n);
       return;
@@ -781,11 +820,54 @@
     if (id) onOpenInPedigree(id);
   }
 
+  // ------------------------------------------------------------ the tree's name
+
+  let naming = $state(false);
+  let nameDraft = $state('');
+  let nameError = $state('');
+
+  function startNaming(): void {
+    nameDraft = settings.value.treeName;
+    nameError = '';
+    naming = true;
+  }
+
+  async function saveName(value: string): Promise<void> {
+    try {
+      await settings.update(api, { treeName: value.trim() });
+      naming = false;
+      await open(true);
+    } catch (e) {
+      nameError = errMessage(e, t('edit.wentWrong'));
+    }
+  }
+
+  /** The heading of the main (largest) family: the one that carries the tree's name. */
+  function mainBlock(): WholeMeta['blocks'][number] | null {
+    const fams = (meta?.blocks ?? []).filter((b) => !b.unconnected);
+    return fams.reduce<(typeof fams)[number] | null>((best, b) => (best === null || b.people > best.people ? b : best), null);
+  }
+
+  /** Double-click on the main family's heading (its strip, or the plate drawn above it when zoomed out). */
+  function onMainHeading(w: { x: number; y: number }): boolean {
+    const b = mainBlock();
+    if (!b || people.length > 0) return false;
+    const r = b.rect;
+    const lift = headingIsOverlay(cam.zoom) ? headingSize(cam.zoom) * 2 : 0;
+    return w.x >= r.x && w.x <= r.x + r.w && w.y >= r.y - lift && w.y <= r.y + r.h;
+  }
+
   function ondblclick(e: MouseEvent): void {
+    // A finger's double tap is handled in onpointerup.
+    if (lastPointerType === 'touch' || lastPointerType === 'pen') return;
     const cur = cache?.current();
     if (!cur) return;
     const w = toWorld(e);
     const n = hitTest(cur.win, w.x, w.y);
+    if (!n && onMainHeading(w)) {
+      startNaming();
+      return;
+    }
     if (realPerson(n ?? null)) onOpenPerson(realPerson(n ?? null)!.id);
   }
 
@@ -862,19 +944,27 @@
   function oncontextmenu(e: MouseEvent): void {
     e.preventDefault();
     canvas?.focus();
+    // The browser's own menu event for a finger press: the long-press helper has opened (or opens) the menu.
+    if (press.isNativeTouchMenu(e)) return;
     if (isKeyboardMenu(e as PointerEvent)) return pictureMenuAtSelection();
+    openMenuAt(e.clientX, e.clientY);
+  }
+
+  /** The picture/chart menu at a screen position; a card there is selected first. */
+  function openMenuAt(clientX: number, clientY: number): void {
+    canvas?.focus();
     const cur = cache?.current();
     let person: Id | null = null;
     if (cur) {
       // A right-click on a card selects that person first.
-      const w = toWorld(e);
+      const w = toWorld({ clientX, clientY });
       const n = hitTest(cur.win, w.x, w.y);
       if (n) {
         select(n);
         person = realPerson(n)?.id ?? null;
       }
     }
-    void pictureMenu?.openAt(e.clientX, e.clientY, person);
+    void pictureMenu?.openAt(clientX, clientY, person);
   }
 
   // ------------------------------------------------------------ keyboard
@@ -981,9 +1071,43 @@
     activeTween?.cancel();
     setCam({ zoom: cam.zoom, x: x - size.w / cam.zoom / 2, y: y - size.h / cam.zoom / 2 });
   }
+  // A phone: a row of icons and a "more" menu instead of the long row of text buttons.
+  let findOpen = $state(false);
+  const overflow = $derived<MenuItem[]>([
+    { label: t('chartCanvas.zoomIn'), onselect: () => zoomBy(1.25) },
+    { label: t('chartCanvas.zoomOut'), onselect: () => zoomBy(0.8) },
+    { label: t('whole.actualSize'), disabled: selected === null, onselect: actualSize },
+    { label: (lineageOn ? '✓ ' : '') + t('whole.lineage'), onselect: () => (lineageOn = !lineageOn) },
+    {
+      label: markedIds.length >= 2 ? t('whole.buildAroundMany', { n: markedIds.length }) : t('whole.buildAround'),
+      disabled: !realPerson(selNode) && markedIds.length < 2,
+      onselect: buildAround,
+    },
+    { label: t('whole.openPerson'), disabled: !realPerson(selNode), onselect: () => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id) },
+    { label: t('whole.showInPedigree'), disabled: !canShow, onselect: showInPedigree },
+    ...(markedIds.length > 0 ? [{ label: t('whole.clearMarked'), onselect: clearMarked }] : []),
+  ]);
 </script>
 
 <div class="chart">
+  {#if compact.value}
+    <div class="toolbar compact" role="toolbar" aria-label={t('whole.tools')}>
+      <IconButton label={t('whole.find')} icon="search" aria-expanded={findOpen} onclick={() => (findOpen = !findOpen)} />
+      <IconButton label={t('whole.fitAll')} icon="whole" onclick={fitAll} />
+      <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={homeNode === null} onclick={goHome} />
+      <IconButton label={t('whole.nameTree')} icon="edit" disabled={meta === null || people.length > 0} onclick={startNaming} />
+      <Menu label={t('chartCanvas.moreTools')} items={overflow} />
+      <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
+      <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
+      <DirectionControl chart="whole" />
+      {#if markedIds.length > 0}<span class="marked" data-testid="marked-count">{plural('whole.nMarked', markedIds.length)}</span>{/if}
+    </div>
+    {#if findOpen}
+      <div class="find findrow">
+        <Combobox label={t('whole.find')} items={hits} value={null} text={searchText} onText={onFind} onPick={(h) => { findOpen = false; pickHit(h); }} render={(h) => h.label} detail={(h) => h.snippet ?? undefined} />
+      </div>
+    {/if}
+  {:else}
   <div class="toolbar" role="toolbar" aria-label={t('whole.tools')}>
     <div class="find">
       <Combobox
@@ -1007,6 +1131,7 @@
     <Button disabled={!realPerson(selNode) && markedIds.length < 2} onclick={buildAround}>{markedIds.length >= 2 ? t('whole.buildAroundMany', { n: markedIds.length }) : t('whole.buildAround')}</Button>
     <Button disabled={!realPerson(selNode)} onclick={() => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id)}>{t('whole.openPerson')}</Button>
     <IconButton label={t('whole.showInPedigree')} icon="pedigree" disabled={!canShow} onclick={showInPedigree} />
+    <IconButton label={t('whole.nameTree')} icon="edit" disabled={meta === null || people.length > 0} onclick={startNaming} />
     {#if markedIds.length > 0}
       <span class="marked" data-testid="marked-count">{plural('whole.nMarked', markedIds.length)}</span>
       <Button onclick={clearMarked}>{t('whole.clearMarked')}</Button>
@@ -1015,6 +1140,15 @@
     <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
     <span class="zoom" aria-live="off">{zoomPct}%</span>
   </div>
+  {/if}
+  {#if naming}
+    <form class="namebar" data-testid="tree-name-form" onsubmit={(e) => { e.preventDefault(); void saveName(nameDraft); }}>
+      <TextField label={t('whole.treeName')} hint={t('whole.treeNameHint')} error={nameError} bind:value={nameDraft} maxlength={80} onkeydown={(e) => { if (e.key === 'Escape') naming = false; }} />
+      <Button type="submit" variant="primary">{t('common.save')}</Button>
+      <Button onclick={() => void saveName('')}>{t('whole.treeNameAuto')}</Button>
+      <Button onclick={() => (naming = false)}>{t('common.cancel')}</Button>
+    </form>
+  {/if}
   <div class="stage" bind:this={box}>
     <!-- svelte-ignore a11y_no_interactive_element_to_noninteractive_role -->
     <canvas
@@ -1043,7 +1177,7 @@
     {#if savingPicture}
       <p class="hint saving" role="status">{t('picture.saving')}</p>
     {/if}
-    {#if meta}
+    {#if meta && !compact.value}
       <div class="mini">
         <Minimap bounds={meta.meta.bounds} win={miniWin} view={seen} onJump={fromMinimap} />
       </div>
@@ -1059,11 +1193,22 @@
 </div>
 
 <style>
+  .namebar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: var(--s-3);
+    padding: var(--s-3) var(--s-4);
+    border-bottom: 1px solid var(--rule);
+  }
   .chart {
     display: flex;
     flex-direction: column;
     min-height: 0;
     height: 100%;
+  }
+  .findrow {
+    padding-bottom: var(--s-3);
   }
   .toolbar {
     display: flex;
@@ -1071,6 +1216,26 @@
     align-items: flex-end;
     gap: var(--s-3);
     padding-bottom: var(--s-3);
+  }
+  /* A phone: one row of tools to swipe sideways, so the chart keeps the screen. */
+  @media (max-width: 940px) {
+    .toolbar {
+      flex-wrap: nowrap;
+      /* Never squeezed away by the chart below it (a phone in landscape has little height): the row keeps its height and swipes sideways. */
+      flex: none;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .toolbar > :global(*) {
+      flex: none;
+    }
+    .toolbar.compact {
+      flex-wrap: wrap;
+      overflow: visible;
+    }
+    .find {
+      min-width: 11rem;
+    }
   }
   .find {
     min-width: 16rem;
@@ -1097,7 +1262,7 @@
   .hint {
     position: absolute;
     top: var(--s-2);
-    left: var(--s-2);
+    inset-inline-start: var(--s-2);
     margin: 0;
     padding: var(--s-1) var(--s-3);
     background: var(--paper-1);
@@ -1113,7 +1278,7 @@
   }
   .mini {
     position: absolute;
-    right: var(--s-3);
+    inset-inline-end: var(--s-3);
     bottom: var(--s-3);
   }
   .stage {
@@ -1130,6 +1295,9 @@
     width: 100%;
     height: 100%;
     touch-action: none;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
     cursor: grab;
   }
   canvas:focus-visible {

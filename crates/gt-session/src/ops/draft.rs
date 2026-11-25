@@ -38,6 +38,7 @@ fn event(p: &Planner, kind: EventKind, raw: &str, person: Uuid) -> Event {
         cause: None,
         negative: false,
         assertion: assertion(true),
+        godparents: Vec::new(),
         participants: vec![Participant {
             target: ParticipantRef::Person(person),
             role: Role::Principal,
@@ -178,6 +179,7 @@ pub(super) fn import_draft(
         media: pic.media.common.id,
         region: None,
         primary: false,
+        clip: None,
     });
     if let (Some(pic), Some(l)) = (picture, &link) {
         let mut m = pic.media.clone();
@@ -188,6 +190,10 @@ pub(super) fn import_draft(
             author: None,
             publication: None,
             abbreviation: None,
+            kind: None,
+            issuer: None,
+            doc_number: None,
+            doc_date: None,
             text: m.original_name.clone().map(|n| format!("File: {n}")),
             repositories: Vec::new(),
         };
@@ -212,6 +218,7 @@ pub(super) fn import_draft(
                 text: t,
                 lang: None,
                 shared: false,
+                story: None,
             };
             common.notes.push(note.common.id);
             p.put(note);

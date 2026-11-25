@@ -84,7 +84,14 @@ export function fixtureTree(n: number, seed = 1): Fixture {
     publication: null,
     abbreviation: null,
     text: null,
+    kind: null,
+    issuer: null,
+    docNumber: null,
+    docDate: null,
+    archive: null,
+    callNumber: null,
     citationCount: 0,
+    media: [],
   }));
 
   const makeCitation = (): CitationDto => {
@@ -211,6 +218,8 @@ export function fixtureTree(n: number, seed = 1): Fixture {
         width: 1200,
         height: 900,
         sha256: null,
+        transcription: [],
+        rotation: 0,
       });
       rec.media.push({ media: media[media.length - 1], primary: true });
     }

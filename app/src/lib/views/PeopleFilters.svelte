@@ -5,6 +5,8 @@
   import Button from '../ui/Button.svelte';
   import type { PersonQuery } from '../api/types';
   import { t, type MessageKey } from '../i18n';
+  import { compact } from '../ui/compact.svelte';
+  import { namesAsRecorded, oldTypeface } from '../ui/namesPref.svelte';
 
   let { query = $bindable() }: { query: PersonQuery } = $props();
 
@@ -15,17 +17,7 @@
   ];
 </script>
 
-<div class="bar">
-  <div class="text">
-    <TextField
-      label={t('people.filterByName')}
-      placeholder={t('people.typeToFilter')}
-      autocomplete="off"
-      data-filter-input
-      bind:value={query.text}
-    />
-  </div>
-
+{#snippet rest()}
   <div class="grp" role="group" aria-label={t('people.livingStatus')}>
     <span class="gl" aria-hidden="true">{t('people.status')}</span>
     <div class="seg">
@@ -41,6 +33,8 @@
     <Checkbox label={t('people.noSource')} bind:checked={query.noSource} />
     <Checkbox label={t('people.noBirthDate')} bind:checked={query.noBirthDate} />
     <Checkbox label={t('people.privateOnly')} bind:checked={query.privateOnly} />
+    <Checkbox label={t('people.namesAsRecorded')} checked={namesAsRecorded.value} onchange={(on) => namesAsRecorded.set(on)} />
+    <Checkbox label={t('people.oldTypeface')} checked={oldTypeface.value} onchange={(on) => oldTypeface.set(on)} />
   </div>
 
   <div class="sort">
@@ -62,6 +56,29 @@
       {query.desc ? t('people.zToA') : t('people.aToZ')}
     </Button>
   </div>
+{/snippet}
+
+<div class="bar">
+  <div class="text">
+    <TextField
+      label={t('people.filterByName')}
+      placeholder={t('people.typeToFilter')}
+      autocomplete="off"
+      data-filter-input
+      bind:value={query.text}
+    />
+  </div>
+
+  {#if compact.value}
+    <details class="more">
+      <summary>{t('people.moreFilters')}</summary>
+      <div class="more-body">
+        {@render rest()}
+      </div>
+    </details>
+  {:else}
+    {@render rest()}
+  {/if}
 </div>
 
 <style>
@@ -120,5 +137,37 @@
     display: flex;
     align-items: flex-end;
     gap: var(--s-3);
+  }
+  .bar:has(.more) .text {
+    flex: 1 1 14rem;
+    max-width: none;
+  }
+  .more {
+    flex: 1 1 100%;
+  }
+  /* Closed, the disclosure sits beside the name field when the row has room (a phone held sideways). */
+  .more:not([open]) {
+    flex: 0 0 auto;
+  }
+  .more summary {
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .more summary::after {
+    content: '▾';
+    margin-inline-start: var(--s-2);
+  }
+  .more[open] summary::after {
+    content: '▴';
+  }
+  .more-body {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--s-4) var(--s-5);
+    padding-bottom: var(--s-3);
   }
 </style>

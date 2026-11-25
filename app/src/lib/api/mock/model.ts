@@ -1,4 +1,5 @@
 import type {
+  MapLayerDto,
   CitationDto,
   EventDto,
   Id,
@@ -45,6 +46,8 @@ export interface FamilyRec {
   children: ChildLinkRec[];
   notes: NoteDto[];
   citations: CitationDto[];
+  /** Clips of recordings linked to the family (made on first use). */
+  media?: MediaLinkDto[];
 }
 
 export interface Fixture {
@@ -54,6 +57,8 @@ export interface Fixture {
   places: PlaceOption[];
   sources: SourceDto[];
   media: MediaDto[];
+  /** Starting coordinates of places, by place id. */
+  placeCoords?: Record<Id, [number, number]>;
   homePerson: Id;
   /** Hand-written edge cases; null when the tree is too small to hold them. */
   specials: {
@@ -70,6 +75,12 @@ export interface Db {
   places: Map<Id, PlaceOption>;
   sources: Map<Id, SourceDto>;
   media: Map<Id, MediaDto>;
+  /** Versions of one page: media id to the id of its group's primary (absent: no group). */
+  versionOf?: Map<Id, Id>;
+  /** Place coordinates (lat, lon) set by the person; the places themselves carry none. */
+  coords?: Map<Id, [number, number]>;
+  /** Old maps on the Map, by media id. */
+  layers?: Map<Id, MapLayerDto>;
 }
 
 export class MockApiError extends Error {

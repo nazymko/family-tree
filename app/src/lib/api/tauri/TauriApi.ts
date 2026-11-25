@@ -12,7 +12,17 @@ import type {
   LogFilterDto,
   LogRowDto,
   MediaDto,
+  PlaceEventsQuery,
+  PlaceEventsPage,
+  PlaceImportScanDto,
+  PlaceImportMapDto,
+  PlaceImportPreviewDto,
+  PlaceImportResultDto,
+  PlaceImportProgressDto,
+  RecordingDto,
   RecordHomeDto,
+  RecordRefDto,
+  LocationDto,
   ReviewScopeDto,
   UndoReport,
   AttachResult,
@@ -54,6 +64,14 @@ import type {
   TraceDraftState,
   TraceImageInfo,
   UndoState,
+  GazetteerCandidateDto,
+  GazetteerCountryDto,
+  GazetteerProgressDto,
+  GazetteerStatusDto,
+  MapDataDto,
+  MapScope,
+  MapLayerInput,
+  OziPlacementDto,
   WholeMeta,
 } from '../types';
 import { toApiError } from './errors';
@@ -209,6 +227,12 @@ export class TauriApi implements Api {
   unlinkedMedia(): Promise<MediaDto[]> {
     return call('unlinked_media');
   }
+  allPictures(): Promise<MediaDto[]> {
+    return call('all_pictures');
+  }
+  getRecording(media: Id): Promise<RecordingDto> {
+    return call('get_recording', { media });
+  }
   attachFiles(target: OwnerRef, paths: string[]): Promise<AttachResult> {
     return call('attach_files', { target, paths });
   }
@@ -245,6 +269,9 @@ export class TauriApi implements Api {
   exportGedcom(opts: ExportOptions, dest: string, previewToken: string): Promise<{ bytes: number }> {
     return call('export_gedcom', { opts, dest, previewToken });
   }
+  makePictureFolder(dir: string, name: string): Promise<string> {
+    return call('make_picture_folder', { dir, name });
+  }
   async savePicture(dest: string, bytes: Uint8Array): Promise<{ bytes: number }> {
     // The picture travels as the raw request body; the path goes in a header as base64 of its UTF-8 text.
     const path = btoa(String.fromCharCode(...new TextEncoder().encode(dest)));
@@ -253,6 +280,60 @@ export class TauriApi implements Api {
     } catch (e) {
       throw toApiError(e);
     }
+  }
+  placeEvents(query: PlaceEventsQuery): Promise<PlaceEventsPage> {
+    return call('place_events', { query });
+  }
+  placeImportScan(paths: string[]): Promise<PlaceImportScanDto> {
+    return call('place_import_scan', { paths });
+  }
+  placeImportPreview(paths: string[], mapping: PlaceImportMapDto[]): Promise<PlaceImportPreviewDto> {
+    return call('place_import_preview', { paths, mapping });
+  }
+  async placeImportRun(paths: string[], mapping: PlaceImportMapDto[], onProgress?: (p: PlaceImportProgressDto) => void): Promise<PlaceImportResultDto> {
+    let unlisten: (() => void) | null = null;
+    try {
+      if (onProgress) unlisten = await listen<PlaceImportProgressDto>('place-import-progress', (e) => onProgress(e.payload));
+      return await call<PlaceImportResultDto>('place_import_run', { paths, mapping });
+    } finally {
+      unlisten?.();
+    }
+  }
+  mapData(scope: MapScope): Promise<MapDataDto> {
+    return call('map_data', { scope });
+  }
+  addMapLayerFile(path: string, title: string | null, layer: MapLayerInput, oziMapPath?: string | null): Promise<Id> {
+    return call('add_map_layer_file', { path, title, layer, oziMapPath: oziMapPath ?? null });
+  }
+  findOziMap(path: string): Promise<string | null> {
+    return call('find_ozi_map', { path });
+  }
+  oziCheck(mapPath: string, picturePath: string): Promise<OziPlacementDto> {
+    return call('ozi_check', { mapPath, picturePath });
+  }
+  oziCorners(mapPath: string, media: Id): Promise<OziPlacementDto> {
+    return call('ozi_corners', { mapPath, media });
+  }
+  gazetteerStatus(): Promise<GazetteerStatusDto> {
+    return call('gazetteer_status');
+  }
+  gazetteerRemoteSize(country: string): Promise<number | null> {
+    return call('gazetteer_remote_size', { country });
+  }
+  async gazetteerDownload(country: string, onProgress?: (p: GazetteerProgressDto) => void): Promise<GazetteerCountryDto> {
+    let unlisten: (() => void) | null = null;
+    try {
+      if (onProgress) unlisten = await listen<GazetteerProgressDto>('gazetteer-progress', (e) => onProgress(e.payload));
+      return await call<GazetteerCountryDto>('gazetteer_download', { country });
+    } finally {
+      unlisten?.();
+    }
+  }
+  gazetteerRemove(country: string): Promise<void> {
+    return call('gazetteer_remove', { country });
+  }
+  gazetteerSuggest(place: Id, limit: number): Promise<GazetteerCandidateDto[]> {
+    return call('gazetteer_suggest', { place, limit });
   }
   getSettings(): Promise<Settings> {
     return call('get_settings');
@@ -283,6 +364,10 @@ export class TauriApi implements Api {
   }
   recordHome(kind: 'note' | 'citation', id: Id): Promise<RecordHomeDto | null> {
     return call('record_home', { kind, id });
+  }
+
+  locateRecords(refs: RecordRefDto[]): Promise<(LocationDto | null)[]> {
+    return call('locate_records', { refs });
   }
   personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
     return call('person_history', { id, offset, limit });

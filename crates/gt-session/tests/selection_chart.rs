@@ -274,12 +274,16 @@ fn the_chart_of_everyone_is_not_touched_by_a_selection_chart() {
     let taras = find(s.tree(), "Taras");
     for _ in 0..4 {
         s.chart_open(&ChartRequest {
+            open: None,
             kind: ChartKind::Pedigree,
             root: taras,
             generations: 3,
             aunts_uncles: None,
             kin: None,
             roots: None,
+            direction: None,
+            print: None,
+            fold: None,
         })
         .unwrap();
     }

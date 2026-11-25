@@ -50,7 +50,8 @@ describe('the family page', () => {
     expect(screen.getByRole('button', { name: 'Taras Koval' })).toBeInTheDocument();
     const notes = screen.getByRole('region', { name: 'Спільні нотатки родини' });
     expect(within(notes).getByText('They moved to Lviv together.')).toBeInTheDocument();
-    expect(within(notes).queryByRole('button')).toBeNull();
+    // To read: only the notes-view switch, no button edits or deletes a note.
+    expect(within(notes).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['Дослідження', 'Розповідь']);
   });
 
   it('back_returns_to_where_it_was_opened', async () => {

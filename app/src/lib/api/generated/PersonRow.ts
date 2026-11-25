@@ -16,6 +16,11 @@ lifespan: string, sex: SexKind, living: boolean, private: boolean,
  */
 birthSurname?: string, 
 /**
+ * The person's name as a record writes it (the earliest dated `as_recorded` name), for the "as recorded"
+ * display mode (see `names::as_recorded_shown`). Absent when there is none or in far-out chart nodes.
+ */
+asRecorded?: string, 
+/**
  * The "more brothers and sisters, unnamed" entry: it has no name or dates and the app draws
  * its label.
  */

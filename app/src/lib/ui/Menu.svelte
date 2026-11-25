@@ -8,6 +8,11 @@
     title?: string;
     /** A thin line above this item, to start a new group (shown by the context menu). */
     separatorBefore?: boolean;
+    /**
+     * A choice of one in a group (shown by the context menu): the item is a radio item, ticked when true. Choosing it
+     * keeps the menu open, so the person sees the tick move and can go on to the action.
+     */
+    checked?: boolean;
   }
 </script>
 
@@ -45,9 +50,36 @@
     return menu ? Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])')) : [];
   }
 
+  /**
+   * The popup is put in the browser's top layer and placed by the button's position on screen, so a card
+   * with clipped corners or a scrolling list around the button cannot cut it off.
+   */
+  function place() {
+    const btn = wrap?.querySelector<HTMLElement>('button');
+    if (!btn || !menu) return;
+    const b = btn.getBoundingClientRect();
+    const w = menu.offsetWidth;
+    const h = menu.offsetHeight;
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    const rtl = getComputedStyle(btn).direction === 'rtl';
+    const atLeft = (align === 'start') !== rtl;
+    const left = Math.max(8, Math.min(atLeft ? b.left : b.right - w, vw - w - 8));
+    const below = b.bottom + 4;
+    const top = below + h > vh - 8 && b.top - 4 - h >= 8 ? b.top - 4 - h : below;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }
+
   async function show() {
     open = true;
     await tick();
+    try {
+      menu?.showPopover?.();
+    } catch {
+      // No top layer here: the fixed position below still applies.
+    }
+    place();
     enabled()[0]?.focus();
   }
 
@@ -87,7 +119,11 @@
   }
 </script>
 
-<svelte:window onmousedown={(e) => open && !wrap?.contains(e.target as Node) && close(false)} />
+<svelte:window
+  onmousedown={(e) => open && !wrap?.contains(e.target as Node) && !menu?.contains(e.target as Node) && close(false)}
+  onresize={() => open && place()}
+  onscrollcapture={() => open && place()}
+/>
 
 <div class="menu-wrap" bind:this={wrap}>
   {#if text}
@@ -109,7 +145,7 @@
     />
   {/if}
   {#if open}
-    <div id="{uid}-menu" class="menu" class:start={align === 'start'} role="menu" aria-label={label} tabindex="-1" bind:this={menu} {onkeydown}>
+    <div id="{uid}-menu" class="menu" popover="manual" role="menu" aria-label={label} tabindex="-1" bind:this={menu} {onkeydown}>
       {#each items as item (item.label)}
         <button
           type="button"
@@ -133,10 +169,15 @@
     display: inline-block;
   }
   .menu {
-    position: absolute;
+    position: fixed;
     z-index: 50;
-    inset-inline-end: 0;
-    top: calc(100% + 4px);
+    inset: auto;
+    margin: 0;
+    width: max-content;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+    color: inherit;
     min-width: 11rem;
     padding: var(--s-2);
     display: grid;
@@ -145,10 +186,6 @@
     border-radius: var(--r-2);
     box-shadow: var(--shadow-pop);
     animation: pop var(--dur-base) var(--ease);
-  }
-  .menu.start {
-    inset-inline-end: auto;
-    inset-inline-start: 0;
   }
   button[role='menuitem'] {
     padding: var(--s-3) var(--s-4);

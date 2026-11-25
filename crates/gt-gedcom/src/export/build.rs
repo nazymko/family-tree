@@ -179,7 +179,8 @@ impl<'a> Bld<'a> {
                 out.push(n);
             }
         }
-        for l in &c.media {
+        // A clip of a recording has no place in GEDCOM; the recording itself is on its source.
+        for l in c.media.iter().filter(|l| l.clip.is_none()) {
             if let Some(n) = self.media_ref(l) {
                 out.push(n);
             }
@@ -348,6 +349,8 @@ impl<'a> Bld<'a> {
             && !t.is_empty()
         {
             n.children.push(self.kv("TYPE", t));
+        } else if ev.kind == EventKind::Missing {
+            n.children.push(self.kv("TYPE", "Missing"));
         }
         let mut phrase_note = None;
         if let Some(g) = &ev.date {
@@ -389,6 +392,11 @@ impl<'a> Bld<'a> {
             }
             n.children.push(asso);
         }
+        for g in &ev.godparents {
+            if let Some(node) = self.godparent_node(g) {
+                n.children.push(node);
+            }
+        }
         let mut kids = Vec::new();
         self.assertion_children(&ev.assertion, false, &mut kids);
         kids.push(self.kv("_EVID", &ev.common.id.to_string()));
@@ -396,6 +404,47 @@ impl<'a> Bld<'a> {
         n.children.append(&mut kids);
         insert_unknown(&mut n.children, &ev.common.unknown);
         n
+    }
+
+    /// A godparent of an event. A person: `ASSO @I1@` with `RELA Godfather` (5.5.1) or
+    /// `ROLE GODP` + `PHRASE Godfather` (7.0). A name only: in 7.0 `ASSO @VOID@` with the name as
+    /// its `PHRASE`; 5.5.1 has no such pointer, so a `NOTE Godfather: <name>` (the note on the
+    /// next lines), which any program shows and the import reads back.
+    fn godparent_node(&mut self, g: &Godparent) -> Option<GedNode> {
+        let word = crate::maps::godparent_role_word(g.role);
+        let mut asso = match (g.person, &g.name) {
+            (Some(pid), _) => {
+                let x = self.px.get(&pid).cloned()?;
+                self.ptr("ASSO", x)
+            }
+            (None, Some(name)) if self.v70 => {
+                let mut a = self.ptr("ASSO", "@VOID@".to_string());
+                a.children.push(self.kv("PHRASE", name));
+                a
+            }
+            (None, Some(name)) => {
+                let mut text = format!("{word}: {}", name.replace(['\r', '\n'], " "));
+                if let Some(note) = g.note.as_deref().filter(|s| !s.trim().is_empty()) {
+                    text.push('\n');
+                    text.push_str(note);
+                }
+                return Some(self.kv("NOTE", &text));
+            }
+            (None, None) => return None,
+        };
+        if self.v70 {
+            let mut role = self.kv("ROLE", "GODP");
+            if g.role != GodparentRole::Godparent {
+                role.children.push(self.kv("PHRASE", word));
+            }
+            asso.children.push(role);
+        } else {
+            asso.children.push(self.kv("RELA", word));
+        }
+        if let Some(note) = g.note.as_deref().filter(|s| !s.trim().is_empty()) {
+            asso.children.push(self.kv("NOTE", note));
+        }
+        Some(asso)
     }
 
     // ---- records -------------------------------------------------------------------------
@@ -625,6 +674,23 @@ pub(crate) fn build(t: &Tree, version: GedcomVersion) -> Vec<GedNode> {
                 n.children.push(b.kv(tag, v));
             }
         }
+        if let Some(k) = &s.kind {
+            n.children.push(b.kv("_TYPE", &k.id()));
+        }
+        if let Some(v) = &s.issuer {
+            n.children.push(b.kv("_ISSUER", v));
+        }
+        if let Some(v) = &s.doc_number {
+            n.children.push(b.kv("_DOCNUM", v));
+        }
+        if let Some(d) = &s.doc_date {
+            let mut dn = b.date_node(d, None);
+            dn.tag = "_DOCDATE".to_string();
+            if b.v70 {
+                b.ext.insert("_DOCDATE".to_string());
+            }
+            n.children.push(dn);
+        }
         for r in &s.repositories {
             if let Some(x) = b.rx.get(&r.repository).cloned() {
                 let mut rn = b.ptr("REPO", x);
@@ -677,6 +743,11 @@ pub(crate) fn build(t: &Tree, version: GedcomVersion) -> Vec<GedNode> {
             if let Some(t) = &m.title {
                 n.children.push(b.kv("TITL", t));
             }
+        }
+        // An old map laid on the Map: GEDCOM has no place for that, so a note says what it is
+        // and where it lies, for a person reading the file.
+        if let Some(layer) = &m.map_layer {
+            n.children.push(b.kv("NOTE", &map_layer_note(layer)));
         }
         let mut rest = Vec::new();
         b.common_children(&m.common, &mut rest);
@@ -792,4 +863,35 @@ fn famc_children(b: &mut Bld, l: &ChildLink, person: Uuid, fam: Uuid, fc: &mut G
     }
     fc.children.append(&mut kids);
     insert_unknown(&mut fc.children, &l.unknown);
+}
+
+/// What a note on an OBJE record says of an old map laid on the Map.
+pub(crate) fn map_layer_note(l: &MapLayer) -> String {
+    let mut lines = vec!["Historical map layer".to_string()];
+    if let Some(s) = &l.series {
+        lines.push(format!("Series: {s}"));
+    }
+    if let Some(y) = &l.year {
+        lines.push(format!("Year: {y}"));
+    }
+    if let Some(s) = &l.source {
+        lines.push(format!("Source: {s}"));
+    }
+    match &l.corners {
+        Some(c) => {
+            let deg = |v: i32| format!("{:.6}", f64::from(v) / 1e6);
+            let names = ["top left", "top right", "bottom right", "bottom left"];
+            let parts: Vec<String> = names
+                .iter()
+                .zip(c)
+                .map(|(n, p)| format!("{n} {}, {}", deg(p.lat_e6), deg(p.lon_e6)))
+                .collect();
+            lines.push(format!(
+                "Corners (latitude, longitude): {}",
+                parts.join("; ")
+            ));
+        }
+        None => lines.push("Not placed on the map yet".to_string()),
+    }
+    lines.join("\n")
 }

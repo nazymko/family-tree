@@ -36,6 +36,12 @@
       border-color var(--dur-fast) var(--ease),
       color var(--dur-fast) var(--ease);
   }
+  /* A finger needs a bigger target than a mouse pointer. */
+  @media (pointer: coarse) {
+    .btn {
+      min-height: 2.75rem;
+    }
+  }
   .btn:hover:not(:disabled) {
     background: var(--paper-2);
     border-color: var(--ink-2);

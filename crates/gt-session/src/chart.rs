@@ -2,9 +2,9 @@
 //! chart, served as viewport windows. At most two charts stay open (least recently used goes).
 
 use crate::dto::{
-    AroundKin, ChartEdge, ChartKind, ChartLocation, ChartMeta, ChartNav, ChartNode, ChartRequest,
-    ChartSize, ChartWindow, EdgeKindDto, Kinship, KinshipKind, OutlineGroupKind, OutlineItem,
-    PersonRef, Rect, RoleDto, RoleKind, SexKind, WholeBlockDto, WholeMeta,
+    AroundKin, BranchDepth, ChartEdge, ChartKind, ChartLocation, ChartMeta, ChartNav, ChartNode,
+    ChartRequest, ChartSize, ChartWindow, EdgeKindDto, Kinship, KinshipKind, OutlineGroupKind,
+    OutlineItem, PersonRef, Rect, RoleDto, RoleKind, SexKind, WholeBlockDto, WholeMeta,
 };
 use crate::error::{ApiError, ErrorCode};
 use crate::index::{Links, PersonIndex};
@@ -13,8 +13,8 @@ use crate::relation::{relation_label, relation_role};
 use crate::session::Session;
 use gt_core::tree::Tree;
 use gt_layout::{
-    BlockKind, ChartSource, Direction, EdgeKind, Key, Layout, Metrics, Rel, RelativesOptions,
-    WholeExtras, WholeFamily, WholeInput,
+    AroundBase, BlockKind, ChartSource, Direction, EdgeKind, Key, Layout, Metrics, Rel,
+    RelativesOptions, WholeExtras, WholeFamily, WholeInput,
 };
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
@@ -23,6 +23,8 @@ use uuid::Uuid;
 /// Node cap per chart.
 pub const MAX_NODES: usize = 20_000;
 const MAX_CHARTS: usize = 2;
+/// Most print charts open at once (a print needs up to five: one per direction, one after the other, then the printed one).
+const MAX_TRANSIENT: usize = 6;
 const MAX_OUTLINE: usize = 100;
 /// Below this zoom the canvas draws dots only, so the window carries no text.
 const TEXT_ZOOM: f32 = 0.25;
@@ -72,6 +74,34 @@ impl ChartSource for LineSource<'_, '_> {
     }
 }
 
+/// [`TreeSource`] for a chart of one line with openings: no unnamed-siblings markers among the children, except
+/// of the people in `keep` (the parents of people whose brothers and sisters are opened).
+struct OpenSource<'a, 'b> {
+    src: &'a TreeSource<'b>,
+    keep: std::collections::HashSet<Key>,
+}
+
+impl ChartSource for OpenSource<'_, '_> {
+    fn parents(&self, p: Key) -> [Option<Key>; 2] {
+        self.src.parents(p)
+    }
+
+    fn birth_sort(&self, p: Key) -> Option<i32> {
+        self.src.birth_sort(p)
+    }
+
+    fn unions(&self, p: Key) -> Vec<(Option<Key>, Vec<Key>)> {
+        if self.keep.contains(&p) {
+            return self.src.unions(p);
+        }
+        LineSource(self.src).unions(p)
+    }
+
+    fn child_families(&self, p: Key) -> Vec<([Option<Key>; 2], Vec<Key>)> {
+        self.src.child_families(p)
+    }
+}
+
 /// What a chart kind has in common with the relatives chart.
 trait ChartKindExt {
     /// People are named by how they are related to the centred person (and the outline is by relation).
@@ -91,7 +121,8 @@ impl TreeSource<'_> {
 }
 
 impl ChartSource for TreeSource<'_> {
-    /// Preferred parent family (a child link marked preferred, else the first); the male parent
+    /// Preferred parent family (a child link marked preferred, else the first), among families that still have a
+    /// parent; the male parent
     /// goes first when exactly one is male, a lone mother takes the second slot.
     fn parents(&self, p: Key) -> [Option<Key>; 2] {
         let Some(s) = self.index.summaries.get(p as usize) else {
@@ -100,8 +131,16 @@ impl ChartSource for TreeSource<'_> {
         let Some(links) = self.links.child_in.get(&s.id) else {
             return [None, None];
         };
+        // A family whose parents were all deleted names nobody: it is passed over, even when marked preferred.
+        let parented = |f: &Uuid| {
+            self.tree
+                .families
+                .get(f)
+                .is_some_and(|f| f.partner1.is_some() || f.partner2.is_some())
+        };
         let pick = links
             .iter()
+            .filter(|(f, _)| parented(f))
             .find(|(f, i)| {
                 self.tree
                     .families
@@ -109,7 +148,7 @@ impl ChartSource for TreeSource<'_> {
                     .and_then(|f| f.children.get(*i))
                     .is_some_and(|c| c.preferred)
             })
-            .or_else(|| links.first());
+            .or_else(|| links.iter().find(|(f, _)| parented(f)));
         let Some(fam) = pick.and_then(|(f, _)| self.tree.families.get(f)) else {
             return [None, None];
         };
@@ -350,6 +389,8 @@ struct OpenChart {
     whole: Option<Whole>,
     /// Chart built around several people: the boxes of all of them, the first being the root. Empty otherwise.
     chosen: Vec<u32>,
+    /// A short-lived chart made for a print: it never counts toward the two-chart limit and never closes another chart.
+    transient: bool,
 }
 
 /// How many different people a layout draws: a person placed twice counts once, unnamed-siblings markers never.
@@ -402,14 +443,35 @@ pub struct Charts {
 }
 
 impl Charts {
-    /// Closes the least recently used chart while two (not counting the whole tree) are open.
-    fn make_room(&mut self) {
-        while self.open.iter().filter(|c| c.whole.is_none()).count() >= MAX_CHARTS {
+    /// A print chart takes no place from the person's charts; only the print charts are capped, so a close that never
+    /// came (a failed call, a reloaded page) cannot leak them: the oldest one goes.
+    fn make_room_print(&mut self) {
+        while self.open.iter().filter(|c| c.transient).count() >= MAX_TRANSIENT {
             let oldest = self
                 .open
                 .iter()
                 .enumerate()
-                .filter(|(_, c)| c.whole.is_none())
+                .filter(|(_, c)| c.transient)
+                .min_by_key(|(_, c)| c.last_used.get())
+                .map_or(0, |(i, _)| i);
+            self.open.remove(oldest);
+        }
+    }
+
+    /// Closes the least recently used chart while two (not counting the whole tree or print charts) are open.
+    fn make_room(&mut self) {
+        while self
+            .open
+            .iter()
+            .filter(|c| c.whole.is_none() && !c.transient)
+            .count()
+            >= MAX_CHARTS
+        {
+            let oldest = self
+                .open
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.whole.is_none() && !c.transient)
                 .min_by_key(|(_, c)| c.last_used.get())
                 .map_or(0, |(i, _)| i);
             self.open.remove(oldest);
@@ -480,7 +542,7 @@ type PartnerMaps = (HashMap<u32, Vec<u32>>, HashMap<u32, u32>);
 fn partner_maps(layout: &Layout) -> PartnerMaps {
     let mut owner: HashMap<u32, u32> = HashMap::new();
     let mut out: HashMap<u32, Vec<u32>> = HashMap::new();
-    // Partner edges chain person -> partner 1 -> partner 2 in node order.
+    // Every partner edge runs from the person to one of their partners (never partner to partner).
     for e in layout.edges.iter().filter(|e| e.kind == EdgeKind::Partner) {
         let o = owner.get(&e.from).copied().unwrap_or(e.from);
         owner.insert(e.to, o);
@@ -532,8 +594,9 @@ fn not_whole() -> ApiError {
     )
 }
 
-fn block_title(kind: BlockKind, surname: &str, people: u32) -> String {
+fn block_title(kind: BlockKind, surname: &str, custom: &str, people: u32) -> String {
     match kind {
+        BlockKind::Family if !custom.is_empty() => format!("{custom} ({people} people)"),
         BlockKind::Unconnected => format!("Unconnected people ({people})"),
         BlockKind::Family if surname.is_empty() => format!("Family ({people} people)"),
         BlockKind::Family => format!("{surname} family ({people} people)"),
@@ -592,7 +655,9 @@ impl Session {
     }
 
     /// Lays out a chart. Generations are clamped (pedigree 1..=12, descendants 1..=8) and the
-    /// layout stops at 20 000 nodes. Opening a third chart closes the least recently used one.
+    /// layout stops at 20 000 nodes. Opening a third chart closes the least recently used one. A print chart
+    /// (`print`) is the exception: it is compact, may be turned (`direction`), does not count toward the two charts
+    /// and never closes one; at most six are kept (the oldest goes) and the caller closes each when done.
     pub fn chart_open(&mut self, req: &ChartRequest) -> Result<ChartMeta, ApiError> {
         let root = self
             .index
@@ -617,9 +682,17 @@ impl Session {
             links: &self.links,
             index: &self.index,
         };
-        let direction = self.direction_of(req.kind);
+        let direction = req
+            .direction
+            .map_or_else(|| self.direction_of(req.kind), Into::into);
         let native = native_direction(req.kind);
-        let m = Metrics::default().for_direction(native, direction);
+        let print = req.print.unwrap_or(false);
+        let base = if print {
+            Metrics::compact()
+        } else {
+            Metrics::default()
+        };
+        let m = base.for_direction(native, direction);
         let mut layout = match req.kind {
             ChartKind::Pedigree => {
                 // No lower limit than the type's: "Show all" asks for u8::MAX. Each person is expanded once, so
@@ -634,7 +707,8 @@ impl Session {
             }
             ChartKind::Relatives => {
                 let o = RelativesOptions {
-                    generations: u8::try_from(req.generations.clamp(1, 6)).unwrap_or(6),
+                    generations: u8::try_from(req.generations.clamp(1, u32::from(u8::MAX)))
+                        .unwrap_or(u8::MAX),
                     aunts: req.aunts_uncles.unwrap_or(true),
                 };
                 gt_layout::relatives(&src, root, &o, &m, MAX_NODES)
@@ -649,7 +723,11 @@ impl Session {
         };
         layout.orient(native, direction);
         let charts = &mut self.charts;
-        charts.make_room();
+        if print {
+            charts.make_room_print();
+        } else {
+            charts.make_room();
+        }
         charts.next_id += 1;
         let meta = ChartMeta {
             chart_id: charts.next_id,
@@ -688,6 +766,7 @@ impl Session {
             kin: RefCell::new(Some(KinMemo::new(root))),
             whole: None,
             chosen: Vec::new(),
+            transient: print,
         };
         charts.touch(&chart);
         charts.open.push(chart);
@@ -705,11 +784,92 @@ impl Session {
         };
         let m = *m;
         let g = u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
-        match req.kin.unwrap_or(AroundKin::Line) {
-            AroundKin::All => gt_layout::around_all_kin(&src, root, g, &m, MAX_NODES),
-            AroundKin::Siblings => gt_layout::around_with_siblings(&src, root, g, &m, MAX_NODES),
-            AroundKin::Line => gt_layout::around(&LineSource(&src), root, g, &m, MAX_NODES),
+        let kin = req.kin.unwrap_or(AroundKin::Line);
+        let base = match kin {
+            AroundKin::All => AroundBase::All,
+            AroundKin::Siblings => AroundBase::Siblings,
+            AroundKin::Line => AroundBase::Line,
+        };
+        let specs = self.open_specs(req);
+        let fold = req.fold.unwrap_or(false);
+        // Folding lives in `around_open` (nothing opened there is exactly the base chart).
+        let mut layout = if specs.is_empty() && !fold {
+            match kin {
+                AroundKin::All => gt_layout::around_all_kin(&src, root, g, &m, MAX_NODES),
+                AroundKin::Siblings => {
+                    gt_layout::around_with_siblings(&src, root, g, &m, MAX_NODES)
+                }
+                AroundKin::Line => gt_layout::around(&LineSource(&src), root, g, &m, MAX_NODES),
+            }
+        } else if base == AroundBase::Line && specs.is_empty() {
+            // Folding with nothing opened: the plain line source, so a chart with nothing to fold is exactly the one
+            // `around` draws.
+            gt_layout::around_open(
+                &LineSource(&src),
+                root,
+                g,
+                base,
+                &specs,
+                fold,
+                &m,
+                MAX_NODES,
+            )
+        } else if base == AroundBase::Line {
+            // The line shows no unnamed-siblings markers, except among the brothers and sisters that were opened.
+            let keep = specs
+                .iter()
+                .filter(|o| o.siblings.is_some())
+                .flat_map(|o| src.parents(o.key))
+                .flatten()
+                .collect();
+            let source = OpenSource { src: &src, keep };
+            gt_layout::around_open(&source, root, g, base, &specs, fold, &m, MAX_NODES)
+        } else {
+            gt_layout::around_open(&src, root, g, base, &specs, fold, &m, MAX_NODES)
+        };
+        let flags = if base == AroundBase::Line {
+            gt_layout::open_flags(&LineSource(&src), &layout, base)
+        } else {
+            gt_layout::open_flags(&src, &layout, base)
+        };
+        for (n, (sib, kids)) in layout.nodes.iter_mut().zip(flags) {
+            n.can_open_siblings = sib;
+            n.can_open_children = kids;
+            n.opened = n.dup_of.is_none()
+                && specs
+                    .iter()
+                    .any(|o| o.key == n.key && (o.siblings.is_some() || o.children.is_some()));
         }
+        layout
+    }
+
+    /// The openings of a chart built around one person, as the layout takes them: people who are not in the project
+    /// and unnamed-siblings markers are left out, and so are entries that open nothing.
+    fn open_specs(&self, req: &ChartRequest) -> Vec<gt_layout::OpenSpec> {
+        let depth = |d: Option<BranchDepth>| {
+            d.map(|d| match d {
+                BranchDepth::Children => gt_layout::BranchDepth::Children,
+                BranchDepth::All => gt_layout::BranchDepth::All,
+            })
+        };
+        req.open
+            .iter()
+            .flatten()
+            .filter_map(|o| {
+                let key = self.index.slot(o.person)?;
+                let real = self
+                    .index
+                    .summaries
+                    .get(key as usize)
+                    .is_some_and(|s| !s.sibling_marker);
+                let spec = gt_layout::OpenSpec {
+                    key,
+                    siblings: depth(o.siblings),
+                    children: depth(o.children),
+                };
+                (real && (spec.siblings.is_some() || spec.children.is_some())).then_some(spec)
+            })
+            .collect()
     }
 
     /// The side the ancestors of a chart of `kind` are drawn on, from the settings.
@@ -744,7 +904,10 @@ impl Session {
         req: &ChartRequest,
         chosen: &[Uuid],
     ) -> Result<ChartMeta, ApiError> {
-        let direction = self.direction_of(ChartKind::Around);
+        let print = req.print.unwrap_or(false);
+        let direction = req
+            .direction
+            .map_or_else(|| self.direction_of(ChartKind::Around), Into::into);
         let ManyLayout {
             layout,
             chosen_nodes,
@@ -760,7 +923,11 @@ impl Session {
             .slot(req.root)
             .ok_or_else(|| ApiError::not_found("person", req.root))?;
         let charts = &mut self.charts;
-        charts.make_room();
+        if print {
+            charts.make_room_print();
+        } else {
+            charts.make_room();
+        }
         charts.next_id += 1;
         let meta = ChartMeta {
             chart_id: charts.next_id,
@@ -790,6 +957,7 @@ impl Session {
             kin: RefCell::new(Some(KinMemo::new(root_slot))),
             whole: None,
             chosen: chosen_nodes,
+            transient: print,
         };
         charts.touch(&chart);
         charts.open.push(chart);
@@ -803,7 +971,12 @@ impl Session {
         chosen: &[Uuid],
         direction: Direction,
     ) -> Result<ManyLayout, ApiError> {
-        let m = Metrics::default().for_direction(Direction::Top, direction);
+        let base = if req.print.unwrap_or(false) {
+            Metrics::compact()
+        } else {
+            Metrics::default()
+        };
+        let m = base.for_direction(Direction::Top, direction);
         let generations =
             u8::try_from(req.generations.clamp(1, u32::from(u8::MAX))).unwrap_or(u8::MAX);
         let slots: Vec<u32> = chosen
@@ -815,15 +988,24 @@ impl Session {
             links: &self.links,
             index: &self.index,
         };
+        let fold = req.fold.unwrap_or(false);
         let kin = match req.kin.unwrap_or(AroundKin::Line) {
             AroundKin::Line => gt_layout::ManyKin::Line,
             AroundKin::Siblings => gt_layout::ManyKin::Siblings,
             AroundKin::All => gt_layout::ManyKin::All,
         };
         let mut layout = if kin == gt_layout::ManyKin::Line {
-            gt_layout::around_many_kin(&LineSource(&src), &slots, generations, kin, &m, MAX_NODES)
+            gt_layout::around_many_kin(
+                &LineSource(&src),
+                &slots,
+                generations,
+                kin,
+                fold,
+                &m,
+                MAX_NODES,
+            )
         } else {
-            gt_layout::around_many_kin(&src, &slots, generations, kin, &m, MAX_NODES)
+            gt_layout::around_many_kin(&src, &slots, generations, kin, fold, &m, MAX_NODES)
         };
         layout.orient(Direction::Top, direction);
         let chosen_nodes: Vec<u32> = slots
@@ -1191,7 +1373,7 @@ impl Session {
             .collect();
         let markers = u32::try_from(marker_at.len()).unwrap_or(u32::MAX);
         let people = distinct_people(&self.index, &layout);
-        let blocks = extras
+        let counted: Vec<_> = extras
             .blocks
             .iter()
             .map(|b| {
@@ -1209,9 +1391,32 @@ impl Session {
                     .saturating_sub(u32::try_from(inside).unwrap_or(u32::MAX));
                 (b, people)
             })
-            .map(|(b, people)| WholeBlockDto {
-                title: block_title(b.kind, &b.surname, people),
+            .collect();
+        // The main block is the largest family (the first of equals).
+        let main_block = counted
+            .iter()
+            .enumerate()
+            .filter(|(_, (b, _))| b.kind == BlockKind::Family)
+            .fold(None::<(usize, u32)>, |best, (i, (_, n))| match best {
+                Some((_, m)) if m >= *n => best,
+                _ => Some((i, *n)),
+            })
+            .map(|(i, _)| i);
+        let blocks = counted
+            .into_iter()
+            .enumerate()
+            .map(|(i, (b, people))| {
+                let custom = if Some(i) == main_block {
+                    self.settings.tree_name.clone()
+                } else {
+                    String::new()
+                };
+                (b, people, custom)
+            })
+            .map(|(b, people, custom_name)| WholeBlockDto {
+                title: block_title(b.kind, &b.surname, &custom_name, people),
                 surname: b.surname.clone(),
+                custom_name,
                 people,
                 unconnected: b.kind == BlockKind::Unconnected,
                 rect: Rect {
@@ -1246,6 +1451,7 @@ impl Session {
                 selection,
             }),
             chosen: Vec::new(),
+            transient: false,
         };
         charts.touch(&chart);
         let meta = whole_meta(&chart);
@@ -1443,6 +1649,7 @@ impl Session {
                                 name: s.surname.clone(),
                                 lifespan: String::new(),
                                 birth_surname: None,
+                                as_recorded: None,
                                 ..s.person_ref()
                             }
                         }
@@ -1466,6 +1673,9 @@ impl Session {
                     relation,
                     role: role_dto,
                     kinship,
+                    can_open_siblings: n.can_open_siblings.then_some(true),
+                    can_open_children: n.can_open_children.then_some(true),
+                    opened: n.opened.then_some(true),
                 }
             })
             .collect();

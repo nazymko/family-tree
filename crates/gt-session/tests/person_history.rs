@@ -23,6 +23,7 @@ fn add_note(id: Uuid, text: &str) -> EditCommand {
             id,
         },
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: text.into(),
@@ -48,6 +49,7 @@ fn birth(owner: Uuid, raw: &str) -> EditCommand {
             negative: false,
             private: false,
             preferred: true,
+            godparents: None,
             participants: None,
         },
     }

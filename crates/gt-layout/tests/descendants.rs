@@ -1,7 +1,5 @@
 mod common;
 
-use std::collections::HashSet;
-
 use common::{MapSource, Union};
 use gt_layout::{EdgeKind, Layout, Metrics, Node, descendants};
 use proptest::prelude::*;
@@ -78,7 +76,8 @@ fn many_unions_one_node() {
     let p5 = node_of(&l, 105);
     assert_eq!(
         p5.rect.x,
-        node_of(&l, 0).rect.x + 5.0 * (m.node_w + m.couple_gap)
+        // The first partner stands left of the person, the others continue to the right: P5 is 4 steps right of 0.
+        node_of(&l, 0).rect.x + 4.0 * (m.node_w + m.couple_gap)
     );
 }
 
@@ -207,9 +206,12 @@ proptest! {
     fn no_overlap_property(sh in shape()) {
         let m = Metrics::default();
         let l = descendants(&build(&sh), 0, 255, &m, 100_000);
-        let partners: HashSet<(u32, u32)> = l.edges.iter()
-            .filter(|e| e.kind == EdgeKind::Partner)
-            .map(|e| (e.from, e.to)).collect();
+        // Cards of one unit (a person and their partners) stand a couple gap apart.
+        let mut unit: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+        for e in l.edges.iter().filter(|e| e.kind == EdgeKind::Partner) {
+            unit.insert(e.from, e.from);
+            unit.insert(e.to, e.from);
+        }
         let mut depths: Vec<i16> = l.nodes.iter().map(|n| n.r#gen).collect();
         depths.sort_unstable();
         depths.dedup();
@@ -218,7 +220,8 @@ proptest! {
             row.sort_by(|a, b| a.rect.x.total_cmp(&b.rect.x));
             for w in row.windows(2) {
                 let sep = w[1].rect.x - (w[0].rect.x + w[0].rect.w);
-                let need = if partners.contains(&(w[0].id, w[1].id)) { m.couple_gap } else { m.gap_x };
+                let same = unit.contains_key(&w[0].id) && unit.get(&w[0].id) == unit.get(&w[1].id);
+                let need = if same { m.couple_gap } else { m.gap_x };
                 prop_assert!(sep >= need - 1e-2, "depth {d}: sep {sep} < {need}");
             }
         }

@@ -30,11 +30,13 @@
 
   // What the form was last saved as; a partly failed first save moves it, so closing is not asked to discard saved text.
   // svelte-ignore state_referenced_locally
-  let init = $state<{ kind: string; text: string }>({ kind: note?.kind ?? 'general', text: note?.text ?? '' });
+  let init = $state<{ kind: string; text: string; story: string }>({ kind: note?.kind ?? 'general', text: note?.text ?? '', story: note?.story ?? '' });
   // svelte-ignore state_referenced_locally
   let kind = $state<string>(init.kind);
   // svelte-ignore state_referenced_locally
   let text = $state(init.text);
+  // svelte-ignore state_referenced_locally
+  let story = $state(init.story);
   let saving = $state(false);
   let error = $state('');
 
@@ -48,7 +50,7 @@
   let failures = $state<string[]>([]);
   let working = $state(false);
   let hovering = $state(false);
-  const dirty = $derived(kind !== init.kind || text !== init.text || staged.length > 0);
+  const dirty = $derived(kind !== init.kind || text !== init.text || story !== init.story || staged.length > 0);
   const onNote = $derived<OwnerRef | null>(noteId ? { kind: 'note', id: noteId } : null);
 
   $effect(() => {
@@ -126,7 +128,8 @@
       const r = await api.apply({
         type: 'saveNote',
         target,
-        note: { ...(noteId ? { id: noteId } : {}), kind: kind as NoteDto['kind'], text },
+        // The story is sent when it changed (an empty one takes it off); left out, the note keeps the one it has.
+        note: { ...(noteId ? { id: noteId } : {}), kind: kind as NoteDto['kind'], text, ...(story !== init.story ? { story } : {}) },
       });
       if (!noteId && staged.length > 0) {
         const id = await newNoteId(r);
@@ -142,7 +145,7 @@
         if (res.failed.length > 0) {
           // The note exists now; stay open on it so the files that failed can be seen and tried again.
           failures = res.failed.map((f) => failureLine(f, 'note'));
-          init = { kind, text };
+          init = { kind, text, story };
           error = t('voice.attachFailed');
           return;
         }
@@ -175,6 +178,7 @@
     rows={10}
     bind:value={text}
   />
+  <TextArea label={t('editor.noteStory')} hint={t('editor.noteStoryHint')} rows={6} bind:value={story} />
 
   <section class="voice" aria-labelledby="voice-h" data-testid="voice-section">
     <h3 id="voice-h">{t('voice.title')}</h3>

@@ -13,7 +13,7 @@ use rusqlite::{Transaction, params};
 use std::collections::HashMap;
 
 /// Child tables first, so the bulk delete never cascades row by row.
-const CLEAR_ORDER: [&str; 22] = [
+const CLEAR_ORDER: [&str; 23] = [
     "search_words",
     "search_trigram",
     "name_phonetic",
@@ -22,6 +22,7 @@ const CLEAR_ORDER: [&str; 22] = [
     "media_link",
     "ext_id",
     "participant",
+    "godparent",
     "repo_ref",
     "place_name",
     "name",
@@ -57,6 +58,11 @@ fn new_row_id() -> String {
     Uuid::now_v7().to_string()
 }
 
+/// Milliseconds as a database integer.
+fn ms_col(ms: u64) -> i64 {
+    i64::try_from(ms).unwrap_or(i64::MAX)
+}
+
 /// A position as a database integer.
 fn idx(i: usize) -> i64 {
     i64::try_from(i).unwrap_or(i64::MAX)
@@ -70,7 +76,8 @@ fn save_common(tx: &Transaction, ty: &str, c: &Common) -> Result<(), StoreError>
         let r = m.region.as_ref();
         tx.prepare_cached(
             "INSERT INTO media_link(id, target_type, target_id, pos, media_id, \"primary\", \
-             region_x, region_y, region_w, region_h) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+             region_x, region_y, region_w, region_h, clip_id, clip_start_ms, clip_end_ms, \
+             clip_label) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
         )?
         .execute(params![
             new_row_id(),
@@ -83,6 +90,10 @@ fn save_common(tx: &Transaction, ty: &str, c: &Common) -> Result<(), StoreError>
             r.map(|r| f64::from(r.y)),
             r.map(|r| f64::from(r.w)),
             r.map(|r| f64::from(r.h)),
+            m.clip.as_ref().map(|c| s(&c.id)),
+            m.clip.as_ref().map(|c| ms_col(c.start_ms)),
+            m.clip.as_ref().map(|c| ms_col(c.end_ms)),
+            m.clip.as_ref().and_then(|c| c.label.clone()),
         ])?;
     }
     for (pos, e) in c.ext_ids.iter().enumerate() {
@@ -203,13 +214,16 @@ fn place_text(tree: &Tree, id: Uuid) -> String {
     tree.places.get(&id).map(place_text_of).unwrap_or_default()
 }
 
-/// Label and body text of a person: every name variant and the places of their events.
+/// Label and body text of a person: every name variant (one in the old spelling also in
+/// today's letters) and the places of their events.
 pub(crate) fn person_search(names: &[NameText], place_texts: Vec<String>) -> (String, String) {
     let preferred = names.iter().find(|n| n.preferred).or(names.first());
     let label = preferred.map(display_name).unwrap_or_default();
     let mut body: Vec<String> = Vec::new();
     for n in names {
-        body.push(display_name(n));
+        let shown = display_name(n);
+        body.extend(gt_core::orthography::modern_variants(&shown));
+        body.push(shown);
         body.extend(n.raw.clone());
         body.extend(n.call.clone());
         body.extend(n.nickname.clone());
@@ -614,11 +628,28 @@ pub(crate) fn insert_event(tx: &Transaction, e: &Event, seq: i64) -> Result<(), 
             enum_text(&p.role)
         ])?;
     }
+    for (pos, g) in e.godparents.iter().enumerate() {
+        tx.prepare_cached(
+            "INSERT INTO godparent(id, event_id, pos, person_id, name, role, note) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        )?
+        .execute(params![
+            s(&g.id),
+            s(id),
+            idx(pos),
+            g.person.as_ref().map(s),
+            g.name,
+            g.role.id(),
+            g.note
+        ])?;
+    }
     Ok(())
 }
 
 fn clear_event_owned(tx: &Transaction, id: &str) -> Result<(), StoreError> {
     tx.prepare_cached("DELETE FROM participant WHERE event_id = ?1")?
+        .execute([id])?;
+    tx.prepare_cached("DELETE FROM godparent WHERE event_id = ?1")?
         .execute([id])?;
     clear_links(tx, "event", id)
 }
@@ -704,10 +735,13 @@ pub(crate) fn insert_source(tx: &Transaction, src: &Source, seq: i64) -> Result<
     let id = &c.id;
     tx.prepare_cached(
         "INSERT INTO source(id, seq, private, changed, unknown_json, title, author, publication, \
-         abbreviation, text) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) \
+         abbreviation, text, kind, issuer, doc_number, doc_date_json) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14) \
          ON CONFLICT(id) DO UPDATE SET private=excluded.private, changed=excluded.changed, \
          unknown_json=excluded.unknown_json, title=excluded.title, author=excluded.author, \
-         publication=excluded.publication, abbreviation=excluded.abbreviation, text=excluded.text",
+         publication=excluded.publication, abbreviation=excluded.abbreviation, text=excluded.text, \
+         kind=excluded.kind, issuer=excluded.issuer, doc_number=excluded.doc_number, \
+         doc_date_json=excluded.doc_date_json",
     )?
     .execute(params![
         s(id),
@@ -720,6 +754,10 @@ pub(crate) fn insert_source(tx: &Transaction, src: &Source, seq: i64) -> Result<
         src.publication,
         src.abbreviation,
         src.text,
+        src.kind.as_ref().map(|k| k.id()),
+        src.issuer,
+        src.doc_number,
+        date_cols(&src.doc_date)?.json,
     ])?;
     save_common(tx, "source", c)?;
     for (pos, r) in src.repositories.iter().enumerate() {
@@ -853,14 +891,18 @@ pub(crate) fn insert_media(tx: &Transaction, m: &Media, seq: i64) -> Result<(), 
     let d = date_cols(&m.date)?;
     tx.prepare_cached(
         "INSERT INTO media(id, seq, private, changed, unknown_json, path, original_name, mime, \
-         title, date_raw, date_json, date_sort_min, date_sort_max, description, sha256) \
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15) \
+         title, date_raw, date_json, date_sort_min, date_sort_max, description, sha256, \
+         transcription_json, rotation, place_id, version_of, map_layer_json) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20) \
          ON CONFLICT(id) DO UPDATE SET private=excluded.private, changed=excluded.changed, \
          unknown_json=excluded.unknown_json, path=excluded.path, \
          original_name=excluded.original_name, mime=excluded.mime, title=excluded.title, \
          date_raw=excluded.date_raw, date_json=excluded.date_json, \
          date_sort_min=excluded.date_sort_min, date_sort_max=excluded.date_sort_max, \
-         description=excluded.description, sha256=excluded.sha256",
+         description=excluded.description, sha256=excluded.sha256, \
+         transcription_json=excluded.transcription_json, rotation=excluded.rotation, \
+         place_id=excluded.place_id, version_of=excluded.version_of, \
+         map_layer_json=excluded.map_layer_json",
     )?
     .execute(params![
         s(&c.id),
@@ -878,6 +920,18 @@ pub(crate) fn insert_media(tx: &Transaction, m: &Media, seq: i64) -> Result<(), 
         d.max,
         m.description,
         m.sha256,
+        if m.transcription.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(&m.transcription).map_err(|e| corrupt(e.to_string()))?)
+        },
+        m.rotation,
+        m.place.as_ref().map(s),
+        m.version_of.as_ref().map(s),
+        match &m.map_layer {
+            Some(l) => Some(serde_json::to_string(l).map_err(|e| corrupt(e.to_string()))?),
+            None => None,
+        },
     ])?;
     save_common(tx, "media", c)
 }
@@ -898,11 +952,11 @@ pub(crate) fn delete_media(tx: &Transaction, id: &Uuid) -> Result<(), StoreError
 pub(crate) fn insert_note(tx: &Transaction, n: &Note, seq: i64) -> Result<(), StoreError> {
     let c = &n.common;
     tx.prepare_cached(
-        "INSERT INTO note(id, seq, private, changed, unknown_json, kind, text, lang, shared) \
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) \
+        "INSERT INTO note(id, seq, private, changed, unknown_json, kind, text, lang, shared, story) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) \
          ON CONFLICT(id) DO UPDATE SET private=excluded.private, changed=excluded.changed, \
          unknown_json=excluded.unknown_json, kind=excluded.kind, text=excluded.text, \
-         lang=excluded.lang, shared=excluded.shared",
+         lang=excluded.lang, shared=excluded.shared, story=excluded.story",
     )?
     .execute(params![
         s(&c.id),
@@ -914,6 +968,7 @@ pub(crate) fn insert_note(tx: &Transaction, n: &Note, seq: i64) -> Result<(), St
         n.text,
         n.lang,
         n.shared,
+        n.story,
     ])?;
     save_common(tx, "note", c)
 }

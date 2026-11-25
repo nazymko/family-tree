@@ -85,8 +85,21 @@ interface Sib {
   half: boolean;
 }
 
-type Tree = { t: 'focus'; limit: number } | { t: 'niece' } | { t: 'aunt' } | { t: 'kin'; up: number };
-const limitOf = (t: Tree): number => (t.t === 'focus' ? t.limit : t.t === 'kin' ? 250 : t.t === 'niece' || t.t === 'aunt' ? 1 : 0);
+type Tree = { t: 'focus'; limit: number } | { t: 'niece' } | { t: 'aunt' } | { t: 'kin'; up: number; limit?: number };
+const limitOf = (t: Tree): number => (t.t === 'focus' ? t.limit : t.t === 'kin' ? (t.limit ?? 250) : t.t === 'niece' || t.t === 'aunt' ? 1 : 0);
+
+/** How much of an opened branch is shown: the opened people and their children, or all their descendants. */
+export type BranchDepth = 'children' | 'all';
+export interface MockOpen {
+  key: Id;
+  siblings?: BranchDepth;
+  children?: BranchDepth;
+}
+/** What the chart around one person shows before any opening, and the openings (the last entry of a person wins). */
+export interface OpenPlan {
+  base: 'line' | 'siblings' | 'all';
+  open: Map<Id, MockOpen>;
+}
 
 const kinRel = (up: number, down: number): Rel => (up === 1 && down === 2 ? { t: 'nibling' } : { t: 'kin', up, down });
 const kinPartner = (up: number, down: number): PartnerOf => (up === 1 && down === 1 ? 'sibling' : up === 2 && down === 1 ? 'aunt' : { up, down });
@@ -226,7 +239,7 @@ export function layoutAroundAll(root: Id, generations: number, src: RustLayoutSo
   return layoutRelatives(root, generations, false, src, true, true, true);
 }
 
-export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean, src: RustLayoutSource, siblings = true, centred = false, all = false): RelLayout {
+export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean, src: RustLayoutSource, siblings = true, centred = false, all = false, plan: OpenPlan | null = null): RelLayout {
   const generations = Math.max(1, generationsIn);
   const nodes: N[] = [];
   const rels: Rel[] = [];
@@ -277,10 +290,9 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
   };
 
   const expand = (rootUnit: number, tree: Tree): void => {
-    const limit = limitOf(tree);
-    const queue: [number, number][] = [[rootUnit, 0]];
+    const queue: [number, number, number][] = [[rootUnit, 0, limitOf(tree)]];
     for (let qi = 0; qi < queue.length; qi++) {
-      const [u, depth] = queue[qi];
+      const [u, depth, limit] = queue[qi];
       const unions = pending[u];
       pending[u] = [];
       const person = units[u].person;
@@ -305,7 +317,9 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
           }
           units[u].children.push(cu);
           kidNodes.push(units[cu].person);
-          queue.push([cu, depth + 1]);
+          // An opened relative may show their children further than the branch above them allows.
+          const own = tree.t === 'kin' && tree.limit !== undefined ? plan?.open.get(key)?.children : undefined;
+          queue.push([cu, depth + 1, own === 'all' ? Math.max(limit, depth + 1 + 250) : own === 'children' ? Math.max(limit, depth + 2) : limit]);
         }
       }
       nodes[person].nav.child = kidNodes[0] ?? null;
@@ -353,6 +367,12 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
     const person = units[b.anchor].person;
     if (nodes[person].dupOf !== null) return;
     const key = nodes[person].person!.id;
+    let depth: BranchDepth | undefined = 'all';
+    if (plan) {
+      const own = plan.open.get(key)?.siblings;
+      depth = plan.base === 'all' ? 'all' : b.row === 0 && plan.base === 'siblings' ? (own ?? 'children') : own;
+    }
+    if (!depth) return;
     const gens = -b.row;
     const sibs = siblingsOf(src, key);
     const at = sibs.findIndex((s) => s.key === key);
@@ -368,7 +388,7 @@ export function layoutRelatives(root: Id, generationsIn: number, aunts: boolean,
       if (s.key !== key) {
         u = makeUnit(s.key, b.row, siblingRel(gens, s.half), kinPartner(gens + 1, 1), null);
         if (u === null) continue;
-        expand(u, { t: 'kin', up: gens + 1 });
+        expand(u, depth === 'all' ? { t: 'kin', up: gens + 1 } : { t: 'kin', up: gens + 1, limit: 1 });
       }
       units[u].hang = s.hang;
       group.push(u);
@@ -696,4 +716,24 @@ export function relativesOutline(l: RelLayout, parent: number | null, limit: num
   return groupOf(l, owner, g)
     .slice(0, limit)
     .map((m) => item(m, `${owner}:${g}`));
+}
+
+/** The chart built around one person with side branches opened: the base chart plus the openings. Nothing opened is the base chart. */
+export function layoutAroundOpen(root: Id, generations: number, base: OpenPlan['base'], open: MockOpen[], src: RustLayoutSource, line: RustLayoutSource): RelLayout {
+  if (open.length === 0) {
+    return base === 'all' ? layoutAroundAll(root, generations, src) : base === 'siblings' ? layoutRelatives(root, generations, false, src, true, true) : layoutAround(root, generations, line);
+  }
+  const plan: OpenPlan = { base, open: new Map(open.map((o) => [o.key, o])) };
+  return layoutRelatives(root, generations, false, src, true, true, true, plan);
+}
+
+/** Per node: whether the person's brothers and sisters can be opened, and whether their children can. Blood relatives and the line only. */
+export function openFlags(l: RelLayout, base: OpenPlan['base'], src: RustLayoutSource): { siblings: boolean; children: boolean }[] {
+  return l.nodes.map((n, i) => {
+    const r = l.rels[i];
+    if (n.dupOf !== null) return { siblings: false, children: false };
+    if (r.t === 'focus' || r.t === 'ancestor') return { siblings: base !== 'all' && siblingsOf(src, n.person!.id).length > 1, children: false };
+    if (r.t === 'sibling' || r.t === 'aunt' || r.t === 'nibling' || r.t === 'cousin' || r.t === 'kin') return { siblings: false, children: n.moreDown };
+    return { siblings: false, children: false };
+  });
 }

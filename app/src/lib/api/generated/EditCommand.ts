@@ -5,7 +5,9 @@ import type { DraftFamily } from "./DraftFamily";
 import type { DraftPerson } from "./DraftPerson";
 import type { EventInput } from "./EventInput";
 import type { EventOwner } from "./EventOwner";
+import type { GodparentInput } from "./GodparentInput";
 import type { LivingPatch } from "./LivingPatch";
+import type { MapLayerInput } from "./MapLayerInput";
 import type { NameInput } from "./NameInput";
 import type { NoteInput } from "./NoteInput";
 import type { OwnerRef } from "./OwnerRef";
@@ -14,9 +16,10 @@ import type { PersonDraft } from "./PersonDraft";
 import type { Relation } from "./Relation";
 import type { SexKind } from "./SexKind";
 import type { SourceInput } from "./SourceInput";
+import type { TextRegionInput } from "./TextRegionInput";
 import type { UnionKindId } from "./UnionKindId";
 
-export type EditCommand = { "type": "createPerson", draft: PersonDraft, } | { "type": "updatePerson", id: string, sex?: SexKind, sexText?: string, livingOverride?: LivingPatch, private?: boolean, } | { "type": "deletePerson", id: string, } | { "type": "saveName", person: string, name: NameInput, } | { "type": "deleteName", person: string, name: string, } | { "type": "saveEvent", owner: EventOwner, event: EventInput, } | { "type": "deleteEvent", owner: EventOwner, event: string, } | { "type": "quickAdd", anchor: string, relation: Relation, draft: PersonDraft, family?: string, newParentSet?: boolean, 
+export type EditCommand = { "type": "createPerson", draft: PersonDraft, } | { "type": "updatePerson", id: string, sex?: SexKind, sexText?: string, livingOverride?: LivingPatch, private?: boolean, } | { "type": "deletePerson", id: string, } | { "type": "saveName", person: string, name: NameInput, } | { "type": "deleteName", person: string, name: string, } | { "type": "saveEvent", owner: EventOwner, event: EventInput, } | { "type": "deleteEvent", owner: EventOwner, event: string, } | { "type": "addGodparent", event: string, godparent: GodparentInput, } | { "type": "removeGodparent", event: string, godparent: string, } | { "type": "quickAdd", anchor: string, relation: Relation, draft: PersonDraft, family?: string, newParentSet?: boolean, 
 /**
  * Father, mother or child: how they are related when it is not by birth (stepfather, adopted son, ...).
  */
@@ -24,4 +27,19 @@ parentRel?: ParentRelId, } | { "type": "linkExisting", anchor: string, relation:
 /**
  * Father, mother or child: how they are related when it is not by birth (stepfather, adopted son, ...).
  */
-parentRel?: ParentRelId, } | { "type": "saveFamily", id?: string, partner1: string | null, partner2: string | null, kind: UnionKindId, } | { "type": "deleteFamily", id: string, } | { "type": "linkChild", family: string, child: string, rel: [ParentRelId, ParentRelId], preferred: boolean, } | { "type": "updateChildLink", family: string, child: string, rel: [ParentRelId, ParentRelId], preferred: boolean, } | { "type": "unlinkChild", family: string, child: string, } | { "type": "reorderChildren", family: string, order: Array<string>, } | { "type": "addSiblingMarker", family: string, } | { "type": "saveNote", target: OwnerRef, note: NoteInput, } | { "type": "deleteNote", target: OwnerRef, note: string, } | { "type": "saveSource", source: SourceInput, } | { "type": "addCitation", target: OwnerRef, citation: CitationArg, } | { "type": "updateCitation", id: string, citation: CitationPatch, } | { "type": "removeCitation", target: OwnerRef, citation: string, } | { "type": "attachMedia", target: OwnerRef, media: Array<string>, } | { "type": "detachMedia", target: OwnerRef, media: string, } | { "type": "deleteMedia", id: string, } | { "type": "setPrimaryMedia", person: string, media: string, } | { "type": "updateMedia", id: string, title?: string, description?: string, dateRaw?: string, } | { "type": "importDraft", persons: Array<DraftPerson>, families: Array<DraftFamily>, attachPicture: boolean, } | { "type": "addNumber", person: string, sourceFile: string, number: string, };
+parentRel?: ParentRelId, } | { "type": "saveFamily", id?: string, partner1: string | null, partner2: string | null, kind: UnionKindId, } | { "type": "deleteFamily", id: string, } | { "type": "linkChild", family: string, child: string, rel: [ParentRelId, ParentRelId], preferred: boolean, } | { "type": "updateChildLink", family: string, child: string, rel: [ParentRelId, ParentRelId], preferred: boolean, } | { "type": "unlinkChild", family: string, child: string, } | { "type": "reorderChildren", family: string, order: Array<string>, } | { "type": "addSiblingMarker", family: string, } | { "type": "saveNote", target: OwnerRef, note: NoteInput, } | { "type": "deleteNote", target: OwnerRef, note: string, } | { "type": "saveSource", source: SourceInput, } | { "type": "addCitation", target: OwnerRef, citation: CitationArg, } | { "type": "updateCitation", id: string, citation: CitationPatch, } | { "type": "removeCitation", target: OwnerRef, citation: string, } | { "type": "attachMedia", target: OwnerRef, media: Array<string>, } | { "type": "detachMedia", target: OwnerRef, media: string, } | { "type": "deleteMedia", id: string, } | { "type": "setPrimaryMedia", person: string, media: string, } | { "type": "updateMedia", id: string, title?: string, description?: string, dateRaw?: string, 
+/**
+ * Where it was made, as comma-separated text (smallest place first), found or created
+ * like an event's place; `Some("")` clears the place.
+ */
+placeText?: string, 
+/**
+ * An existing place, as the place picker gives it; wins over `place_text`.
+ */
+placeId?: string, } | { "type": "setMediaTranscription", id: string, regions: Array<TextRegionInput>, 
+/**
+ * The ids of the pieces the sender knew of. A stored piece not among them was added
+ * meanwhile (by an agent, say) and stays, after the piece it followed. Absent: `regions`
+ * is the whole transcription.
+ */
+known?: Array<string>, } | { "type": "setMediaRotation", id: string, rotation: 0 | 90 | 180 | 270, } | { "type": "groupMediaVersions", primary: string, others: Array<string>, } | { "type": "ungroupMediaVersion", media: string, newPrimary?: string, } | { "type": "addAudioClip", target: OwnerRef, media: string, startMs: number, endMs: number, label?: string, } | { "type": "updateAudioClip", target: OwnerRef, clip: string, startMs: number, endMs: number, label?: string, moveTo?: OwnerRef, } | { "type": "deleteAudioClip", target: OwnerRef, clip: string, } | { "type": "importDraft", persons: Array<DraftPerson>, families: Array<DraftFamily>, attachPicture: boolean, } | { "type": "createPlace", text: string, } | { "type": "setPlaceCoordinates", place: string, latE6?: number, lonE6?: number, } | { "type": "setMapLayer", media: string, layer?: MapLayerInput, title?: string, } | { "type": "reorderMapLayers", order: Array<string>, } | { "type": "setMapLayersVisible", shown: Array<string>, hidden: Array<string>, } | { "type": "addNumber", person: string, sourceFile: string, number: string, };

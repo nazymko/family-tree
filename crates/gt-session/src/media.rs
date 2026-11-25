@@ -54,6 +54,10 @@ pub struct AttachResult {
 /// Why a picture or document is refused on a note.
 pub(crate) const NOTE_SOUND_ONLY: &str = "only sound recordings can be attached to a note";
 
+/// Why an MP4/3GP with a picture track is refused: its brand is the one a phone voice recorder
+/// writes, only the track handler types tell the two apart.
+pub(crate) const VIDEO_NOT_SOUND: &str = "this is a video, not a sound recording";
+
 /// The most one ranged reply carries. A player asks again for the next piece, so a long
 /// recording never has to sit in memory whole.
 pub const MAX_RANGE_BYTES: u64 = 4 << 20;
@@ -108,6 +112,24 @@ impl Kind {
         }
     }
 
+    /// The extension a stored copy gets: from what the bytes are, never from the file's name.
+    pub(crate) fn ext(self) -> &'static str {
+        match self {
+            Kind::Jpeg => "jpg",
+            Kind::Png => "png",
+            Kind::WebP => "webp",
+            Kind::Gif => "gif",
+            Kind::Tiff => "tif",
+            Kind::Pdf => "pdf",
+            Kind::Mp3 => "mp3",
+            Kind::Wav => "wav",
+            Kind::Ogg => "ogg",
+            Kind::M4a => "m4a",
+            Kind::Aac => "aac",
+            Kind::Flac => "flac",
+        }
+    }
+
     pub(crate) fn is_audio(self) -> bool {
         matches!(
             self,
@@ -155,7 +177,9 @@ fn sniff_audio(head: &[u8]) -> Option<Kind> {
     } else if head.len() >= 12 && head.get(4..8) == Some(b"ftyp") {
         // Only the brands audio recorders write; a video or a HEIC picture is also `ftyp`.
         match head.get(8..12)? {
-            b"M4A " | b"M4B " | b"M4P " | b"mp42" | b"isom" => Some(Kind::M4a),
+            // Phone voice recorders write `3gp4` and its later numbers into an .m4a file.
+            b"M4A " | b"M4B " | b"M4P " | b"mp42" | b"mp41" | b"isom" | b"3gp4" | b"3gp5"
+            | b"3gp6" => Some(Kind::M4a),
             _ => None,
         }
     } else if let [0xFF, b1, b2, ..] = *head {
@@ -181,7 +205,7 @@ fn sniff_audio(head: &[u8]) -> Option<Kind> {
     }
 }
 
-fn read_head(path: &Path) -> std::io::Result<Vec<u8>> {
+pub(crate) fn read_head(path: &Path) -> std::io::Result<Vec<u8>> {
     let mut head = Vec::with_capacity(16);
     std::fs::File::open(path)?.take(16).read_to_end(&mut head)?;
     Ok(head)
@@ -189,6 +213,8 @@ fn read_head(path: &Path) -> std::io::Result<Vec<u8>> {
 
 /// Image sizes already read, per media id (only for files that were found).
 pub(crate) type DimsCache = RefCell<HashMap<Uuid, Option<(u32, u32)>>>;
+/// Recording lengths already read, per media id (only for files that were found).
+pub(crate) type LengthCache = RefCell<HashMap<Uuid, Option<crate::audio_len::Length>>>;
 
 struct Staged {
     media: Media,
@@ -203,24 +229,26 @@ fn fail(failed: &mut Vec<AttachFailure>, path: &Path, reason: &str) {
     });
 }
 
-/// Why a recording is refused on anything but a note.
-pub(crate) const SOUND_ON_NOTE_ONLY: &str = "sound recordings can only be attached to a note";
+/// Why a recording is refused on anything but a note (a voice sample) or a source (a whole
+/// recording, to cut clips from).
+pub(crate) const SOUND_ON_NOTE_ONLY: &str =
+    "sound recordings can only be attached to a note or a source";
 
-struct PreparedFile {
-    rel: String,
-    sha: String,
-    mime: &'static str,
-    original_name: Option<String>,
-    too_large: bool,
-    src: String,
+pub(crate) struct PreparedFile {
+    pub(crate) rel: String,
+    pub(crate) sha: String,
+    pub(crate) mime: &'static str,
+    pub(crate) original_name: Option<String>,
+    pub(crate) too_large: bool,
+    pub(crate) src: String,
 }
 
 /// Files already copied into a project's media folder and described, waiting to be recorded by
 /// [`Session::commit_attach`]. Made without the session, so a long copy and hash never holds it.
 pub struct PreparedAttach {
-    dir: PathBuf,
-    files: Vec<PreparedFile>,
-    failed: Vec<AttachFailure>,
+    pub(crate) dir: PathBuf,
+    pub(crate) files: Vec<PreparedFile>,
+    pub(crate) failed: Vec<AttachFailure>,
 }
 
 impl PreparedAttach {
@@ -228,6 +256,17 @@ impl PreparedAttach {
     pub fn failed(&self) -> &[AttachFailure] {
         &self.failed
     }
+}
+
+/// What an agent says of a file it attaches. Used only when the file is new to the tree: a file
+/// already in it keeps what it says.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MediaAbout {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub date_raw: Option<String>,
+    /// Where it was made, as comma-separated text (smallest place first), as an event's place.
+    pub place_text: Option<String>,
 }
 
 /// Step one of attaching: look at each file's content, refuse what the owner cannot hold, copy
@@ -263,18 +302,24 @@ pub fn prepare_attach(dir: &Path, target: OwnerKind, paths: &[PathBuf]) -> Prepa
             fail(&mut failed, path, "unsupported type");
             continue;
         };
-        // A note holds recordings only, and only a note holds them: a picture on a note, or a
-        // recording on a person, would be attached and then shown nowhere sensible. Refused
-        // here, before anything is copied.
+        if kind == Kind::M4a && crate::mp4_tracks::has_video_track(path) {
+            fail(&mut failed, path, VIDEO_NOT_SOUND);
+            continue;
+        }
+        // A note holds recordings only, and only a note or a source holds them: a picture on a
+        // note, or a whole recording on a person, would be attached and then shown nowhere
+        // sensible (a person gets clips of it instead). Refused here, before anything is copied.
         if target == OwnerKind::Note && !kind.is_audio() {
             fail(&mut failed, path, NOTE_SOUND_ONLY);
             continue;
         }
-        if target != OwnerKind::Note && kind.is_audio() {
+        if !matches!(target, OwnerKind::Note | OwnerKind::Source) && kind.is_audio() {
             fail(&mut failed, path, SOUND_ON_NOTE_ONLY);
             continue;
         }
-        let Ok((rel, sha)) = gt_store::add_media_file_in(dir, path) else {
+        let Ok(Some(gt_store::StoredMedia { rel, sha, .. })) =
+            gt_store::add_media_file_as(dir, path, kind.ext(), None)
+        else {
             fail(&mut failed, path, "cannot read file");
             continue;
         };
@@ -334,6 +379,85 @@ impl Session {
         dims.map_or((None, None), |(w, h)| (Some(w), Some(h)))
     }
 
+    /// How long a recording lasts and whether that was read exactly (not estimated from a bit
+    /// rate), from its headers alone. `None` for anything that is not sound, a file that is
+    /// missing, or a recording whose length cannot be told.
+    pub(crate) fn media_length(&self, id: Uuid) -> Option<crate::audio_len::Length> {
+        if let Some(hit) = self.media_lengths.borrow().get(&id) {
+            return *hit;
+        }
+        let m = self.tree.media.get(&id)?;
+        let file = self.resolve_media_file(&m.path)?;
+        let len = crate::audio_len::length(&file);
+        self.media_lengths.borrow_mut().insert(id, len);
+        len
+    }
+
+    /// What the planner cannot check of a clip, because it needs the file: that the media is a
+    /// sound recording, and that the clip ends within it when its length is read exactly. A
+    /// recording whose length cannot be told (a missing file, raw AAC) takes any times.
+    pub(crate) fn check_clip(&self, cmd: &crate::command::EditCommand) -> Result<(), ApiError> {
+        use crate::command::EditCommand as C;
+        let (media, end) = match cmd {
+            C::AddAudioClip { media, end_ms, .. } => (*media, *end_ms),
+            C::UpdateAudioClip {
+                target,
+                clip,
+                end_ms,
+                ..
+            } => {
+                let found = self.owner_links(*target).and_then(|links| {
+                    links
+                        .iter()
+                        .find(|l| l.clip.as_ref().is_some_and(|c| c.id == *clip))
+                        .map(|l| l.media)
+                });
+                match found {
+                    Some(m) => (m, *end_ms),
+                    None => return Ok(()),
+                }
+            }
+            _ => return Ok(()),
+        };
+        if !self.tree.media.contains_key(&media) {
+            return Ok(());
+        }
+        if !self.media_is_sound(media) {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "Only a sound recording has clips.",
+            ));
+        }
+        if let Some(len) = self.media_length(media).filter(|l| l.exact)
+            && end > len.ms
+        {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                format!(
+                    "The recording lasts {}; a clip must end by then.",
+                    gt_core::time::format_ms(len.ms)
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    /// The media links of a record that can hold clips.
+    pub(crate) fn owner_links(&self, target: crate::command::OwnerRef) -> Option<&[MediaLink]> {
+        use crate::command::OwnerKind as K;
+        let t = &self.tree;
+        let links = match target.kind {
+            K::Person => &t.persons.get(&target.id)?.common.media,
+            K::Family => &t.families.get(&target.id)?.common.media,
+            K::Event => &t.events.get(&target.id)?.common.media,
+            K::Citation => &t.citations.get(&target.id)?.common.media,
+            K::Note => &t.notes.get(&target.id)?.common.media,
+            K::Source => &t.sources.get(&target.id)?.common.media,
+            _ => return None,
+        };
+        Some(links)
+    }
+
     /// The project folder, for work that must run without the session (see [`prepare_attach`]).
     pub fn project_dir(&self) -> PathBuf {
         self.project.dir.clone()
@@ -341,7 +465,8 @@ impl Session {
 
     /// Media records that no record links to: what is left after the note or person that held
     /// them was deleted (the record stays so that Undo can bring it back). Listed so the owner
-    /// can still remove them.
+    /// can still remove them. An old map laid on the Map is linked to no record by design: it is
+    /// in use as a layer, so it is never listed here.
     pub fn unlinked_media(&self) -> Vec<MediaDto> {
         use std::collections::HashSet;
         let mut linked: HashSet<Uuid> = HashSet::new();
@@ -362,24 +487,64 @@ impl Session {
             citations,
             notes
         );
-        let mut loose: Vec<MediaLinkDto> = self
+        let links: Vec<MediaLink> = self
             .tree
             .media
-            .keys()
-            .filter(|id| !linked.contains(id))
-            .flat_map(|id| {
-                self.media_dtos(&[MediaLink {
-                    media: *id,
-                    region: None,
-                    primary: false,
-                }])
+            .iter()
+            .filter(|(id, m)| !linked.contains(*id) && m.map_layer.is_none())
+            .map(|(id, _)| MediaLink {
+                media: *id,
+                region: None,
+                primary: false,
+                clip: None,
             })
             .collect();
+        let mut loose: Vec<MediaLinkDto> = self.media_dtos(&links);
         loose.sort_by(|a, b| {
             (a.media.original_name.as_deref(), a.media.id)
                 .cmp(&(b.media.original_name.as_deref(), b.media.id))
         });
         loose.into_iter().map(|l| l.media).collect()
+    }
+
+    /// Every picture and document of the tree, one per version group (its primary, with the group
+    /// in `versions`), by title or file name: what the owner picks another version of a page from.
+    /// Sound recordings are left out, and so are the transcriptions, which a picker does not show.
+    pub fn all_pictures(&self) -> Vec<MediaDto> {
+        let links: Vec<MediaLink> = self
+            .tree
+            .media
+            .iter()
+            .filter(|(_, m)| m.version_of.is_none())
+            .filter(|(_, m)| !m.mime.as_deref().is_some_and(|t| t.starts_with("audio/")))
+            .map(|(id, _)| MediaLink {
+                media: *id,
+                region: None,
+                primary: false,
+                clip: None,
+            })
+            .collect();
+        let mut out: Vec<MediaDto> = self
+            .media_dtos(&links)
+            .into_iter()
+            .map(|l| {
+                let mut m = l.media;
+                m.transcription.clear();
+                for v in &mut m.versions {
+                    v.transcription.clear();
+                }
+                m
+            })
+            .collect();
+        let key = |m: &MediaDto| {
+            m.title
+                .clone()
+                .or_else(|| m.original_name.clone())
+                .unwrap_or_default()
+                .to_lowercase()
+        };
+        out.sort_by(|a, b| key(a).cmp(&key(b)).then(a.id.cmp(&b.id)));
+        out
     }
 
     /// Copies the files into the project and links them to `target` as ONE undoable change set
@@ -413,18 +578,40 @@ impl Session {
         let PreparedAttach {
             files, mut failed, ..
         } = prepared;
+        let (year, language, order) = (
+            crate::file_stamp::year_of_unix_ms(now),
+            self.settings.language,
+            self.day_order(),
+        );
         let staged: Vec<Staged> = files
             .into_iter()
-            .map(|f| Staged {
+            .map(|f| {
+                // A recording named by a phone recorder gets its date and a readable title.
+                let named = f
+                    .mime
+                    .starts_with("audio/")
+                    .then_some(f.original_name.as_deref())
+                    .flatten()
+                    .and_then(|n| crate::file_stamp::recording_defaults(n, year, language));
+                (f, named)
+            })
+            .map(|(f, named)| Staged {
                 media: Media {
+                    version_of: None,
+                    map_layer: None,
+                    place: None,
                     common: crate::ops::new_common(now),
                     path: f.rel,
                     original_name: f.original_name,
                     mime: Some(f.mime.into()),
-                    title: None,
-                    date: None,
-                    description: None,
+                    title: named.as_ref().map(|d| d.title.clone()),
+                    date: named
+                        .as_ref()
+                        .and_then(|d| crate::ops::parse_date(Some(&d.date_raw), order)),
+                    description: named.and_then(|d| d.description),
                     sha256: Some(f.sha),
+                    transcription: Vec::new(),
+                    rotation: None,
                 },
                 too_large: f.too_large,
                 src: f.src,
@@ -433,7 +620,8 @@ impl Session {
 
         let order = self.day_order();
         let records: Vec<Media> = staged.iter().map(|s| s.media.clone()).collect();
-        let (cs, outcomes) = crate::ops::plan_attach(&self.tree, target, records, now, order)?;
+        let (cs, outcomes) =
+            crate::ops::plan_attach(&self.tree, target, records, now, order, true)?;
         if !cs.changes.is_empty() {
             self.commit_group(cs)?;
         }
@@ -456,6 +644,7 @@ impl Session {
                 media: id,
                 region: None,
                 primary: false,
+                clip: None,
             };
             if let Some(dto) = self.media_dtos(&[link]).into_iter().next() {
                 attached.push(dto.media);

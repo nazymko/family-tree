@@ -7,7 +7,11 @@
 mod http;
 mod protocol;
 mod records;
+mod tools_godparent;
+mod tools_map;
+mod tools_places;
 mod tools_read;
+mod tools_verified;
 mod tools_write;
 
 use gt_session::{ApiError, Session};
@@ -26,6 +30,9 @@ pub const RULES: &str = include_str!("rules.md");
 /// What the server tells a client when it connects: the rules, then how to work with these tools.
 pub const INSTRUCTIONS: &str = concat!(
     include_str!("rules.md"),
+    include_str!("instructions_godparents.md"),
+    include_str!("instructions_maps.md"),
+    include_str!("instructions_places.md"),
     "\n\nHow to work with these tools: give add_person your source_file and the person's number \
      every time, from a numbered file or a label of your own that stays the same. A second run \
      over the same file then gets {\"id\", \"alreadyThere\": true} and adds nobody; without the \
@@ -34,7 +41,62 @@ pub const INSTRUCTIONS: &str = concat!(
      This server refuses a person with no name at all (no given name, surname or patronymic). \
      A birth year goes on the birth event, not in a name or a note. Do not assume a parent that an \
      earlier write created for a child: read the parents the answer lists. The report you close \
-     a batch with states only what the server accepted: check get_log first.\n"
+     a batch with states only what the server accepted: check get_log first.\n\n\
+     Pictures of documents: add_media copies a picture or PDF from a full file path on this \
+     computer onto a source (or a person, family, event or citation). set_media_transcription \
+     writes what is on it as pieces in reading order, each with x, y, w and h as fractions 0 to 1 \
+     of the picture get_media shows (already upright), and rotation 0, 90, 180 or 270 for \
+     sideways writing; give text alone when you have no places. It replaces only your own pieces; \
+     the owner's stay. get_media returns the pieces, the joined fullText, and yours: true on \
+     those update_own_media_region may change. update_own_media corrects the title, description, date and place of a media record. set_media_rotation turns how the app shows a \
+     picture (your own, or one nobody has turned) so sideways writing reads upright; the image \
+     get_media returns and every x, y, w and h stay upright by EXIF, not turned. \
+     group_media_versions groups files of the very same page in other quality (a new scan and an \
+     old small copy) so the app shows one picture: the primary, usually the one with the most \
+     pixels, opens first and the others are a click away. It deletes nothing, keeps every \
+     transcription and link, and never touches a group someone else made; get_media and \
+     list_media show a group as versionPrimary and versions.\n\n\
+     Recordings: add_media also copies a sound recording (MP3, WAV, Ogg, M4A, AAC, FLAC, up to 2 \
+     GiB) onto its source, and only there. add_audio_clip then links a stretch of it (start, end, \
+     an optional label) to the note, citation, event, person or family that part of the story is \
+     about; times are milliseconds or \"m:ss\" / \"h:mm:ss\" strings. update_own_audio_clip \
+     changes or moves a clip you made; clips are never deleted by agents. get_media on a \
+     recording gives its details, length, sources, transcript and clips (yours: true on your \
+     own), never its sound. set_media_transcription on a recording takes pieces with start, end \
+     and speaker instead of places on a picture: a time-coded transcript, only of what is said, \
+     and only when you actually have one.\n\n\
+     Correcting a date: correct_event_date sets a confirmed birth or death date on any person's \
+     birth or death event, with the reason (who confirmed it or which source says so). Add a \
+     citation for the new date too. Disagreeing sources with nobody confirming are a note, not a \
+     correction. It may make someone count as dead only as the rules allow, never alive.\n\n\
+     Places on the map: set_place_coordinates gives a place with no coordinates its point (lat \
+     and lon in decimal degrees, north and east positive) and the source you took it from, such \
+     as GeoNames 702550 or a Wikipedia article; a research note on the place keeps the source. \
+     Use it only for the very place of the records: the historical village in its district and \
+     parish, not a namesake. When you are not sure, give no coordinates: write a note with the \
+     candidates and list it in your report. You may correct a point you set yourself; a point \
+     the owner or anyone else set is refused and stays.\n\n\
+     Rewriting a note: rewrite_note replaces the text of any note, the owner's too, when the \
+     owner asked for a rewrite; give the reason. Keep every fact, name, date and doubt. The old \
+     text stays in the history and the owner can undo it. Your own notes: update_own_note.\n\n\
+     A readable retelling of a note: set_note_story writes it beside the note, for the owner's \
+     story view. It never changes the note's text. Keep every fact, name, date and doubt of the \
+     original and leave the references out; it is data for the reader. It fills a note that has \
+     no story; one already there stays.\n\n\
+     Verified corrections (a fourth exception to rule 4): correct_name, correct_event, move_child and correct_note change what someone else entered, but only when you actually read a record that shows the right value: a book, a page, the record's own words. Give evidence ({source, page, quote, quality?}: the source's id, where in it, and the record's words) and a reason. The server cites the record on what changed and keeps the old value in the history (get_history); the owner can undo it with the batch. correct_name keeps the main name's old text as an alternative name, and make_preferred makes an existing alternative the main name. move_child moves a child to a family that shares a parent with the current one. correct_note on a note with a story needs the new story or clear_story. Disagreement between sources with no decisive record stays a note with both versions. An inference, a guess or a memory is never evidence. A correction never deletes a person and never changes who counts as alive or dead beyond the rule above.
+
+     Taking back a link: remove_own_child_link removes a parent-child link you made yourself \
+     (person, family, reason), in this batch or an earlier one, when it turns out the child \
+     belongs to other parents; then link the child to the right family with link_people. It \
+     removes only that link, and a note on the person records the family and the reason. A link \
+     anyone else made is refused: leave a note and list it in your report.\n\n\
+     Taking back an event: remove_own_event (event, reason) removes an event you made yourself, in this \
+     batch or an earlier one, that nobody has changed since, when a source showed it is wrong. Its \
+     citations go with it and a note on the person records the reason. An event the owner made is \
+     refused: leave a note and list it in your report. The batch undoes it.\n\n\
+     Taking back a citation: remove_own_citation (citation, reason) removes a citation you made \
+     yourself, when it points to a misread record. Only that citation and its links go; the \
+     source stays. A citation the owner made is refused. The batch undoes it.\n"
 );
 
 /// What the server needs from the app. Used as a generic bound only.
@@ -97,8 +159,15 @@ pub(crate) struct Tool<H> {
 
 /// Every tool, in the order `tools/list` shows them. A new tool module is one more element.
 pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
-    [tools_read::tools::<H>(), tools_write::tools::<H>()]
-        .into_iter()
-        .flatten()
-        .collect()
+    [
+        tools_read::tools::<H>(),
+        tools_write::tools::<H>(),
+        tools_godparent::tools::<H>(),
+        tools_verified::tools::<H>(),
+        tools_map::tools::<H>(),
+        tools_places::tools::<H>(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }

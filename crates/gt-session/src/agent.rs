@@ -13,7 +13,9 @@
 //! 6. The owner's rule: the plan is tried on the tree, and if anyone who existed before the write
 //!    would count differently as alive or dead, by the owner's mark or by the rule under it, it is
 //!    refused. This reads the result and not the command, because the status follows from dates
-//!    and links in ways no list of commands covers.
+//!    and links in ways no list of commands covers. The one exception: someone the owner has not
+//!    marked may go from alive to dead when the tree then shows them more than 100 years old or
+//!    as an ancestor of someone who counts as dead. Nobody is ever made to count as alive.
 //! 7. The write is stored under the agent, outside the owner's undo and redo.
 //!
 //! The checks that need no plan come first, so that the planner's own errors ("both parents are
@@ -53,6 +55,14 @@ pub enum AgentWrite {
     },
 }
 
+mod godparents;
+mod place_edit;
+mod places;
+mod verified;
+pub use place_edit::{PLACE_NAMES_MAX, PlaceEdit};
+pub use places::{PLACE_MERGE_MAX, PlaceMergeOutcome};
+pub use verified::{EventCorrection, NameCorrection, VerifiedEvidence};
+
 fn refused(msg: impl Into<String>) -> ApiError {
     ApiError::new(ErrorCode::AgentRefused, msg)
 }
@@ -85,7 +95,47 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         | C::SaveSource { .. }
         | C::UpdateCitation { .. }
         | C::AddNumber { .. }
-        | C::AddSiblingMarker { .. } => Ok(()),
+        | C::AddSiblingMarker { .. }
+        // Pieces of text are items of a list: the comparison of step 5 lets the agent add its
+        // own and change or remove only those, never the owner's.
+        | C::SetMediaTranscription { .. }
+        // How a picture is shown: a turn nobody set is empty, so step 5 lets the agent set it;
+        // afterwards only on a picture that is the agent's own.
+        | C::SetMediaRotation { .. }
+        // Title, description, date and place of a media record: step 5 lets the agent fill what
+        // is empty, and change or clear anything only on a record it made and nobody changed.
+        | C::UpdateMedia { .. }
+        // A clip is a link of its own: step 5 lets the agent add one and change or move only
+        // the clips it made itself.
+        | C::AddAudioClip { .. }
+        | C::UpdateAudioClip { .. }
+        // A godparent is an item of the event's list: step 5 lets the agent add one, and take
+        // off only one it added itself (remove_own_godparent).
+        | C::AddGodparent { .. }
+        | C::RemoveGodparent { .. }
+        // Versions of one page: a file in no group has nothing in `version_of`, so step 5 lets
+        // the agent fill it; `group_media_versions_as_agent` refuses a file already in a group.
+        | C::GroupMediaVersions { .. } => Ok(()),
+        C::UngroupMediaVersion { .. } => Err(refused(
+            "Only the owner takes a file out of a group of versions. Say in your report which              file you think is no version of the others.",
+        )),
+        // An old map on the Map: an agent lays a picture on it, and changes or takes off only a
+        // layer it laid itself that nobody has changed since (`check_map_layer`).
+        C::SetMapLayer { .. } => Ok(()),
+        C::SetMapLayersVisible { .. } => Err(refused(
+            "Only the owner shows and hides maps on the Map. Lay a map hidden or shown with add_map_layer's visible.",
+        )),
+        C::ReorderMapLayers { .. } => Err(refused(
+            "Only the owner orders the maps on the Map. Say in your report which map should lie over which.",
+        )),
+        // Agents fill an empty point through `set_place_coordinates_as_agent`, with a source.
+        C::CreatePlace { .. } => Err(refused(
+            "A place is made by the owner, by an event or media that names it, or with add_place.",
+        )),
+        C::SetPlaceCoordinates { .. } => Err(refused(
+            "Give a place its coordinates with set_place_coordinates, with the source. Only the \
+             owner clears a place's point or moves one somebody else set.",
+        )),
         C::AddCitation { citation, .. } => match citation {
             CitationArg::Reuse(_) => Err(refused(
                 "Reusing the last citation shares the owner's working state. Give the source and \
@@ -131,7 +181,7 @@ fn check_allowed(cmd: &EditCommand) -> Result<(), ApiError> {
         | C::DetachMedia { .. }
         | C::DeleteMedia { .. }
         | C::SetPrimaryMedia { .. }
-        | C::UpdateMedia { .. }
+        | C::DeleteAudioClip { .. }
         | C::ImportDraft { .. } => Err(refused(format!(
             "\"{}\" is not open to agents. {ONLY_ADD}",
             cmd.label()
@@ -227,10 +277,26 @@ fn people_named(cmd: &EditCommand) -> Vec<Uuid> {
         C::QuickAdd { anchor, .. } => vec![*anchor],
         C::LinkExisting { anchor, person, .. } => vec![*anchor, *person],
         C::LinkChild { child, .. } => vec![*child],
+        C::AddGodparent { godparent, .. } => godparent.person.into_iter().collect(),
         C::SaveFamily {
             partner1, partner2, ..
         } => [*partner1, *partner2].into_iter().flatten().collect(),
         _ => Vec::new(),
+    }
+}
+
+/// `Update media: <title>`, the title being the new one, else the one the record has, else the
+/// name of its file.
+fn update_media_label(tree: &gt_core::tree::Tree, id: Uuid, new_title: Option<&str>) -> String {
+    let old = tree.media.get(&id);
+    let title = new_title
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .or_else(|| old.and_then(|m| m.title.as_deref()))
+        .or_else(|| old.and_then(|m| m.original_name.as_deref()));
+    match title {
+        Some(t) => format!("Update media: {}", t.chars().take(80).collect::<String>()),
+        None => "Update media".into(),
     }
 }
 
@@ -241,7 +307,12 @@ fn edited_record(cmd: &EditCommand) -> Option<Uuid> {
         C::SaveNote { note, .. } => note.id,
         C::SaveEvent { event, .. } => event.id,
         C::SaveName { name, .. } => name.id,
-        C::UpdateCitation { id, .. } | C::UpdatePerson { id, .. } => Some(*id),
+        C::UpdateCitation { id, .. }
+        | C::UpdatePerson { id, .. }
+        | C::SetMediaTranscription { id, .. }
+        | C::UpdateMedia { id, .. }
+        | C::SetMediaRotation { id, .. } => Some(*id),
+        C::UpdateAudioClip { target, .. } => Some(target.id),
         _ => None,
     }
 }
@@ -362,6 +433,12 @@ fn has_birth_link(f: &Family, child: Uuid) -> bool {
         .any(|l| l.person == child && is_birth_link(f, l))
 }
 
+/// A birth link in a family that still has a parent. A family whose parents were all deleted holds its children
+/// to nobody, and the owner cannot see it, so it does not stop a child going into its real family.
+fn has_parented_birth_link(f: &Family, child: Uuid) -> bool {
+    (f.partner1.is_some() || f.partner2.is_some()) && has_birth_link(f, child)
+}
+
 /// Whether a link says what was asked for: the same kind, with birth and unknown counted as one.
 fn says_link(have: &ParentRel, asked: Option<ParentRelId>) -> bool {
     match asked.map(|rel| rel_of(rel, None)) {
@@ -443,6 +520,24 @@ fn find_item<'a>(list: &'a [Value], id: &Value) -> Option<&'a Value> {
     list.iter().find(|x| identity(x) == *id)
 }
 
+/// A stored piece of transcription as the command that keeps it.
+pub fn region_input(r: &TextRegion) -> crate::command::TextRegionInput {
+    crate::command::TextRegionInput {
+        id: Some(r.id),
+        area: r.area.as_ref().map(|a| crate::command::TextAreaInput {
+            x: a.x,
+            y: a.y,
+            w: a.w,
+            h: a.h,
+        }),
+        rotation: Some(r.rotation),
+        text: r.text.clone(),
+        start_ms: r.time.map(|t| t.start_ms),
+        end_ms: r.time.map(|t| t.end_ms),
+        speaker: r.speaker.clone(),
+    }
+}
+
 /// One logged write to a record and who made it (`None`: the owner, or before authors were kept).
 type Written = (Option<Uuid>, Change);
 
@@ -455,6 +550,42 @@ fn record_is_own(rows: &[Written], me: Uuid) -> bool {
         && rest.iter().all(|(by, c)| {
             *by == Some(me) || same_ignoring_stamp(c.before.as_ref(), c.after.as_ref())
         })
+}
+
+/// Whether this connection laid the picture on the Map (its layer went from none to some under
+/// it, the last time that happened) and nobody else has changed the layer since.
+fn layer_is_own(rows: &[Written], me: Uuid) -> bool {
+    let layer = |r: Option<&Record>| match r {
+        Some(Record::Media(m)) => m.map_layer.clone(),
+        _ => None,
+    };
+    let Some(start) = rows.iter().rposition(|(_, c)| {
+        layer(c.before.as_ref()).is_none() && layer(c.after.as_ref()).is_some()
+    }) else {
+        return false;
+    };
+    let mut after = rows.iter().skip(start);
+    after.next().is_some_and(|(by, _)| *by == Some(me))
+        && after
+            .all(|(by, c)| *by == Some(me) || layer(c.before.as_ref()) == layer(c.after.as_ref()))
+}
+
+/// Whether this connection set the point a place has now, from no point, and nobody else has
+/// moved or cleared it since. The rest of the place (its names, its notes) may have other writers.
+fn point_is_own(rows: &[Written], me: Uuid) -> bool {
+    let point = |r: &Option<Record>| match r {
+        Some(Record::Place(p)) => (p.lat, p.lon),
+        _ => (None, None),
+    };
+    let mut own = false;
+    for (by, c) in rows {
+        let (was, now) = (point(&c.before), point(&c.after));
+        if was == now {
+            continue;
+        }
+        own = *by == Some(me) && (own || was == (None, None));
+    }
+    own
 }
 
 fn at_path<'a>(mut v: &'a Value, path: &[String]) -> Option<&'a Value> {
@@ -507,7 +638,7 @@ impl Compare<'_> {
             (Value::Array(ba), Value::Array(aa)) => self.array(path, ba, aa, in_item),
             // A date is one fact: its parts mean nothing apart.
             (Value::Object(bo), Value::Object(ao))
-                if path.last().is_none_or(|k| k != "date")
+                if path.last().is_none_or(|k| k != "date" && k != "doc_date")
                     && bo.len() == ao.len()
                     && bo.keys().all(|k| ao.contains_key(k)) =>
             {
@@ -787,6 +918,27 @@ impl Session {
         }
     }
 
+    /// The clip already on the target that this command would add again: same recording, times
+    /// and label. Answered as `alreadyThere`, naming the clip.
+    fn clip_repeat(&self, cmd: &EditCommand) -> Option<Uuid> {
+        let EditCommand::AddAudioClip {
+            target,
+            media,
+            start_ms,
+            end_ms,
+            label,
+        } = cmd
+        else {
+            return None;
+        };
+        let label = crate::ops::text(label.as_deref());
+        self.owner_links(*target)?.iter().find_map(|l| {
+            let c = l.clip.as_ref()?;
+            (l.media == *media && (c.start_ms, c.end_ms, &c.label) == (*start_ms, *end_ms, &label))
+                .then_some(c.id)
+        })
+    }
+
     /// Everything after the batch. `number` goes on the person the write creates.
     fn gated(
         &mut self,
@@ -797,6 +949,14 @@ impl Session {
     ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
         check_allowed(&cmd)?;
         check_named(&cmd)?;
+        self.check_map_layer(&cmd, ctx.id)?;
+        self.check_clip(&cmd)?;
+        if let Some(record) = self.clip_repeat(&cmd) {
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
+        }
+        if let Some(record) = self.godparent_repeat(&cmd) {
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
+        }
         let cmd = self.keep_preferred(cmd);
         self.check_no_marker(&people_named(&cmd))?;
         // Before the checks below: they would answer a repeat with a conflict that is not there.
@@ -822,6 +982,9 @@ impl Session {
             None => &cmd,
         };
         let (mut cs, focus) = plan_with(&self.tree, planned, now, self.day_order(), None)?;
+        if let EditCommand::UpdateMedia { id, title, .. } = &cmd {
+            cs.label = update_media_label(&self.tree, *id, title.as_deref());
+        }
         if let Some((_, nick)) = &nick {
             unfill_nickname(&mut cs, nick);
         }
@@ -846,6 +1009,12 @@ impl Session {
             let record = edited_record(&cmd).unwrap_or(first.id);
             return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
         }
+        // The planner leaves out a record that ends exactly as it was, stamp and all.
+        if cs.changes.is_empty()
+            && let Some(record) = edited_record(&cmd)
+        {
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new()));
+        }
         self.pass_and_store(&cmd, cs, focus, ctx, batch)
     }
 
@@ -867,6 +1036,17 @@ impl Session {
             self.check_change(ch, ctx.id)?;
         }
         self.check_living(&cs)?;
+        self.store(cs, focus, ctx, batch)
+    }
+
+    /// Step 7: the write, under the agent and its batch.
+    fn store(
+        &mut self,
+        cs: ChangeSet,
+        focus: Option<Uuid>,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
         let mut reached = Vec::new();
         if !cs.changes.is_empty() {
             let actor = Actor::Agent {
@@ -886,6 +1066,841 @@ impl Session {
         Ok((AgentWrite::Done(result), reached))
     }
 
+    /// What an agent's attach needs from the tree, checked before its file is touched at all: its
+    /// own open batch, and a record of an allowed kind that is there. So a closed or foreign batch
+    /// cannot be used to learn whether a path exists, and nothing is copied for a refused call.
+    pub fn check_attach_as_agent(
+        &self,
+        target: OwnerRef,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let there = match target.kind {
+            OwnerKind::Person => self.tree.persons.contains_key(&target.id),
+            OwnerKind::Family => self.tree.families.contains_key(&target.id),
+            OwnerKind::Event => self.tree.events.contains_key(&target.id),
+            OwnerKind::Source => self.tree.sources.contains_key(&target.id),
+            OwnerKind::Citation => self.tree.citations.contains_key(&target.id),
+            _ => {
+                return Err(refused(
+                    "A picture or document goes on a person, family, event, source or citation.",
+                ));
+            }
+        };
+        let kind = match target.kind {
+            OwnerKind::Person => "person",
+            OwnerKind::Family => "family",
+            OwnerKind::Event => "event",
+            OwnerKind::Source => "source",
+            _ => "citation",
+        };
+        if there {
+            Ok(())
+        } else {
+            Err(ApiError::not_found(kind, target.id))
+        }
+    }
+
+    /// Records a file an agent's tool copied in with [`prepare_agent_file`] and links it to
+    /// `target`, through the same checks and log as any write. It never becomes a person's main
+    /// picture: the owner chooses that. The same file already on `target` is a repeat. Returns,
+    /// besides the write, the media record's id, also when the file was in the tree before.
+    pub fn attach_as_agent(
+        &mut self,
+        target: OwnerRef,
+        mut file: AgentFile,
+        about: &crate::media::MediaAbout,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>, Uuid), ApiError> {
+        self.check_attach_as_agent(target, ctx, batch)?;
+        if file.prepared.dir != self.project.dir {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                "The tree changed while the file was being copied; nothing was attached.",
+            ));
+        }
+        let [prepared] = file.prepared.files.as_slice() else {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "Attach one file at a time.",
+            ));
+        };
+        if prepared.mime.starts_with("audio/") && target.kind != OwnerKind::Source {
+            return Err(refused(SOUND));
+        }
+        let (rel, sha) = (prepared.rel.clone(), prepared.sha.clone());
+        let (_, now) = (self.clock.0)();
+        let order = self.day_order();
+        let clean = |t: &Option<String>| {
+            t.as_deref()
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_string)
+        };
+        let place = match clean(&about.place_text) {
+            Some(t) => Some(crate::ops::places::ensure_chain(&self.tree, &t)?),
+            None => None,
+        };
+        let media = Media {
+            version_of: None,
+            map_layer: None,
+            place: place.as_ref().map(|(id, _)| *id),
+            common: crate::ops::new_common(now),
+            path: rel.clone(),
+            original_name: prepared.original_name.clone(),
+            mime: Some(prepared.mime.into()),
+            title: clean(&about.title),
+            date: crate::ops::parse_date(clean(&about.date_raw).as_deref(), order),
+            description: clean(&about.description),
+            sha256: Some(sha.clone()),
+            transcription: Vec::new(),
+            rotation: None,
+        };
+        let (mut cs, outcomes) =
+            crate::ops::plan_attach(&self.tree, target, vec![media], now, order, false)?;
+        let Some(Some(id)) = outcomes.first().copied() else {
+            let record = self
+                .tree
+                .media
+                .values()
+                .find(|m| m.sha256.as_deref() == Some(sha.as_str()))
+                .map_or(target.id, |m| m.common.id);
+            return Ok((AgentWrite::AlreadyThere { record }, Vec::new(), record));
+        };
+        // Places the media's place needed that the tree did not have yet, new with the media.
+        if let Some((_, created)) = place {
+            let made = created.into_iter().map(|p| Change {
+                kind: RecordKind::Place,
+                id: p.common.id,
+                before: None,
+                after: Some(Record::Place(p)),
+            });
+            cs.changes.splice(0..0, made);
+        }
+        let cmd = EditCommand::AttachMedia {
+            target,
+            media: vec![id],
+        };
+        let focus = (target.kind == OwnerKind::Person).then_some(target.id);
+        let (write, reached) = self.pass_and_store(&cmd, cs, focus, ctx, batch)?;
+        // Recorded: the copy stays. A file already in the tree under another name is left to
+        // the record that has it, and this copy goes.
+        if self.tree.media.values().any(|m| m.path == rel) {
+            file.made = None;
+        }
+        Ok((write, reached, id))
+    }
+
+    /// Records a picture an agent's tool copied in with [`prepare_agent_file`] as an old map laid
+    /// on the Map, through the same checks and log as any write. The same file already in the
+    /// tree is laid on the Map when it is not yet (its title stays unless it has none), and is a
+    /// repeat when it is. Returns, besides the write, the media record's id.
+    pub fn add_map_layer_as_agent(
+        &mut self,
+        mut file: AgentFile,
+        title: Option<String>,
+        layer: &crate::command::MapLayerInput,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>, Uuid), ApiError> {
+        self.check_batch(ctx, batch)?;
+        if file.prepared.dir != self.project.dir {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                "The tree changed while the file was being copied; nothing was added.",
+            ));
+        }
+        let [prepared] = file.prepared.files.as_slice() else {
+            return Err(ApiError::new(ErrorCode::Invalid, "Add one file at a time."));
+        };
+        if !prepared.mime.starts_with("image/") {
+            return Err(refused(
+                "Only a picture (JPEG, PNG, WebP, GIF or TIFF) can be laid on the Map.",
+            ));
+        }
+        let (rel, sha) = (prepared.rel.clone(), prepared.sha.clone());
+        let (_, now) = (self.clock.0)();
+        let media = Media {
+            version_of: None,
+            map_layer: None,
+            place: None,
+            common: crate::ops::new_common(now),
+            path: rel.clone(),
+            original_name: prepared.original_name.clone(),
+            mime: Some(prepared.mime.into()),
+            title: crate::ops::text(title.as_deref()),
+            date: None,
+            description: None,
+            sha256: Some(sha),
+            transcription: Vec::new(),
+            rotation: None,
+        };
+        let (cs, id) = crate::ops::map_layers::plan_new_layer(
+            &self.tree,
+            media,
+            layer,
+            now,
+            self.day_order(),
+        )?;
+        if cs.changes.is_empty() {
+            return Ok((AgentWrite::AlreadyThere { record: id }, Vec::new(), id));
+        }
+        let cmd = EditCommand::SetMapLayer {
+            media: id,
+            layer: Some(layer.clone()),
+            title: None,
+        };
+        self.check_map_layer(&cmd, ctx.id)?;
+        let (write, reached) = self.pass_and_store(&cmd, cs, None, ctx, batch)?;
+        if self.tree.media.values().any(|m| m.path == rel) {
+            file.made = None;
+        }
+        Ok((write, reached, id))
+    }
+
+    /// Which pieces of a picture's transcription this connection wrote and nobody has changed
+    /// since, in order.
+    pub fn own_text_regions(&self, media: Uuid, me: Uuid) -> Result<Vec<bool>, ApiError> {
+        let m = self
+            .tree
+            .media
+            .get(&media)
+            .ok_or_else(|| ApiError::not_found("media", media))?;
+        let writers = self.project.last_writers(media)?;
+        let rows: Vec<Written> = writers
+            .into_iter()
+            .map(|(by, _)| by)
+            .zip(self.project.rows_of(media)?)
+            .collect();
+        if record_is_own(&rows, me) {
+            return Ok(vec![true; m.transcription.len()]);
+        }
+        let path = ["Media".to_string(), "transcription".to_string()];
+        Ok(m.transcription
+            .iter()
+            .map(|r| item_is_own(&rows, &path, &Value::String(r.id.to_string()), me))
+            .collect())
+    }
+
+    /// The clips on `target` this connection made and nobody has changed since: the ones
+    /// `UpdateAudioClip` may change for it.
+    pub fn own_clips(&self, target: OwnerRef, me: Uuid) -> Result<Vec<Uuid>, ApiError> {
+        let Some(links) = self.owner_links(target) else {
+            return Ok(Vec::new());
+        };
+        let kind = match target.kind {
+            OwnerKind::Person => "Person",
+            OwnerKind::Family => "Family",
+            OwnerKind::Event => "Event",
+            OwnerKind::Citation => "Citation",
+            OwnerKind::Note => "Note",
+            _ => return Ok(Vec::new()),
+        };
+        let writers = self.project.last_writers(target.id)?;
+        let rows: Vec<Written> = writers
+            .into_iter()
+            .map(|(by, _)| by)
+            .zip(self.project.rows_of(target.id)?)
+            .collect();
+        let whole = record_is_own(&rows, me);
+        let path = [kind.to_string(), "common".to_string(), "media".to_string()];
+        Ok(links
+            .iter()
+            .filter_map(|l| l.clip.as_ref().map(|c| c.id))
+            .filter(|id| whole || item_is_own(&rows, &path, &Value::String(id.to_string()), me))
+            .collect())
+    }
+
+    /// Replaces this connection's own pieces of a picture's transcription with `regions`, in one
+    /// write. Pieces anyone else wrote or changed stay as they are and where they are. Ids of the
+    /// pieces replaced are used again, so saying the same again is a repeat. Returns, besides the write, how many pieces were kept.
+    pub fn set_transcription_as_agent(
+        &mut self,
+        media: Uuid,
+        regions: Vec<crate::command::TextRegionInput>,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>, usize), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let own = self.own_text_regions(media, ctx.id)?;
+        let Some(m) = self.tree.media.get(&media) else {
+            return Err(ApiError::not_found("media", media));
+        };
+        // The agent's pieces are replaced where they stand, one for one, so nobody else's piece
+        // moves; what is left over goes, and what is new comes at the end.
+        let mut list = Vec::new();
+        let mut kept = 0;
+        let mut new = regions.into_iter();
+        for (r, mine) in m.transcription.iter().zip(own) {
+            if !mine {
+                list.push(region_input(r));
+                kept += 1;
+            } else if let Some(mut next) = new.next() {
+                next.id = Some(r.id);
+                list.push(next);
+            }
+        }
+        for mut r in new {
+            r.id = None;
+            list.push(r);
+        }
+        let cmd = EditCommand::SetMediaTranscription {
+            id: media,
+            regions: list,
+            known: None,
+        };
+        let (write, reached) = self.gated(cmd, None, ctx, batch)?;
+        Ok((write, reached, kept))
+    }
+
+    /// Turns how a picture is shown: on a picture this connection added (and nobody has changed
+    /// since), or on one nobody has turned yet. Its transcription stays where it is. The same
+    /// turn again answers [`AgentWrite::AlreadyThere`].
+    pub fn set_media_rotation_as_agent(
+        &mut self,
+        media: Uuid,
+        rotation: u16,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        if !gt_core::model::TEXT_ROTATIONS.contains(&rotation) {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "rotation must be 0, 90, 180 or 270.",
+            ));
+        }
+        let m = self
+            .tree
+            .media
+            .get(&media)
+            .ok_or_else(|| ApiError::not_found("media", media))?;
+        if !crate::ops::can_turn(m) {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "Only a picture can be turned.",
+            ));
+        }
+        if m.shown_rotation() == rotation {
+            return Ok((AgentWrite::AlreadyThere { record: media }, Vec::new()));
+        }
+        if m.rotation.is_some() {
+            let writers = self.project.last_writers(media)?;
+            let rows: Vec<Written> = writers
+                .into_iter()
+                .map(|(by, _)| by)
+                .zip(self.project.rows_of(media)?)
+                .collect();
+            if !record_is_own(&rows, ctx.id) {
+                return Err(ApiError::new(
+                    ErrorCode::Conflict,
+                    "Someone has already turned this picture, so it stays as it is. The \
+                     transcription's places do not depend on it. Say so in your report if it \
+                     reads wrong.",
+                ));
+            }
+        }
+        let cmd = EditCommand::SetMediaRotation {
+            id: media,
+            rotation,
+        };
+        self.gated(cmd, None, ctx, batch)
+    }
+
+    /// Makes `others` versions of the same page as `primary`, which is shown and opened first.
+    /// Every file must be in no group yet, or already in the group `primary` heads: the owner's
+    /// groups and choice of primary stay as they are. The same group again answers
+    /// [`AgentWrite::AlreadyThere`]. No file, transcription or link changes.
+    pub fn group_media_versions_as_agent(
+        &mut self,
+        primary: Uuid,
+        others: &[Uuid],
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        if others.is_empty() {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "others must name at least one other file of the same page.",
+            ));
+        }
+        if others.len() + 1 > crate::ops::VERSION_GROUP_MAX {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                format!(
+                    "A page can have at most {} versions.",
+                    crate::ops::VERSION_GROUP_MAX
+                ),
+            ));
+        }
+        for id in std::iter::once(&primary).chain(others) {
+            if !self.tree.media.contains_key(id) {
+                return Err(ApiError::not_found("media", *id));
+            }
+        }
+        if others.contains(&primary) {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "The primary cannot also be one of the others.",
+            ));
+        }
+        let head = self.tree.version_primary(primary);
+        if head != primary {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                format!(
+                    "This file is already a version in a group whose primary is {head}. The                      primary stays as it is: group the other files with {head} instead, or say                      so in your report."
+                ),
+            ));
+        }
+        for o in others {
+            let in_other_group = match self.tree.media.get(o).and_then(|m| m.version_of) {
+                Some(p) => p != primary,
+                None => self.tree.version_group(*o).len() > 1,
+            };
+            if in_other_group {
+                return Err(ApiError::new(
+                    ErrorCode::Conflict,
+                    format!(
+                        "{o} is already in another group of versions, so it stays there. Say in                          your report which files you think are the same page."
+                    ),
+                ));
+            }
+        }
+        if others
+            .iter()
+            .all(|o| self.tree.media.get(o).and_then(|m| m.version_of) == Some(primary))
+        {
+            return Ok((AgentWrite::AlreadyThere { record: primary }, Vec::new()));
+        }
+        let cmd = EditCommand::GroupMediaVersions {
+            primary,
+            others: others.to_vec(),
+        };
+        self.gated(cmd, None, ctx, batch)
+    }
+
+    /// The one change an agent may make to what is already there: a birth or death date someone
+    /// confirmed, on any person's birth or death event. The date is set and a research note on the
+    /// event says what it was, what it is now and `reason`, in one write the owner can undo. Step 5
+    /// of the gate is what this replaces; step 6 still holds, so it changes whether anyone counts
+    /// as alive or dead only as step 6 lets it.
+    pub fn correct_date_as_agent(
+        &mut self,
+        event: Uuid,
+        date_raw: &str,
+        reason: &str,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(refused(
+                "Give the reason: who confirmed the date, or which source says so.",
+            ));
+        }
+        if reason.chars().count() > CORRECTION_REASON_MAX {
+            return Err(refused(
+                "The reason holds up to 1000 characters: say who confirmed the date or which                  source says so, and put the rest in a note.",
+            ));
+        }
+        if date_raw.trim().chars().count() > CORRECTION_DATE_MAX {
+            return Err(refused(
+                "The date holds up to 100 characters. Give the date alone, and put what the \
+                 source says around it in a note.",
+            ));
+        }
+        let e = self
+            .tree
+            .events
+            .get(&event)
+            .ok_or_else(|| ApiError::not_found("event", event))?;
+        let word = match e.kind {
+            EventKind::Birth => "Birth",
+            EventKind::Death => "Death",
+            _ => {
+                return Err(refused(
+                    "Only the date of a birth or a death can be corrected. For anything else add \
+                     a note giving both versions, and list it in your report.",
+                ));
+            }
+        };
+        let order = self.day_order();
+        let date_raw = date_raw.trim();
+        let Some(date) = crate::ops::parse_date(Some(date_raw), order) else {
+            return Err(ApiError::new(ErrorCode::Invalid, "date must be a date."));
+        };
+        let old = e.date.clone();
+        // The same date, however it was typed, is a repeat.
+        let same = old.as_ref().is_some_and(|o| {
+            let mut as_typed = o.clone();
+            as_typed.raw = date.raw.clone();
+            as_typed == date || o.raw.trim().eq_ignore_ascii_case(date_raw)
+        });
+        if same {
+            return Ok((AgentWrite::AlreadyThere { record: event }, Vec::new()));
+        }
+        self.check_life_order(event, e.kind == EventKind::Birth, &date)?;
+        let was = old
+            .as_ref()
+            .map_or("no date".to_string(), |d| d.raw.clone());
+        let note = format!(
+            "{word} date corrected from {was} to {}. Reason: {reason}",
+            date.raw
+        );
+        let (_, now) = (self.clock.0)();
+        let (cs, focus) =
+            crate::ops::plan_date_correction(&self.tree, event, date, &note, now, order)?;
+        self.check_living(&cs)?;
+        self.store(cs, focus, ctx, batch)
+    }
+
+    /// The owner's request to rewrite a note, whoever wrote it: the text (and the kind, when
+    /// given) is replaced in one change set the owner can undo with the batch. Step 5 of the gate
+    /// ("own") is what this lifts; step 6 still holds, so it changes whether anyone counts as
+    /// alive or dead only as step 6 lets it. The old text stays in the log (the row's `before`). The change set's label
+    /// carries the reason ("Rewrite note: <reason>"), as the change log has no other place for it.
+    /// Audio clips, citations and media link to the note by its id and are not touched.
+    /// `story`, when given, replaces the note's readable retelling in the same change (the owner asked
+    /// for the rewrite, so the story may be anyone's); left out, the story stays as it is.
+    /// Saying what the note already says is `AlreadyThere`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn rewrite_note_as_agent(
+        &mut self,
+        note: Uuid,
+        target: OwnerRef,
+        text: &str,
+        kind: Option<crate::dto::NoteKindDto>,
+        story: Option<&str>,
+        reason: &str,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        use crate::dto::NoteKindDto as K;
+        self.check_batch(ctx, batch)?;
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(refused(
+                "Give the reason: that the owner asked for this rewrite, and for what.",
+            ));
+        }
+        if reason.chars().count() > CORRECTION_REASON_MAX {
+            return Err(refused(
+                "The reason holds up to 1000 characters: say who asked for the rewrite and why.",
+            ));
+        }
+        let Some(current) = self.tree.notes.get(&note) else {
+            return Err(ApiError::not_found("note", note));
+        };
+        if text.trim().is_empty() {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "text must be the new text of the note.",
+            ));
+        }
+        let kind = kind.unwrap_or(match &current.kind {
+            NoteKind::General => K::General,
+            NoteKind::Story => K::Story,
+            NoteKind::Research => K::Research,
+            NoteKind::Transcription => K::Transcription,
+            NoteKind::Conclusion => K::Conclusion,
+            NoteKind::Other(_) => K::Other,
+        });
+        let cmd = EditCommand::SaveNote {
+            target,
+            note: crate::command::NoteInput {
+                story: story.map(str::to_string),
+                id: Some(note),
+                kind,
+                text: text.to_string(),
+            },
+        };
+        let (_, now) = (self.clock.0)();
+        let (mut cs, focus) = plan_with(&self.tree, &cmd, now, self.day_order(), None)?;
+        let same = |c: &Change| same_ignoring_stamp(c.before.as_ref(), c.after.as_ref());
+        if cs.changes.iter().all(same) {
+            return Ok((AgentWrite::AlreadyThere { record: note }, Vec::new()));
+        }
+        let one_line: String = reason.split_whitespace().collect::<Vec<_>>().join(" ");
+        let shown: String = one_line.chars().take(200).collect();
+        cs.label = format!("Rewrite note: {shown}");
+        self.check_living(&cs)?;
+        self.store(cs, focus, ctx, batch)
+    }
+
+    /// Gives a place its point on the map, with where it comes from. Allowed when the place has
+    /// no point yet, or when this connection set the point there now and nobody has changed it
+    /// since (its own correction). The point is set as the owner's Map sets it, and a research
+    /// note on the place records the point and `source` (and `note`), in one change set the
+    /// owner can undo. The same point again is [`AgentWrite::AlreadyThere`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_place_coordinates_as_agent(
+        &mut self,
+        place: Uuid,
+        lat: f64,
+        lon: f64,
+        source: &str,
+        note: Option<&str>,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        if !lat.is_finite() || !(-90.0..=90.0).contains(&lat) {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "lat must be a number from -90 to 90 (degrees north; south is negative).",
+            ));
+        }
+        if !lon.is_finite() || !(-180.0..=180.0).contains(&lon) {
+            return Err(ApiError::new(
+                ErrorCode::Invalid,
+                "lon must be a number from -180 to 180 (degrees east; west is negative).",
+            ));
+        }
+        let source = source.trim();
+        if source.is_empty() {
+            return Err(refused(
+                "Give the source of the coordinates, such as GeoNames 702550 or the Wikipedia \
+                 article of the village.",
+            ));
+        }
+        if source.chars().count() > CORRECTION_REASON_MAX {
+            return Err(refused(
+                "The source holds up to 1000 characters: name it briefly, and put the rest in note.",
+            ));
+        }
+        let note = note.map(str::trim).filter(|n| !n.is_empty());
+        if note.is_some_and(|n| n.len() > TEXT_PIECE_NOTE_MAX) {
+            return Err(refused(
+                "The note holds up to 64 KiB. Put a longer text on a source.",
+            ));
+        }
+        let p = self
+            .tree
+            .places
+            .get(&place)
+            .ok_or_else(|| ApiError::not_found("place", place))?;
+        // Millionths of a degree, as the owner's Map stores them: about 11 cm.
+        let lat_e6 = (lat * 1e6).round() as i32;
+        let lon_e6 = (lon * 1e6).round() as i32;
+        let e6 = |v: f64| (v * 1e6).round() as i32;
+        let was = p.lat.zip(p.lon);
+        if was.is_some_and(|(la, lo)| e6(la) == lat_e6 && e6(lo) == lon_e6) {
+            return Ok((AgentWrite::AlreadyThere { record: place }, Vec::new()));
+        }
+        if p.lat.is_some() || p.lon.is_some() {
+            let writers = self.project.last_writers(place)?;
+            let rows: Vec<Written> = writers
+                .into_iter()
+                .map(|(by, _)| by)
+                .zip(self.project.rows_of(place)?)
+                .collect();
+            if !point_is_own(&rows, ctx.id) {
+                return Err(refused(
+                    "This place already has coordinates that the owner or someone else set, so \
+                     they stay as they are. Agents only add to the tree: put your coordinates and \
+                     their source in a note on an event at this place, and list it in your report.",
+                ));
+            }
+        }
+        let shown = |la: f64, lo: f64| format!("{la:.6}, {lo:.6}");
+        let point = shown(f64::from(lat_e6) / 1e6, f64::from(lon_e6) / 1e6);
+        let mut text = match was {
+            Some((la, lo)) => format!(
+                "Coordinates corrected from {} to {point} (latitude, longitude). Source: {source}",
+                shown(la, lo)
+            ),
+            None => format!("Coordinates {point} (latitude, longitude). Source: {source}"),
+        };
+        if let Some(n) = note {
+            text.push('\n');
+            text.push_str(n);
+        }
+        let (_, now) = (self.clock.0)();
+        let (cs, focus) = crate::ops::places::plan_agent_coordinates(
+            &self.tree,
+            place,
+            lat_e6,
+            lon_e6,
+            &text,
+            now,
+            self.day_order(),
+        )?;
+        self.check_living(&cs)?;
+        self.store(cs, focus, ctx, batch)
+    }
+
+    /// A corrected birth date may not come surely after the same person's death, nor a death
+    /// date surely before their birth. Dates that can still overlap ("about", "before") pass.
+    fn check_life_order(
+        &self,
+        event: Uuid,
+        is_birth: bool,
+        date: &gt_core::date::GenDate,
+    ) -> Result<(), ApiError> {
+        let Some(e) = self.tree.events.get(&event) else {
+            return Ok(());
+        };
+        let people: Vec<Uuid> = e
+            .participants
+            .iter()
+            .filter(|p| p.role == Role::Principal)
+            .filter_map(|p| match p.target {
+                ParticipantRef::Person(id) => Some(id),
+                ParticipantRef::Family(_) => None,
+            })
+            .collect();
+        let other = if is_birth {
+            EventKind::Death
+        } else {
+            EventKind::Birth
+        };
+        for o in self.tree.events.values() {
+            if o.common.id == event || o.kind != other {
+                continue;
+            }
+            let theirs = o.participants.iter().any(|p| {
+                p.role == Role::Principal
+                    && matches!(p.target, ParticipantRef::Person(id) if people.contains(&id))
+            });
+            let Some(d) = o.date.as_ref().filter(|_| theirs) else {
+                continue;
+            };
+            let (birth, death) = if is_birth { (date, d) } else { (d, date) };
+            if let (Some(b), Some(dd)) = (birth.sort_min, death.sort_max)
+                && b > dd
+            {
+                return Err(refused(if is_birth {
+                    "That birth date is after the same person's death date, so one of them is \
+                     wrong. Leave a note giving both dates and the source, and list it in your \
+                     report."
+                } else {
+                    "That death date is before the same person's birth date, so one of them is \
+                     wrong. Leave a note giving both dates and the source, and list it in your \
+                     report."
+                }));
+            }
+        }
+        Ok(())
+    }
+
+    /// The one way an agent takes a link back: `child` leaves `family`, and nothing else goes (not
+    /// the person, the family, its partners or its other children). Allowed only for a child link
+    /// this connection added itself and nobody has changed since, in this batch or in an earlier
+    /// one of the same connection: the log of the family says who added the link and whether
+    /// anyone touched it later (`item_is_own`, the test every `update_own_*` edit uses). A note on
+    /// the child records the family and `reason`, in the same change, so one undo takes back both.
+    /// Step 6 still holds, so it changes whether anyone counts as alive or dead only as step 6
+    /// lets it. A repeat
+    /// (the link was there once and is gone) is `AlreadyThere`; a person who was never a child in
+    /// that family is refused.
+    pub fn remove_own_child_link(
+        &mut self,
+        child: Uuid,
+        family: Uuid,
+        reason: &str,
+        ctx: &AgentCtx,
+        batch: Uuid,
+    ) -> Result<(AgentWrite, Vec<Uuid>), ApiError> {
+        self.check_batch(ctx, batch)?;
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(refused(
+                "Give the reason: why this child does not belong in this family.",
+            ));
+        }
+        if reason.chars().count() > CORRECTION_REASON_MAX {
+            return Err(refused(
+                "The reason holds up to 1000 characters: say who or what showed the link was \
+                 wrong, and put the rest in a note.",
+            ));
+        }
+        if !self.tree.persons.contains_key(&child) {
+            return Err(ApiError::not_found("person", child));
+        }
+        let Some(fam) = self.tree.families.get(&family) else {
+            return Err(ApiError::not_found("family", family));
+        };
+        let rows: Vec<Written> = self
+            .project
+            .last_writers(family)?
+            .into_iter()
+            .map(|(by, _)| by)
+            .zip(self.project.rows_of(family)?)
+            .collect();
+        let path = ["Family".to_string(), "children".to_string()];
+        let id = serde_json::json!(child);
+        if !fam.children.iter().any(|l| l.person == child) {
+            // Gone now, but there once: the link was taken out already, so there is nothing to do.
+            let was_there = rows.iter().any(|(_, c)| {
+                let has = |r: &Option<Record>| -> bool {
+                    r.as_ref()
+                        .and_then(stripped)
+                        .and_then(|(json, _)| {
+                            let list = at_path(&json, &path)?.as_array()?.clone();
+                            find_item(&list, &id).map(|_| ())
+                        })
+                        .is_some()
+                };
+                has(&c.before)
+            });
+            if was_there {
+                return Ok((AgentWrite::AlreadyThere { record: child }, Vec::new()));
+            }
+            return Err(refused(format!(
+                "{} is not a child in this family, so there is no link to remove. Leave it and \
+                 list it in your report.",
+                self.person_name(child)
+            )));
+        }
+        if self.tree.persons[&child].sibling_marker {
+            return Err(refused(
+                "The entry for brothers and sisters nobody named is not a person's link. Leave \
+                 it and list it in your report.",
+            ));
+        }
+        // "Own": this connection (any batch) added this child link, and no other author changed
+        // the link after that. Links made by the owner, an import or another connection, and
+        // links the owner edited since, are refused.
+        if !item_is_own(&rows, &path, &id, ctx.id) {
+            return Err(refused(
+                "Only a link you made yourself, which nobody has changed since, can be taken \
+                 back. Leave a note and list it in your report.",
+            ));
+        }
+        let names: Vec<String> = [fam.partner1, fam.partner2]
+            .into_iter()
+            .flatten()
+            .map(|p| self.person_name(p))
+            .collect();
+        let whose = if names.is_empty() {
+            "a family with no partners".to_string()
+        } else {
+            format!("the family of {}", names.join(" and "))
+        };
+        let note = format!("Removed from {whose} (family {family}) as a child. Reason: {reason}");
+        let (_, now) = (self.clock.0)();
+        let (cs, focus) = crate::ops::plan_child_link_removal(
+            &self.tree,
+            family,
+            child,
+            &note,
+            now,
+            self.day_order(),
+        )?;
+        self.pass_and_store(
+            &EditCommand::UnlinkChild { family, child },
+            cs,
+            focus,
+            ctx,
+            batch,
+        )
+    }
+
     fn marker_of(&self, family: Uuid) -> Option<Uuid> {
         let family = self.tree.families.get(&family)?;
         family
@@ -893,6 +1908,12 @@ impl Session {
             .iter()
             .map(|c| c.person)
             .find(|id| self.tree.persons.get(id).is_some_and(|p| p.sibling_marker))
+    }
+
+    /// The batch is this connection's, in this tree, and open: checked before a tool touches a
+    /// file, so a refused call learns nothing about a path.
+    pub fn check_batch_open(&self, ctx: &AgentCtx, batch: Uuid) -> Result<(), ApiError> {
+        self.check_batch(ctx, batch)
     }
 
     fn check_batch(&self, ctx: &AgentCtx, batch: Uuid) -> Result<(), ApiError> {
@@ -1050,7 +2071,7 @@ impl Session {
                     .tree
                     .families
                     .values()
-                    .any(|f| f.common.id != *family && has_birth_link(f, *child));
+                    .any(|f| f.common.id != *family && has_parented_birth_link(f, *child));
                 if elsewhere {
                     return Err(refused(format!(
                         "{} already has a birth family. Add a note giving both versions and the \
@@ -1076,6 +2097,40 @@ impl Session {
             },
             _ => Ok(()),
         }
+    }
+
+    /// An agent lays a picture on the Map, and changes or takes off only a layer it laid itself
+    /// that nobody has changed since.
+    fn check_map_layer(&self, cmd: &EditCommand, me: Uuid) -> Result<(), ApiError> {
+        let EditCommand::SetMapLayer { media, .. } = cmd else {
+            return Ok(());
+        };
+        // A record new with this write, or one not on the Map yet: the agent lays it there.
+        if self
+            .tree
+            .media
+            .get(media)
+            .is_none_or(|m| m.map_layer.is_none())
+        {
+            return Ok(());
+        }
+        if self.map_layer_is_own(*media, me)? {
+            return Ok(());
+        }
+        Err(refused(
+            "This map was laid on the Map by the owner or someone else, or changed since, so it stays as it is. Say in your report where you think it lies.",
+        ))
+    }
+
+    /// Whether this connection laid this picture on the Map and nobody has changed its layer since.
+    pub fn map_layer_is_own(&self, media: Uuid, me: Uuid) -> Result<bool, ApiError> {
+        let writers = self.project.last_writers(media)?;
+        let rows: Vec<Written> = writers
+            .into_iter()
+            .map(|(by, _)| by)
+            .zip(self.project.rows_of(media)?)
+            .collect();
+        Ok(layer_is_own(&rows, me))
     }
 
     /// Whether this connection wrote the record in the first place.
@@ -1105,7 +2160,7 @@ impl Session {
                 .flat_map(|p| &p.names)
                 .find(|n| n.id == target.id)
                 .map(|n| (&n.notes[..], &n.citations[..])),
-            OwnerKind::Note => None,
+            OwnerKind::Note | OwnerKind::Source => None,
             OwnerKind::ChildLink => None,
         }
     }
@@ -1335,7 +2390,7 @@ impl Session {
                     .filter(|o| !changed.contains_key(&o.common.id));
                 let elsewhere = untouched
                     .chain(changed.values().copied().flatten())
-                    .any(|o| o.common.id != f.common.id && has_birth_link(o, link.person));
+                    .any(|o| o.common.id != f.common.id && has_parented_birth_link(o, link.person));
                 if elsewhere {
                     return Err(refused(format!(
                         "{} already has a birth family. Add a note giving both versions and the \
@@ -1393,7 +2448,17 @@ impl Session {
             .flat_map(|f| f.children.iter().map(|c| c.person))
             .collect();
         for child in children {
-            let before = role_holders(self.tree.families.values(), child);
+            // A link this plan takes away in the same change (a move) holds no role against what
+            // the plan puts in its place.
+            let before = role_holders(
+                self.tree.families.values().filter(|f| {
+                    let dropped = changed.get(&f.common.id).is_some_and(|a| {
+                        a.is_none_or(|a| a.children.iter().all(|l| l.person != child))
+                    });
+                    !(dropped && f.children.iter().any(|l| l.person == child))
+                }),
+                child,
+            );
             let after = role_holders(after_families(), child);
             let clashes_now = |a: &Uuid, b: &Uuid| match (sex_after(a), sex_after(b)) {
                 (Some(x), Some(y)) => same_role(x, y),
@@ -1513,13 +2578,15 @@ impl Session {
     /// exists before this write counts differently after it, whatever the command was. Both maps:
     /// the owner's mark hides what the rule says, and taking the mark off would show the change.
     /// Both sides are read now, so a date the rule passes overnight is not blamed on this write.
+    /// One change is let through (`may_mark_dead`): someone with no mark of the owner's who goes
+    /// from alive to dead, when the tree then shows them more than 100 years old or as an ancestor
+    /// of someone who counts as dead.
     // A birth date just inside the age limit that later passes it is time passing, not this write.
     fn check_living(&mut self, cs: &ChangeSet) -> Result<(), ApiError> {
         let (effective_before, computed_before) = self.living_maps();
         let mut removed_at = HashMap::new();
         apply_to_tree_tracked(&mut self.tree, cs, &mut removed_at);
         let (effective, computed) = self.living_maps();
-        apply_to_tree_tracked(&mut self.tree, &cs.inverse(), &mut removed_at);
         // Someone the owner marked dead may turn out dead by the rule too: that changes no status,
         // now or once the mark comes off. A death date is what transcripts most often add.
         let agrees_with_mark = |id: &Uuid| {
@@ -1531,17 +2598,354 @@ impl Session {
                     .get(id)
                     .is_some_and(|p| p.living_override == Some(LivingOverride::Deceased))
         };
-        let flipped = self.tree.persons.keys().find(|id| {
-            effective_before.get(id) != effective.get(id)
-                || (computed_before.get(id) != computed.get(id) && !agrees_with_mark(id))
-        });
-        match flipped {
+        let flips: Vec<Uuid> = effective_before
+            .keys()
+            .filter(|id| {
+                effective_before.get(id) != effective.get(id)
+                    || (computed_before.get(id) != computed.get(id) && !agrees_with_mark(id))
+            })
+            .copied()
+            .collect();
+        // Read on the tree with the plan on it: the evidence is what the tree shows after.
+        let refused_flip = if flips.is_empty() {
+            None
+        } else {
+            let (today, _) = (self.clock.0)();
+            let old = gt_core::living::older_than(&self.tree, AGENT_DEAD_AGE_YEARS, today);
+            flips
+                .into_iter()
+                .find(|id| !may_mark_dead(&self.tree, *id, &effective_before, &effective, &old))
+        };
+        apply_to_tree_tracked(&mut self.tree, &cs.inverse(), &mut removed_at);
+        match refused_flip {
             Some(id) => Err(refused(format!(
                 "This would change whether {} counts as alive or dead. Only the owner can do \
                  that. Leave a note and list it in your report.",
-                self.person_name(*id)
+                self.person_name(id)
             ))),
             None => Ok(()),
         }
     }
+}
+
+/// The age past which the tree's evidence lets an agent's write make someone count as dead.
+const AGENT_DEAD_AGE_YEARS: u32 = 100;
+
+/// Whether an agent's write may make `id` count as dead (step 6): they counted as alive, now
+/// count as dead, carry no mark of the owner's, and the tree with the write on it shows them
+/// more than 100 years old (`old`, from a birth, christening or baptism, as the rule reads it)
+/// or as a parent, grandparent and so on of someone who counts as dead. Ancestry follows the
+/// links the living rule follows: a partner of a family is a parent of each of its children,
+/// whatever the kind of link. Making anyone count as alive is never let through.
+fn may_mark_dead(
+    tree: &gt_core::tree::Tree,
+    id: Uuid,
+    before: &HashMap<Uuid, bool>,
+    after: &HashMap<Uuid, bool>,
+    old: &HashSet<Uuid>,
+) -> bool {
+    let unmarked = tree
+        .persons
+        .get(&id)
+        .is_some_and(|p| p.living_override.is_none());
+    if !unmarked || before.get(&id) != Some(&true) || after.get(&id) != Some(&false) {
+        return false;
+    }
+    if old.contains(&id) {
+        return true;
+    }
+    let mut children: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for f in tree.families.values() {
+        for p in [f.partner1, f.partner2].into_iter().flatten() {
+            children
+                .entry(p)
+                .or_default()
+                .extend(f.children.iter().map(|c| c.person));
+        }
+    }
+    let mut seen = HashSet::from([id]);
+    let mut queue = vec![id];
+    while let Some(p) = queue.pop() {
+        for &c in children.get(&p).into_iter().flatten() {
+            if !seen.insert(c) {
+                continue;
+            }
+            if after.get(&c) == Some(&false) {
+                return true;
+            }
+            queue.push(c);
+        }
+    }
+    false
+}
+
+/// Characters in the date of a correction.
+const CORRECTION_DATE_MAX: usize = 100;
+/// Characters in the reason for a correction.
+const CORRECTION_REASON_MAX: usize = 1000;
+/// Bytes of the note beside an agent's coordinates: the size of any note.
+const TEXT_PIECE_NOTE_MAX: usize = 64 * 1024;
+
+/// The largest file an agent may attach.
+pub const AGENT_FILE_MAX: u64 = 50 * 1024 * 1024;
+
+/// The largest sound recording an agent may attach (to a source). Enforced while copying, so a
+/// file that grows meanwhile is cut off rather than copied whole.
+pub const AGENT_AUDIO_MAX: u64 = 2 * 1024 * 1024 * 1024;
+
+/// The largest PDF an agent may attach: what get_media can send back whole.
+pub const AGENT_PDF_MAX: u64 = 8 * 1024 * 1024;
+
+fn refuse_file(msg: &str) -> ApiError {
+    ApiError::new(ErrorCode::Invalid, msg)
+}
+
+/// The form of a path an agent gives, before anything is opened: a plain path on a local drive.
+/// A network share (`\\server\share`) would make Windows connect to that server and offer the
+/// user's credentials; device and verbatim paths (`\\.\`, `\\?\`) skip the usual checks.
+fn check_path_form(path: &std::path::Path) -> Result<(), ApiError> {
+    if !path.is_absolute() {
+        return Err(refuse_file(
+            "file_path must be the full path of a file on this computer.",
+        ));
+    }
+    let local = "file_path must be a file on a local drive of this computer, such as \
+                 C:\\Scans\\letter.jpg: not a network share or a device.";
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        match path.components().next() {
+            Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::Disk(_)) => {}
+            _ => return Err(refuse_file(local)),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let text = path.to_string_lossy();
+        if ["/dev/", "/proc/", "/sys/", "/net/"]
+            .iter()
+            .any(|p| text.starts_with(p))
+            || text.starts_with("//")
+        {
+            return Err(refuse_file(local));
+        }
+    }
+    Ok(())
+}
+
+/// What an agent may read: the path's form, no link (symbolic link or junction) anywhere on the
+/// way, an ordinary file of 1 byte to [`AGENT_AUDIO_MAX`] (what it holds then decides how large it
+/// may be). Only the folders' and the file's own entries are read, and links are never followed.
+pub fn check_agent_path(path: &std::path::Path) -> Result<(), ApiError> {
+    check_path_form(path)?;
+    let missing = "There is no file at file_path, or it cannot be read.";
+    let linked = "file_path goes through a link (a symbolic link or junction). Give the real \
+                  path of the file.";
+    for step in path.ancestors().skip(1) {
+        if step.parent().is_none() {
+            break; // the drive itself
+        }
+        match std::fs::symlink_metadata(step) {
+            Ok(m) if m.file_type().is_symlink() => return Err(refuse_file(linked)),
+            Ok(_) => {}
+            Err(_) => return Err(refuse_file(missing)),
+        }
+    }
+    let meta = std::fs::symlink_metadata(path).map_err(|_| refuse_file(missing))?;
+    if meta.file_type().is_symlink() {
+        return Err(refuse_file(linked));
+    }
+    if meta.is_dir() {
+        return Err(refuse_file("file_path must name a file, not a folder."));
+    }
+    if !meta.is_file() {
+        return Err(refuse_file(
+            "file_path must name an ordinary file, not a device or a pipe.",
+        ));
+    }
+    if meta.len() == 0 {
+        return Err(refuse_file("The file is empty."));
+    }
+    if meta.len() > AGENT_AUDIO_MAX {
+        return Err(refuse_file(TOO_BIG_SOUND));
+    }
+    Ok(())
+}
+
+const TOO_BIG: &str =
+    "The file is larger than 50 MiB. Make a smaller copy of the picture and attach that.";
+const NOT_ALLOWED: &str = "Only pictures (JPEG, PNG, WebP, GIF, TIFF), PDF documents and, on a \
+    source, sound recordings (MP3, WAV, Ogg, M4A, AAC, FLAC) can be attached.";
+const TOO_BIG_SOUND: &str = "The file is larger than 2 GiB. Name the recording in your report.";
+const SOUND: &str = "A sound recording goes on its source: give target kind source (make the \
+    source with add_source first). Then link the stretches where the story is told with \
+    add_audio_clip.";
+
+/// What the bytes at `path` are, when an agent may attach them: a picture of at most
+/// [`AGENT_FILE_MAX`] that decodes whole (one decode at a time, see
+/// [`crate::thumbs::one_decode_at_a_time`]), a whole PDF of at most [`AGENT_PDF_MAX`], or a sound
+/// recording (MP3, WAV, Ogg, M4A, AAC, FLAC by its first bytes) of at most [`AGENT_AUDIO_MAX`].
+/// The PDF's end is read with a seek, never the whole file; a recording is never read whole.
+fn check_agent_content(path: &std::path::Path) -> Result<crate::media::Kind, ApiError> {
+    use crate::media::{Kind, read_head, sniff};
+    use crate::thumbs;
+    use std::io::{Read, Seek, SeekFrom};
+    let unreadable = || refuse_file("The file cannot be read.");
+    let head = read_head(path).map_err(|_| unreadable())?;
+    let len = std::fs::metadata(path).map_err(|_| unreadable())?.len();
+    match sniff(&head) {
+        Some(kind) if kind.is_audio() => {
+            if len > AGENT_AUDIO_MAX {
+                Err(refuse_file(TOO_BIG_SOUND))
+            } else if kind == Kind::M4a && crate::mp4_tracks::has_video_track(path) {
+                Err(refuse_file(crate::media::VIDEO_NOT_SOUND))
+            } else {
+                Ok(kind)
+            }
+        }
+        Some(_) if len > AGENT_FILE_MAX => Err(refuse_file(TOO_BIG)),
+        Some(Kind::Pdf) => {
+            let mut f = std::fs::File::open(path).map_err(|_| unreadable())?;
+            let len = f.metadata().map_err(|_| unreadable())?.len();
+            if len > AGENT_PDF_MAX {
+                return Err(refuse_file(
+                    "A PDF can be at most 8 MiB, the most get_media can send back. Attach its \
+                     pages as pictures instead, or name the document in your report.",
+                ));
+            }
+            // A real PDF ends with its end-of-file marker; a renamed file of something else does not.
+            let mut tail = Vec::with_capacity(2048);
+            f.seek(SeekFrom::Start(len.saturating_sub(2048)))
+                .and_then(|_| f.take(2048).read_to_end(&mut tail))
+                .map_err(|_| unreadable())?;
+            if tail.windows(5).any(|w| w == b"%%EOF") {
+                Ok(Kind::Pdf)
+            } else {
+                Err(refuse_file(
+                    "The file starts like a PDF but is not a whole PDF document.",
+                ))
+            }
+        }
+        Some(kind) => thumbs::one_decode_at_a_time(|| thumbs::decodes(path))
+            .map(|()| kind)
+            .map_err(|e| {
+                if e.message == thumbs::TOO_LARGE {
+                    e
+                } else {
+                    refuse_file(
+                        "The file is not a picture that can be read (JPEG, PNG, WebP, GIF or TIFF).",
+                    )
+                }
+            }),
+        None => Err(refuse_file(NOT_ALLOWED)),
+    }
+}
+
+/// Whether an agent may attach the file at `path`, without copying it. The tool itself uses
+/// [`prepare_agent_file`], which checks the copy it makes.
+pub fn check_agent_file(path: &std::path::Path) -> Result<(), ApiError> {
+    check_agent_path(path)?;
+    check_agent_content(path).map(|_| ())
+}
+
+/// A file an agent's tool copied into the media folder, not yet recorded. Dropped before
+/// [`Session::attach_as_agent`] recorded it, a copy this call made is removed again, so a
+/// refused call leaves nothing behind.
+pub struct AgentFile {
+    prepared: crate::media::PreparedAttach,
+    /// The copy this call made; `None` once recorded, or when the same file was there before.
+    made: Option<std::path::PathBuf>,
+}
+
+impl Session {
+    /// The date, title and time of day a recording gets from its original file name, in the
+    /// interface language and by the session's clock; `None` when the name holds no date.
+    pub fn recording_defaults_for(
+        &self,
+        original_name: &str,
+    ) -> Option<crate::file_stamp::RecordingDefaults> {
+        let (_, now) = (self.clock.0)();
+        crate::file_stamp::recording_defaults(
+            original_name,
+            crate::file_stamp::year_of_unix_ms(now),
+            self.settings.language,
+        )
+    }
+}
+
+impl AgentFile {
+    /// The original file name when the copy is a sound recording; `None` for anything else.
+    pub fn recording_name(&self) -> Option<&str> {
+        let f = self.prepared.files.first()?;
+        f.mime
+            .starts_with("audio/")
+            .then_some(f.original_name.as_deref())
+            .flatten()
+    }
+}
+
+impl Drop for AgentFile {
+    fn drop(&mut self) {
+        if let Some(p) = self.made.take() {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
+
+/// Copies the file at `path` into `<dir>/media` for an agent, to go on a record of kind
+/// `target`, without the session: the path's form first, then at most [`AGENT_FILE_MAX`] bytes
+/// copied ([`AGENT_AUDIO_MAX`] for a recording, which goes only on a source), then the copy
+/// itself checked, so what is recorded is what was checked even if the original changes
+/// meanwhile. The copy is named by its type, never by the file's name.
+pub fn prepare_agent_file(
+    dir: &std::path::Path,
+    path: &std::path::Path,
+    target: OwnerKind,
+) -> Result<AgentFile, ApiError> {
+    use crate::media::{PreparedAttach, PreparedFile, read_head, sniff};
+    check_agent_path(path)?;
+    let head = read_head(path).map_err(|_| refuse_file("The file cannot be read."))?;
+    // Only the extension of the copy comes from here; the copy is checked again below.
+    let kind = sniff(&head).ok_or_else(|| refuse_file(NOT_ALLOWED))?;
+    if kind == crate::media::Kind::M4a && crate::mp4_tracks::has_video_track(path) {
+        return Err(refuse_file(crate::media::VIDEO_NOT_SOUND));
+    }
+    // Refused before a byte is copied: a recording is large, and has one place.
+    if kind.is_audio() && target != OwnerKind::Source {
+        return Err(refuse_file(SOUND));
+    }
+    let (max, too_big) = if kind.is_audio() {
+        (AGENT_AUDIO_MAX, TOO_BIG_SOUND)
+    } else {
+        (AGENT_FILE_MAX, TOO_BIG)
+    };
+    let stored = gt_store::add_media_file_as(dir, path, kind.ext(), Some(max))
+        .map_err(|_| refuse_file("The file cannot be read."))?
+        .ok_or_else(|| refuse_file(too_big))?;
+    let copy = dir.join(&stored.rel);
+    let mut file = AgentFile {
+        prepared: PreparedAttach {
+            dir: dir.to_path_buf(),
+            files: Vec::new(),
+            failed: Vec::new(),
+        },
+        made: stored.created.then(|| copy.clone()),
+    };
+    if check_agent_content(&copy)? != kind {
+        return Err(refuse_file(
+            "The file changed while it was being copied. Try again.",
+        ));
+    }
+    let too_large = kind.is_image()
+        && crate::thumbs::raw_dims(&copy)
+            .is_some_and(|(w, h)| u64::from(w) * u64::from(h) > crate::thumbs::MAX_PIXELS);
+    file.prepared.files.push(PreparedFile {
+        rel: stored.rel,
+        sha: stored.sha,
+        mime: kind.mime(),
+        original_name: path.file_name().map(|n| n.to_string_lossy().into_owned()),
+        too_large,
+        src: path.to_string_lossy().into_owned(),
+    });
+    Ok(file)
 }

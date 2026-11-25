@@ -67,6 +67,18 @@ impl Session {
         actor: Actor,
         batch: Option<Uuid>,
     ) -> Result<(), ApiError> {
+        self.commit_adjusting(cs, actor, batch, &gt_store::PlaceRecordAdjust::default())
+    }
+
+    /// [`Session::commit`], with the place records that follow a place merge (or its undo) moved in
+    /// the same transaction.
+    pub(crate) fn commit_adjusting(
+        &mut self,
+        cs: &ChangeSet,
+        actor: Actor,
+        batch: Option<Uuid>,
+        adjust: &gt_store::PlaceRecordAdjust,
+    ) -> Result<(), ApiError> {
         let people = self.people_of(cs);
         apply_to_tree_tracked(&mut self.tree, cs, &mut self.edit.removed_at);
         // One pass over the tree gives both maps; the flags that differ are stored with the edit.
@@ -76,7 +88,7 @@ impl Session {
             .filter(|(id, v)| self.living.get(id) != Some(v))
             .map(|(id, v)| (*id, *v))
             .collect();
-        if let Err(e) = self.project.apply_changes(
+        if let Err(e) = self.project.apply_changes_adjusting(
             cs,
             &changed,
             &LogMeta {
@@ -84,6 +96,7 @@ impl Session {
                 batch,
                 people,
             },
+            adjust,
         ) {
             apply_to_tree_tracked(&mut self.tree, &cs.inverse(), &mut self.edit.removed_at);
             return Err(e.into());
@@ -110,6 +123,7 @@ impl Session {
     }
 
     fn plan_command(&mut self, cmd: &EditCommand) -> Result<(ChangeSet, Option<Uuid>), ApiError> {
+        self.check_clip(cmd)?;
         let (_, now) = (self.clock.0)();
         if let EditCommand::ImportDraft {
             persons,
@@ -351,7 +365,17 @@ impl Session {
             changes: done.writes,
         };
         if !cs.changes.is_empty() {
-            self.commit(&cs, Actor::User, None)?;
+            // The undo of a place merge also puts back the place records it moved, but only when
+            // all of it goes: the places are back then, and the records have somewhere to be.
+            let restore = (done.skipped.is_empty()
+                && self.project.place_records_moved_by(g.group)?)
+            .then_some(g.group);
+            let adjust = gt_store::PlaceRecordAdjust {
+                moves: Vec::new(),
+                restore_group: restore,
+            };
+            self.commit_adjusting(&cs, Actor::User, None, &adjust)?;
+            self.drop_unreferenced_files(&cs);
         }
         Ok(UndoReport {
             undone: done.undone,
@@ -361,6 +385,46 @@ impl Session {
                 .map(|ch| self.skipped_fact(ch))
                 .collect(),
         })
+    }
+
+    /// After an undo from the log: the copies of files whose media records it removed, when no
+    /// record in the tree and no step on the Ctrl+Z stacks names them any more. Such an undo is
+    /// itself never undone, so nothing could bring the record back to the file; a recording an
+    /// agent copied in can be large. A file still named anywhere stays.
+    fn drop_unreferenced_files(&self, cs: &ChangeSet) {
+        use gt_store::Record;
+        let gone: Vec<&str> = cs
+            .changes
+            .iter()
+            .filter(|c| c.after.is_none())
+            .filter_map(|c| match &c.before {
+                Some(Record::Media(m)) => Some(m.path.as_str()),
+                _ => None,
+            })
+            .collect();
+        if gone.is_empty() {
+            return;
+        }
+        let names = |path: &str, set: &ChangeSet| {
+            set.changes.iter().any(|c| {
+                [&c.before, &c.after]
+                    .into_iter()
+                    .flatten()
+                    .any(|r| matches!(r, Record::Media(m) if m.path == path))
+            })
+        };
+        for path in gone {
+            let named = self.tree.media.values().any(|m| m.path == path)
+                || self
+                    .edit
+                    .undo
+                    .iter()
+                    .chain(&self.edit.redo)
+                    .any(|set| names(path, set));
+            if !named && let Some(file) = self.resolve_media_file(path) {
+                let _ = std::fs::remove_file(file);
+            }
+        }
     }
 
     pub fn undo_state(&self) -> UndoState {

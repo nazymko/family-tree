@@ -21,8 +21,18 @@ pub fn tree_of(records: &str) -> Tree {
     import(ged.as_bytes(), &ImportOptions::default()).tree
 }
 
+/// A temp dir whose path holds no link: on macOS `/var` is a link to `/private/var`,
+/// and the agent tools refuse a file path that goes through a link.
+pub fn canonical_tempdir() -> tempfile::TempDir {
+    let base = std::env::temp_dir();
+    // Only on Unix: on Windows `canonicalize` returns a `\?\` path.
+    #[cfg(unix)]
+    let base = base.canonicalize().unwrap();
+    tempfile::tempdir_in(base).unwrap()
+}
+
 pub fn open_tree(tree: &Tree) -> (TempDir, Session) {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let proj = dir.path().join("project");
     let mut p = Project::create(&proj).unwrap();
     p.save_tree(tree, today()).unwrap();

@@ -51,6 +51,7 @@ fn ev_input(kind: &str, date: Option<&str>) -> EventInput {
         negative: false,
         private: false,
         preferred: true,
+        godparents: None,
         participants: None,
     }
 }
@@ -872,6 +873,7 @@ fn notes_sources_and_media() {
         &EditCommand::SaveNote {
             target,
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::Story,
                 text: "Hello".into(),
@@ -884,6 +886,7 @@ fn notes_sources_and_media() {
         &EditCommand::SaveNote {
             target,
             note: NoteInput {
+                story: None,
                 id: Some(nid),
                 kind: NoteKindDto::Research,
                 text: "Changed".into(),
@@ -895,6 +898,7 @@ fn notes_sources_and_media() {
     let blank = EditCommand::SaveNote {
         target,
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: "  ".into(),
@@ -914,6 +918,7 @@ fn notes_sources_and_media() {
                 publication: None,
                 abbreviation: Some("PB".into()),
                 text: None,
+                ..Default::default()
             },
         },
     );
@@ -925,6 +930,9 @@ fn notes_sources_and_media() {
     // Media: attach (first is primary), set primary, detach.
     let mut m = |name: &str| {
         let media = Media {
+            version_of: None,
+            map_layer: None,
+            place: None,
             common: gt_core::model::Common {
                 id: Uuid::now_v7(),
                 private: false,
@@ -942,6 +950,8 @@ fn notes_sources_and_media() {
             date: None,
             description: None,
             sha256: None,
+            transcription: Vec::new(),
+            rotation: None,
         };
         let id = media.common.id;
         t.media.insert(id, media);
@@ -970,6 +980,8 @@ fn notes_sources_and_media() {
     run_apply(
         &mut t,
         &EditCommand::UpdateMedia {
+            place_text: None,
+            place_id: None,
             id: m1,
             title: Some("Portrait".into()),
             description: None,
@@ -986,6 +998,9 @@ fn delete_media_leaves_no_link_anywhere_and_undo_restores_it() {
     let (anna, hans) = (find(&t, "Anna"), find(&t, "Hans"));
     let family = *t.families.keys().next().unwrap();
     let make = |name: &str| Media {
+        version_of: None,
+        map_layer: None,
+        place: None,
         common: gt_core::model::Common {
             id: Uuid::now_v7(),
             private: false,
@@ -1003,6 +1018,8 @@ fn delete_media_leaves_no_link_anywhere_and_undo_restores_it() {
         date: None,
         description: None,
         sha256: None,
+        transcription: Vec::new(),
+        rotation: None,
     };
     let (gone, kept) = (make("gone.jpg"), make("kept.jpg"));
     let (gone_id, kept_id) = (gone.common.id, kept.common.id);
@@ -1012,6 +1029,7 @@ fn delete_media_leaves_no_link_anywhere_and_undo_restores_it() {
         media,
         region: None,
         primary,
+        clip: None,
     };
     t.persons.get_mut(&anna).unwrap().common.media =
         vec![link(gone_id, true), link(kept_id, false)];
@@ -1078,7 +1096,7 @@ fn plan_does_not_mutate() {
 fn edit_command_json_matches_ts_fixtures() {
     let json = include_str!("../../../app/src/lib/api/__fixtures__/commands.json");
     let cmds: Vec<EditCommand> = serde_json::from_str(json).unwrap();
-    assert_eq!(cmds.len(), 29);
+    assert_eq!(cmds.len(), 43);
     // Absent and null differ for livingOverride.
     let EditCommand::UpdatePerson {
         living_override, ..

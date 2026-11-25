@@ -16,6 +16,8 @@
   import { getApi } from '../api/context';
   import type { MediaDto } from '../api/api';
   import { t } from '../i18n';
+  import { playOnly } from './playback';
+  import { recordingView } from '../state/recording.svelte';
 
   let {
     media,
@@ -37,14 +39,13 @@
   let failed = $state(false);
   /** Starting one player pauses the others: two recordings at once are noise. */
   function onPlay(e: Event) {
-    const me = e.currentTarget as HTMLAudioElement;
-    for (const a of document.querySelectorAll('audio')) if (a !== me && !a.paused) a.pause();
+    playOnly(e.currentTarget as HTMLAudioElement);
   }
   const label = $derived(media.title || media.originalName || t('voice.untitled'));
   const known = $derived(Number.isFinite(duration) && duration > 0);
 </script>
 
-<li class="sample" data-testid="voice-sample">
+<li class="sample" data-testid="voice-sample" data-media-id={media.id}>
   <div class="head">
     <Icon name="audio" />
     <span class="label"><bdi dir="auto">{label}</bdi></span>
@@ -53,6 +54,7 @@
         {#if known}{t('voice.length', { time: clock(duration) })}{:else}{t('voice.loading')}{/if}
       </span>
     {/if}
+    <Button variant="quiet" aria-label={t('rec.openPlayerNamed', { label })} onclick={() => recordingView.show(media.id)}>{t('rec.openPlayer')}</Button>
     {#if onRemove}
       <Button variant="quiet" disabled={busy} aria-label={t('voice.removeNamed', { label })} onclick={() => onRemove(media)}>{t('voice.remove')}</Button>
     {/if}

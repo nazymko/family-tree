@@ -43,6 +43,26 @@ describe('Relatives view', () => {
     expect(screen.getByRole('button', { name: 'Fit' })).toBeInTheDocument();
   });
 
+  it('offers_show_all_after_six_generations_and_keeps_it', async () => {
+    const { api, fx } = makeApi();
+    nav.focus(await richestRoot(api, fx, 'relatives'));
+    const spy = vi.spyOn(api, 'chartOpen');
+    render(Host, { props: { api, view: Relatives } });
+    const select = (await screen.findByLabelText('Generations')) as HTMLSelectElement;
+    const values = Array.from(select.options).map((o) => o.value);
+    expect(values).toEqual(['1', '2', '3', '4', '5', '6', '255']);
+    const all = screen.getByRole('option', { name: 'Show all', hidden: true }) as HTMLOptionElement;
+    await fireEvent.change(select, { target: { value: all.value } });
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.objectContaining({ kind: 'relatives', generations: 255 })));
+    await waitFor(() => expect(select.value).toBe('255'));
+    // The next person on the chart keeps the choice.
+    nav.focus(await richestRoot(api, fx, 'relatives'));
+    await waitFor(() => expect(select.value).toBe('255'));
+    // The choice is kept for the whole session: put it back for the other tests.
+    await fireEvent.change(select, { target: { value: '3' } });
+    await waitFor(() => expect(select.value).toBe('3'));
+  });
+
   it('aunts_checkbox_reopens_the_chart', async () => {
     const { api, fx } = makeApi();
     nav.focus(await richestRoot(api, fx, 'relatives'));

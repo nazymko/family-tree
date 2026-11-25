@@ -252,9 +252,15 @@ fn same_keys(a: &Map<String, Value>, b: &Map<String, Value>) -> bool {
 }
 
 /// What makes two array items the same item.
+fn clip_id(o: &Map<String, Value>) -> Option<&Value> {
+    o.get("clip")?.as_object()?.get("id")
+}
+
 pub(crate) fn identity(item: &Value) -> Value {
     match item.as_object() {
         Some(o) if o.contains_key("id") => o.get("id").cloned().unwrap_or(Value::Null),
+        // A link to a clip of a recording is that clip, whatever its times or label.
+        Some(o) if clip_id(o).is_some() => clip_id(o).cloned().unwrap_or(Value::Null),
         // `ChildLink` has no id.
         Some(o) if o.contains_key("person") => o.get("person").cloned().unwrap_or(Value::Null),
         _ => item.clone(),
@@ -333,6 +339,7 @@ pub(crate) fn all_refs(r: &Record, f: &mut dyn FnMut(Uuid)) {
         Record::Place(x) => x.parent.iter().for_each(|p| f(*p)),
         Record::Source(x) => x.repositories.iter().for_each(|p| f(p.repository)),
         Record::Citation(x) => x.source.iter().for_each(|p| f(*p)),
+        Record::Media(x) => x.place.iter().chain(&x.version_of).for_each(|p| f(*p)),
         _ => {}
     }
 }
@@ -344,6 +351,7 @@ fn event_targets(e: &Event, f: &mut dyn FnMut(Uuid)) {
             ParticipantRef::Person(id) | ParticipantRef::Family(id) => f(id),
         }
     }
+    e.godparents.iter().filter_map(|g| g.person).for_each(f);
 }
 
 fn holds_kept(r: &Record, kept: &HashSet<Uuid>) -> bool {

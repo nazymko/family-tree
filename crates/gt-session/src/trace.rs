@@ -212,6 +212,9 @@ impl Session {
             .filter(|n| !n.is_empty());
         Ok(StagedPicture {
             media: Media {
+                version_of: None,
+                map_layer: None,
+                place: None,
                 common: crate::ops::new_common(now),
                 path: rel,
                 original_name: name,
@@ -220,6 +223,8 @@ impl Session {
                 date: None,
                 description: None,
                 sha256: Some(sha),
+                transcription: Vec::new(),
+                rotation: None,
             },
         })
     }

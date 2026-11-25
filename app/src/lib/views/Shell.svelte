@@ -33,11 +33,16 @@
   import CitationList from '../editors/CitationList.svelte';
   import MediaGrid from '../media/MediaGrid.svelte';
   import VoiceSamples from '../media/VoiceSamples.svelte';
+  /** The full recording player loads the first time a recording is opened. */
+  const loadPlayer = () => import('../media/RecordingPlayer.svelte');
+  import { recordingView } from '../state/recording.svelte';
   import { isSound } from '../media/sound';
+  import { collapseVersions } from '../media/versions';
   import People from './People.svelte';
   import FamilyView from './FamilyView.svelte';
   import type { IconName } from '../ui/icons';
   import { getApi, getPlatform } from '../api/context';
+  import PlacesView from '../places/PlacesView.svelte';
   import { notices } from '../ui/notices.svelte';
   import type { Id, PersonDetail, PersonRef, SearchHitDto } from '../api/types';
   import { nav, type Route } from '../state/nav.svelte';
@@ -55,7 +60,7 @@
   const api = getApi();
   const platform = getPlatform();
 
-  type NavName = 'family' | 'people' | 'whole' | 'pedigree' | 'descendants' | 'relatives' | 'sources' | 'media' | 'log' | 'settings';
+  type NavName = 'family' | 'people' | 'whole' | 'pedigree' | 'descendants' | 'relatives' | 'sources' | 'media' | 'map' | 'places' | 'log' | 'settings';
   const ITEMS: { name: NavName; label: MessageKey; icon: IconName }[] = [
     { name: 'family', label: 'nav.family', icon: 'family' },
     { name: 'people', label: 'nav.people', icon: 'people' },
@@ -65,6 +70,8 @@
     { name: 'relatives', label: 'nav.relatives', icon: 'relatives' },
     { name: 'sources', label: 'nav.sources', icon: 'sources' },
     { name: 'media', label: 'nav.media', icon: 'media' },
+    { name: 'map', label: 'nav.map', icon: 'map' },
+    { name: 'places', label: 'nav.places', icon: 'places' },
     { name: 'log', label: 'nav.log', icon: 'log' },
   ];
 
@@ -203,6 +210,29 @@
     }, run: () => (sheetOpen = true) },
   ];
 
+  // Below this width the sidebar is a drawer behind a menu button (a phone, a small tablet). The desktop window
+  // cannot get this narrow (its minimum is 960 px), so the desktop layout never changes.
+  const NARROW = '(max-width: 940px)';
+  let narrow = $state(false);
+  let drawerOpen = $state(false);
+  const mobile = !!platform.isMobile;
+
+  $effect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const q = window.matchMedia(NARROW);
+    const sync = () => {
+      narrow = q.matches;
+      if (!narrow) drawerOpen = false;
+    };
+    sync();
+    q.addEventListener?.('change', sync);
+    return () => q.removeEventListener?.('change', sync);
+  });
+
+  function closeDrawer() {
+    drawerOpen = false;
+  }
+
   onMount(() => {
     void undoState.refresh(api);
     if (!nav.focusPerson && homeId) nav.focus(homeId);
@@ -274,7 +304,7 @@
 
 {#snippet mediaSection(d: PersonDetail)}
   {#if d.media.length > 0}
-    {@const pictures = d.media.filter((l) => !isSound(l.media))}
+    {@const pictures = collapseVersions(d.media.filter((l) => !isSound(l.media)))}
     {#if pictures.length > 0}
       <MediaGrid items={pictures} target={{ kind: 'person', id: d.ref.id }} onOpen={() => openMedia(d.ref.id)} />
     {/if}
@@ -289,13 +319,20 @@
   <CitationList target={{ kind: 'person', id: d.ref.id }} citations={d.citations} onChanged={() => {}} />
 {/snippet}
 
-<div class="shell">
-  <aside class="side">
+<svelte:window onkeydown={(e) => e.key === 'Escape' && drawerOpen && closeDrawer()} />
+
+<div class="shell" class:narrow>
+  {#if narrow && drawerOpen}
+    <button type="button" class="scrim" aria-label={t('mobile.closeMenu')} onclick={closeDrawer}></button>
+  {/if}
+  <aside class="side" class:open={drawerOpen} inert={narrow && !drawerOpen} aria-label={narrow ? t('shell.main') : undefined}>
     <div class="brand">
       <Ribbon title="Family Tree" size="1.25rem" />
       <span class="brand-name">Family Tree<span class="byline">{t('about.byline')}</span></span>
     </div>
-    <nav aria-label={t('shell.main')}>
+    <!-- A choice in the drawer closes it; the drawer is the only place this matters. -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_click_events_have_key_events -->
+    <nav aria-label={t('shell.main')} onclick={() => narrow && closeDrawer()}>
       <ul>
         {#each ITEMS as it (it.name)}
           <li>
@@ -368,7 +405,11 @@
       </ul>
     </nav>
     <footer class="foot">
-      <button type="button" class="pname" title={t('shell.openFolder', { dir: project.info?.dir ?? '' })} onclick={openFolder}>{project.info?.name}</button>
+      {#if mobile}
+        <span class="pname static">{project.info?.name}</span>
+      {:else}
+        <button type="button" class="pname" title={t('shell.openFolder', { dir: project.info?.dir ?? '' })} onclick={openFolder}>{project.info?.name}</button>
+      {/if}
       <div class="pcount tnum">{plural('common.people', project.info?.personCount ?? 0)}</div>
       <div class="saved" role="status" aria-label={t('shell.saveStatus')} class:bad={project.save === 'failed'}>
         <Icon name="check" />
@@ -379,6 +420,9 @@
 
   <div class="col">
     <header class="top">
+      {#if narrow}
+        <IconButton label={t('mobile.menu')} icon="menu" aria-expanded={drawerOpen} onclick={() => (drawerOpen = !drawerOpen)} />
+      {/if}
       <div class="hist">
         <IconButton label={t('common.back')} icon="chevron-left" disabled={!nav.canBack} onclick={() => nav.back()} />
         <IconButton label={t('common.forward')} icon="chevron-right" disabled={!nav.canForward} onclick={() => nav.forward()} />
@@ -386,7 +430,7 @@
       <button type="button" class="find" onclick={() => (searchOpen = true)}>
         <Icon name="search" />
         <span>{t('ui.searchTheTree')}</span>
-        <Kbd>{modLabel}</Kbd>
+        {#if !mobile}<Kbd>{modLabel}</Kbd>{/if}
       </button>
       <div class="hist">
         <IconButton
@@ -404,7 +448,9 @@
       </div>
     </header>
     <main id="content" class="main">
-      <div class="page" class:chart={current === 'pedigree' || current === 'descendants' || current === 'relatives' || current === 'around' || current === 'whole' || current === 'trace'}>
+      <div class="page" class:chart={current === 'pedigree' || current === 'descendants' || current === 'relatives' || current === 'around' || current === 'whole' || current === 'trace' || current === 'map'}
+        class:fill={current === 'map'}
+      >
         {#if nav.route.name === 'family'}
           <FamilyView />
         {:else if nav.route.name === 'people'}
@@ -428,7 +474,7 @@
             <PersonEditor id={nav.route.id} {mediaSection} {sourcesSection} />
           {/key}
         {:else if nav.route.name === 'sources'}
-          <Sources />
+          <Sources selectedId={nav.route.id ?? null} />
         {:else if nav.route.name === 'log'}
           <ChangeLog />
         {:else if nav.route.name === 'media'}
@@ -437,6 +483,12 @@
           {:else}
             <RoutePlaceholder title={t('nav.media')} note={t('shell.chooseFirst')} />
           {/if}
+        {:else if nav.route.name === 'map'}
+          {#await import('../map/MapView.svelte') then { default: MapView }}
+            <MapView onOpenPerson={openPerson} />
+          {/await}
+        {:else if nav.route.name === 'places'}
+          <PlacesView onOpenPerson={openPerson} />
         {:else if nav.route.name === 'trace'}
           <TraceView />
         {:else if nav.route.name === 'settings'}
@@ -448,6 +500,13 @@
 </div>
 
 <SearchPalette open={searchOpen} onclose={() => (searchOpen = false)} onpick={picked} />
+{#if recordingView.open}
+  {#key recordingView.open}
+    {#await loadPlayer() then { default: RecordingPlayer }}
+      <RecordingPlayer media={recordingView.open.media} clip={recordingView.open.clip} onclose={() => recordingView.close()} />
+    {/await}
+  {/key}
+{/if}
 <ShortcutSheet open={sheetOpen} onclose={() => (sheetOpen = false)} {shortcuts} />
 {#if quickWanted && quickAnchor && quickWanted.relation}
   <QuickAdd
@@ -583,6 +642,45 @@
     text-align: start;
     transition: background-color var(--dur-fast) var(--ease);
   }
+  @media (pointer: coarse) {
+    .item {
+      min-height: 2.75rem;
+    }
+    /* A tablet in landscape is short: the list scrolls (a shadow at the edge shows there is more), the footer stays
+       whole, and the last item can be scrolled clear of the footer. */
+    .shell {
+      height: 100dvh;
+    }
+    nav {
+      padding-block-end: var(--s-5);
+      background:
+        linear-gradient(var(--paper-2) 30%, transparent) 0 0 / 100% 2rem no-repeat local,
+        linear-gradient(transparent, var(--paper-2) 70%) 0 100% / 100% 2rem no-repeat local,
+        radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.2), transparent) 0 0 / 100% 0.5rem no-repeat scroll,
+        radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.2), transparent) 0 100% / 100% 0.5rem no-repeat scroll;
+      overscroll-behavior: contain;
+    }
+    .foot {
+      flex: none;
+    }
+    @media (max-height: 520px) {
+      .item {
+        min-height: 2.25rem;
+      }
+      /* Sideways the drawer is short: the tree's name, size and save state share one line, so the list keeps the room. */
+      .foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0 var(--s-3);
+        padding-block: var(--s-2);
+      }
+      .pname {
+        width: auto;
+        max-width: 100%;
+      }
+    }
+  }
   .item:hover {
     background: var(--rule);
     color: var(--ink-0);
@@ -688,40 +786,121 @@
     max-width: none;
     padding-bottom: var(--s-5);
   }
+  /* The map takes the whole pane: no centred column, no blank band under it. */
+  .page.fill {
+    display: flex;
+    flex-direction: column;
+    padding: var(--s-3) var(--s-4);
+  }
   .page {
     max-width: var(--content-max);
     padding: var(--s-6) var(--s-7) var(--s-8);
   }
   @media (max-width: 1100px) {
-    .shell {
+    .shell:not(.narrow) {
       grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr);
     }
-    .lbl,
-    .brand-name,
-    .pname,
-    .pcount {
+    .shell:not(.narrow) .lbl,
+    .shell:not(.narrow) .brand-name,
+    .shell:not(.narrow) .pname,
+    .shell:not(.narrow) .pcount {
       position: absolute;
       width: 1px;
       height: 1px;
       overflow: hidden;
       clip-path: inset(50%);
     }
-    .brand {
+    .shell:not(.narrow) .brand {
       justify-content: center;
       padding-inline: 0;
     }
-    .item {
+    .shell:not(.narrow) .item {
       justify-content: center;
       padding: 0;
     }
-    .saved {
+    .shell:not(.narrow) .saved {
       justify-content: center;
     }
-    .foot {
+    .shell:not(.narrow) .foot {
       padding-inline: var(--s-2);
     }
     .page {
       padding-inline: var(--s-5);
+    }
+  }
+  /* A phone or small tablet: the sidebar slides in over the page from a menu button. */
+  .shell.narrow {
+    grid-template-columns: minmax(0, 1fr);
+    height: 100dvh;
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+  }
+  .shell.narrow .side {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: 50;
+    width: min(20rem, 86vw);
+    padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom);
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.28);
+    transform: translateX(-105%);
+    visibility: hidden;
+    transition:
+      transform 0.18s ease,
+      visibility 0s linear 0.18s;
+  }
+  .shell.narrow .side.open {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.18s ease;
+  }
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    border: 0;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.4);
+  }
+  .shell.narrow .top {
+    padding-block-start: max(var(--s-3), env(safe-area-inset-top));
+  }
+  .shell.narrow .top {
+    padding-inline: var(--s-3);
+    gap: var(--s-2);
+  }
+  .shell.narrow .find span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .shell.narrow .find {
+    min-width: 0;
+    overflow: hidden;
+  }
+  .shell.narrow .page {
+    padding: var(--s-4) var(--s-4) calc(var(--s-6) + env(safe-area-inset-bottom));
+  }
+  /* A phone held sideways: every row counts. One slim header, a smaller page title, less padding. */
+  @media (pointer: coarse) and (max-height: 500px) {
+    .shell.narrow .top {
+      padding-block: 2px;
+      padding-block-start: 2px;
+    }
+    .shell.narrow .page {
+      padding: var(--s-2) var(--s-4) var(--s-3);
+    }
+    .shell.narrow .page :global(h1) {
+      font-size: var(--t-lg);
+      line-height: 1.2;
+    }
+  }
+  .pname.static {
+    cursor: default;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .shell.narrow .side,
+    .shell.narrow .side.open {
+      transition: none;
     }
   }
 </style>

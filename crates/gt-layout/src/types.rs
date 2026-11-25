@@ -45,6 +45,19 @@ impl Default for Metrics {
     }
 }
 
+impl Metrics {
+    /// Narrower cards and tighter gaps for a chart printed on paper.
+    pub fn compact() -> Self {
+        Self {
+            node_w: 124.0,
+            node_h: 56.0,
+            gap_x: 28.0,
+            gap_y: 8.0,
+            couple_gap: 6.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Rect {
     pub x: f32,
@@ -153,6 +166,13 @@ pub struct Node {
     /// Relationship to the centred person (relatives chart only).
     pub rel: Option<Rel>,
     pub nav: Nav,
+    /// Chart built around one person: the person's brothers and sisters can be opened (set by the caller from
+    /// `open_flags`).
+    pub can_open_siblings: bool,
+    /// Chart built around one person: the person's children can be opened.
+    pub can_open_children: bool,
+    /// Something of this person was opened by the caller (a mark on the card).
+    pub opened: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -354,6 +374,9 @@ pub(crate) fn new_node(id: u32, key: Key, rect: Rect, r#gen: i16) -> Node {
         more_down: false,
         rel: None,
         nav: Nav::default(),
+        can_open_siblings: false,
+        can_open_children: false,
+        opened: false,
     }
 }
 
@@ -379,4 +402,68 @@ pub(crate) fn dup_edge(nodes: &[Node], dup: u32, orig: u32, gap_x: f32) -> Edge 
         kind: EdgeKind::Dup,
         pts: vec![a.right(), a.cy(), mx, a.cy(), mx, b.cy(), b.right(), b.cy()],
     }
+}
+
+/// Where a person with several partnerships stands among their partners (descendant charts and the relatives charts).
+///
+/// Rule: with one partner the partner stands to the right of the person, as always. With two or more the FIRST
+/// partner stands to the LEFT of the person and the others continue to the right in order, so two partners read
+/// `P1 - person - P2` with the person in the middle (the picture the whole-tree chart already draws), three read
+/// `P1 - person - P2 - P3`. Member 0 is the person, member `k` the k-th partner (the k-th union with a partner).
+/// Every partner's couple connector joins that partner to the PERSON, never to the neighbouring partner: a partner who
+/// does not stand next to the person (the third and later) is joined by a connector dipping under the cards between.
+pub(crate) fn member_col(partners: u32, member: u32) -> u32 {
+    if partners < 2 {
+        return member;
+    }
+    match member {
+        0 => 1,
+        1 => 0,
+        k => k,
+    }
+}
+
+/// Columns to the left of the person's card within the unit's box (0, or 1 with two or more partners).
+pub(crate) fn lead_cols(partners: u32) -> u32 {
+    member_col(partners, 0)
+}
+
+/// Offset from the centre of the unit's box to the centre of the person's card.
+pub(crate) fn person_shift(partners: u32, m: &Metrics) -> f32 {
+    let pstep = m.node_w + m.couple_gap;
+    let w = m.node_w * (1.0 + partners as f32) + m.couple_gap * partners as f32;
+    -w / 2.0 + m.node_w / 2.0 + lead_cols(partners) as f32 * pstep
+}
+
+/// The couple connector between a person (card `a`) and one partner (card `b`), and the point the children's line
+/// hangs from. Next to each other: a straight line between the cards, the children hang from its middle. Apart (a
+/// third partner): a line dipping `dip` under the cards in between, the children hang from the middle of the dip.
+pub(crate) fn couple_link(a: Rect, b: Rect, dip: f32) -> (Vec<f32>, (f32, f32)) {
+    let (l, r) = if a.x <= b.x { (a, b) } else { (b, a) };
+    if (a.y - b.y).abs() < 0.5 && r.x - l.right() < l.w {
+        (
+            vec![l.right(), l.cy(), r.x, r.cy()],
+            ((l.right() + r.x) / 2.0, l.cy()),
+        )
+    } else {
+        let (xa, xb) = (a.cx(), b.cx());
+        let y = a.bottom() + dip;
+        (
+            vec![xa, a.bottom(), xa, y, xb, y, xb, b.bottom()],
+            ((xa + xb) / 2.0, y),
+        )
+    }
+}
+
+/// Puts the unions of one unit in the order of their anchors along the row, so the children of each family hang below
+/// their own anchor and no two child lines cross. The anchor of a union with a partner is the couple connector (the
+/// middle of the person's and the partner's columns); the anchor of a union without a partner is the person's own card.
+/// With one partner (drawn to the right of the person) the partnerless families therefore come first. The sort is stable:
+/// families with the same anchor keep their order, and nothing moves when every union has a partner.
+pub(crate) fn order_unions<T>(person: u32, partners: u32, unions: &mut [(Option<u32>, T)]) {
+    let own = member_col(partners, 0);
+    unions.sort_by_key(|(at, _)| match at {
+        Some(node) => own + member_col(partners, node - person),
+        None => 2 * own,
+    });
 }

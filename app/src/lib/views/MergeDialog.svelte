@@ -145,7 +145,7 @@
       <p>{t('merge.mergeIntro')}</p>
       <div class="row">
         <Button onclick={chooseZip}>{t('merge.mergeChooseZip')}</Button>
-        <Button onclick={chooseFolder}>{t('merge.mergeChooseFolder')}</Button>
+        {#if !platform.isMobile}<Button onclick={chooseFolder}>{t('merge.mergeChooseFolder')}</Button>{/if}
       </div>
       {#if source}<p class="chosen"><bdi dir="auto">{t('merge.mergeChosen', { name: nameOf(source) })}</bdi></p>{/if}
       <TextField label={t('merge.mergeWhose')} hint={t('merge.mergeWhoseHint')} bind:value={name} />

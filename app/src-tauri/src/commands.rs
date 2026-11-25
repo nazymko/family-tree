@@ -8,12 +8,12 @@ use gt_session::{
     ApiError, AttachResult, BatchDto, ChartLocation, ChartMeta, ChartRequest, ChartWindow,
     CitationDto, CopySizeDto, CopyZipDto, DatePreview, DayOrder, EditCommand, EditResult,
     ErrorCode, ExifSuggestion, ExportOptions, FamilyDto, FamilyViewDto, HistoryEntry,
-    ImportProgress, ImportReportDto, ImportRequest, LocationKind, LocationWarningDto, LogAgentDto,
-    LogFilterDto, LogRowDto, MediaDto, MergePreviewDto, MergeResultDto, OutlineItem, OwnerRef,
-    Page, PersonDetail, PersonQuery, PersonRow, PlaceOption, PrivacyPreview, ProjectInfo,
-    RecentProject, RecordHomeDto, Rect, RelinkResult, ReviewScopeDto, SearchHitDto, Session,
-    Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport, UndoState,
-    WholeMeta,
+    ImportProgress, ImportReportDto, ImportRequest, LocationDto, LocationKind, LocationWarningDto,
+    LogAgentDto, LogFilterDto, LogRowDto, MediaDto, MergePreviewDto, MergeResultDto, OutlineItem,
+    OwnerRef, Page, PersonDetail, PersonQuery, PersonRow, PlaceOption, PrivacyPreview, ProjectInfo,
+    RecentProject, RecordHomeDto, RecordRefDto, Rect, RelinkResult, ReviewScopeDto, SearchHitDto,
+    Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport,
+    UndoState, WholeMeta,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -77,12 +77,27 @@ command_list!(
     person_history,
     has_untracked_changes,
     record_home,
+    locate_records,
     undo_change_group,
     undo_change_batch,
     history,
     parse_date,
     suggest_places,
     suggest_sources,
+    map_data,
+    place_events,
+    place_import_scan,
+    place_import_preview,
+    place_import_run,
+    add_map_layer_file,
+    find_ozi_map,
+    ozi_corners,
+    ozi_check,
+    gazetteer_status,
+    gazetteer_remote_size,
+    gazetteer_download,
+    gazetteer_remove,
+    gazetteer_suggest,
     last_citation,
     chart_open,
     chart_open_whole,
@@ -96,6 +111,8 @@ command_list!(
     exif_suggestion,
     attach_files,
     unlinked_media,
+    all_pictures,
+    get_recording,
     stage_trace_image,
     save_trace_draft,
     load_trace_draft,
@@ -108,6 +125,7 @@ command_list!(
     preview_export,
     export_gedcom,
     save_picture,
+    make_picture_folder,
     get_settings,
     set_settings,
     agent_access_state,
@@ -537,6 +555,14 @@ pub fn record_home(
 }
 
 #[tauri::command(async)]
+pub fn locate_records(
+    state: State<'_, AppState>,
+    refs: Vec<RecordRefDto>,
+) -> ApiResult<Vec<Option<LocationDto>>> {
+    state.with_session(|s| s.locate_records(&refs))
+}
+
+#[tauri::command(async)]
 pub fn person_history(
     state: State<'_, AppState>,
     id: Uuid,
@@ -570,6 +596,213 @@ pub fn suggest_places(
     limit: usize,
 ) -> ApiResult<Vec<PlaceOption>> {
     state.with_session(|s| Ok(s.suggest_places(&prefix, limit)))
+}
+
+/// Everything the Map view draws, for one scope.
+#[tauri::command(async)]
+pub fn map_data(
+    state: State<'_, AppState>,
+    scope: gt_session::MapScope,
+) -> ApiResult<gt_session::MapDataDto> {
+    state.with_session(|s| Ok(s.map_data(&scope)))
+}
+
+// ------------------------------------------------------------ events of a place
+
+/// The event `place_import_run` emits while it adds records.
+pub const PLACE_IMPORT_PROGRESS_EVENT: &str = "place-import-progress";
+
+/// One page of the events that happened in a place and the places under it.
+#[tauri::command(async)]
+pub fn place_events(
+    state: State<'_, AppState>,
+    query: gt_session::PlaceEventsQuery,
+) -> ApiResult<gt_session::PlaceEventsPage> {
+    state.with_session(|s| s.place_events(&query))
+}
+
+/// Reads index files (TSV) and says which books and villages they hold. Touches no tree.
+#[tauri::command]
+pub async fn place_import_scan<R: Runtime>(
+    app: AppHandle<R>,
+    paths: Vec<String>,
+) -> ApiResult<gt_session::PlaceImportScanDto> {
+    blocking(&app, move |_| {
+        let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+        Ok(gt_session::parse_index_files(&paths)?.scan())
+    })
+    .await
+}
+
+/// What importing the files under this mapping would add and what is stored already.
+#[tauri::command]
+pub async fn place_import_preview<R: Runtime>(
+    app: AppHandle<R>,
+    paths: Vec<String>,
+    mapping: Vec<gt_session::PlaceImportMapDto>,
+) -> ApiResult<gt_session::PlaceImportPreviewDto> {
+    blocking(&app, move |s| {
+        let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+        let parsed = gt_session::parse_index_files(&paths)?;
+        s.with_session(|se| se.place_import_preview(&parsed, &mapping))
+    })
+    .await
+}
+
+/// Adds the records, a chunk at a time: the files are read without the tree's lock, and each chunk
+/// takes it only for its own transaction, so the rest of the app keeps answering meanwhile.
+#[tauri::command]
+pub async fn place_import_run<R: Runtime>(
+    app: AppHandle<R>,
+    paths: Vec<String>,
+    mapping: Vec<gt_session::PlaceImportMapDto>,
+) -> ApiResult<gt_session::PlaceImportResultDto> {
+    let emitter = app.clone();
+    blocking(&app, move |s| {
+        let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+        let parsed = gt_session::parse_index_files(&paths)?;
+        let (parts, unmapped) = parsed.split(&mapping);
+        let total: u32 = parts.iter().map(|(_, _, r)| r.len() as u32).sum();
+        let (mut done, mut added, mut duplicates) = (0u32, 0u32, 0u32);
+        let progress = |done: u32| {
+            let _ = emitter.emit(
+                PLACE_IMPORT_PROGRESS_EVENT,
+                gt_session::PlaceImportProgressDto { done, total },
+            );
+        };
+        progress(0);
+        for (_, place, records) in &parts {
+            for chunk in records.chunks(gt_session::IMPORT_CHUNK) {
+                let out = s.with_session(|se| se.add_place_records(*place, chunk, None))?;
+                added += out.added;
+                duplicates += out.duplicates;
+                done += chunk.len() as u32;
+                progress(done);
+            }
+        }
+        Ok(gt_session::PlaceImportResultDto {
+            added,
+            duplicates,
+            unmapped,
+        })
+    })
+    .await
+}
+
+/// Copies a picture into the tree and lays it on the Map as an old map. Corners come from
+/// `layer.corners`, else from the OziExplorer `.map` file at `ozi_map_path`, else none (the
+/// owner places it). Returns the picture's media id.
+#[tauri::command]
+pub async fn add_map_layer_file<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    title: Option<String>,
+    mut layer: gt_session::MapLayerInput,
+    ozi_map_path: Option<String>,
+) -> ApiResult<Uuid> {
+    blocking(&app, move |s| {
+        let path = PathBuf::from(path);
+        if layer.corners.is_none()
+            && let Some(map) = ozi_map_path.filter(|p| !p.trim().is_empty())
+        {
+            // A `.map` that does not fit the picture is never used silently: the window asks
+            // `ozi_check` first and lets the owner correct the corners.
+            let c = gt_session::map_layers::ozi_corners(Path::new(&map), &path)?;
+            layer.corners = Some(c.fitting()?.to_vec());
+        }
+        let dir = s.with_session(|s| Ok(s.project_dir()))?;
+        let prepared = gt_session::prepare_map_file(&dir, &path)?;
+        s.with_session(|s| s.commit_map_layer(prepared, title, &layer))
+    })
+    .await
+}
+
+/// The OziExplorer `.map` file that lies next to a picture and names it, if any.
+#[tauri::command(async)]
+pub fn find_ozi_map(path: String) -> Option<String> {
+    gt_session::map_layers::find_ozi_map(Path::new(&path)).map(|p| p.to_string_lossy().into_owned())
+}
+
+/// The corners an OziExplorer `.map` file gives a picture already in the tree, and whether the
+/// file fits it.
+#[tauri::command(async)]
+pub fn ozi_corners(
+    state: State<'_, AppState>,
+    map_path: String,
+    media: Uuid,
+) -> ApiResult<gt_session::OziPlacementDto> {
+    let picture = state.with_session(|s| s.media_original_path(media))?;
+    gt_session::map_layers::ozi_placement(Path::new(&map_path), &picture)
+}
+
+/// The corners an OziExplorer `.map` file gives a picture the owner is about to add, and whether
+/// the file fits it.
+#[tauri::command(async)]
+pub fn ozi_check(map_path: String, picture_path: String) -> ApiResult<gt_session::OziPlacementDto> {
+    gt_session::map_layers::ozi_placement(Path::new(&map_path), Path::new(&picture_path))
+}
+
+/// The event `gazetteer_download` emits while it works.
+pub const GAZETTEER_PROGRESS_EVENT: &str = "gazetteer-progress";
+
+/// Which countries of the offline place data are on this computer.
+#[tauri::command(async)]
+pub fn gazetteer_status(state: State<'_, AppState>) -> gt_session::GazetteerStatusDto {
+    crate::gazetteer::status(&state.config_dir)
+}
+
+/// The download size of a country (bytes), asked of GeoNames when the person chooses the country.
+#[tauri::command]
+pub async fn gazetteer_remote_size<R: Runtime>(
+    app: AppHandle<R>,
+    country: String,
+) -> ApiResult<Option<u64>> {
+    blocking(&app, move |_| crate::gazetteer::remote_size(&country)).await
+}
+
+/// Downloads and indexes one country. Only ever runs from the person's click; the one network use of the place data.
+#[tauri::command]
+pub async fn gazetteer_download<R: Runtime>(
+    app: AppHandle<R>,
+    country: String,
+) -> ApiResult<gt_session::GazetteerCountryDto> {
+    let emitter = app.clone();
+    blocking(&app, move |s| {
+        let done = crate::gazetteer::download(&s.config_dir, &country, &|p| {
+            let _ = emitter.emit(GAZETTEER_PROGRESS_EVENT, p);
+        })?;
+        *AppState::lock(&s.gazetteer) = None;
+        Ok(done)
+    })
+    .await
+}
+
+#[tauri::command(async)]
+pub fn gazetteer_remove(state: State<'_, AppState>, country: String) -> ApiResult<()> {
+    crate::gazetteer::remove(&state.config_dir, &country)?;
+    *AppState::lock(&state.gazetteer) = None;
+    Ok(())
+}
+
+/// Candidates for a place of the tree from the downloaded place data; empty when nothing is downloaded.
+#[tauri::command(async)]
+pub fn gazetteer_suggest(
+    state: State<'_, AppState>,
+    place: Uuid,
+    limit: usize,
+) -> ApiResult<Vec<gt_session::GazetteerCandidateDto>> {
+    let parts = state.with_session(|s| Ok(s.place_parts(place)))?;
+    let gz = {
+        let mut slot = AppState::lock(&state.gazetteer);
+        slot.get_or_insert_with(|| crate::gazetteer::load(&state.config_dir))
+            .clone()
+    };
+    let refs: Vec<&str> = parts.iter().map(String::as_str).collect();
+    Ok(gz
+        .search(&refs, limit.clamp(1, 20))
+        .into_iter()
+        .map(Into::into)
+        .collect())
 }
 
 #[tauri::command(async)]
@@ -713,6 +946,21 @@ pub async fn attach_files<R: Runtime>(
 #[tauri::command(async)]
 pub fn unlinked_media(state: State<'_, AppState>) -> ApiResult<Vec<MediaDto>> {
     state.with_session(|s| Ok(s.unlinked_media()))
+}
+
+/// Every picture and document, one per version group, to pick another version of a page from.
+#[tauri::command(async)]
+pub fn all_pictures(state: State<'_, AppState>) -> ApiResult<Vec<MediaDto>> {
+    state.with_session(|s| Ok(s.all_pictures()))
+}
+
+/// A recording with its sources and every clip of it, for the full player.
+#[tauri::command(async)]
+pub fn get_recording(
+    state: State<'_, AppState>,
+    media: Uuid,
+) -> ApiResult<gt_session::recording::RecordingDto> {
+    state.with_session(|s| s.get_recording(media))
 }
 
 // ------------------------------------------------------------ trace a tree picture
@@ -971,6 +1219,71 @@ pub fn save_picture(request: tauri::ipc::Request<'_>) -> ApiResult<BytesWritten>
     save_picture_impl(&path, bytes)
 }
 
+/// Makes a NEW folder `name` in `dir` for a set of chart pictures (the A3 sheets of one chart) and returns its path.
+/// When `name` is taken (by a folder or a file) it tries `name (2)`, `name (3)` and so on: the folder is always new, so
+/// nothing already on the disk is written into or replaced.
+pub fn make_picture_folder_impl(dir: &str, name: &str) -> ApiResult<String> {
+    let invalid = |m: &str| ApiError::new(ErrorCode::Invalid, m);
+    let name = name.trim();
+    if name.is_empty() || name == "." || name == ".." {
+        return Err(invalid(
+            "There is no folder name for the sheets. Choose a file name and try again.",
+        ));
+    }
+    // Characters Windows refuses in a name (and the separators, so the folder cannot leave `dir`) become "_"; so does a
+    // trailing dot or space, which Windows drops silently.
+    let mut name: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || r#"<>:"/\|?*"#.contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    if name.ends_with(['.', ' ']) {
+        name.pop();
+        name.push('_');
+    }
+    let name = name.as_str();
+    let parent = Path::new(dir);
+    if dir.trim().is_empty() || !parent.is_dir() {
+        return Err(invalid(
+            "That folder does not exist. Choose another folder and try again.",
+        ));
+    }
+    for n in 1..=999u32 {
+        let candidate = if n == 1 {
+            parent.join(name)
+        } else {
+            parent.join(format!("{name} ({n})"))
+        };
+        match std::fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate.to_string_lossy().into_owned()),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                return Err(ApiError::new(
+                    ErrorCode::Io,
+                    format!(
+                        "Could not make a folder for the sheets: {e}. Choose another place and try again."
+                    ),
+                ));
+            }
+        }
+    }
+    Err(ApiError::new(
+        ErrorCode::Io,
+        "Could not make a folder for the sheets: too many folders of that name. Choose another name and try again.",
+    ))
+}
+
+/// Makes a new folder for a set of chart pictures (see `make_picture_folder_impl`).
+#[tauri::command]
+pub fn make_picture_folder(dir: String, name: String) -> ApiResult<String> {
+    make_picture_folder_impl(&dir, &name)
+}
+
 // ------------------------------------------------------------ settings
 
 /// `Partial<Settings>` from the UI. `homePerson: null` clears it; absent leaves it alone.
@@ -986,6 +1299,7 @@ pub struct SettingsPatchWire {
     pub living_max_age: Option<u32>,
     #[serde(deserialize_with = "some_or_null")]
     pub home_person: Option<Option<Uuid>>,
+    pub tree_name: Option<String>,
 }
 
 fn some_or_null<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<Uuid>>, D::Error> {
@@ -1010,7 +1324,11 @@ pub fn get_settings_impl(state: &AppState) -> Settings {
 
 pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResult<Settings> {
     let has_session = AppState::lock(&state.session).is_some();
-    if !has_session && (patch.living_max_age.is_some() || patch.home_person.is_some()) {
+    if !has_session
+        && (patch.living_max_age.is_some()
+            || patch.home_person.is_some()
+            || patch.tree_name.is_some())
+    {
         return Err(no_project());
     }
     if patch.backups_to_keep == Some(0) {
@@ -1030,6 +1348,7 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
             chart_directions: patch.chart_directions,
             living_max_age: patch.living_max_age,
             home_person: patch.home_person,
+            tree_name: patch.tree_name,
         };
         state.with_session(|s| s.set_settings(p).map(|_| ()))?;
     }

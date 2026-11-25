@@ -45,6 +45,8 @@ pub enum OwnerKind {
     /// A note: only media (voice samples) can be attached to it.
     Note,
     ChildLink,
+    /// A source: only media (pictures of the document) can be attached to it.
+    Source,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -150,6 +152,31 @@ pub struct EventInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub participants: Option<Vec<ParticipantInput>>,
+    /// The whole list of godparents, in order; left out, the event keeps the ones it has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub godparents: Option<Vec<GodparentInput>>,
+}
+
+/// A godparent of an event: a person in the tree or a name as written, exactly one of the two.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GodparentInput {
+    /// The godparent being kept or changed; none for a new one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub person: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    /// `godfather`, `godmother` or `godparent`.
+    pub role: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -272,9 +299,13 @@ pub struct NoteInput {
     pub id: Option<Uuid>,
     pub kind: NoteKindDto,
     pub text: String,
+    /// The readable retelling. Missing leaves the note's story as it is; an empty text takes it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub story: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -295,6 +326,108 @@ pub struct SourceInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub text: Option<String>,
+    /// A kind id (`metric_book`, `other:<label>`); an empty text clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub issuer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub doc_number: Option<String>,
+    /// The date on the document, as typed; an empty text clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub doc_date_raw: Option<String>,
+    /// The archive or office that keeps it (reused when a repository has this name, else created);
+    /// it becomes the first repository of the source. An empty text removes that repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub archive: Option<String>,
+    /// The call number (case, file) in that archive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub call_number: Option<String>,
+}
+
+/// Where a piece of transcribed text is written: fractions 0..1 of the picture as displayed
+/// (after its EXIF orientation), from its top left corner.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TextAreaInput {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+// Coordinates are checked to be finite before anything stores them, so equality is total.
+impl Eq for TextAreaInput {}
+
+/// A point on the Earth in millionths of a degree (lat -90..90, lon -180..180, times 1,000,000).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct MapCorner {
+    pub lat_e6: i32,
+    pub lon_e6: i32,
+}
+
+/// How an old map lies on the Map. The order in the stack is kept by the tree (a new layer goes
+/// on top); `ReorderMapLayers` changes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct MapLayerInput {
+    /// The series or atlas, such as "Schubert's two-verst map".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub series: Option<String>,
+    /// The year or years it shows, as written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub year: Option<String>,
+    /// Where the scan came from: a web address or an archive reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source: Option<String>,
+    /// The picture's corners: top left, top right, bottom right, bottom left. Absent while it is
+    /// not placed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub corners: Option<Vec<MapCorner>>,
+    /// 0 to 100.
+    pub opacity: u8,
+    pub visible: bool,
+}
+
+/// One piece of a picture's transcription, in reading order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TextRegionInput {
+    /// Keeps a piece that is already there; a new one gets an id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub id: Option<Uuid>,
+    /// Absent: text with no place on the picture (a whole transcript).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub area: Option<TextAreaInput>,
+    /// Degrees clockwise the writing is turned: 0, 90, 180 or 270 (absent: 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "0 | 90 | 180 | 270")]
+    pub rotation: Option<u16>,
+    pub text: String,
+    /// On a recording: when the piece is said, in milliseconds; give both or neither.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub start_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub end_ms: Option<u64>,
+    /// On a recording: who says it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub speaker: Option<String>,
 }
 
 /// One person on the trace screen. `existing` set: the card stands for a person already in the
@@ -412,6 +545,16 @@ pub enum EditCommand {
         owner: EventOwner,
         event: Uuid,
     },
+    /// One more godparent on a baptism or christening.
+    AddGodparent {
+        event: Uuid,
+        godparent: GodparentInput,
+    },
+    /// Takes one godparent off an event.
+    RemoveGodparent {
+        event: Uuid,
+        godparent: Uuid,
+    },
     QuickAdd {
         anchor: Uuid,
         relation: Relation,
@@ -528,6 +671,81 @@ pub enum EditCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         date_raw: Option<String>,
+        /// Where it was made, as comma-separated text (smallest place first), found or created
+        /// like an event's place; `Some("")` clears the place.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        place_text: Option<String>,
+        /// An existing place, as the place picker gives it; wins over `place_text`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        place_id: Option<Uuid>,
+    },
+    /// Replaces the whole transcription of a picture: every piece, in reading order.
+    SetMediaTranscription {
+        id: Uuid,
+        regions: Vec<TextRegionInput>,
+        /// The ids of the pieces the sender knew of. A stored piece not among them was added
+        /// meanwhile (by an agent, say) and stays, after the piece it followed. Absent: `regions`
+        /// is the whole transcription.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        known: Option<Vec<Uuid>>,
+    },
+    /// How the picture is shown: degrees clockwise (0, 90, 180 or 270) on top of its EXIF
+    /// orientation. The transcription's areas stay as they are, on the picture upright by EXIF.
+    SetMediaRotation {
+        id: Uuid,
+        #[ts(type = "0 | 90 | 180 | 270")]
+        rotation: u16,
+    },
+    /// Makes files versions of one page (copies in other quality): `primary` is shown and opened
+    /// first, `others` are kept as its versions. A file already in a group brings its whole group
+    /// along, so one command also joins two groups or makes another version the primary. No file,
+    /// transcription or link is touched.
+    GroupMediaVersions {
+        primary: Uuid,
+        others: Vec<Uuid>,
+    },
+    /// Takes one file out of its version group; it becomes a file of its own again. When it was
+    /// the primary, `new_primary` (or else the first other version) is shown first from now on.
+    UngroupMediaVersion {
+        media: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        new_primary: Option<Uuid>,
+    },
+    /// A stretch of a sound recording, linked to the record where its story is told: a note,
+    /// citation, event, person or family. Times in milliseconds from the start of the recording.
+    AddAudioClip {
+        target: OwnerRef,
+        media: Uuid,
+        #[ts(type = "number")]
+        start_ms: u64,
+        #[ts(type = "number")]
+        end_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        label: Option<String>,
+    },
+    /// New times and label for a clip, and with `move_to` the record it is linked to instead.
+    UpdateAudioClip {
+        target: OwnerRef,
+        clip: Uuid,
+        #[ts(type = "number")]
+        start_ms: u64,
+        #[ts(type = "number")]
+        end_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        move_to: Option<OwnerRef>,
+    },
+    DeleteAudioClip {
+        target: OwnerRef,
+        clip: Uuid,
     },
     /// Everything traced from a picture, in ONE undoable step. With `attach_picture` the staged
     /// trace picture is stored as a media item attached to every new person and to a new source.
@@ -535,6 +753,47 @@ pub enum EditCommand {
         persons: Vec<DraftPerson>,
         families: Vec<DraftFamily>,
         attach_picture: bool,
+    },
+    /// Makes a place from text, smallest place first ("Village, District, Oblast"), reusing the
+    /// ones that exist. The place's id comes back as the result's focus.
+    CreatePlace {
+        text: String,
+    },
+    /// Sets the point of a place on the map, or clears it (both absent). Millionths of a degree
+    /// (the command stays comparable): lat -90..90, lon -180..180, times 1,000,000.
+    SetPlaceCoordinates {
+        place: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        lat_e6: Option<i32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        lon_e6: Option<i32>,
+    },
+    /// Lays a picture (an old scanned map) on the Map, changes how it lies, or takes it off the
+    /// Map (`layer` absent). The picture itself stays in the tree either way. `title`, when
+    /// given, is the picture's title; empty takes it away.
+    SetMapLayer {
+        media: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        layer: Option<MapLayerInput>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        title: Option<String>,
+    },
+    /// The order the old maps are drawn in, the lowest first. Every layer of the tree, once.
+    ReorderMapLayers {
+        order: Vec<Uuid>,
+    },
+    /// Shows some old maps and hides others, as one change: a whole series shown or hidden, or
+    /// one map shown alone. Maps that are already so are left as they are; a map in both lists
+    /// is refused.
+    SetMapLayersVisible {
+        #[serde(default)]
+        shown: Vec<Uuid>,
+        #[serde(default)]
+        hidden: Vec<Uuid>,
     },
     /// An agent's own number for a person, unique within one named source file. Never exported.
     AddNumber {
@@ -555,6 +814,8 @@ impl EditCommand {
             EditCommand::DeleteName { .. } => "Delete name".into(),
             EditCommand::SaveEvent { .. } => "Save event".into(),
             EditCommand::DeleteEvent { .. } => "Delete event".into(),
+            EditCommand::AddGodparent { .. } => "Add godparent".into(),
+            EditCommand::RemoveGodparent { .. } => "Remove godparent".into(),
             EditCommand::QuickAdd {
                 relation,
                 parent_rel,
@@ -587,7 +848,32 @@ impl EditCommand {
             EditCommand::DeleteMedia { .. } => "Delete media".into(),
             EditCommand::SetPrimaryMedia { .. } => "Set primary media".into(),
             EditCommand::UpdateMedia { .. } => "Edit media".into(),
+            EditCommand::SetMediaTranscription { .. } => "Edit transcription".into(),
+            EditCommand::SetMediaRotation { .. } => "Turn picture".into(),
+            EditCommand::GroupMediaVersions { .. } => "Group versions".into(),
+            EditCommand::UngroupMediaVersion { .. } => "Ungroup version".into(),
+            EditCommand::AddAudioClip { .. } => "Add clip".into(),
+            EditCommand::UpdateAudioClip { .. } => "Edit clip".into(),
+            EditCommand::DeleteAudioClip { .. } => "Delete clip".into(),
             EditCommand::ImportDraft { .. } => "Add traced people".into(),
+            EditCommand::CreatePlace { .. } => "Add place".into(),
+            EditCommand::SetPlaceCoordinates { lat_e6, lon_e6, .. } => {
+                if lat_e6.is_none() && lon_e6.is_none() {
+                    "Clear place coordinates".into()
+                } else {
+                    "Set place coordinates".into()
+                }
+            }
+            EditCommand::SetMapLayer { layer: None, .. } => "Take map off the Map".into(),
+            EditCommand::SetMapLayer { .. } => "Change map layer".into(),
+            EditCommand::ReorderMapLayers { .. } => "Reorder map layers".into(),
+            EditCommand::SetMapLayersVisible { shown, hidden } => {
+                match (shown.is_empty(), hidden.is_empty()) {
+                    (false, true) => "Show maps on the Map".into(),
+                    (true, false) => "Hide maps on the Map".into(),
+                    _ => "Choose maps shown on the Map".into(),
+                }
+            }
             EditCommand::AddNumber { .. } => "Record number".into(),
         }
     }

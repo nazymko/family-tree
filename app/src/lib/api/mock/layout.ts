@@ -182,6 +182,40 @@ interface Unit {
   children: number[];
 }
 
+/**
+ * Where a person with several partners stands in their unit (the Rust `member_col`): one partner stands right of the
+ * person; with two or more the first stands left, the others continue to the right (`P1 - person - P2 - P3`).
+ */
+function memberCol(partners: number, member: number): number {
+  if (partners < 2) return member;
+  return member === 0 ? 1 : member === 1 ? 0 : member;
+}
+
+/**
+ * Puts the unions of one unit in the order of their anchors along the row (the Rust `order_unions`): the anchor of a
+ * union with a partner is the couple connector, of a union without one the person's own card. So the children of each
+ * family hang below their own anchor and no two child lines cross; with one partner (on the right) the partnerless
+ * families come first. Stable; nothing moves when every union has a partner.
+ */
+function orderUnions<T extends { at: number | null }>(person: number, partners: number, unions: T[]): void {
+  const own = memberCol(partners, 0);
+  const key = (u: T): number => (u.at === null ? 2 * own : own + memberCol(partners, u.at - person));
+  const sorted = unions.map((u, i) => ({ u, i, k: key(u) })).sort((a, b) => a.k - b.k || a.i - b.i);
+  sorted.forEach((s, i) => (unions[i] = s.u));
+}
+
+/** The couple connector between a person and one partner, and where the children's line hangs from (`couple_link`). */
+function coupleLink(a: N, b: N, dip: number): [number[], [number, number]] {
+  const [l, r] = a.x <= b.x ? [a, b] : [b, a];
+  if (Math.abs(a.y - b.y) < 0.5 && r.x - (l.x + l.w) < l.w) {
+    return [[l.x + l.w, l.y + l.h / 2, r.x, r.y + r.h / 2], [(l.x + l.w + r.x) / 2, l.y + l.h / 2]];
+  }
+  const xa = a.x + a.w / 2;
+  const xb = b.x + b.w / 2;
+  const y = a.y + a.h + dip;
+  return [[xa, a.y + a.h, xa, y, xb, y, xb, b.y + b.h], [(xa + xb) / 2, y]];
+}
+
 export function layoutDescendants(root: Id, generationsIn: number, src: RustLayoutSource): Layout {
   const generations = Math.max(1, generationsIn);
   const nodes: N[] = [];
@@ -220,6 +254,7 @@ export function layoutDescendants(root: Id, generationsIn: number, src: RustLayo
         pend.push({ at, children: u.children });
       }
     }
+    orderUnions(person, partners, pend);
     pending.push(pend);
     units.push({ person, partners, depth, parent, attach, children: [] });
     return units.length - 1;
@@ -265,28 +300,27 @@ export function layoutDescendants(root: Id, generationsIn: number, src: RustLayo
     const left = centres[i] - widths[i] / 2 - minLeft;
     for (let k = 0; k <= u.partners; k++) {
       const n = nodes[u.person + k];
-      n.x = left + k * stepP;
+      n.x = left + memberCol(u.partners, k) * stepP;
       n.y = u.depth * stepY;
     }
   });
 
   const edges: ChartEdge[] = [];
   for (const u of units) {
+    // Every couple connector joins the person to one partner, never a partner to the next partner.
+    const hang = new Map<number, [number, number]>();
     for (let k = 1; k <= u.partners; k++) {
       const to = u.person + k;
-      const a = nodes[to - 1];
-      const b = nodes[to];
-      edges.push({ from: to - 1, to, kind: 'partner', pts: [a.x + a.w, a.y + a.h / 2, b.x, b.y + b.h / 2] });
+      const [pts, src] = coupleLink(nodes[u.person], nodes[to], M.gapY);
+      hang.set(to, src);
+      edges.push({ from: u.person, to, kind: 'partner', pts });
     }
     for (const c of u.children) {
       const cu = units[c];
       let sx: number;
       let sy: number;
       if (cu.attach !== null) {
-        const a = nodes[cu.attach - 1];
-        const b = nodes[cu.attach];
-        sx = (a.x + a.w + b.x) / 2;
-        sy = b.y + b.h / 2;
+        [sx, sy] = hang.get(cu.attach)!;
       } else {
         const a = nodes[u.person];
         sx = a.x + a.w / 2;

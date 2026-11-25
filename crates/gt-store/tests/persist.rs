@@ -26,6 +26,141 @@ fn living_cached(p: &Project, id: gt_core::Uuid) -> Option<i64> {
 }
 
 #[test]
+fn a_damaged_transcription_never_stops_the_tree_from_opening() {
+    let (_tmp, mut p) = new_project();
+    let mut tree = rich_tree();
+    // A second picture, whose column is not JSON at all.
+    let mut other = tree.media.values().next().unwrap().clone();
+    other.common = common(id());
+    other.sha256 = Some("ab".repeat(32));
+    let other_id = other.common.id;
+    tree.media.insert(other_id, other);
+    p.save_tree(&tree, TODAY).unwrap();
+    let (first, kept) = {
+        let m = tree.media.values().next().unwrap();
+        (m.common.id, m.transcription[0].id)
+    };
+    let bad = format!(
+        r#"[{{"id":"{kept}","area":{{"x":-0.5,"y":0.2,"w":2.0,"h":0.1}},"rotation":45,"text":"Dear Marta,"}},
+            {{"no":"id"}}, "nonsense",
+            {{"id":"{kept}","rotation":0,"text":"the same id again"}},
+            {{"id":"{}","area":{{"x":0.99,"y":0.99,"w":0.0,"h":0.5}},"rotation":90,"text":"Lviv"}}]"#,
+        id()
+    );
+    p.conn()
+        .execute(
+            "UPDATE media SET transcription_json = ?1 WHERE id = ?2",
+            [bad, first.to_string()],
+        )
+        .unwrap();
+    p.conn()
+        .execute(
+            "UPDATE media SET transcription_json = 'not json' WHERE id = ?1",
+            [other_id.to_string()],
+        )
+        .unwrap();
+    let back = p.load_tree().unwrap();
+    let pieces = &back.media[&first].transcription;
+    assert_eq!(pieces.len(), 2, "{pieces:?}");
+    assert_eq!(pieces[0].rotation, 0);
+    assert_eq!(
+        pieces[0].area,
+        Some(Region {
+            x: 0.0,
+            y: 0.2,
+            w: 1.0,
+            h: 0.1
+        })
+    );
+    assert_eq!(pieces[1].text, "Lviv");
+    assert_eq!(pieces[1].area, None, "nothing of it was on the picture");
+    assert!(back.media[&other_id].transcription.is_empty());
+}
+
+#[test]
+fn a_damaged_clip_never_stops_the_tree_from_opening_and_its_link_is_left_out() {
+    let (_tmp, mut p) = new_project();
+    let tree = rich_tree();
+    p.save_tree(&tree, TODAY).unwrap();
+    let clips = |t: &Tree| -> Vec<Option<Clip>> {
+        let mut all = Vec::new();
+        for person in t.persons.values() {
+            all.extend(person.common.media.iter().map(|m| m.clip.clone()));
+        }
+        all
+    };
+    let saved = clips(&tree);
+    assert_eq!(
+        clips(&p.load_tree().unwrap()),
+        saved,
+        "clips come back as saved"
+    );
+    let good = saved.iter().flatten().count();
+    for bad in [
+        "clip_start_ms = clip_end_ms",
+        "clip_start_ms = clip_end_ms + 5",
+        "clip_start_ms = -1",
+        "clip_end_ms = 'late'",
+        "clip_end_ms = NULL",
+        "clip_id = 'not an id'",
+        "clip_id = NULL",
+        "clip_label = X'07'",
+    ] {
+        let (_tmp2, mut q) = new_project();
+        q.save_tree(&tree, TODAY).unwrap();
+        q.conn()
+            .execute_batch(&format!(
+                "UPDATE media_link SET {bad} WHERE clip_id = '{}'",
+                gt_core::Uuid::from_u128(0xC1)
+            ))
+            .unwrap();
+        let back = q.load_tree().unwrap();
+        let left = clips(&back);
+        assert_eq!(
+            left.len(),
+            saved.len() - 1,
+            "{bad}: only that link is left out"
+        );
+        assert_eq!(left.iter().flatten().count(), good - 1, "{bad}");
+    }
+    // A label of blanks reads as none; the clip stays.
+    p.conn()
+        .execute(
+            "UPDATE media_link SET clip_label = '  ' WHERE clip_label IS NOT NULL",
+            [],
+        )
+        .unwrap();
+    let back = p.load_tree().unwrap();
+    assert_eq!(clips(&back).iter().flatten().count(), good);
+    assert!(clips(&back).iter().flatten().all(|c| c.label.is_none()));
+}
+
+#[test]
+fn a_bad_picture_rotation_reads_as_upright() {
+    let (_tmp, mut p) = new_project();
+    let tree = rich_tree();
+    p.save_tree(&tree, TODAY).unwrap();
+    let first = *tree.media.keys().next().unwrap();
+    for bad in [45, -90, 360, 9999] {
+        p.conn()
+            .execute(
+                "UPDATE media SET rotation = ?1 WHERE id = ?2",
+                rusqlite::params![bad, first.to_string()],
+            )
+            .unwrap();
+        let back = p.load_tree().unwrap();
+        assert_eq!(back.media[&first].rotation, Some(0), "{bad}");
+    }
+    p.conn()
+        .execute(
+            "UPDATE media SET rotation = 'sideways' WHERE id = ?1",
+            [first.to_string()],
+        )
+        .unwrap();
+    assert_eq!(p.load_tree().unwrap().media[&first].rotation, Some(0));
+}
+
+#[test]
 fn save_load_roundtrip() {
     let (_tmp, mut p) = new_project();
     let tree = rich_tree();

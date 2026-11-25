@@ -15,8 +15,10 @@ export type Route =
   | { name: 'descendants' }
   | { name: 'relatives' }
   | { name: 'person'; id: Id }
-  | { name: 'sources' }
+  | { name: 'sources'; id?: Id }
   | { name: 'media' }
+  | { name: 'map' }
+  | { name: 'places' }
   | { name: 'log' }
   | { name: 'trace' }
   | { name: 'settings' };

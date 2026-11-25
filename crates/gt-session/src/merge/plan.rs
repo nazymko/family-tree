@@ -213,9 +213,15 @@ fn is_empty_value(v: &Value) -> bool {
 /// a record). `None`: a plain value such as a surname, which can be corrected.
 fn link_identity(item: &Value) -> Option<Value> {
     match item {
-        Value::Object(o) => ["id", "person", "target", "media"]
-            .iter()
-            .find_map(|k| o.get(*k).cloned()),
+        Value::Object(o) => o
+            .get("clip")
+            .and_then(|c| c.get("id"))
+            .cloned()
+            .or_else(|| {
+                ["id", "person", "target", "media"]
+                    .iter()
+                    .find_map(|k| o.get(*k).cloned())
+            }),
         Value::String(s) if Uuid::parse_str(s).is_ok() => Some(item.clone()),
         _ => None,
     }

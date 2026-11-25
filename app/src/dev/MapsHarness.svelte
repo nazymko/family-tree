@@ -1,0 +1,66 @@
+<script lang="ts">
+  // Dev-only page (maps.html): the Map on MockApi with many synthetic old maps, for screenshots and frame times.
+  // Query: ?layers=40 (how many) &series=5 &shown=all|none|one (which are shown at first) &lang=uk|en &theme=dark &panel=1
+  import { setApi } from '../lib/api/context';
+  import { MockApi } from '../lib/api/mock/MockApi';
+  import { MockPlatform } from '../lib/api/mock/MockPlatform';
+  import { fixtureTree } from '../lib/api/mock/fixtures';
+  import { applyTheme } from '../lib/state/theme';
+  import { setLanguage } from '../lib/i18n';
+  import MapView from '../lib/map/MapView.svelte';
+
+  const q = new URLSearchParams(location.search);
+  const api = new MockApi(fixtureTree(60));
+  const platform = new MockPlatform();
+  setApi(api, platform);
+  Object.assign(window, { __api: api, __platform: platform });
+  document.documentElement.lang = 'en';
+  if (q.get('lang') === 'uk' || q.get('lang') === 'en') {
+    setLanguage(q.get('lang') as 'uk' | 'en');
+    void api.setSettings({ language: q.get('lang') as 'uk' | 'en' });
+  }
+  if (q.get('theme') === 'dark' || q.get('theme') === 'light') applyTheme(q.get('theme') as 'dark' | 'light');
+
+  const SERIES = ['Three-verst map', 'Two-verst map', 'Schubert', 'Strelbitsky', 'Rizzi-Zannoni', 'Beauplan', 'Atlas of the Commonwealth'];
+  const count = Math.max(0, Math.min(200, Number(q.get('layers') ?? 40)));
+  const series = Math.max(1, Math.min(SERIES.length, Number(q.get('series') ?? 5)));
+  const shown = q.get('shown') ?? 'one';
+
+  let ready = $state(false);
+  void (async () => {
+    // Invented villages inside the region, so the panel can group the maps by place.
+    const VILLAGES: [string, number, number][] = [['Berezivka', 51.1, 27.5], ['Zelene', 50.6, 28.2], ['Bila Hora', 50.3, 29.4], ['Syniy Yar', 49.9, 27.9], ['Dalne', 51.3, 30.2]];
+    for (const [v, la, lo] of VILLAGES) {
+      await api.apply({ type: 'createPerson', draft: { given: 'Ivan', surnames: ['Koval'], sex: 'male', birthDateRaw: '1900', birthPlaceText: `${v}, Zelena oblast` } });
+      const place = (await api.mapData({ kind: 'all' })).places.find((p) => p.name === v);
+      if (place) await api.apply({ type: 'setPlaceCoordinates', place: place.id, latE6: Math.round(la * 1e6), lonE6: Math.round(lo * 1e6) });
+    }
+    // Invented sheets in a grid over an invented region; each series a little offset from the others.
+    for (let i = 0; i < count; i++) {
+      const s = i % series;
+      const k = Math.floor(i / series);
+      const lat = 51.5 - Math.floor(k / 4) * 0.8 - s * 0.15;
+      const lon = 27 + (k % 4) * 1.1 + s * 0.2;
+      const t = 0.02;
+      const c = (la: number, lo: number) => ({ latE6: Math.round(la * 1e6), lonE6: Math.round(lo * 1e6) });
+      const visible = shown === 'all' || (shown === 'one' && s === 2);
+      await api.addMapLayerFile(`C:/Maps/${SERIES[s]} ${k + 1}.jpg`, `${SERIES[s]}, sheet ${k + 1}`, { series: SERIES[s], year: String(1800 + s * 20 + k), opacity: 70, visible, corners: [c(lat, lon + t), c(lat, lon + 1.1 - t), c(lat - 0.8, lon + 1.1), c(lat - 0.8, lon)] });
+    }
+    ready = true;
+  })();
+</script>
+
+<main>
+  {#if ready}<MapView onOpenPerson={() => {}} />{/if}
+</main>
+
+<style>
+  main {
+    box-sizing: border-box;
+    height: 100vh;
+    /* The shell's padding around a page that fills the pane. */
+    padding: var(--s-3) var(--s-4);
+    display: flex;
+    flex-direction: column;
+  }
+</style>

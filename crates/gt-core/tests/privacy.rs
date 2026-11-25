@@ -82,6 +82,7 @@ fn add_event(t: &mut Tree, kind: EventKind, date: Option<&str>, who: &[(Uuid, Ro
             cause: None,
             negative: false,
             assertion: assertion(),
+            godparents: Vec::new(),
             participants: who
                 .iter()
                 .map(|(p, r)| Participant {
@@ -105,6 +106,7 @@ fn add_note(t: &mut Tree, text: &str) -> Uuid {
             text: text.into(),
             lang: None,
             shared: false,
+            story: None,
         },
     );
     id
@@ -312,6 +314,9 @@ fn shared_media_is_reported_and_exclusive_media_dropped() {
         &[(dead, Role::Principal)],
     );
     let group = Media {
+        version_of: None,
+        map_layer: None,
+        place: None,
         common: common(),
         path: "group.jpg".into(),
         original_name: None,
@@ -320,6 +325,8 @@ fn shared_media_is_reported_and_exclusive_media_dropped() {
         date: None,
         description: None,
         sha256: None,
+        transcription: Vec::new(),
+        rotation: None,
     };
     let solo = Media {
         common: common(),
@@ -333,6 +340,7 @@ fn shared_media_is_reported_and_exclusive_media_dropped() {
         media: m,
         region: None,
         primary: false,
+        clip: None,
     };
     t.persons
         .get_mut(&dead)
@@ -351,6 +359,9 @@ fn shared_media_is_reported_and_exclusive_media_dropped() {
 
 fn bare_media(path: &str) -> Media {
     Media {
+        version_of: None,
+        map_layer: None,
+        place: None,
         common: common(),
         path: path.into(),
         original_name: None,
@@ -359,6 +370,8 @@ fn bare_media(path: &str) -> Media {
         date: None,
         description: None,
         sha256: None,
+        transcription: Vec::new(),
+        rotation: None,
     }
 }
 
@@ -373,6 +386,10 @@ fn include_all_with_private_is_identity() {
         abbreviation: None,
         text: None,
         repositories: vec![],
+        kind: None,
+        issuer: None,
+        doc_number: None,
+        doc_date: None,
     };
     t.sources.insert(src.common.id, src);
     let repo = Repository {
@@ -440,6 +457,7 @@ fn family_with_hidden_partner_loses_family_level_data() {
         media: mid,
         region: None,
         primary: false,
+        clip: None,
     });
     t.families.insert(
         fid,

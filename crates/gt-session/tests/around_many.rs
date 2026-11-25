@@ -46,12 +46,16 @@ fn everything() -> Rect {
 fn request(s: &Session, given: &[&str], generations: u32, kin: Option<AroundKin>) -> ChartRequest {
     let ids: Vec<_> = given.iter().map(|g| find(s.tree(), g)).collect();
     ChartRequest {
+        open: None,
         kind: ChartKind::Around,
         root: ids[0],
         generations,
         aunts_uncles: None,
         kin,
         roots: Some(ids),
+        direction: None,
+        print: None,
+        fold: None,
     }
 }
 
@@ -219,12 +223,16 @@ fn people_who_left_the_project_or_repeat_are_dropped() {
     let (_d, mut s) = open_tree(&tree_of(KOVAL));
     let ivan = find(s.tree(), "Ivan");
     let req = ChartRequest {
+        open: None,
         kind: ChartKind::Around,
         root: ivan,
         generations: 255,
         aunts_uncles: None,
         kin: None,
         roots: Some(vec![ivan, ivan, uuid::Uuid::from_u128(42)]),
+        direction: None,
+        print: None,
+        fold: None,
     };
     let m = s.chart_open(&req).unwrap();
     assert!(m.chosen_nodes.is_none());
@@ -259,7 +267,7 @@ fn heavy_twenty_people_of_a_5000_person_tree_open_in_reasonable_time() {
     let tree = synthetic_tree(5_000, 1_500);
     let mut ids: Vec<_> = tree.persons.keys().copied().collect();
     ids.sort();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let proj = dir.path().join("project");
     let mut p = Project::create(&proj).unwrap();
     p.save_tree(&tree, today()).unwrap();
@@ -270,12 +278,16 @@ fn heavy_twenty_people_of_a_5000_person_tree_open_in_reasonable_time() {
     let t = Instant::now();
     let m = s
         .chart_open(&ChartRequest {
+            open: None,
             kind: ChartKind::Around,
             root: chosen[0],
             generations: 255,
             aunts_uncles: None,
             kin: None,
             roots: Some(chosen.clone()),
+            direction: None,
+            print: None,
+            fold: None,
         })
         .unwrap();
     let took = t.elapsed();
@@ -295,7 +307,7 @@ fn heavy_twenty_people_of_a_5000_person_tree_with_siblings_and_all_relatives() {
     let tree = synthetic_tree(5_000, 1_500);
     let mut ids: Vec<_> = tree.persons.keys().copied().collect();
     ids.sort();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let proj = dir.path().join("project");
     let mut p = Project::create(&proj).unwrap();
     p.save_tree(&tree, today()).unwrap();
@@ -306,12 +318,16 @@ fn heavy_twenty_people_of_a_5000_person_tree_with_siblings_and_all_relatives() {
         let t = Instant::now();
         let m = s
             .chart_open(&ChartRequest {
+                open: None,
                 kind: ChartKind::Around,
                 root: chosen[0],
                 generations: 255,
                 aunts_uncles: None,
                 kin: Some(kin),
                 roots: Some(chosen.clone()),
+                direction: None,
+                print: None,
+                fold: None,
             })
             .unwrap();
         let took = t.elapsed();

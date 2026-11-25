@@ -19,6 +19,43 @@ struct Links {
     ext: HashMap<Key, Vec<ExternalId>>,
 }
 
+/// The clip columns of a `media_link` row (8 to 11): none when all are empty, else a whole clip.
+/// Any column of the wrong type or a stretch that is not `start < end` is an error.
+fn read_clip(r: &Row) -> Result<Option<Clip>, String> {
+    use rusqlite::types::Value as V;
+    let col = |i: usize| r.get::<_, V>(i).map_err(|e| e.to_string());
+    let (id, start, end, label) = (col(8)?, col(9)?, col(10)?, col(11)?);
+    if [&id, &start, &end, &label]
+        .iter()
+        .all(|v| matches!(v, V::Null))
+    {
+        return Ok(None);
+    }
+    let id = match id {
+        V::Text(t) => Uuid::parse_str(&t).map_err(|_| "has a bad id".to_string())?,
+        _ => return Err("has no id".into()),
+    };
+    let ms = |v: V| match v {
+        V::Integer(n) => u64::try_from(n).map_err(|_| "has a negative time".to_string()),
+        _ => Err("has a time that is not a number".to_string()),
+    };
+    let (start_ms, end_ms) = (ms(start)?, ms(end)?);
+    if start_ms >= end_ms {
+        return Err("ends before it starts".into());
+    }
+    let label = match label {
+        V::Text(t) if !t.trim().is_empty() => Some(t),
+        V::Null | V::Text(_) => None,
+        _ => return Err("has a label that is not text".into()),
+    };
+    Ok(Some(Clip {
+        id,
+        start_ms,
+        end_ms,
+        label,
+    }))
+}
+
 impl Links {
     fn load(conn: &Connection) -> Result<Links, StoreError> {
         let mut l = Links {
@@ -44,7 +81,8 @@ impl Links {
         }
         let mut st = conn.prepare(
             "SELECT target_type, target_id, media_id, \"primary\", region_x, region_y, region_w, \
-             region_h FROM media_link ORDER BY pos, rowid",
+             region_h, clip_id, clip_start_ms, clip_end_ms, clip_label FROM media_link \
+             ORDER BY pos, rowid",
         )?;
         let mut rows = st.query([])?;
         while let Some(r) = rows.next()? {
@@ -61,10 +99,21 @@ impl Links {
                 }),
                 _ => None,
             };
+            let media = parse_uuid(&r.get::<_, String>(2)?)?;
+            let clip = match read_clip(r) {
+                Ok(clip) => clip,
+                Err(why) => {
+                    // A clip that cannot be read is left out with its link: shown without its
+                    // times, the link would claim the whole recording.
+                    eprintln!("gt-store: a clip of media {media} {why}; left out");
+                    continue;
+                }
+            };
             let link = MediaLink {
-                media: parse_uuid(&r.get::<_, String>(2)?)?,
+                media,
                 region,
                 primary: r.get(3)?,
+                clip,
             };
             l.media
                 .entry((r.get(0)?, r.get(1)?))
@@ -252,6 +301,24 @@ impl Project {
             parts.entry(r.get(0)?).or_default().push(p);
         }
 
+        let mut gods: HashMap<String, Vec<Godparent>> = HashMap::new();
+        let mut st = conn.prepare(
+            "SELECT event_id, id, person_id, name, role, note FROM godparent ORDER BY pos, rowid",
+        )?;
+        let mut rows = st.query([])?;
+        while let Some(r) = rows.next()? {
+            let role: String = r.get(4)?;
+            let g = Godparent {
+                id: parse_uuid(&r.get::<_, String>(1)?)?,
+                person: opt_uuid(r.get(2)?)?,
+                name: r.get(3)?,
+                role: GodparentRole::parse(&role)
+                    .ok_or_else(|| corrupt(format!("bad godparent role {role:?}")))?,
+                note: r.get(5)?,
+            };
+            gods.entry(r.get(0)?).or_default().push(g);
+        }
+
         let mut st = conn.prepare(
             "SELECT id, private, changed, unknown_json, kind, date_json, place_id, description, \
              age, cause, negative, preferred, proof, confidence FROM event ORDER BY seq",
@@ -269,6 +336,7 @@ impl Project {
                 cause: r.get(9)?,
                 negative: r.get(10)?,
                 assertion: assertion(r.get(11)?, r.get(12)?, r.get(13)?)?,
+                godparents: gods.remove(&id.to_string()).unwrap_or_default(),
                 participants: parts.remove(&id.to_string()).unwrap_or_default(),
                 common,
             };
@@ -322,7 +390,7 @@ impl Project {
         }
         let mut st = conn.prepare(
             "SELECT id, private, changed, unknown_json, title, author, publication, abbreviation, \
-             text FROM source ORDER BY seq",
+             text, kind, issuer, doc_number, doc_date_json FROM source ORDER BY seq",
         )?;
         let mut rows = st.query([])?;
         while let Some(r) = rows.next()? {
@@ -334,6 +402,12 @@ impl Project {
                 publication: r.get(6)?,
                 abbreviation: r.get(7)?,
                 text: r.get(8)?,
+                kind: r
+                    .get::<_, Option<String>>(9)?
+                    .and_then(|k| SourceKind::parse(&k)),
+                issuer: r.get(10)?,
+                doc_number: r.get(11)?,
+                doc_date: date_parse(r.get(12)?)?,
                 repositories: repo_refs.remove(&id.to_string()).unwrap_or_default(),
                 common,
             };
@@ -384,13 +458,35 @@ impl Project {
 
         let mut st = conn.prepare(
             "SELECT id, private, changed, unknown_json, path, original_name, mime, title, \
-             date_json, description, sha256 FROM media ORDER BY seq",
+             date_json, description, sha256, transcription_json, rotation, place_id, \
+             version_of, map_layer_json FROM media ORDER BY seq",
         )?;
         let mut rows = st.query([])?;
         while let Some(r) = rows.next()? {
             let common = links.common("media", r)?;
             let id = common.id;
+            let transcription = match r.get::<_, Option<String>>(11)? {
+                Some(j) => mended_transcription(id, &j),
+                None => Vec::new(),
+            };
+            let rotation = mended_rotation(id, r.get_ref(12)?);
             let m = Media {
+                transcription,
+                rotation,
+                // A place that is gone reads as none.
+                place: match r.get::<_, Option<String>>(13)? {
+                    Some(t) => Some(parse_uuid(&t)?).filter(|p| tree.places.contains_key(p)),
+                    None => None,
+                },
+                // Read as written; groups are made sound once every record is in.
+                version_of: match r.get::<_, Option<String>>(14)? {
+                    Some(t) => Some(parse_uuid(&t)?),
+                    None => None,
+                },
+                // A layer this app cannot read is no layer: the picture stays, off the map.
+                map_layer: r
+                    .get::<_, Option<String>>(15)?
+                    .and_then(|j| serde_json::from_str(&j).ok()),
                 path: r.get(4)?,
                 original_name: r.get(5)?,
                 mime: r.get(6)?,
@@ -402,9 +498,11 @@ impl Project {
             };
             tree.media.insert(id, m);
         }
+        // A primary that is gone reads as none; a chain reads as its first primary.
+        tree.mend_media_versions();
 
         let mut st = conn.prepare(
-            "SELECT id, private, changed, unknown_json, kind, text, lang, shared \
+            "SELECT id, private, changed, unknown_json, kind, text, lang, shared, story \
              FROM note ORDER BY seq",
         )?;
         let mut rows = st.query([])?;
@@ -416,10 +514,59 @@ impl Project {
                 text: r.get(5)?,
                 lang: r.get(6)?,
                 shared: r.get(7)?,
+                story: r.get(8)?,
                 common,
             };
             tree.notes.insert(id, n);
         }
         Ok(tree)
     }
+}
+
+/// How a picture is turned. A value that is no quarter turn reads as upright, and is reported on
+/// stderr; it never stops the tree from opening.
+fn mended_rotation(media: Uuid, v: rusqlite::types::ValueRef<'_>) -> Option<u16> {
+    use rusqlite::types::ValueRef;
+    match v {
+        ValueRef::Null => None,
+        ValueRef::Integer(n) if [0, 90, 180, 270].contains(&n) => Some(n as u16),
+        _ => {
+            eprintln!("gt-store: media {media}: an unknown rotation reads as upright");
+            Some(0)
+        }
+    }
+}
+
+/// A picture's stored transcription, read as far as it can be: a damaged piece is mended or
+/// left out, never a reason the tree cannot open. What was changed is reported on stderr, as the
+/// store reports other damage it works around.
+fn mended_transcription(media: Uuid, json: &str) -> Vec<TextRegion> {
+    let raw: Vec<serde_json::Value> = match serde_json::from_str(json) {
+        Ok(list) => list,
+        Err(e) => {
+            eprintln!("gt-store: media {media}: the transcription cannot be read ({e}); left out");
+            return Vec::new();
+        }
+    };
+    let total = raw.len();
+    let mut seen = std::collections::HashSet::new();
+    let mut mended = 0;
+    let out: Vec<TextRegion> = raw
+        .into_iter()
+        .filter_map(|v| serde_json::from_value::<TextRegion>(v).ok())
+        .filter(|r| seen.insert(r.id))
+        .map(|mut r| {
+            if mend_text_region(&mut r) {
+                mended += 1;
+            }
+            r
+        })
+        .collect();
+    let dropped = total - out.len();
+    if dropped + mended > 0 {
+        eprintln!(
+            "gt-store: media {media}: {dropped} damaged transcription piece(s) left out, {mended} mended"
+        );
+    }
+    out
 }

@@ -1,20 +1,21 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import type { BatchDto, Id, LogAgentDto, LogFilterDto, LogPersonDto, LogRowDto } from '../api/types';
+  import type { BatchDto, Id, LocationDto, LogAgentDto, LogChangeDto, LogFilterDto, LogPersonDto, LogRowDto } from '../api/types';
   import { getApi } from '../api/context';
   import { errMessage } from '../editors/errors';
   import { agentChanges } from '../state/agentChanges.svelte';
   import { nav } from '../state/nav.svelte';
   import { project } from '../state/project.svelte';
+  import { revealRecord } from '../state/reveal';
   import { toasts } from '../state/toast.svelte';
   import Banner from '../ui/Banner.svelte';
   import Badge from '../ui/Badge.svelte';
   import Button from '../ui/Button.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
   import Select from '../ui/Select.svelte';
-  import { currentLocale, plural, t } from '../i18n';
-  import { agentLabel, editLabel, factText } from '../i18n/backend';
-  import LogChanges from './LogChanges.svelte';
+  import { currentTag, plural, t } from '../i18n';
+  import { agentLabel, editLabel, factText, recordKindLabel } from '../i18n/backend';
+  import LogChanges, { type ChangeAction } from './LogChanges.svelte';
   import UndoDialog, { type Pending } from './UndoDialog.svelte';
 
   const PAGE = 50;
@@ -151,6 +152,55 @@
     await keepFocus();
   }
 
+  const refKey = (c: Pick<LogChangeDto, 'kind' | 'id'>) => `${c.kind}:${c.id}`;
+  /** What kinds of record can have a page to open. */
+  const OPENABLE = new Set(['person', 'family', 'event', 'note', 'media', 'citation', 'source']);
+  /** Where each record of the shown rows is displayed, by `kind:id`; a missing key is not asked yet, null has no page. */
+  let places = $state<Record<string, LocationDto | null>>({});
+
+  let placeSeq = 0;
+  /** One call for the whole list: the page of every record of the rows, or null for one that is gone or has none. */
+  async function locate(list: LogRowDto[]) {
+    const mine = ++placeSeq;
+    const refs: Record<string, { kind: string; id: Id }> = {};
+    for (const c of list.flatMap((r) => r.changes)) if (OPENABLE.has(c.kind)) refs[refKey(c)] = { kind: c.kind, id: c.id };
+    const keys = Object.keys(refs);
+    if (keys.length === 0) {
+      places = {};
+      return;
+    }
+    try {
+      const found = await api.locateRecords(keys.map((k) => refs[k]));
+      if (mine !== placeSeq) return;
+      places = Object.fromEntries(keys.map((k, i) => [k, found[i] ?? null]));
+    } catch {
+      // The buttons are a convenience: without an answer the rows just have none.
+      if (mine === placeSeq) places = {};
+    }
+  }
+
+  $effect(() => {
+    const list = rows;
+    untrack(() => void locate(list));
+  });
+
+  function openRecord(at: LocationDto) {
+    if (at.page === 'person') {
+      nav.focus(at.id);
+      nav.go({ name: 'person', id: at.id });
+    } else if (at.page === 'family') nav.go({ name: 'familyPage', id: at.id });
+    else nav.go({ name: 'sources', id: at.id });
+    revealRecord(at.target.kind, at.target.id);
+  }
+
+  /** One Open button for a change whose record is still there and shown on a page. */
+  function opens(c: LogChangeDto): ChangeAction[] {
+    const at = places[refKey(c)];
+    if (!at) return [];
+    const record = `${recordKindLabel(c.kind)}: ${factText(c.fact)}`.trim();
+    return [{ key: refKey(c), what: record, run: () => openRecord(at) }];
+  }
+
   function openPerson(id: Id) {
     nav.focus(id);
     nav.go({ name: 'person', id });
@@ -171,12 +221,12 @@
     {#each items as r (r.group)}
       <li class="row" class:reverted={r.reverted}>
         <p class="meta">
-          <span class="when tnum">{new Date(r.ts).toLocaleString(currentLocale())}</span>
+          <span class="when tnum">{new Date(r.ts).toLocaleString(currentTag())}</span>
           <span class="who">{who(r)}</span>
           <span>{editLabel(r.label)}</span>
           {#if r.reverted}<Badge>{t('changeLog.undone')}</Badge>{/if}
         </p>
-        <LogChanges changes={r.changes} />
+        <LogChanges changes={r.changes} {opens} />
         {#if r.people.length > 0}
           <p class="people">
             {#each r.people as p (p.id)}
@@ -269,6 +319,11 @@
     gap: var(--s-5);
     padding: var(--s-6);
     max-width: 70rem;
+  }
+  @media (max-width: 940px) {
+    .page {
+      padding: 0;
+    }
   }
   h1 {
     margin: 0;

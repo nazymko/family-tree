@@ -217,8 +217,7 @@ describe('PersonEditor', () => {
     const user = userEvent.setup();
     const spy = vi.spyOn(api, 'setSettings');
     await open();
-    await user.click(screen.getByRole('button', { name: 'More…' }));
-    await user.click(screen.getByRole('menuitem', { name: /Make home person/ }));
+    await user.click(screen.getByRole('button', { name: /Make home person/ }));
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ homePerson: id }));
   });
 
@@ -474,14 +473,14 @@ describe('PersonEditor', () => {
       expect(go).toHaveBeenLastCalledWith({ name: 'media' });
     });
 
-    it('more_menu_holds_surnames_and_the_home_person', async () => {
+    it('former_more_menu_entries_are_buttons_on_the_name_card', async () => {
       const user = userEvent.setup();
       await open();
-      expect(screen.queryByRole('button', { name: 'Surnames…' })).not.toBeInTheDocument();
-      await user.click(screen.getByRole('button', { name: 'More…' }));
-      const menu = await screen.findByRole('menu', { name: 'More…' });
-      expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent?.trim())).toEqual(['Surnames…', 'Make home person']);
-      await user.click(within(menu).getByRole('menuitem', { name: 'Surnames…' }));
+      expect(screen.queryByRole('button', { name: 'More…' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+      const card = screen.getByRole('group', { name: 'Edit this person' });
+      expect(within(card).getByRole('button', { name: 'Make home person' })).toBeInTheDocument();
+      await user.click(within(card).getByRole('button', { name: 'Surnames…' }));
       expect(await screen.findByRole('dialog', { name: 'Surname at birth and after marriage' })).toBeInTheDocument();
     });
   });

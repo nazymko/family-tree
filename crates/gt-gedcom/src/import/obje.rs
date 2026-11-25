@@ -58,6 +58,8 @@ fn read_media_node(ctx: &mut Ctx, node: &GedNode, id: Uuid, inline: bool) -> Opt
     let file = child(node, "FILE")?;
     let path = normalize(val(file)?);
     let mut m = Media {
+        version_of: None,
+        map_layer: None,
         common: new_common(id),
         path: path.clone(),
         original_name: None,
@@ -66,6 +68,9 @@ fn read_media_node(ctx: &mut Ctx, node: &GedNode, id: Uuid, inline: bool) -> Opt
         date: None,
         description: None,
         sha256: None,
+        transcription: Vec::new(),
+        rotation: None,
+        place: None,
     };
     if let Some(x) = &node.xref {
         m.common.ext_ids.push(ExternalId {
@@ -164,6 +169,7 @@ pub(crate) fn link_media(
                 media: id,
                 region,
                 primary,
+                clip: None,
             });
         }
         return true;
@@ -179,6 +185,7 @@ pub(crate) fn link_media(
                 media: id,
                 region,
                 primary,
+                clip: None,
             });
             true
         }

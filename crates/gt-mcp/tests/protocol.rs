@@ -59,7 +59,8 @@ fn rules_are_the_owners_rules_verbatim_plus_living() {
     assert_eq!(
         rest,
         [
-            "You may never change whether a person counts as alive or dead. Leave a note and report it."
+            "You may never make a person count as alive. You may make someone count as dead only when the tree then shows them more than 100 years old or as an ancestor of someone who counts as dead. Any other change of whether a person counts as alive or dead is the owner's: leave a note and report it.",
+            "Places: when the records name a place that list_places does not have, make it with add_place (its type, its parent place, a note). It never makes a place twice: a place of that name under that parent answers alreadyThere with the existing id. Duplicate places that are the very same place are merged with merge_places (keep_id and merge_ids): events, pictures, place records and places under them follow, and the owner can undo the merge with the batch. Never merge namesakes in other districts; list the doubtful ones in your report. An empty duplicate place (nothing refers to it) is removed with delete_place; a place under the wrong parent is moved with move_place (new_parent_id, or null for the top level), never into itself; update_place edits names, type and coordinates (coordinates need their source; the primary name cannot be removed). An event you made yourself and nobody changed since, which a source showed to be wrong, is taken back with remove_own_event (event, reason); an event the owner made stays: leave a note and report it. A citation you made yourself, which points to a misread record, is taken back with remove_own_citation (citation, reason): only the citation and its links go, the source stays; a citation the owner made stays. All of these are in the log and the owner can undo them with the batch."
         ]
     );
     assert!(
@@ -252,12 +253,24 @@ fn tools_list_deterministic() {
         "add_citation",
         "add_sibling_marker",
         "remove_own_empty_family",
+        "remove_own_child_link",
         "set_number",
         "set_sex",
         "update_own_note",
+        "rewrite_note",
+        "correct_name",
+        "correct_event",
+        "move_child",
+        "correct_note",
+        "set_note_story",
         "update_own_event",
         "update_own_name",
         "update_own_citation",
+        "delete_place",
+        "move_place",
+        "update_place",
+        "remove_own_event",
+        "remove_own_citation",
     ] {
         assert!(first.iter().any(|n| n == tool), "{tool} is missing");
     }

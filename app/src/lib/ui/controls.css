@@ -39,6 +39,48 @@
   border-radius: var(--r-1);
   transition: background var(--dur-fast) var(--ease);
 }
+/* The record the change log sent the person to: marked for a moment. */
+.revealed:is([data-person-id], [data-family-id], [data-event-id], [data-name-id], [data-note-id], [data-media-id], [data-citation-id], [data-source-id]) {
+  outline: 3px solid var(--foxing);
+  outline-offset: 4px;
+  background: var(--foxing-wash);
+  border-radius: var(--r-1);
+}
+/* The glow is drawn once on a pseudo-element and only its opacity is animated, so it stays on the compositor. */
+.revealed:is([data-person-id], [data-family-id], [data-event-id], [data-name-id], [data-note-id], [data-media-id], [data-citation-id], [data-source-id]) {
+  position: relative;
+  isolation: isolate;
+}
+.revealed:is([data-person-id], [data-family-id], [data-event-id], [data-name-id], [data-note-id], [data-media-id], [data-citation-id], [data-source-id])::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: var(--r-1);
+  pointer-events: none;
+  background: var(--foxing-wash);
+  box-shadow: 0 0 0 6px var(--foxing), 0 0 22px 8px var(--foxing);
+  opacity: 0;
+}
+/* Pulses three times in about 2 s, then the class is removed (state/reveal.ts). Reduced motion keeps a steady mark. */
+@media (prefers-reduced-motion: no-preference) {
+  .revealed:is([data-person-id], [data-family-id], [data-event-id], [data-name-id], [data-note-id], [data-media-id], [data-citation-id], [data-source-id])::after {
+    animation: reveal-glow 2s var(--ease) 1;
+  }
+}
+@keyframes reveal-glow {
+  0%,
+  33%,
+  66%,
+  100% {
+    opacity: 0;
+  }
+  16%,
+  50%,
+  83% {
+    opacity: 1;
+  }
+}
 @media (prefers-reduced-motion: no-preference) {
   [data-required][data-missing] {
     animation: need-pulse 1.6s var(--ease) 1;

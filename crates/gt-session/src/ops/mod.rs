@@ -6,12 +6,19 @@ mod delete;
 pub(crate) mod draft;
 mod event;
 mod family;
+pub mod godparent;
+pub mod map_layers;
 mod media;
-pub(crate) use media::plan_attach;
+pub(crate) use event::plan_date_correction;
+pub(crate) use family::plan_child_link_removal;
+pub use media::VERSION_GROUP_MAX;
+pub(crate) use media::{can_turn, plan_attach};
 mod person;
 pub(crate) use person::agent_number;
+pub(crate) mod place_merge;
 pub mod places;
 mod quick_add;
+pub(crate) mod verified;
 
 use crate::command::EditCommand;
 use crate::error::{ApiError, ErrorCode};
@@ -375,6 +382,12 @@ pub fn plan_with(
         C::DeleteName { person, name } => person::delete_name(&mut p, *person, *name)?,
         C::SaveEvent { owner, event } => event::save_event(&mut p, *owner, event)?,
         C::DeleteEvent { owner, event } => event::delete_event(&mut p, *owner, *event)?,
+        C::AddGodparent { event, godparent } => {
+            godparent::add_godparent(&mut p, *event, godparent)?
+        }
+        C::RemoveGodparent { event, godparent } => {
+            godparent::remove_godparent(&mut p, *event, *godparent)?
+        }
         C::QuickAdd {
             anchor,
             relation,
@@ -458,18 +471,79 @@ pub fn plan_with(
             title,
             description,
             date_raw,
+            place_text,
+            place_id,
         } => media::update_media(
             &mut p,
             *id,
             title.as_deref(),
             description.as_deref(),
             date_raw.as_deref(),
+            place_text.as_deref(),
+            *place_id,
         )?,
         C::AddNumber {
             person,
             source_file,
             number,
         } => person::add_number(&mut p, *person, source_file, number)?,
+        C::CreatePlace { text } => places::create(&mut p, text)?,
+        C::SetPlaceCoordinates {
+            place,
+            lat_e6,
+            lon_e6,
+        } => places::set_coordinates(&mut p, *place, *lat_e6, *lon_e6)?,
+        C::SetMediaRotation { id, rotation } => media::set_rotation(&mut p, *id, *rotation)?,
+        C::SetMapLayer {
+            media,
+            layer,
+            title,
+        } => map_layers::set_layer(&mut p, *media, layer.as_ref(), title.as_deref())?,
+        C::ReorderMapLayers { order } => map_layers::reorder(&mut p, order)?,
+        C::SetMapLayersVisible { shown, hidden } => map_layers::set_visible(&mut p, shown, hidden)?,
+        C::GroupMediaVersions { primary, others } => {
+            media::group_versions(&mut p, *primary, others)?
+        }
+        C::UngroupMediaVersion { media, new_primary } => {
+            media::ungroup_version(&mut p, *media, *new_primary)?
+        }
+        C::AddAudioClip {
+            target,
+            media,
+            start_ms,
+            end_ms,
+            label,
+        } => {
+            let clip = Clip {
+                id: gt_core::ids::new_id(),
+                start_ms: *start_ms,
+                end_ms: *end_ms,
+                label: label.clone(),
+            };
+            media::add_clip(&mut p, *target, *media, clip)?
+        }
+        C::UpdateAudioClip {
+            target,
+            clip,
+            start_ms,
+            end_ms,
+            label,
+            move_to,
+        } => media::update_clip(
+            &mut p,
+            *target,
+            Clip {
+                id: *clip,
+                start_ms: *start_ms,
+                end_ms: *end_ms,
+                label: label.clone(),
+            },
+            *move_to,
+        )?,
+        C::DeleteAudioClip { target, clip } => media::delete_clip(&mut p, *target, *clip)?,
+        C::SetMediaTranscription { id, regions, known } => {
+            media::set_transcription(&mut p, *id, regions, known.as_deref())?
+        }
     };
     Ok((p.finish(cmd.label()), focus))
 }

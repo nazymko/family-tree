@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 //! The gate on agent writes: what an agent may add, what it may change, and that nothing it does
-//! can change whether an existing person counts as alive or dead.
+//! can change whether an existing person counts as alive or dead, except making someone count as
+//! dead whom the tree then shows more than 100 years old or as an ancestor of someone dead.
 
 mod common;
 
@@ -47,6 +48,7 @@ fn note(id: Uuid, text: &str) -> EditCommand {
     EditCommand::SaveNote {
         target: person_ref(id),
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: text.into(),
@@ -58,6 +60,7 @@ fn edit_note(owner: Uuid, id: Uuid, text: &str) -> EditCommand {
     EditCommand::SaveNote {
         target: person_ref(owner),
         note: NoteInput {
+            story: None,
             id: Some(id),
             kind: NoteKindDto::General,
             text: text.into(),
@@ -78,6 +81,7 @@ fn event_input(kind: &str, date: Option<&str>) -> EventInput {
         negative: false,
         private: false,
         preferred: false,
+        godparents: None,
         participants: None,
     }
 }
@@ -151,6 +155,7 @@ fn source_field(id: Uuid, author: &str) -> EditCommand {
             publication: None,
             abbreviation: None,
             text: None,
+            ..Default::default()
         },
     }
 }
@@ -257,6 +262,7 @@ fn owner_source(s: &mut Session, title: &str) -> Uuid {
                 publication: None,
                 abbreviation: None,
                 text: None,
+                ..Default::default()
             },
         })
         .unwrap();
@@ -295,6 +301,7 @@ fn overwrite_refused_tree_unchanged() {
                 publication: None,
                 abbreviation: None,
                 text: None,
+                ..Default::default()
             },
         },
         &me(),
@@ -401,12 +408,6 @@ fn delete_commands_refused() {
         EditCommand::SetPrimaryMedia {
             person: anna,
             media: any,
-        },
-        EditCommand::UpdateMedia {
-            id: any,
-            title: None,
-            description: None,
-            date_raw: None,
         },
         EditCommand::ImportDraft {
             persons: vec![],
@@ -767,38 +768,169 @@ fn death_of_someone_named_on_another_persons_event_refused() {
     assert!(living_of(&s, eva));
 }
 
+/// An agent may make someone count as dead when the tree then shows them more than 100 years old.
 #[test]
-fn old_birth_date_that_flips_living_refused() {
+fn old_birth_date_may_mark_dead() {
     let (_d, mut s) = open_tree(&tree_of(SAMPLE));
     let b = batch(&mut s, &me());
     let eva = find(s.tree(), "Eva");
-    let msg = refuse(&mut s, event(eva, "birth", Some("1800")), &me(), b);
-    assert!(msg.contains("alive or dead"), "{msg}");
-    // A recent date flips nobody.
+    assert!(living_of(&s, eva));
+    done(s.apply_as_agent(event(eva, "birth", Some("1800")), &me(), b));
+    assert!(!living_of(&s, eva));
+    s.verify_derived_state().unwrap();
+}
+
+#[test]
+fn old_baptism_may_mark_dead() {
+    let (_d, mut s) = open_tree(&tree_of(SAMPLE));
+    let b = batch(&mut s, &me());
+    let eva = find(s.tree(), "Eva");
+    done(s.apply_as_agent(event(eva, "baptism", Some("ABT 1782")), &me(), b));
+    assert!(!living_of(&s, eva));
+}
+
+#[test]
+fn recent_birth_date_flips_nobody() {
+    let (_d, mut s) = open_tree(&tree_of(SAMPLE));
+    let b = batch(&mut s, &me());
+    let eva = find(s.tree(), "Eva");
     done(s.apply_as_agent(event(eva, "birth", Some("1990")), &me(), b));
     assert!(living_of(&s, eva));
 }
 
+/// A dateless parent of someone who counts as dead may be made to count as dead, whether the child
+/// is new or already in the tree.
 #[test]
-fn link_that_flips_living_refused() {
+fn dateless_parent_of_an_old_child_may_be_marked_dead() {
+    let (_d, mut s) = open_tree(&tree_of(SAMPLE));
+    let b = batch(&mut s, &me());
+    let eva = find(s.tree(), "Eva");
+    assert!(living_of(&s, eva));
+    let r = done(s.apply_as_agent(
+        quick_add(
+            eva,
+            Relation::Child,
+            dated_draft("Ivan", SexKind::Male, "ABT 1782"),
+        ),
+        &me(),
+        b,
+    ));
+    assert!(!living_of(&s, eva));
+    let ivan = r.focus.unwrap();
+    assert!(!living_of(&s, ivan));
+    s.verify_derived_state().unwrap();
+
     let (_d, mut s) = open_tree(&tree_of(SAMPLE));
     let b = batch(&mut s, &me());
     let eva = find(s.tree(), "Eva");
     let anna = find(s.tree(), "Anna");
-    // An old child proves a parent dead, whether the child is new...
+    assert!(!living_of(&s, anna));
+    done(s.apply_as_agent(link_existing(eva, Relation::Child, anna), &me(), b));
+    assert!(!living_of(&s, eva));
+    s.verify_derived_state().unwrap();
+}
+
+/// Ancestry reaches past one generation: a death on a grandparent of someone dead is let through.
+#[test]
+fn death_of_a_grandparent_of_someone_dead_allowed() {
+    let (_d, mut s) = open_tree(&tree_of(SAMPLE));
+    let b = batch(&mut s, &me());
+    let eva = find(s.tree(), "Eva");
+    let olena = done(s.apply_as_agent(
+        quick_add(eva, Relation::Child, draft("Olena", SexKind::Female)),
+        &me(),
+        b,
+    ))
+    .focus
+    .unwrap();
+    // Olena flips (a child of 1782 proves her dead); Eva does not: the rule reads one generation.
+    done(s.apply_as_agent(
+        quick_add(
+            olena,
+            Relation::Child,
+            dated_draft("Ivan", SexKind::Male, "1782"),
+        ),
+        &me(),
+        b,
+    ));
+    assert!(!living_of(&s, olena));
+    assert!(living_of(&s, eva));
+    done(s.apply_as_agent(event(eva, "death", None), &me(), b));
+    assert!(!living_of(&s, eva));
+}
+
+/// A death on someone the tree shows neither old nor an ancestor of anyone dead stays the owner's.
+#[test]
+fn death_without_age_or_descendant_evidence_refused() {
+    let (_d, mut s) = open_tree(&tree_of(SAMPLE));
+    let b = batch(&mut s, &me());
+    let eva = find(s.tree(), "Eva");
+    done(s.apply_as_agent(event(eva, "birth", Some("1990")), &me(), b));
+    let msg = refuse(&mut s, event(eva, "death", Some("2020")), &me(), b);
+    assert!(msg.contains("Eva"), "{msg}");
+    assert!(msg.contains("alive or dead"), "{msg}");
+    // A living child is no evidence either.
+    done(s.apply_as_agent(
+        quick_add(
+            eva,
+            Relation::Child,
+            dated_draft("Olena", SexKind::Female, "2015"),
+        ),
+        &me(),
+        b,
+    ));
+    refuse(&mut s, event(eva, "death", Some("2020")), &me(), b);
+    assert!(living_of(&s, eva));
+}
+
+/// A child born 96 years ago proves the parent dead by the rule, but the child is alive and the
+/// parent shows no age: that flip stays the owner's.
+#[test]
+fn proof_by_a_living_child_refused() {
+    let (_d, mut s) = open_tree(&tree_of(SAMPLE));
+    let b = batch(&mut s, &me());
+    let eva = find(s.tree(), "Eva");
     let msg = refuse(
         &mut s,
         quick_add(
             eva,
             Relation::Child,
-            dated_draft("Ivan", SexKind::Male, "1900"),
+            dated_draft("Ivan", SexKind::Male, "1930"),
         ),
         &me(),
         b,
     );
     assert!(msg.contains("Eva"), "{msg}");
-    // ...or already in the tree.
-    refuse(&mut s, link_existing(eva, Relation::Child, anna), &me(), b);
+    assert!(living_of(&s, eva));
+}
+
+/// The owner's Living mark holds against any evidence.
+#[test]
+fn owner_marked_living_cannot_be_made_dead() {
+    let (_d, mut s) = open_tree(&tree_of(SAMPLE));
+    let eva = find(s.tree(), "Eva");
+    s.apply(EditCommand::UpdatePerson {
+        id: eva,
+        sex: None,
+        sex_text: None,
+        living_override: LivingPatch::Set(LivingOverrideDto::Living),
+        private: None,
+    })
+    .unwrap();
+    let b = batch(&mut s, &me());
+    let msg = refuse(&mut s, event(eva, "birth", Some("1800")), &me(), b);
+    assert!(msg.contains("alive or dead"), "{msg}");
+    refuse(
+        &mut s,
+        quick_add(
+            eva,
+            Relation::Child,
+            dated_draft("Ivan", SexKind::Male, "1782"),
+        ),
+        &me(),
+        b,
+    );
+    refuse(&mut s, event(eva, "death", Some("1840")), &me(), b);
     assert!(living_of(&s, eva));
 }
 
@@ -1119,6 +1251,7 @@ fn second_birth_already_in_the_owners_data_can_still_get_a_note() {
                 id: birth,
             },
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::General,
                 text: "The sources disagree".into(),
@@ -1430,17 +1563,32 @@ fn death_and_burial_allowed_on_someone_the_owner_marked_deceased() {
     assert!(!living_of(&s, ivan), "dead with the mark and without it");
 }
 
+/// The parent of someone the owner marked dead is an ancestor of someone who counts as dead, so an
+/// old birth on the child may make the unmarked parent count as dead too.
 #[test]
-fn old_birth_on_someone_marked_deceased_refused_when_it_moves_an_unmarked_parent() {
+fn old_birth_on_someone_marked_deceased_may_make_the_unmarked_parent_dead() {
     let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
     let b = batch(&mut s, &me());
     let (ivan, petro) = (find(s.tree(), "Ivan"), find(s.tree(), "Petro"));
     set_override(&mut s, ivan, LivingPatch::Set(LivingOverrideDto::Deceased));
+    assert!(living_of(&s, petro));
+    done(s.apply_as_agent(event(ivan, "birth", Some("1850")), &me(), b));
+    assert!(!living_of(&s, petro));
+    s.verify_derived_state().unwrap();
+}
+
+#[test]
+fn old_birth_on_someone_marked_deceased_refused_when_the_parent_is_marked_living() {
+    let (_d, mut s) = open_tree(&tree_of(TWO_LINES));
+    let b = batch(&mut s, &me());
+    let (ivan, petro) = (find(s.tree(), "Ivan"), find(s.tree(), "Petro"));
+    set_override(&mut s, ivan, LivingPatch::Set(LivingOverrideDto::Deceased));
+    set_override(&mut s, petro, LivingPatch::Set(LivingOverrideDto::Living));
     let msg = refuse(&mut s, event(ivan, "birth", Some("1850")), &me(), b);
     assert!(msg.contains("Petro"), "{msg}");
     assert!(living_of(&s, petro));
 
-    // With the parent marked too, nobody's status can come to differ from what the owner said.
+    // With the parent marked dead, nobody's status can come to differ from what the owner said.
     set_override(&mut s, petro, LivingPatch::Set(LivingOverrideDto::Deceased));
     done(s.apply_as_agent(event(ivan, "birth", Some("1850")), &me(), b));
 }
@@ -1704,6 +1852,7 @@ fn two_birth_families_in_the_owners_data_still_take_a_note() {
                 id: family,
             },
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::General,
                 text: "The sources disagree".into(),
@@ -1797,6 +1946,7 @@ fn identical_source_is_folded_and_any_difference_stored() {
             publication: None,
             abbreviation: None,
             text: None,
+            ..Default::default()
         },
     };
     let first = done(s.apply_as_agent(source(None), &me(), b)).touched[0];
@@ -1883,7 +2033,7 @@ fn a_birthday_crossing_the_rule_does_not_stop_every_write() {
         "0 @I1@ INDI\n1 NAME Eva /Meyer/\n1 SEX F\n1 BIRT\n2 DATE 1928\n\
          0 @I2@ INDI\n1 NAME Ivan /Koval/\n1 SEX M\n",
     );
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let proj = dir.path().join("project");
     let mut p = gt_store::Project::create(&proj).unwrap();
     p.save_tree(&tree, today()).unwrap();
@@ -2023,6 +2173,7 @@ fn note_of_another_kind_is_stored() {
     let research = EditCommand::SaveNote {
         target: person_ref(ivan),
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::Research,
             text: "Same words".into(),
@@ -2048,6 +2199,7 @@ fn a_note_on_own_event_does_not_stop_it_being_a_repeat() {
                 id,
             },
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::General,
                 text: "Added later".into(),
@@ -2376,12 +2528,6 @@ fn an_agent_cannot_attach_or_remove_media_on_a_note() {
             target: on_note,
             media: any,
         },
-        EditCommand::UpdateMedia {
-            id: any,
-            title: Some("A title".into()),
-            description: None,
-            date_raw: None,
-        },
         EditCommand::DeleteMedia { id: any },
     ] {
         let msg = refuse(&mut s, cmd, &me(), b);
@@ -2391,6 +2537,7 @@ fn an_agent_cannot_attach_or_remove_media_on_a_note() {
     let nested = EditCommand::SaveNote {
         target: on_note,
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: "A note on a note".into(),

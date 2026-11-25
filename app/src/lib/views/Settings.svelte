@@ -1,4 +1,6 @@
 <script lang="ts">
+  // Direction isolates around a language name and its share, so an RTL name shows "1 %", not "% 1".
+  const [FSI, LRI, PDI] = [0x2068, 0x2066, 0x2069].map((c) => String.fromCharCode(c));
   import { errMessage } from '../editors/errors';
   import Select from '../ui/Select.svelte';
   import TextField from '../ui/TextField.svelte';
@@ -6,13 +8,14 @@
   import Banner from '../ui/Banner.svelte';
   import AgentAccessSettings from './AgentAccessSettings.svelte';
   import AboutSection from './AboutSection.svelte';
-  import { getApi } from '../api/context';
+  import { getApi, getPlatform } from '../api/context';
   import { settings } from '../state/settings.svelte';
   import { t, LANGUAGES } from '../i18n';
   import type { Id, SearchHitDto, Settings } from '../api/api';
   import { CHART_LABEL, DIRECTION_KEYS, DIRECTION_LABEL, choicesFor, directionOf, type ChartDirection } from '../chart/direction';
 
   const api = getApi();
+  const platform = getPlatform();
   let error = $state('');
 
   let threshold = $state('100');
@@ -138,7 +141,7 @@
       hint={t('settings.languageHint')}
       options={[
         { value: 'system', label: t('settings.languageSystem') },
-        ...LANGUAGES.map((l) => ({ value: l.code, label: l.name })),
+        ...LANGUAGES.map((l) => ({ value: l.code, label: l.percent < 100 ? `${FSI}${l.name}${PDI} — ${LRI}${l.percent} %${PDI}` : l.name })),
       ]}
       value={settings.value.language}
       onchange={(v) => change({ language: v as Settings['language'] })}
@@ -167,7 +170,11 @@
     </fieldset>
     <TextField label={t('settings.backups')} type="number" min="1" max="50" bind:value={backups} onchange={commitBackups} />
   </div>
-  <AgentAccessSettings />
+  {#if platform.isMobile}
+    <p class="hint" data-testid="mobile-no-agents">{t('mobile.noAgents')}</p>
+  {:else}
+    <AgentAccessSettings />
+  {/if}
   <AboutSection />
 </section>
 

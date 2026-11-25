@@ -41,7 +41,10 @@
       'C:/Photos/Garden party.jpg',
       'C:/Photos/Harbour.jpg',
     ]);
-    items = (await api.getPerson(home)).media;
+    // the first picture came from a web page: the viewer offers a button for it
+    items = (await api.getPerson(home)).media.map((l, i) =>
+      i === 0 ? { ...l, media: { ...l.media, webLinks: ['https://www.familysearch.org/ark:/61903/1:1:AAAA-BBB1'] } } : l,
+    );
     // a kept note that names a living (undated) person, for the export preview
     const dead = (await api.listPersons({ sort: 'surname', desc: false, text: '', living: 'deceased', noSource: false, noBirthDate: false, privateOnly: false }, 0, 3)).items[1];
     await api.apply({ type: 'saveNote', target: { kind: 'person', id: dead.id }, note: { kind: 'general', text: 'Lived with the family until 1951, later looked after by Uma Undated in Hamburg.' } });

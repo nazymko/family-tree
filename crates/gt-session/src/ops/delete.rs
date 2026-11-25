@@ -21,7 +21,25 @@ pub(super) fn prune_events(p: &mut Planner, persons: &HashSet<Uuid>, families: &
         .filter(|e| e.participants.iter().any(gone))
         .cloned()
         .collect();
+    // A godparent who is deleted stays on the event as the name they had.
+    let godparent_hits: Vec<Event> = p
+        .tree
+        .events
+        .values()
+        .filter(|e| {
+            !e.participants.iter().any(gone)
+                && e.godparents
+                    .iter()
+                    .any(|g| g.person.is_some_and(|id| persons.contains(&id)))
+        })
+        .cloned()
+        .collect();
+    for mut e in godparent_hits {
+        unlink_godparents(p, &mut e, persons);
+        p.put(e);
+    }
     for mut e in hits {
+        unlink_godparents(p, &mut e, persons);
         let had_principal = e.participants.iter().any(|x| x.role == Role::Principal);
         e.participants.retain(|x| !gone(x));
         let has_principal = e.participants.iter().any(|x| x.role == Role::Principal);
@@ -31,6 +49,24 @@ pub(super) fn prune_events(p: &mut Planner, persons: &HashSet<Uuid>, families: &
         } else {
             p.put(e);
         }
+    }
+}
+
+/// Godparents among `persons` become the names they are shown under.
+fn unlink_godparents(p: &Planner, e: &mut Event, persons: &HashSet<Uuid>) {
+    for g in &mut e.godparents {
+        let Some(id) = g.person.filter(|id| persons.contains(id)) else {
+            continue;
+        };
+        let name = p
+            .tree
+            .persons
+            .get(&id)
+            .map(|x| crate::names::display_name(x, crate::dto::NameOrder::GivenFirst))
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or_else(|| "?".to_string());
+        g.person = None;
+        g.name = Some(name);
     }
 }
 

@@ -37,6 +37,50 @@ describe('renderer', () => {
 
   const win: ChartWindow = { nodes: [node(0), node(1), node(2)], edges: [] };
 
+  it('keep_does_not_clear', () => {
+    const a: ChartWindow = { nodes: [node(0), node(1)], edges: [edge(0)] };
+    const b: ChartWindow = { nodes: [node(5, { person: { ...node(5).person!, name: 'Other 5' } })], edges: [] };
+    // Without `keep`, a draw starts by clearing the page, as before.
+    const plain = makeFakeContext();
+    draw(plain, a, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });
+    expect(ops(plain, 'clearRect')).toHaveLength(1);
+    const ctx = makeFakeContext();
+    draw(ctx, a, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });
+    draw(ctx, b, { x: 500, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme, lod: 'full', keep: true });
+    expect(ops(ctx, 'clearRect')).toHaveLength(1);
+    expect(ctx.calls.slice(0, plain.calls.length)).toEqual(plain.calls);
+    const names = ops(ctx, 'fillText').map((c) => String(c.args[0]));
+    expect(names).toEqual(expect.arrayContaining(['Person 0', 'Person 1', 'Other 5']));
+  });
+
+  it('draws_a_dashed_frame_and_a_label_per_sheet_under_the_cards_and_nothing_without_them', () => {
+    const base = makeFakeContext();
+    draw(base, win, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });
+    const none = makeFakeContext();
+    draw(none, win, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme, sheetFrames: [] });
+    expect(none.calls).toEqual(base.calls);
+
+    const sheetFrames = [1, 2, 3].map((no) => ({ no, label: `sheet ${no}`, x: no * 100, y: 10, w: 90, h: 50 }));
+    const ctx = makeFakeContext();
+    draw(ctx, win, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme, sheetFrames });
+    const rects = ops(ctx, 'rect').filter((c) => c.args[2] === 90 + 2 * 12 && c.args[3] === 50 + 2 * 12);
+    expect(rects).toHaveLength(3);
+    expect(ops(ctx, 'setLineDash').some((c) => (c.args[0] as number[]).length === 2)).toBe(true);
+    const texts = ops(ctx, 'fillText').map((c) => c.args[0]);
+    expect(texts).toEqual(expect.arrayContaining(['sheet 1', 'sheet 2', 'sheet 3']));
+    // Under the cards: the first frame is stroked before the first card name is written.
+    const firstRect = ctx.calls.findIndex((c) => c.op === 'rect');
+    const firstName = ctx.calls.findIndex((c) => c.op === 'fillText' && String(c.args[0]).startsWith('Person'));
+    expect(firstRect).toBeLessThan(firstName);
+    // The frames' drawing state is their own: saved before them and given back after.
+    const save = ctx.calls.findIndex((c) => c.op === 'save');
+    const restore = ctx.calls.findIndex((c) => c.op === 'restore');
+    expect(save).toBeGreaterThanOrEqual(0);
+    expect(save).toBeLessThan(firstRect);
+    expect(restore).toBeGreaterThan(ctx.calls.findIndex((c) => c.op === 'fillText' && c.args[0] === 'sheet 3'));
+    expect(restore).toBeLessThan(firstName);
+  });
+
   it('draws_text_when_full', () => {
     const ctx = makeFakeContext();
     draw(ctx, win, { x: 0, y: 0, zoom: 1 }, view, { selected: null, focus: null, theme });

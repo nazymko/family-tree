@@ -14,12 +14,22 @@
   import FieldChanges from '../ui/FieldChanges.svelte';
   import { factText, recordKindLabel } from '../i18n/backend';
 
-  let { changes, actions }: { changes: LogChangeDto[]; actions?: (c: LogChangeDto) => ChangeAction[] } = $props();
+  let {
+    changes,
+    actions,
+    opens,
+  }: {
+    changes: LogChangeDto[];
+    actions?: (c: LogChangeDto) => ChangeAction[];
+    /** Buttons that go to the page where the record is shown, not to its editor. */
+    opens?: (c: LogChangeDto) => ChangeAction[];
+  } = $props();
 </script>
 
 {#each changes as c, i (i)}
   {@const text = factText(c.fact)}
   {@const acts = actions?.(c) ?? []}
+  {@const goes = opens?.(c) ?? []}
   <div class="change">
     <p class="fact">
       <span class="what">{t(`changeLog.op.${c.op}` as MessageKey)} · {recordKindLabel(c.kind)}</span>
@@ -27,10 +37,13 @@
       {#if c.sources.length > 0}<span class="src">{t('changeLog.sources', { list: c.sources.join('; ') })}</span>{/if}
     </p>
     <FieldChanges fields={c.fields} />
-    {#if acts.length > 0}
+    {#if acts.length > 0 || goes.length > 0}
       <div class="acts">
         {#each acts as a (a.key)}
           <Button aria-label={t('changeLog.editWhat', { what: a.what })} onclick={a.run}>{t('changeLog.edit')}</Button>
+        {/each}
+        {#each goes as a (a.key)}
+          <Button aria-label={t('changeLog.openWhat', { what: a.what })} onclick={a.run}>{t('changeLog.open')}</Button>
         {/each}
       </div>
     {/if}

@@ -5,7 +5,19 @@
   import Dialog from '../ui/Dialog.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
   import Banner from '../ui/Banner.svelte';
+  import Badge from '../ui/Badge.svelte';
+  import Select from '../ui/Select.svelte';
+  import { SOURCE_KIND_IDS, kindLabel } from '../sources/sourceKind';
+  import type { MessageKey } from '../i18n';
   import SourceForm, { type SourceValues } from './SourceForm.svelte';
+  import Dropzone from '../media/Dropzone.svelte';
+  import MediaGrid from '../media/MediaGrid.svelte';
+  import MediaViewer from '../media/MediaViewer.svelte';
+  import { isSound } from '../media/sound';
+  import { collapseVersions } from '../media/versions';
+  import VoiceSamples from '../media/VoiceSamples.svelte';
+  import { wholeSounds } from '../media/clips';
+  import type { MediaDto } from '../api/api';
   import { getApi } from '../api/context';
   import { notices } from '../ui/notices.svelte';
   import { agentChanges } from '../state/agentChanges.svelte';
@@ -17,6 +29,8 @@
   let { selectedId = null }: { selectedId?: Id | null } = $props();
   const api = getApi();
   let filter = $state('');
+  /** A kind id, `none` for sources without one, or empty for all. */
+  let kindFilter = $state('');
   let list = $state<SourceDto[]>([]);
   let selected = $state<Id | null>(null);
   let creating = $state(false);
@@ -27,7 +41,33 @@
   let listAt = $state(0);
   let formEpoch = $state(0);
 
+  const shown = $derived(
+    kindFilter === ''
+      ? list
+      : list.filter((s) => (kindFilter === 'none' ? !s.kind : kindFilter === 'other' ? (s.kind ?? '').startsWith('other') || (!!s.kind && !SOURCE_KIND_IDS.includes(s.kind as never)) : s.kind === kindFilter)),
+  );
+  const kindFilterOptions = $derived([
+    { value: '', label: t('sources.allKinds') },
+    { value: 'none', label: t('sources.kindNone') },
+    ...SOURCE_KIND_IDS.map((id) => ({ value: id, label: t(`sourceKind.${id}` as MessageKey) })),
+  ]);
   const current = $derived(list.find((s) => s.id === selected) ?? null);
+  /** Photographed pages of the source: a letter, a register entry. */
+  const pictures = $derived(collapseVersions((current?.media ?? []).filter((l) => !isSound(l.media))));
+  /** The recordings the source is: an interview on tape, a voice message. */
+  const sounds = $derived(wholeSounds(current?.media));
+
+  async function unlinkSound(m: MediaDto) {
+    if (!selected) return;
+    error = '';
+    try {
+      await api.apply({ type: 'detachMedia', target: { kind: 'source', id: selected }, media: m.id });
+      await reload(filter);
+    } catch (e) {
+      error = errMessage(e, t('edit.wentWrong'));
+    }
+  }
+  let viewing = $state<number | null>(null);
   const count = (n: number) => plural('sources.citations', n);
 
   /** True when what it read is what the page now holds. */
@@ -70,6 +110,12 @@
     publication: v.publication,
     abbreviation: v.abbreviation,
     text: v.text,
+    kind: v.kind,
+    issuer: v.issuer,
+    docNumber: v.docNumber,
+    docDateRaw: v.docDateRaw,
+    archive: v.archive,
+    callNumber: v.callNumber,
   });
 
   async function save(v: SourceValues) {
@@ -113,13 +159,14 @@
   <div class="cols">
     <div class="left">
       <TextField label={t('sources.filter')} type="search" bind:value={filter} autocomplete="off" />
-      {#if loaded && list.length === 0}
-        <EmptyState title={filter ? t('sources.noMatching') : t('sources.noneYet')}>
-          {filter ? t('sources.tryDifferent') : t('sources.listedHere')}
+      <Select label={t('sources.filterKind')} options={kindFilterOptions} bind:value={kindFilter} />
+      {#if loaded && shown.length === 0}
+        <EmptyState title={filter || kindFilter ? t('sources.noMatching') : t('sources.noneYet')}>
+          {filter || kindFilter ? t('sources.tryDifferent') : t('sources.listedHere')}
         </EmptyState>
       {:else}
         <ul aria-label={t('sources.title')}>
-          {#each list as s (s.id)}
+          {#each shown as s (s.id)}
             <li>
               <button
                 type="button"
@@ -131,6 +178,7 @@
                 }}
               >
                 <span class="title">{s.title ?? t('sources.untitled')}</span>
+                {#if s.kind}<span class="kind"><Badge>{kindLabel(s.kind)}</Badge></span>{/if}
                 <span class="n">{count(s.citationCount)}</span>
               </button>
             </li>
@@ -141,12 +189,42 @@
     <div class="right">
       {#if current}
         {#key current.id}
-          <h2>{current.title ?? t('sources.untitled')}</h2>
-          <p class="n">{count(current.citationCount)}</p>
+          <h2 tabindex="-1" data-source-id={current.id}>{current.title ?? t('sources.untitled')}</h2>
+          <p class="n">
+            {#if current.kind}<span class="kind" data-source-kind={current.kind}><Badge>{kindLabel(current.kind)}</Badge></span>{/if}
+            {count(current.citationCount)}
+          </p>
           {#if error}<Banner kind="error">{error}</Banner>{/if}
           {#key formEpoch}
             <SourceForm source={current} submitLabel={t('sources.saveSource')} onSubmit={save} loadedAt={listAt} onreload={reloadForm} />
           {/key}
+          <div class="pics">
+            <h3>{t('media.photosAndDocs')}</h3>
+            <Dropzone
+              target={{ kind: 'source', id: current.id }}
+              targetName={current.title ?? t('sources.untitled')}
+              onAttached={() => reload(filter)}
+              onUndone={() => reload(filter)}
+            />
+            {#if pictures.length > 0}<MediaGrid items={pictures} onOpen={(i) => (viewing = i)} />{/if}
+          </div>
+          <div class="pics">
+            <h3>{t('rec.sourceRecordings')}</h3>
+            {#if sounds.length > 0}
+              <VoiceSamples items={sounds} onRemove={(m) => void unlinkSound(m)} />
+            {:else}
+              <p class="n">{t('rec.sourceRecordingsHint')}</p>
+            {/if}
+          </div>
+          {#if viewing !== null}
+            <MediaViewer
+              items={pictures}
+              index={viewing}
+              target={{ kind: 'source', id: current.id }}
+              onClose={() => (viewing = null)}
+              onChanged={() => reload(filter)}
+            />
+          {/if}
         {/key}
       {:else}
         <p class="n">{t('sources.chooseOne')}</p>
@@ -176,6 +254,17 @@
     grid-template-columns: minmax(16rem, 22rem) 1fr;
     gap: var(--s-7);
     align-items: start;
+  }
+  /* A phone: the list above, the chosen source below. */
+  @media (max-width: 700px) {
+    .cols {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--s-5);
+    }
+    header {
+      flex-wrap: wrap;
+      gap: var(--s-3);
+    }
   }
   .left {
     display: grid;
@@ -212,6 +301,9 @@
     background: var(--ribbon-wash);
     border-inline-start-color: var(--ribbon);
   }
+  .kind {
+    margin-block: var(--s-1);
+  }
   .n {
     font-size: var(--t-sm);
     color: var(--ink-1);
@@ -219,5 +311,13 @@
   .right {
     display: grid;
     gap: var(--s-4);
+  }
+  .pics {
+    display: grid;
+    gap: var(--s-3);
+  }
+  .pics h3 {
+    margin: 0;
+    font-size: var(--t-md);
   }
 </style>

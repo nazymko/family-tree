@@ -18,10 +18,9 @@ beforeEach(async () => {
   await settings.load(api);
 });
 
-/** The surnames dialog opens from the card's «More…» menu. */
+/** The surnames dialog opens from the «Surnames…» button on the card. */
 async function clickSurnames(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByRole('button', { name: 'More…' }));
-  await user.click(await screen.findByRole('menuitem', { name: 'Surnames…' }));
+  await user.click(await screen.findByRole('button', { name: 'Surnames…' }));
 }
 
 async function openSurnames() {
@@ -113,7 +112,7 @@ describe('Surnames dialog', () => {
     const user = userEvent.setup();
     renderWithApi(api, PersonEditor, { id });
     const group = await screen.findByRole('group', { name: 'Edit this person' });
-    for (const name of ['Edit name', 'More…']) expect(group).toContainElement(screen.getByRole('button', { name }));
+    for (const name of ['Edit name', 'Surnames…']) expect(group).toContainElement(screen.getByRole('button', { name }));
     await user.click(screen.getByRole('button', { name: 'Edit name' }));
     expect(await screen.findByRole('textbox', { name: 'Given name' })).toHaveValue('Olena');
   });

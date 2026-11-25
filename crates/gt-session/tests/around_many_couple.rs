@@ -130,12 +130,16 @@ fn open(s: &mut Session, given: &[&str], kin: AroundKin) -> (ChartMeta, ChartWin
     let ids: Vec<_> = given.iter().map(|g| find(s.tree(), g)).collect();
     let m = s
         .chart_open(&ChartRequest {
+            open: None,
             kind: ChartKind::Around,
             root: ids[0],
             generations: 255,
             aunts_uncles: None,
             kin: Some(kin),
             roots: Some(ids),
+            direction: None,
+            print: None,
+            fold: None,
         })
         .unwrap();
     let w = s.chart_window(m.chart_id, &everything(), 1.0).unwrap();

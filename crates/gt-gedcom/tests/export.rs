@@ -54,6 +54,34 @@ fn line_limit_551() {
 }
 
 #[test]
+fn a_clip_of_a_recording_is_not_exported_but_the_recording_on_its_source_is() {
+    let src = "0 HEAD\n0 @I1@ INDI\n1 NAME Ivan /Shevchuk/\n0 @S1@ SOUR\n1 TITL Interview\n1 OBJE @O1@\n\
+               0 @O1@ OBJE\n1 FILE interview.ogg\n2 FORM ogg\n0 TRLR\n";
+    let mut t = import(src.as_bytes(), &opts()).tree;
+    let media = *t.media.keys().next().unwrap();
+    let person = t.persons.values_mut().next().unwrap();
+    person.common.media.push(MediaLink {
+        media,
+        region: None,
+        primary: false,
+        clip: Some(Clip {
+            id: gt_core::Uuid::from_u128(1),
+            start_ms: 1_000,
+            end_ms: 2_000,
+            label: Some("a clip".into()),
+        }),
+    });
+    for v in [GedcomVersion::V551, GedcomVersion::V70] {
+        let out = ex(&t, v);
+        assert_eq!(out.matches("OBJE @").count(), 1, "{out}");
+        assert!(!out.contains("a clip"));
+        let back = import(out.as_bytes(), &opts()).tree;
+        assert!(back.persons.values().all(|p| p.common.media.is_empty()));
+        assert_eq!(back.sources.values().next().unwrap().common.media.len(), 1);
+    }
+}
+
+#[test]
 fn v70_has_no_conc_and_uses_lf() {
     let long = "x".repeat(1000);
     let src = format!("0 HEAD\n0 @I1@ INDI\n1 NOTE {long}\n0 TRLR\n");
@@ -162,6 +190,39 @@ fn shared_event_written_under_each_principal() {
         a.tree.normalized_for_compare(),
         b.tree.normalized_for_compare()
     );
+}
+
+#[test]
+fn missing_event_round_trips_as_a_typed_generic_event() {
+    let src = "0 HEAD
+0 @I1@ INDI
+1 NAME Ivan /Testenko/
+1 EVEN
+2 TYPE missing
+2 DATE 1943
+0 TRLR
+";
+    let a = import(src.as_bytes(), &opts());
+    let ev: Vec<_> = a.tree.events.values().collect();
+    assert_eq!(ev.len(), 1);
+    assert_eq!(ev[0].kind, EventKind::Missing);
+    for (v, tag) in [
+        (GedcomVersion::V551, "1 EVEN"),
+        (GedcomVersion::V70, "1 FACT"),
+    ] {
+        let text = ex(&a.tree, v);
+        assert!(text.contains(tag), "{text}");
+        assert!(text.contains("2 TYPE Missing"), "{text}");
+        let b = import(text.as_bytes(), &opts());
+        assert_eq!(
+            b.tree.events.values().next().unwrap().kind,
+            EventKind::Missing
+        );
+        assert_eq!(
+            a.tree.normalized_for_compare(),
+            b.tree.normalized_for_compare()
+        );
+    }
 }
 
 #[test]
@@ -276,4 +337,73 @@ fn a_file_without_patr_keeps_the_whole_given_text() {
     assert_eq!(n.given.as_deref(), Some("Ivan Petrovych"));
     assert_eq!(n.patronymic, None);
     assert!(!ex(&b.tree, GedcomVersion::V551).contains("_PATR"));
+}
+
+#[test]
+fn every_version_of_a_page_is_exported_as_its_own_object() {
+    let src = "0 HEAD\n0 @I1@ INDI\n1 NAME Marta /Hrytsenko/\n1 OBJE @O2@\n\
+               0 @O1@ OBJE\n1 FILE register-scan.jpg\n2 FORM jpg\n\
+               0 @O2@ OBJE\n1 FILE register-copy.jpg\n2 FORM jpg\n0 TRLR\n";
+    let mut t = import(src.as_bytes(), &opts()).tree;
+    let ids: Vec<_> = t.media.keys().copied().collect();
+    let scan = *ids
+        .iter()
+        .find(|id| t.media[*id].path.contains("scan"))
+        .unwrap();
+    let copy = *ids.iter().find(|id| **id != scan).unwrap();
+    t.media.get_mut(&copy).unwrap().version_of = Some(scan);
+    for v in [GedcomVersion::V551, GedcomVersion::V70] {
+        let out = ex(&t, v);
+        assert!(out.contains("register-scan.jpg"), "{out}");
+        assert!(out.contains("register-copy.jpg"), "{out}");
+        assert_eq!(
+            out.matches(" OBJE\r\n").count() + out.matches(" OBJE\n").count(),
+            2,
+            "{out}"
+        );
+    }
+}
+
+#[test]
+fn an_old_map_on_the_map_is_exported_with_a_note_of_its_placement() {
+    let src = "0 HEAD\n0 @O1@ OBJE\n1 FILE sheet-30-13.jpg\n2 FORM jpg\n0 @O2@ OBJE\n1 FILE atlas.png\n2 FORM png\n0 TRLR\n";
+    let mut t = import(src.as_bytes(), &opts()).tree;
+    let ids: Vec<_> = t.media.keys().copied().collect();
+    let sheet = *ids
+        .iter()
+        .find(|id| t.media[*id].path.contains("sheet"))
+        .unwrap();
+    let atlas = *ids.iter().find(|id| **id != sheet).unwrap();
+    let p = |lat: f64, lon: f64| GeoPoint {
+        lat_e6: (lat * 1e6) as i32,
+        lon_e6: (lon * 1e6) as i32,
+    };
+    t.media.get_mut(&sheet).unwrap().map_layer = Some(MapLayer {
+        series: Some("Three-verst map".into()),
+        year: Some("1865".into()),
+        source: Some("https://example.org/sheet".into()),
+        corners: Some([p(50.6, 30.0), p(50.6, 31.2), p(49.9, 31.2), p(49.9, 30.0)]),
+        opacity: 70,
+        visible: true,
+        pos: 0,
+    });
+    t.media.get_mut(&atlas).unwrap().map_layer = Some(MapLayer {
+        series: None,
+        year: None,
+        source: None,
+        corners: None,
+        opacity: 50,
+        visible: false,
+        pos: 1,
+    });
+    for v in [GedcomVersion::V551, GedcomVersion::V70] {
+        let out = ex(&t, v);
+        assert!(out.contains("Historical map layer"), "{out}");
+        assert!(out.contains("Three-verst map"), "{out}");
+        assert!(out.contains("1865"), "{out}");
+        assert!(out.contains("https://example.org/sheet"), "{out}");
+        assert!(out.contains("50.6"), "{out}");
+        assert!(out.contains("31.2"), "{out}");
+        assert!(out.contains("Not placed on the map yet"), "{out}");
+    }
 }

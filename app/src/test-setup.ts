@@ -10,6 +10,43 @@ afterEach(() => {
   setLanguage('en');
 });
 
+/**
+ * jsdom matches every stylesheet rule through nwsapi, whose compiled-selector caches are LRUs of 1000 entries. One
+ * jsdom serves a whole worker (vmThreads), so the styles of every component rendered so far pile up in it; once they
+ * pass 1000 selectors, each getComputedStyle walks the rules in order and evicts every entry before it is used again,
+ * so a single `findByRole` (it asks for the style of each element) took 4 s instead of 0.2 s. Unbounded caches keep the
+ * cost flat: the selectors are a fixed set, the app's own CSS.
+ */
+function unboundSelectorCaches() {
+  type Cache = { get(k: string): unknown; set(k: string, v: unknown): unknown; has(k: string): boolean; clear(): void; size(): number };
+  type Nwsapi = Record<'matchLambdas' | 'selectLambdas' | 'matchResolvers' | 'selectResolvers', Cache | undefined>;
+  const implKey = Object.getOwnPropertySymbols(document).find((s) => s.description === 'impl');
+  if (!implKey) return;
+  const impl = (document as unknown as Record<symbol, Record<string, unknown>>)[implKey];
+  if (impl.__gtUnbound) return;
+  // Both nwsapi instances are made on first use: one by Element.matches, one by getComputedStyle with a rule to test.
+  const style = document.createElement('style');
+  style.textContent = '.gt-warm-selectors { color: red; }';
+  document.head.append(style);
+  document.body.matches('body');
+  void getComputedStyle(document.body).color;
+  style.remove();
+  for (const api of [impl._nwsapi, impl._nwsapiDontThrow] as (Nwsapi | undefined)[]) {
+    for (const name of ['matchLambdas', 'selectLambdas', 'matchResolvers', 'selectResolvers'] as const) {
+      const cache = api?.[name];
+      if (!cache) continue;
+      const map = new Map<string, unknown>();
+      cache.get = (k) => map.get(k);
+      cache.set = (k, v) => (map.set(k, v), v);
+      cache.has = (k) => map.has(k);
+      cache.clear = () => map.clear();
+      cache.size = () => map.size;
+    }
+  }
+  impl.__gtUnbound = true;
+}
+unboundSelectorCaches();
+
 /** Reports an 800x600 box shortly after observe(), like a browser's first layout. */
 class ResizeObserverStub {
   constructor(private cb: ResizeObserverCallback) {}

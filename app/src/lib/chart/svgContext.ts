@@ -26,11 +26,14 @@ interface FontParts {
   family: string;
 }
 
-/** Splits a canvas font string such as `italic 600 13px "Segoe UI", sans-serif`. */
+/**
+ * Splits a canvas font string such as `italic 600 13px "Segoe UI", sans-serif`. The family may come from a CSS custom
+ * property written over several lines (the app's font stacks are), so line breaks count as spaces.
+ */
 export function parseFont(font: string): FontParts {
-  const m = /^\s*(?:(italic|oblique)\s+)?(?:(bold|bolder|lighter|normal|\d{3})\s+)?([\d.]+)px\s+(.+?)\s*$/i.exec(font);
+  const m = /^\s*(?:(italic|oblique)\s+)?(?:(bold|bolder|lighter|normal|\d{3})\s+)?([\d.]+)px\s+([\s\S]+?)\s*$/i.exec(font);
   if (!m) return { style: 'normal', weight: 'normal', size: 12, family: 'sans-serif' };
-  return { style: m[1] ?? 'normal', weight: m[2] ?? 'normal', size: Number(m[3]), family: m[4] };
+  return { style: m[1] ?? 'normal', weight: m[2] ?? 'normal', size: Number(m[3]), family: m[4].replace(/\s+/g, ' ') };
 }
 
 type Measure = (text: string, font: string) => number;
@@ -67,6 +70,7 @@ export class SvgContext {
   private dash: number[] = [];
   private m: [number, number, number, number, number, number] = [1, 0, 0, 1, 0, 0];
   private measure: Measure;
+  private saved: { fillStyle: string; strokeStyle: string; lineWidth: number; globalAlpha: number; font: string; textAlign: CanvasTextAlign; textBaseline: CanvasTextBaseline; dash: number[]; m: [number, number, number, number, number, number] }[] = [];
 
   constructor(
     readonly width: number,
@@ -77,6 +81,18 @@ export class SvgContext {
   }
 
   // ---- state
+  /** Keeps the drawing state (styles, font, text anchors, dash, transform) for `restore`, as a canvas does. */
+  save(): void {
+    const { fillStyle, strokeStyle, lineWidth, globalAlpha, font, textAlign, textBaseline } = this;
+    this.saved.push({ fillStyle, strokeStyle, lineWidth, globalAlpha, font, textAlign, textBaseline, dash: [...this.dash], m: [...this.m] });
+  }
+  restore(): void {
+    const s = this.saved.pop();
+    if (!s) return;
+    ({ fillStyle: this.fillStyle, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth, globalAlpha: this.globalAlpha, font: this.font, textAlign: this.textAlign, textBaseline: this.textBaseline } = s);
+    this.dash = s.dash;
+    this.m = s.m;
+  }
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void {
     this.m = [a, b, c, d, e, f];
   }
@@ -169,13 +185,13 @@ export class SvgContext {
   }
 
   /** The finished document: a paper-coloured page, the chart clipped to its own area, then `after` (the caption). */
-  toSvg(paper: string, chart: { w: number; h: number }, after = ''): string {
+  toSvg(paper: string | null, chart: { w: number; h: number }, after = '', physical?: { w: string; h: string }): string {
     const w = num(this.width);
     const h = num(this.height);
     return [
       '<?xml version="1.0" encoding="UTF-8"?>',
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`,
-      `<rect width="${w}" height="${h}" fill="${escapeXml(paper)}"/>`,
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${physical?.w ?? w}" height="${physical?.h ?? h}" viewBox="0 0 ${w} ${h}">`,
+      ...(paper === null ? [] : [`<rect width="${w}" height="${h}" fill="${escapeXml(paper)}"/>`]),
       `<svg x="0" y="0" width="${num(chart.w)}" height="${num(chart.h)}" viewBox="0 0 ${num(chart.w)} ${num(chart.h)}" overflow="hidden">`,
       ...this.body,
       '</svg>',

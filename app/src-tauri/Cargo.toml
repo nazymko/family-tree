@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "Family Tree desktop shell"
-authors = ["Nazymko Andrii"]
+authors = ["Andrii Nazymko"]
 
 [lib]
 name = "gt_app_lib"
@@ -25,18 +25,25 @@ tauri-build = { version = "2.6", features = [] }
 tauri = { version = "2.12", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
-tauri-plugin-single-instance = "2"
+tauri-plugin-fs = "2"
 serde_json = { workspace = true }
 serde = { workspace = true }
 uuid = { workspace = true }
 gt-session = { path = "../../crates/gt-session" }
 gt-store = { path = "../../crates/gt-store" }
 gt-mcp = { path = "../../crates/gt-mcp" }
+gt-gazetteer = { path = "../../crates/gt-gazetteer" }
 getrandom = { workspace = true }
 reqwest = { workspace = true }
 keyring = { workspace = true }
 base64 = { workspace = true }
 image = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+rustix = { version = "1", features = ["process"] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"
 
 [dev-dependencies]
 serde_json = { workspace = true }
@@ -44,6 +51,7 @@ tauri = { version = "2.12", features = ["test"] }
 tempfile = { workspace = true }
 gt-gedcom = { path = "../../crates/gt-gedcom" }
 gt-core = { path = "../../crates/gt-core" }
+zip = { workspace = true }
 
 [lints]
 workspace = true

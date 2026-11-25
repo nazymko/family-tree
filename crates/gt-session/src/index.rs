@@ -285,6 +285,8 @@ pub struct PersonSummary {
     pub lifespan: String,
     /// See `names::birth_surname_shown`.
     pub birth_surname: Option<String>,
+    /// See `names::as_recorded_shown`.
+    pub as_recorded: Option<String>,
     pub birth: String,
     pub death: String,
     pub birth_sort: Option<i32>,
@@ -311,6 +313,7 @@ impl PersonSummary {
             living: self.living,
             private: self.private,
             birth_surname: self.birth_surname.clone(),
+            as_recorded: self.as_recorded.clone(),
             sibling_marker: self.sibling_marker,
         }
     }
@@ -384,6 +387,11 @@ fn summarize(
         for part in [&compose(n, NameOrder::GivenFirst, true), &surname_of(n)] {
             folded.push_str(&fold(part));
             folded.push(' ');
+            // A name in the old spelling ("Ѳеодоръ") is found by today's letters too.
+            for v in gt_core::orthography::modern_variants(part) {
+                folded.push_str(&fold(&v));
+                folded.push(' ');
+            }
         }
         for part in [&n.nickname, &n.patronymic, &n.call].into_iter().flatten() {
             folded.push_str(&fold(part));
@@ -411,6 +419,11 @@ fn summarize(
             None
         } else {
             crate::names::birth_surname_shown(p)
+        },
+        as_recorded: if p.sibling_marker {
+            None
+        } else {
+            crate::names::as_recorded_shown(p, order)
         },
         birth: birth
             .and_then(|e| e.date.as_ref())

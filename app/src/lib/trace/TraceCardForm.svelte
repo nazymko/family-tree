@@ -161,6 +161,11 @@
     grid-template-columns: 1fr 1fr;
     gap: var(--s-3);
   }
+  @media (max-width: 480px) {
+    .two {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
   .row,
   .links {
     display: flex;

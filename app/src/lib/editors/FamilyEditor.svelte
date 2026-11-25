@@ -15,6 +15,9 @@
   import SubEditors from './SubEditors.svelte';
   import { errMessage } from './errors';
   import { t } from '../i18n';
+  import NotesViewToggle from '../notes/NotesViewToggle.svelte';
+  import NoteShortened from '../notes/NoteShortened.svelte';
+  import { shownNote } from '../notes/notesView.svelte';
   import { eventKindLabel } from '../i18n/backend';
 
   let {
@@ -326,12 +329,14 @@
     <section aria-labelledby="{uid}-no">
       <div class="sec-head">
         <h3 id="{uid}-no">{t('person.notes')}</h3>
+        {#if notes.length > 0}<NotesViewToggle />{/if}
         <Button onclick={() => (sub = { kind: 'note' })}>{t('editor.addNote')}</Button>
       </div>
       {#each notes as n (n.id)}
         <article class="note">
           <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
-          <p class="note-text">{n.text}</p>
+          <p class="note-text">{shownNote(n).text}</p>
+          <NoteShortened note={n} />
           <div class="note-btns">
             <Button onclick={() => (sub = { kind: 'note', note: n })} aria-label={t('person.editNote', { kind: t(`noteKind.${n.kind}`) })}>{t('common.edit')}</Button>
             <Button variant="quiet" onclick={() => family && immediate({ type: 'deleteNote', target: { kind: 'family', id: family }, note: n.id })} aria-label={t('person.deleteNote', { kind: t(`noteKind.${n.kind}`) })}>{t('common.delete')}</Button>
@@ -585,6 +590,19 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: var(--s-4);
+  }
+  /* A phone: one column, and the children's cards use the whole width. */
+  @media (max-width: 700px) {
+    .rels {
+      grid-template-columns: minmax(0, 1fr);
+      grid-column: 1;
+    }
+    .children li {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .foot {
+      grid-column: 1;
+    }
   }
   .foot {
     grid-column: 1 / 3;

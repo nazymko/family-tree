@@ -56,7 +56,7 @@ impl Host for Timed {
 
 /// A tree of `PEOPLE` people, made the way the app makes them, one command each.
 fn big() -> (Arc<Timed>, Vec<Uuid>) {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::link_free_tempdir();
     let path = dir.path().join("project");
     drop(Project::create(&path).unwrap());
     let mut session = Session::open(&path, SessionClock::system()).unwrap();
@@ -164,6 +164,7 @@ fn the_first_page_of_a_log_of_ten_thousand_groups() {
                         id: *id,
                     },
                     note: NoteInput {
+                        story: None,
                         id: None,
                         kind: NoteKindDto::General,
                         text: format!("Note {i}"),

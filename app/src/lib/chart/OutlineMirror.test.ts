@@ -54,6 +54,29 @@ describe('OutlineMirror', () => {
     expect(onPick).toHaveBeenCalledWith(root, undefined);
   });
 
+  it('a_finger_opens_a_person_with_one_tap_the_mouse_still_needs_a_double_click', async () => {
+    const { onPick, root } = await setup();
+    const [first] = screen.getAllByRole('treeitem');
+    const text = first.querySelector('.text') as HTMLElement;
+    const press = (pointerType: string) => {
+      const e = new MouseEvent('pointerdown', { bubbles: true });
+      Object.defineProperty(e, 'pointerType', { value: pointerType });
+      text.dispatchEvent(e);
+    };
+    press('mouse');
+    await fireEvent.click(text);
+    expect(onPick).not.toHaveBeenCalled();
+    await fireEvent.dblClick(text);
+    expect(onPick).toHaveBeenCalledTimes(1);
+    onPick.mockClear();
+    press('touch');
+    await fireEvent.click(text);
+    expect(onPick).toHaveBeenCalledWith(root, undefined);
+    // The browser's own double-click after a double tap must not open it twice.
+    await fireEvent.dblClick(text);
+    expect(onPick).toHaveBeenCalledTimes(1);
+  });
+
   it('ahnentafel_labels_in_pedigree', async () => {
     await setup('pedigree');
     const [first] = screen.getAllByRole('treeitem');

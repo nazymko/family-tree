@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Family Tree by Nazymko Andrii",
+        "title": "Family Tree by Andrii Nazymko",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -22,13 +22,13 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: gtmedia: http://gtmedia.localhost; media-src 'self' gtmedia: http://gtmedia.localhost; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; img-src 'self' data: gtmedia: http://gtmedia.localhost; media-src 'self' gtmedia: http://gtmedia.localhost; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost"
     }
   },
   "bundle": {
     "active": true,
-    "publisher": "Nazymko Andrii",
-    "copyright": "© Nazymko Andrii",
+    "publisher": "Andrii Nazymko",
+    "copyright": "© Andrii Nazymko",
     "targets": ["msi", "nsis", "dmg", "appimage", "deb", "rpm"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.icns", "icons/icon.ico"]
   }

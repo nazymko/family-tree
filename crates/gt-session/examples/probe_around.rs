@@ -22,12 +22,16 @@ fn main() {
         .expect("open the project");
     let meta = s
         .chart_open(&ChartRequest {
+            open: None,
             kind: ChartKind::Around,
             root: ids[0],
             generations: 255,
             aunts_uncles: None,
             kin: Some(AroundKin::All),
             roots: Some(ids.clone()),
+            direction: None,
+            print: None,
+            fold: None,
         })
         .expect("open the chart");
     println!(

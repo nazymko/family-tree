@@ -41,6 +41,8 @@ const sources: RustSource[] = [...walk(join(repo, 'crates'), []), ...walk(join(r
  */
 const EXCLUDED_FILES: Record<string, string> = {
   'crates/gt-session/src/agent.rs': 'answers only MCP agents (the sentences tell an agent what to do next); agents are served in English',
+  'crates/gt-session/src/agent/': 'the parts of agent.rs: answers only MCP agents, in English',
+  'crates/gt-session/src/ops/verified.rs': 'verified corrections are called only from agent/verified.rs (MCP agents), in English',
   'crates/gt-mcp/': 'the MCP server talks to agents, in English',
   'crates/gt-cli/': 'the command line tool prints for a terminal, in English',
   'app/src-tauri/src/agent_access.rs': 'agent-access settings: translated through the `agent.err*` entries and checked by agent-errors.test.ts',
@@ -60,7 +62,7 @@ const EXCLUDED_TEXT: Record<string, string> = {
   'project schema {found} is newer than supported {supported}': 'replaced by `be.newerSchema` before it leaves the session',
   'No secure random numbers are available.': 'agent access only; `agent.errNoRandom`',
   'only sound recordings can be attached to a note': 'worded by `failureLine` in Dropzone.svelte as `voice.onlySoundOnNote` (it adds the file name)',
-  'sound recordings can only be attached to a note': 'worded by `failureLine` in Dropzone.svelte as `voice.soundOnlyOnNote`',
+  'sound recordings can only be attached to a note or a source': 'worded by `failureLine` in Dropzone.svelte as `voice.soundOnlyOnNote`',
 };
 
 /** Messages passed to a helper as a variable, so no text can be read from the call. Reviewed one by one. */
@@ -74,6 +76,9 @@ const DYNAMIC_OK: Record<string, string> = {
   'app/src-tauri/src/commands.rs|msg.to_string()': 'the helper `internal`: an `Internal` error is a bug report, not advice',
   'app/src-tauri/src/commands.rs|m': 'the closure `invalid` of save_picture_impl itself',
   'app/src-tauri/src/settings_file.rs|e.to_string()': 'agent-access settings, see above',
+  'crates/gt-session/src/map_layers.rs|f.reason.clone()': 'the reason of an `AttachFailure` from `prepare_attach`: the reasons a file was not attached, worded below',
+  'crates/gt-session/src/ozi.rs|msg': 'the helper `bad` itself',
+  'crates/gt-session/src/place_events.rs|m': 'the helper `invalid` itself',
 };
 
 const { messages, dynamic } = extractMessages(sources, /gt-session\/src\/error\.rs$/);
@@ -110,8 +115,8 @@ function variants(text: string): { text: string; markers: string[]; shape: strin
   return whats(text).map((what) => ({ ...filled(text, what), shape: shape(text.replace('{what}', what)), what }));
 }
 
-/** Words that stay Latin in Ukrainian text: names of the app and of file formats, and fixed table names. */
-const KEEP = /\b(Gene|Family|Tree|tree\.db|GEDCOM|GEDZIP|Gramps|zip|gzip|XML|UTF|JPG|JPEG|PNG|png|svg|SVG|WebP|TIFF|GIF|PDF|Anthropic|API|Persons|Events|EventDetails|gedcom\.ged|atdb|db)\b/g;
+/** Words that stay Latin in Ukrainian text: names of the app and of file formats, and fixed table names; OziExplorer and the .map file lines (MMPXY, MMPLL) of its map files. */
+const KEEP = /\b(Gene|Family|Tree|tree\.db|GEDCOM|GEDZIP|Gramps|zip|gzip|XML|UTF|JPG|JPEG|PNG|png|svg|SVG|WebP|TIFF|GIF|PDF|Anthropic|API|GeoNames|Persons|Events|EventDetails|gedcom\.ged|atdb|db|OziExplorer|map|MMPXY|MMPLL)\b/g;
 const latinLeft = (text: string, markers: string[]) => {
   let rest = text;
   for (const m of markers) rest = rest.replaceAll(m, '');

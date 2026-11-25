@@ -17,7 +17,35 @@ macro_rules! wire_enum {
 wire_enum!(DayOrder, "lowercase", { Dmy, Mdy });
 wire_enum!(SexKind, "lowercase", { Male, Female, Intersex, Unknown, Other });
 wire_enum!(Theme, "lowercase", { Light, Dark, System });
-wire_enum!(Language, "lowercase", { En, Uk, System });
+/// Interface language: English and Ukrainian are complete, the others are partial catalogues that fall back to
+/// English key by key (see docs/i18n.md). `system` follows the OS language. The codes are the app's language codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    En,
+    Uk,
+    #[serde(rename = "zh-Hans")]
+    ZhHans,
+    Hi,
+    Es,
+    Ar,
+    Fr,
+    Bn,
+    Pt,
+    Id,
+    Ur,
+    De,
+    Ja,
+    Mr,
+    Vi,
+    Te,
+    Ha,
+    Tr,
+    Sw,
+    Tl,
+    Ta,
+    System,
+}
 // The one-switch setting of the first versions: `reversed` put the ancestors at the bottom (pedigree: on the left).
 // Only read from an old settings file; see `ChartDirections::from_legacy`.
 wire_enum!(TreeDirection, "lowercase", { Normal, Reversed });
@@ -26,9 +54,21 @@ wire_enum!(ChartDirection, "lowercase", { Top, Bottom, Left, Right });
 wire_enum!(DateStatus, "lowercase", { Ok, Phrase, Unparsed });
 wire_enum!(HitKindDto, "lowercase", { Person, Place, Source, Note });
 wire_enum!(LivingOverrideDto, "lowercase", { Living, Deceased });
-wire_enum!(NameKindDto, "lowercase", {
-    Birth, Married, Aka, Religious, Nickname, Immigrant, Professional, Other
-});
+/// The kind of a name. `as_recorded` is the name exactly as a record writes it (old spelling).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum NameKindDto {
+    Birth,
+    Married,
+    Aka,
+    Religious,
+    Nickname,
+    Immigrant,
+    Professional,
+    #[serde(rename = "as_recorded")]
+    AsRecorded,
+    Other,
+}
 wire_enum!(NoteKindDto, "lowercase", {
     General, Story, Research, Transcription, Conclusion, Other
 });
@@ -76,6 +116,11 @@ pub struct PersonRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub birth_surname: Option<String>,
+    /// The person's name as a record writes it (the earliest dated `as_recorded` name), for the "as recorded"
+    /// display mode (see `names::as_recorded_shown`). Absent when there is none or in far-out chart nodes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub as_recorded: Option<String>,
     /// The "more brothers and sisters, unnamed" entry: it has no name or dates and the app draws
     /// its label.
     pub sibling_marker: bool,
@@ -174,6 +219,35 @@ pub struct ParticipantDto {
     pub role: String,
 }
 
+/// Someone who stood godparent at a baptism or christening: a person in the tree, or a name as
+/// the record writes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GodparentDto {
+    pub id: Uuid,
+    /// `godfather`, `godmother`, or `godparent` (not said which).
+    pub role: String,
+    /// Set when the godparent is a person in the tree.
+    pub person: Option<PersonRef>,
+    /// Set when the godparent is only a name.
+    pub name: Option<String>,
+    pub note: Option<String>,
+}
+
+/// Someone this person stood godparent for: the baptism or christening, and their role at it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GodchildDto {
+    pub event: Uuid,
+    /// `baptism` or `christening` (or any other kind that had godparents).
+    pub kind: String,
+    pub date: Option<DateDto>,
+    /// The godchild.
+    pub person: PersonRef,
+    /// `godfather`, `godmother` or `godparent`.
+    pub role: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct EventDto {
@@ -191,6 +265,10 @@ pub struct EventDto {
     pub private: bool,
     pub preferred: bool,
     pub participants: Vec<ParticipantDto>,
+    /// Who stood godparent, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<GodparentDto>>", optional)]
+    pub godparents: Vec<GodparentDto>,
     pub citations: Vec<CitationDto>,
     pub notes: Vec<NoteDto>,
     pub media: Vec<MediaLinkDto>,
@@ -205,7 +283,17 @@ pub struct SourceDto {
     pub publication: Option<String>,
     pub abbreviation: Option<String>,
     pub text: Option<String>,
+    /// The kind id (`metric_book`, `other:<label>`).
+    pub kind: Option<String>,
+    pub issuer: Option<String>,
+    pub doc_number: Option<String>,
+    pub doc_date: Option<DateDto>,
+    /// The first repository of the source (an archive or office) and the call number in it.
+    pub archive: Option<String>,
+    pub call_number: Option<String>,
     pub citation_count: u32,
+    /// Pictures of the source itself, such as a photographed document.
+    pub media: Vec<MediaLinkDto>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -228,6 +316,10 @@ pub struct CitationDto {
     pub quality: Option<u8>,
     #[ts(inline)]
     pub evidence: EvidenceDto,
+    /// Clips of recordings (and any other media) linked to the citation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<MediaLinkDto>>", optional)]
+    pub media: Vec<MediaLinkDto>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -236,6 +328,8 @@ pub struct NoteDto {
     pub id: Uuid,
     pub kind: NoteKindDto,
     pub text: String,
+    /// The readable retelling of `text`, when the note has one.
+    pub story: Option<String>,
     pub shared: bool,
     pub lang: Option<String>,
     /// Voice samples (and any other media) attached to the note.
@@ -251,11 +345,60 @@ pub struct MediaDto {
     pub original_name: Option<String>,
     pub date: Option<DateDto>,
     pub description: Option<String>,
+    /// Where it was made, when someone said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub place: Option<PlaceOption>,
     /// The file is in the project folder.
     pub resolved: bool,
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub sha256: Option<String>,
+    /// What is written on the picture, in reading order.
+    pub transcription: Vec<TextRegionDto>,
+    /// Degrees clockwise the picture is shown turned, on top of its EXIF orientation. The
+    /// transcription's areas are on the picture before this turn.
+    #[ts(type = "0 | 90 | 180 | 270")]
+    pub rotation: u16,
+    /// A sound recording's length in milliseconds, when its headers tell it (absent otherwise).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub duration_ms: Option<u64>,
+    /// Web pages the picture came from: addresses in its description and in the sources that hold it
+    /// (at most three, http or https only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub web_links: Vec<String>,
+    /// When the same page is kept in several files (copies in other quality): every version, the
+    /// group's primary first and this file among them. The versions carry no list of their own.
+    /// Absent for a file with no other versions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<MediaDto>>", optional)]
+    pub versions: Vec<MediaDto>,
+}
+
+/// One piece of a picture's transcription.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TextRegionDto {
+    pub id: Uuid,
+    /// Where it is written: fractions 0..1 of the picture as displayed; null for text with no place.
+    pub area: Option<crate::command::TextAreaInput>,
+    /// Degrees clockwise the writing is turned.
+    #[ts(type = "0 | 90 | 180 | 270")]
+    pub rotation: u16,
+    pub text: String,
+    /// On a recording: when in it this piece is said, in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub start_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub end_ms: Option<u64>,
+    /// On a recording: who says it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub speaker: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -263,6 +406,22 @@ pub struct MediaDto {
 pub struct MediaLinkDto {
     pub media: MediaDto,
     pub primary: bool,
+    /// A stretch of the recording: the link is to that stretch only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub clip: Option<ClipDto>,
+}
+
+/// A stretch of a sound recording, in milliseconds from its start.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipDto {
+    pub id: Uuid,
+    #[ts(type = "number")]
+    pub start_ms: u64,
+    #[ts(type = "number")]
+    pub end_ms: u64,
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -326,6 +485,10 @@ pub struct PersonDetail {
     pub notes: Vec<NoteDto>,
     pub media: Vec<MediaLinkDto>,
     pub citations: Vec<CitationDto>,
+    /// The people this person stood godparent for (linked godparents only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<GodchildDto>>", optional)]
+    pub godchildren: Vec<GodchildDto>,
     #[ts(type = "number")]
     pub changed: i64,
 }
@@ -373,6 +536,9 @@ pub struct Settings {
     pub living_max_age: u32,
     /// Project setting.
     pub home_person: Option<Uuid>,
+    /// Project setting: the name the user gave the tree. It heads the main (largest) family
+    /// block of the whole-tree chart. Empty means automatic (the block's surname).
+    pub tree_name: String,
 }
 
 impl Default for Settings {
@@ -386,6 +552,7 @@ impl Default for Settings {
             chart_directions: ChartDirections::default(),
             living_max_age: 100,
             home_person: None,
+            tree_name: String::new(),
         }
     }
 }
@@ -477,9 +644,27 @@ wire_enum!(RoleKind, "snake_case", {
 // What the chart built around a person shows besides their own line: nothing, their brothers and sisters, or
 // all relatives (the brothers and sisters of every ancestor too, with all their descendants).
 wire_enum!(AroundKin, "lowercase", { Line, Siblings, All });
+// How much of an opened side branch the chart built around a person shows: the opened people with their
+// partners and children, or with all their descendants.
+wire_enum!(BranchDepth, "lowercase", { Children, All });
 wire_enum!(OutlineGroupKind, "snake_case", { Parents, Siblings, Partners, Children, AuntsUncles });
 wire_enum!(ChartKind, "lowercase", { Pedigree, Descendants, Relatives, Around, Whole });
 wire_enum!(EdgeKindDto, "lowercase", { Parent, Partner, Dup, Sibling });
+
+/// One opening on the chart built around one person: the brothers and sisters and/or the children of one person.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenBranch {
+    pub person: Uuid,
+    /// The person's brothers and sisters (with their partners).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub siblings: Option<BranchDepth>,
+    /// The person's children (with their partners); ignored for people whose children the chart already shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub children: Option<BranchDepth>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -500,6 +685,25 @@ pub struct ChartRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub roots: Option<Vec<Uuid>>,
+    /// Chart built around ONE person only: side branches opened per person. Absent or empty: the chart as before.
+    /// Ignored when the chart is built around several people.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub open: Option<Vec<OpenBranch>>,
+    /// Lays the chart out in this direction instead of the one in the settings (a print picks the best fit; the
+    /// screen setting stays as it is).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub direction: Option<ChartDirection>,
+    /// A chart for a print: compact cards, and it stays out of the two-chart limit (close it when done).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub print: Option<bool>,
+    /// Chart built around people only: lay long runs of people with nothing below them in several short columns.
+    /// Absent or false: as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fold: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
@@ -575,6 +779,18 @@ pub struct ChartNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub kinship: Option<Kinship>,
+    /// Chart built around one person: this person's brothers and sisters can be opened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub can_open_siblings: Option<bool>,
+    /// Chart built around one person: this person's children can be opened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub can_open_children: Option<bool>,
+    /// Something of this person is opened (brothers and sisters, or children).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub opened: Option<bool>,
 }
 
 wire_enum!(
@@ -657,6 +873,9 @@ pub struct WholeBlockDto {
     pub title: String,
     /// The family's surname; empty when it has none and for the unconnected people.
     pub surname: String,
+    /// The tree name the user chose, when this is the main (largest) family block and a name
+    /// is set; empty otherwise. The app words the heading from it instead of `surname`.
+    pub custom_name: String,
     pub people: u32,
     /// The block of people who have no family link at all.
     pub unconnected: bool,
@@ -739,6 +958,10 @@ pub struct FamilyDto {
     pub events: Vec<EventDto>,
     pub children: Vec<FamilyChildDto>,
     pub notes: Vec<NoteDto>,
+    /// Clips of recordings (and any other media) linked to the family.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<MediaLinkDto>>", optional)]
+    pub media: Vec<MediaLinkDto>,
 }
 
 /// One entry of the recent-projects list (`Api.recentProjects`).

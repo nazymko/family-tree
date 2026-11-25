@@ -85,15 +85,20 @@ describe('add a relative from a chart', () => {
       'Save the whole chart as a picture…',
       "Save the selected person's branch as a picture…",
       'Save what is on the screen as a picture…',
+      'Save for A3 print…',
+      'Save for A3 print, landscape…',
+      'Save for A3 print, portrait…',
+      'Print on A3…',
     ]);
-    expect(menu().querySelectorAll('hr')).toHaveLength(1);
+    // Rules: before the save items, the direction choice, the title block, the background choice and the names choice.
+    expect(menu().querySelectorAll('hr')).toHaveLength(5);
   });
 
   it('empty_space_shows_only_the_save_items', async () => {
     const s = await setupChart();
     await fireEvent.contextMenu(s.canvas, { button: 2, clientX: 5, clientY: 5 });
     await waitFor(() => expect(menu()).toBeTruthy());
-    expect(labels(menu())).toHaveLength(3);
+    expect(labels(menu())).toHaveLength(7);
     expect(screen.queryByRole('menuitem', { name: /Add mother/ })).toBeNull();
   });
 

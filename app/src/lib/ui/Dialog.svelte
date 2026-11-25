@@ -10,6 +10,8 @@
     children,
     footer,
     dismissOnScrim = true,
+    width = '40rem',
+    fill = false,
   }: {
     open: boolean;
     title: string;
@@ -18,6 +20,10 @@
     footer?: Snippet;
     /** False when a stray click outside must not close the dialog (Esc and the close button still do). */
     dismissOnScrim?: boolean;
+    /** The widest the dialog grows on a wide window. */
+    width?: string;
+    /** The dialog takes the whole height it may have and its body does not scroll: the content lays itself out and scrolls its own list. */
+    fill?: boolean;
   } = $props();
 
   const uid = $props.id();
@@ -69,10 +75,12 @@
     <div
       bind:this={panel}
       class="dialog"
+      class:fill
       role="dialog"
       aria-modal="true"
       aria-labelledby="{uid}-title"
       tabindex="-1"
+      style:--dialog-w={width}
       {onkeydown}
     >
       <header>
@@ -99,7 +107,7 @@
   .dialog {
     display: flex;
     flex-direction: column;
-    width: min(40rem, 100%);
+    width: min(var(--dialog-w, 40rem), 100%);
     max-height: calc(100dvh - 2 * var(--s-6));
     background: var(--paper-1);
     color: var(--ink-0);
@@ -122,6 +130,16 @@
     display: grid;
     gap: var(--s-5);
   }
+  .dialog.fill {
+    height: calc(100dvh - 2 * var(--s-6));
+  }
+  .dialog.fill .body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
   footer {
     display: flex;
     justify-content: flex-end;
@@ -130,6 +148,34 @@
     border-top: 1px solid var(--rule);
     background: var(--paper-0);
     border-radius: 0 0 var(--r-2) var(--r-2);
+  }
+  /* A phone (either way up): the dialog is a full-screen sheet, its footer buttons wrap instead of running off. */
+  @media (pointer: coarse) and ((max-width: 940px) or (max-height: 500px)) {
+    .scrim {
+      padding: 0;
+      place-items: stretch;
+    }
+    .dialog {
+      width: 100%;
+      height: 100%;
+      max-height: 100dvh;
+      border: 0;
+      border-radius: 0;
+    }
+    .body {
+      flex: 1;
+      min-height: 0;
+      align-content: start;
+      padding: var(--s-4);
+    }
+    header {
+      padding-inline-start: var(--s-4);
+    }
+    footer {
+      flex-wrap: wrap;
+      padding: var(--s-3) var(--s-4);
+      border-radius: 0;
+    }
   }
   @keyframes pop {
     from {

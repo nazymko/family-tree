@@ -880,6 +880,7 @@ fn events(
                 cause: None,
                 negative: false,
                 assertion: assertion(false),
+                godparents: Vec::new(),
                 participants,
             },
         );
@@ -926,6 +927,10 @@ fn sources_and_media(
                 abbreviation: None,
                 text: (!text.is_empty()).then(|| text.join("\n")),
                 repositories: vec![],
+                kind: None,
+                issuer: None,
+                doc_number: None,
+                doc_date: None,
             },
         );
     }
@@ -1028,6 +1033,7 @@ fn sources_and_media(
             media,
             region: None,
             primary: ismain == Some(1),
+            clip: None,
         };
         match b.common_of(t, rec) {
             Some(c) => c.media.push(link),

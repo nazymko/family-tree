@@ -225,6 +225,39 @@
     "dateRaw": "abt 1878"
   },
   {
+    "type": "setMediaTranscription",
+    "id": "018f3a6e-0000-7000-8000-000000000009",
+    "regions": [
+      { "id": "018f3a6e-0000-7000-8000-00000000000a", "area": { "x": 0.1, "y": 0.2, "w": 0.5, "h": 0.1 }, "rotation": 90, "text": "Dear Olha," },
+      { "text": "Signed below" }
+    ]
+  },
+  { "type": "setMediaRotation", "id": "018f3a6e-0000-7000-8000-000000000009", "rotation": 270 },
+  { "type": "groupMediaVersions", "primary": "018f3a6e-0000-7000-8000-000000000009", "others": ["018f3a6e-0000-7000-8000-000000000008"] },
+  { "type": "ungroupMediaVersion", "media": "018f3a6e-0000-7000-8000-000000000008", "newPrimary": "018f3a6e-0000-7000-8000-000000000007" },
+  {
+    "type": "addAudioClip",
+    "target": { "kind": "note", "id": "018f3a6e-0000-7000-8000-000000000005" },
+    "media": "018f3a6e-0000-7000-8000-000000000009",
+    "startMs": 65000,
+    "endMs": 102500,
+    "label": "How the house was built"
+  },
+  {
+    "type": "updateAudioClip",
+    "target": { "kind": "note", "id": "018f3a6e-0000-7000-8000-000000000005" },
+    "clip": "018f3a6e-0000-7000-8000-000000000008",
+    "startMs": 64000,
+    "endMs": 103000,
+    "label": "The house",
+    "moveTo": { "kind": "event", "id": "018f3a6e-0000-7000-8000-000000000006" }
+  },
+  {
+    "type": "deleteAudioClip",
+    "target": { "kind": "person", "id": "018f3a6e-0000-7000-8000-000000000001" },
+    "clip": "018f3a6e-0000-7000-8000-000000000008"
+  },
+  {
     "type": "linkExisting",
     "anchor": "018f3a6e-0000-7000-8000-000000000001",
     "relation": "mother",
@@ -265,9 +298,53 @@
     "family": "018f3a6e-0000-7000-8000-000000000003"
   },
   {
+    "type": "createPlace",
+    "text": "Zelenivka, Testova oblast"
+  },
+  {
+    "type": "setPlaceCoordinates",
+    "place": "018f3a6e-0000-7000-8000-000000000007",
+    "latE6": 50123456,
+    "lonE6": 30654321
+  },
+  {
+    "type": "setMapLayer",
+    "media": "018f3a6e-0000-7000-8000-000000000009",
+    "title": "Sheet 30-13",
+    "layer": {
+      "series": "Three-verst map",
+      "year": "1865",
+      "source": "https://example.org/sheet-30-13",
+      "corners": [
+        { "latE6": 50600000, "lonE6": 30000000 },
+        { "latE6": 50600000, "lonE6": 31200000 },
+        { "latE6": 49900000, "lonE6": 31200000 },
+        { "latE6": 49900000, "lonE6": 30000000 }
+      ],
+      "opacity": 60,
+      "visible": true
+    }
+  },
+  { "type": "reorderMapLayers", "order": ["018f3a6e-0000-7000-8000-000000000009", "018f3a6e-0000-7000-8000-000000000008"] },
+  { "type": "setMapLayersVisible", "shown": ["018f3a6e-0000-7000-8000-000000000009"], "hidden": ["018f3a6e-0000-7000-8000-000000000008"] },
+  {
     "type": "addNumber",
     "person": "018f3a6e-0000-7000-8000-000000000001",
     "sourceFile": "recording2.txt",
     "number": "12"
+  },
+  {
+    "type": "addGodparent",
+    "event": "018f3a6e-0000-7000-8000-000000000004",
+    "godparent": {
+      "name": "Ivan Petrovych Koval, a peasant",
+      "role": "godfather",
+      "note": "of Ivanivka"
+    }
+  },
+  {
+    "type": "removeGodparent",
+    "event": "018f3a6e-0000-7000-8000-000000000004",
+    "godparent": "018f3a6e-0000-7000-8000-000000000008"
   }
 ]

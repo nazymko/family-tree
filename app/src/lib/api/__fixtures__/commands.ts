@@ -45,6 +45,25 @@ export const commandFixtureMap = {
   deleteMedia: { type: 'deleteMedia', id: `${ID}9` },
   setPrimaryMedia: { type: 'setPrimaryMedia', person: `${ID}1`, media: `${ID}9` },
   updateMedia: { type: 'updateMedia', id: `${ID}9`, title: 'Wedding photograph', description: 'Outside the church', dateRaw: 'abt 1878' },
+  setMediaTranscription: {
+    type: 'setMediaTranscription',
+    id: `${ID}9`,
+    regions: [{ id: `${ID}a`, area: { x: 0.1, y: 0.2, w: 0.5, h: 0.1 }, rotation: 90, text: 'Dear Olha,' }, { text: 'Signed below' }],
+  },
+  setMediaRotation: { type: 'setMediaRotation', id: `${ID}9`, rotation: 270 },
+  groupMediaVersions: { type: 'groupMediaVersions', primary: `${ID}9`, others: [`${ID}8`] },
+  ungroupMediaVersion: { type: 'ungroupMediaVersion', media: `${ID}8`, newPrimary: `${ID}7` },
+  addAudioClip: { type: 'addAudioClip', target: { kind: 'note', id: `${ID}5` }, media: `${ID}9`, startMs: 65000, endMs: 102500, label: 'How the house was built' },
+  updateAudioClip: {
+    type: 'updateAudioClip',
+    target: { kind: 'note', id: `${ID}5` },
+    clip: `${ID}8`,
+    startMs: 64000,
+    endMs: 103000,
+    label: 'The house',
+    moveTo: { kind: 'event', id: `${ID}6` },
+  },
+  deleteAudioClip: { type: 'deleteAudioClip', target: { kind: 'person', id: `${ID}1` }, clip: `${ID}8` },
   linkExisting: { type: 'linkExisting', anchor: `${ID}1`, relation: 'mother', person: `${ID}3`, family: `${ID}4`, newParentSet: false },
   importDraft: {
     type: 'importDraft',
@@ -56,7 +75,31 @@ export const commandFixtureMap = {
     attachPicture: true,
   },
   addSiblingMarker: { type: 'addSiblingMarker', family: `${ID}3` },
+  createPlace: { type: 'createPlace', text: 'Zelenivka, Testova oblast' },
+  setPlaceCoordinates: { type: 'setPlaceCoordinates', place: `${ID}7`, latE6: 50123456, lonE6: 30654321 },
+  setMapLayer: {
+    type: 'setMapLayer',
+    media: `${ID}9`,
+    title: 'Sheet 30-13',
+    layer: {
+      series: 'Three-verst map',
+      year: '1865',
+      source: 'https://example.org/sheet-30-13',
+      corners: [
+        { latE6: 50600000, lonE6: 30000000 },
+        { latE6: 50600000, lonE6: 31200000 },
+        { latE6: 49900000, lonE6: 31200000 },
+        { latE6: 49900000, lonE6: 30000000 },
+      ],
+      opacity: 60,
+      visible: true,
+    },
+  },
+  reorderMapLayers: { type: 'reorderMapLayers', order: [`${ID}9`, `${ID}8`] },
+  setMapLayersVisible: { type: 'setMapLayersVisible', shown: [`${ID}9`], hidden: [`${ID}8`] },
   addNumber: { type: 'addNumber', person: `${ID}1`, sourceFile: 'recording2.txt', number: '12' },
+  addGodparent: { type: 'addGodparent', event: `${ID}4`, godparent: { name: 'Ivan Petrovych Koval, a peasant', role: 'godfather', note: 'of Ivanivka' } },
+  removeGodparent: { type: 'removeGodparent', event: `${ID}4`, godparent: `${ID}8` },
 } satisfies { [K in EditCommand['type']]: Extract<EditCommand, { type: K }> };
 
 export const commandFixtures: EditCommand[] = Object.values(commandFixtureMap) as EditCommand[];

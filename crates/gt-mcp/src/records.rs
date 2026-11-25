@@ -8,6 +8,7 @@ use gt_core::model::{
     AGENT_NUMBER_SCHEME, Assertion, ChildLink, Citation, Common, Event, EventKind, Evidence,
     ExtIdKind, ExternalId, Family, Media, MediaLink, Name, Note, NoteKind, Participant,
     ParticipantRef, Person, Place, PlaceName, Proof, RepoRef, Repository, Role, Source, UnionKind,
+    transcription_text,
 };
 use gt_session::dates::date_dto;
 use gt_session::person_detail::{event_kind_id, event_label, is_fact, rel_id, union_id};
@@ -61,12 +62,29 @@ fn media_link_fields(link: &MediaLink) -> Fields {
         media,
         region,
         primary,
+        clip,
     } = link;
-    fields_of(json!({"media": media, "region": region, "primary": primary}))
+    let mut out = fields_of(json!({"media": media, "region": region, "primary": primary}));
+    if let Some(c) = clip {
+        out.insert("clip".into(), clip_json(c));
+    }
+    out
+}
+
+/// A clip of a recording: its id, times in milliseconds and as "m:ss", and its label.
+pub(crate) fn clip_json(c: &gt_core::model::Clip) -> Value {
+    json!({
+        "id": c.id,
+        "startMs": c.start_ms,
+        "endMs": c.end_ms,
+        "start": gt_core::time::format_ms(c.start_ms),
+        "end": gt_core::time::format_ms(c.end_ms),
+        "label": c.label,
+    })
 }
 
 /// What a linked row says about its record: links by id, and nothing empty.
-fn common_by_id(common: &Common) -> Fields {
+fn common_by_id(s: &Session, common: &Common) -> Fields {
     let Common {
         id,
         private,
@@ -85,6 +103,7 @@ fn common_by_id(common: &Common) -> Fields {
         "citationIds": citations,
         "noteIds": notes,
         "mediaLinks": links,
+        "audioClips": clip_rows(s, media),
         "numbers": numbers(ext_ids),
         "unknown": unknown,
     }));
@@ -111,9 +130,25 @@ fn common_resolved(s: &Session, common: &Common) -> Fields {
         "citations": citation_rows(s, citations),
         "notes": note_rows(s, notes),
         "media": media_rows(s, media),
+        "audioClips": clip_rows(s, media),
         "numbers": numbers(ext_ids),
         "unknown": unknown,
     }))
+}
+
+/// The clips of recordings linked to a record: each stretch, and the recording it is cut from.
+fn clip_rows(s: &Session, links: &[MediaLink]) -> Vec<Value> {
+    links
+        .iter()
+        .filter_map(|l| {
+            let c = l.clip.as_ref()?;
+            let m = s.tree().media.get(&l.media)?;
+            let mut row = clip_json(c);
+            row["media"] = json!(l.media);
+            row["recording"] = json!(m.title.as_ref().or(m.original_name.as_ref()));
+            Some(row)
+        })
+        .collect()
 }
 
 fn extend(mut base: Fields, more: Fields) -> Value {
@@ -151,6 +186,7 @@ fn voice_samples(s: &Session, common: &Common) -> Vec<Value> {
     common
         .media
         .iter()
+        .filter(|link| link.clip.is_none())
         .filter_map(|link| s.tree().media.get(&link.media))
         .filter(|m| s.media_is_sound(m.common.id))
         .map(|m| {
@@ -161,7 +197,7 @@ fn voice_samples(s: &Session, common: &Common) -> Vec<Value> {
                 "originalName": m.original_name,
                 "mime": m.mime,
                 "sizeBytes": file.and_then(|f| std::fs::metadata(f).ok()).map(|f| f.len()),
-                "resolved": s.media_dtos(&[MediaLink { media: m.common.id, region: None, primary: false }])
+                "resolved": s.media_dtos(&[MediaLink { media: m.common.id, region: None, primary: false, clip: None,  }])
                     .first()
                     .is_some_and(|d| d.media.resolved),
             })
@@ -177,6 +213,7 @@ fn note_fields(s: &Session, note: &Note) -> Fields {
         text,
         lang,
         shared,
+        story,
     } = note;
     let (kind, kind_text) = note_kind(kind);
     let mut out = fields_of(json!({
@@ -184,6 +221,7 @@ fn note_fields(s: &Session, note: &Note) -> Fields {
         "kindText": kind_text,
         "text": text,
         "textLength": text.chars().count(),
+        "story": story,
         "lang": lang,
         "shared": shared,
     }));
@@ -225,7 +263,7 @@ pub(crate) fn cut_text(fields: &mut Fields, field: &str, what: &str, tool: &str,
 pub(crate) fn note_row(s: &Session, note: &Note) -> Value {
     let mut fields = note_fields(s, note);
     cut_long_text(&mut fields, "text", "note", "get_note", note.common.id);
-    extend(common_by_id(&note.common), fields)
+    extend(common_by_id(s, &note.common), fields)
 }
 
 /// A note read by id.
@@ -241,7 +279,7 @@ pub(crate) fn note_list_row(s: &Session, note: &Note) -> Value {
         "text".into(),
         json!(note.text.chars().take(PREVIEW_CHARS).collect::<String>()),
     );
-    extend(common_by_id(&note.common), fields)
+    extend(common_by_id(s, &note.common), fields)
 }
 
 fn note_rows(s: &Session, ids: &[Uuid]) -> Vec<Value> {
@@ -259,6 +297,10 @@ fn source_fields(s: &Session, source: &Source) -> Fields {
         abbreviation,
         text,
         repositories,
+        kind,
+        issuer,
+        doc_number,
+        doc_date,
     } = source;
     let refs: Vec<Value> = repositories
         .iter()
@@ -279,6 +321,10 @@ fn source_fields(s: &Session, source: &Source) -> Fields {
         "publication": publication,
         "abbreviation": abbreviation,
         "textLength": text.as_ref().map(|t| t.chars().count()),
+        "kind": kind.as_ref().map(|k| k.id()),
+        "issuer": issuer,
+        "docNumber": doc_number,
+        "docDate": doc_date.as_ref().map(|d| d.display()),
         "repositories": refs,
         "citationCount": citation_count,
     }))
@@ -286,7 +332,7 @@ fn source_fields(s: &Session, source: &Source) -> Fields {
 
 /// A source without its text, which can be as long as a whole transcript. `get_source` has it.
 pub(crate) fn source_row(s: &Session, source: &Source) -> Value {
-    extend(common_by_id(&source.common), source_fields(s, source))
+    extend(common_by_id(s, &source.common), source_fields(s, source))
 }
 
 /// A source read by id, with its text.
@@ -329,7 +375,7 @@ pub(crate) fn citation_row(s: &Session, citation: &Citation) -> Value {
     let mut fields = citation_fields(s, citation);
     let id = citation.common.id;
     cut_long_text(&mut fields, "text", "citation", "get_citation", id);
-    extend(common_by_id(&citation.common), fields)
+    extend(common_by_id(s, &citation.common), fields)
 }
 
 /// A citation read by id.
@@ -357,11 +403,33 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         date,
         description,
         sha256,
+        transcription,
+        rotation: _,
+        place,
+        version_of: _,
+        map_layer,
     } = media;
+    // An old map on the app's Map: what it is and where it lies (list_map_layers lists them all).
+    let on_map = map_layer.as_ref().map(|l| {
+        let deg = |v: i32| f64::from(v) / 1e6;
+        json!({
+            "series": l.series,
+            "year": l.year,
+            "source": l.source,
+            "corners": l.corners.map(|c| c.iter().map(|p| json!({"lat": deg(p.lat_e6), "lon": deg(p.lon_e6)})).collect::<Vec<_>>()),
+            "opacity": l.opacity,
+            "visible": l.visible,
+        })
+    });
+    let rotation = media.shown_rotation();
+    // The same page in other files: the group's primary first. Absent with no other versions.
+    let group = s.tree().version_group(common.id);
+    let versions = (group.len() > 1).then_some(&group);
     let link = MediaLink {
         media: common.id,
         region: None,
         primary: false,
+        clip: None,
     };
     let file = s.media_dtos(&[link]).pop().map(|dto| dto.media);
     fields_of(json!({
@@ -371,21 +439,85 @@ fn media_fields(s: &Session, media: &Media) -> Fields {
         "title": title,
         "date": date.as_ref().map(date_dto),
         "description": description,
+        "place": place.and_then(|p| s.place_option(p)),
         "sha256": sha256,
         "resolved": file.as_ref().is_some_and(|f| f.resolved),
         "width": file.as_ref().and_then(|f| f.width),
         "height": file.as_ref().and_then(|f| f.height),
+        // A recording's length, read from its headers; absent when it cannot be told.
+        "durationMs": file.as_ref().and_then(|f| f.duration_ms),
+        "duration": file.as_ref().and_then(|f| f.duration_ms).map(gt_core::time::format_ms),
+        "transcriptionParts": transcription.len(),
+        // How the app shows the picture, clockwise on top of EXIF; the areas are before it.
+        "rotation": rotation,
+        "versionPrimary": versions.map(|g| g[0]),
+        "versions": versions,
+        "mapLayer": on_map,
     }))
 }
 
-/// A media record as a row in a list.
+/// How much of a transcription a row in a list shows; get_media gives all of it.
+const TRANSCRIPT_PREVIEW_CHARS: usize = 300;
+
+/// A media record as a row in a list: how many pieces of transcription it has and the start of
+/// its full text.
 pub(crate) fn media_row(s: &Session, media: &Media) -> Value {
-    extend(common_by_id(&media.common), media_fields(s, media))
+    let mut fields = media_fields(s, media);
+    let text = transcription_text(&media.transcription);
+    if !text.is_empty() {
+        let start: String = text.chars().take(TRANSCRIPT_PREVIEW_CHARS).collect();
+        if start.len() < text.len() {
+            fields.insert("fullTextTruncated".into(), json!(true));
+            fields.insert(
+                "fullTextHint".into(),
+                json!(format!(
+                    "Only the start. get_media, id {}, gives all of it.",
+                    media.common.id
+                )),
+            );
+        }
+        fields.insert("fullText".into(), json!(start));
+    }
+    extend(common_by_id(s, &media.common), fields)
 }
 
-/// A media record read by id.
+/// The transcription of a picture: each piece with its area (fractions 0..1 of the picture as
+/// displayed, from the top left corner; null when it has none) and rotation, in reading order.
+pub(crate) fn transcription_rows(media: &Media) -> Vec<Value> {
+    media
+        .transcription
+        .iter()
+        .map(|r| {
+            let mut row = json!({
+                "id": r.id,
+                "area": r.area.as_ref().map(|a| json!({"x": a.x, "y": a.y, "w": a.w, "h": a.h})),
+                "rotation": r.rotation,
+                "text": r.text,
+            });
+            // On a recording: when the piece is said, and by whom.
+            if let Some(t) = r.time {
+                row["startMs"] = json!(t.start_ms);
+                row["endMs"] = json!(t.end_ms);
+                row["start"] = json!(gt_core::time::format_ms(t.start_ms));
+                row["end"] = json!(gt_core::time::format_ms(t.end_ms));
+            }
+            if let Some(who) = &r.speaker {
+                row["speaker"] = json!(who);
+            }
+            row
+        })
+        .collect()
+}
+
+/// A media record read by id, with its whole transcription and the full text joined from it.
 pub(crate) fn media_full(s: &Session, media: &Media) -> Value {
-    extend(common_resolved(s, &media.common), media_fields(s, media))
+    let mut fields = media_fields(s, media);
+    fields.insert("transcription".into(), json!(transcription_rows(media)));
+    fields.insert(
+        "fullText".into(),
+        json!(transcription_text(&media.transcription)),
+    );
+    extend(common_resolved(s, &media.common), fields)
 }
 
 /// The media a record links to, with what the link itself says.
@@ -435,6 +567,7 @@ fn event_fields(s: &Session, event: &Event) -> Fields {
         negative,
         assertion,
         participants,
+        godparents,
     } = event;
     let parties: Vec<Value> = participants
         .iter()
@@ -457,6 +590,12 @@ fn event_fields(s: &Session, event: &Event) -> Fields {
         "negative": negative,
         "participants": parties,
     }));
+    if !godparents.is_empty() {
+        out.insert(
+            "godparents".into(),
+            json!(crate::tools_godparent::godparent_rows(s, godparents)),
+        );
+    }
     out.extend(assertion_fields(assertion));
     out
 }
@@ -469,7 +608,7 @@ fn cut_description(fields: &mut Fields, id: Uuid) {
 pub(crate) fn event_row(s: &Session, event: &Event) -> Value {
     let mut fields = event_fields(s, event);
     cut_description(&mut fields, event.common.id);
-    extend(common_by_id(&event.common), fields)
+    extend(common_by_id(s, &event.common), fields)
 }
 
 /// An event as part of its person or family: all of it, but a very long description.
@@ -531,7 +670,7 @@ fn place_fields(s: &Session, place: &Place) -> Fields {
 
 /// A place in a list.
 pub(crate) fn place_row(s: &Session, place: &Place) -> Value {
-    extend(common_by_id(&place.common), place_fields(s, place))
+    extend(common_by_id(s, &place.common), place_fields(s, place))
 }
 
 /// A place read by id.
@@ -550,9 +689,9 @@ fn repository_fields(repository: &Repository) -> Fields {
 }
 
 /// A repository in a list.
-pub(crate) fn repository_row(repository: &Repository) -> Value {
+pub(crate) fn repository_row(s: &Session, repository: &Repository) -> Value {
     extend(
-        common_by_id(&repository.common),
+        common_by_id(s, &repository.common),
         repository_fields(repository),
     )
 }
@@ -639,7 +778,7 @@ pub(crate) fn family_row(s: &Session, family: &Family) -> Value {
         "childCount": children.iter().filter(|c| !is_marker(s, c.person)).count(),
         "unnamedSiblings": children.iter().any(|c| is_marker(s, c.person)),
     }));
-    extend(common_by_id(common), fields)
+    extend(common_by_id(s, common), fields)
 }
 
 pub(crate) fn family_terms(s: &Session, family: &Family) -> Vec<String> {

@@ -54,6 +54,7 @@ fn add_event(t: &mut Tree, p: Uuid, kind: EventKind, date: Option<&str>) {
                 proof: None,
                 confidence: None,
             },
+            godparents: Vec::new(),
             participants: vec![Participant {
                 target: ParticipantRef::Person(p),
                 role: Role::Principal,
@@ -97,6 +98,27 @@ fn living_with_birth(d: &str) -> bool {
     let p = add_person(&mut t);
     add_event(&mut t, p, EventKind::Birth, Some(d));
     compute_living(&t, &LivingRule::default(), today())[&p]
+}
+
+#[test]
+fn a_missing_event_does_not_make_a_person_dead() {
+    // Only a Missing event: as if it carried no date at all.
+    let mut t = Tree::new();
+    let p = add_person(&mut t);
+    add_event(&mut t, p, EventKind::Missing, Some("1943"));
+    assert!(compute_living(&t, &LivingRule::default(), today())[&p]);
+    // Birth and Missing: same answer as the birth alone.
+    for birth in ["1990", "1850"] {
+        let alone = living_with_birth(birth);
+        let mut t = Tree::new();
+        let p = add_person(&mut t);
+        add_event(&mut t, p, EventKind::Birth, Some(birth));
+        add_event(&mut t, p, EventKind::Missing, Some("1943"));
+        assert_eq!(
+            compute_living(&t, &LivingRule::default(), today())[&p],
+            alone
+        );
+    }
 }
 
 #[test]

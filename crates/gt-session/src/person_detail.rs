@@ -61,6 +61,7 @@ pub fn event_label(k: &EventKind) -> String {
             }
         }
         EventKind::Military => "Military service".to_string(),
+        EventKind::Missing => "Went missing".to_string(),
         other => capitalise(&event_kind_id(other).replace('_', " ")),
     }
 }
@@ -79,7 +80,7 @@ pub fn is_fact(k: &EventKind) -> bool {
     )
 }
 
-fn role_text(r: &Role) -> String {
+pub(crate) fn role_text(r: &Role) -> String {
     match r {
         Role::Other(t) => t.clone(),
         other => enum_id(other),
@@ -158,12 +159,23 @@ impl Session {
             publication: s.publication.clone(),
             abbreviation: s.abbreviation.clone(),
             text: s.text.clone(),
+            kind: s.kind.as_ref().map(|k| k.id()),
+            issuer: s.issuer.clone(),
+            doc_number: s.doc_number.clone(),
+            doc_date: s.doc_date.as_ref().map(date_dto),
+            archive: s
+                .repositories
+                .first()
+                .and_then(|r| self.tree.repositories.get(&r.repository))
+                .map(|r| r.name.clone()),
+            call_number: s.repositories.first().and_then(|r| r.call_number.clone()),
             citation_count: self
                 .links
                 .citations_of_source
                 .get(&id)
                 .copied()
                 .unwrap_or(0),
+            media: self.media_dtos(&s.common.media),
         })
     }
 
@@ -181,6 +193,7 @@ impl Session {
                 primary_info: c.evidence.primary_info,
                 direct: c.evidence.direct,
             },
+            media: self.media_dtos(&c.common.media),
         })
     }
 
@@ -203,6 +216,7 @@ impl Session {
                         NoteKind::Other(_) => NoteKindDto::Other,
                     },
                     text: n.text.clone(),
+                    story: n.story.clone(),
                     shared: n.shared,
                     lang: n.lang.clone(),
                     media: self.media_dtos(&n.common.media),
@@ -212,27 +226,135 @@ impl Session {
     }
 
     pub fn media_dtos(&self, links: &[MediaLink]) -> Vec<MediaLinkDto> {
+        let from_sources = self.source_texts_of(links);
+        let groups = self.tree.version_index();
         links
             .iter()
             .filter_map(|l| {
-                let md = self.tree.media.get(&l.media)?;
+                let mut media = self.media_dto(l.media, &from_sources)?;
+                media.versions = self.version_dtos_in(&groups, l.media);
                 Some(MediaLinkDto {
-                    media: MediaDto {
-                        id: l.media,
-                        title: md.title.clone(),
-                        mime: md.mime.clone(),
-                        original_name: md.original_name.clone(),
-                        date: md.date.as_ref().map(date_dto),
-                        description: md.description.clone(),
-                        resolved: self.media_file_exists(&md.path),
-                        width: self.media_dims(l.media, &md.path).0,
-                        height: self.media_dims(l.media, &md.path).1,
-                        sha256: md.sha256.clone(),
-                    },
+                    media,
                     primary: l.primary,
+                    clip: l.clip.as_ref().map(clip_dto),
                 })
             })
             .collect()
+    }
+
+    /// Every file of the version group of `media`, the primary first, then by pixel count, largest
+    /// first; empty for a file with no other versions.
+    pub fn version_dtos(&self, media: Uuid) -> Vec<MediaDto> {
+        self.version_dtos_in(&self.tree.version_index(), media)
+    }
+
+    fn version_dtos_in(
+        &self,
+        groups: &std::collections::HashMap<Uuid, Vec<Uuid>>,
+        media: Uuid,
+    ) -> Vec<MediaDto> {
+        let primary = self.tree.version_primary(media);
+        let Some(rest) = groups.get(&primary) else {
+            return Vec::new();
+        };
+        let group: Vec<Uuid> = std::iter::once(primary)
+            .chain(rest.iter().copied())
+            .collect();
+        let links: Vec<MediaLink> = group
+            .iter()
+            .map(|id| MediaLink {
+                media: *id,
+                region: None,
+                primary: false,
+                clip: None,
+            })
+            .collect();
+        let from_sources = self.source_texts_of(&links);
+        let mut out: Vec<MediaDto> = group
+            .iter()
+            .filter_map(|id| self.media_dto(*id, &from_sources))
+            .collect();
+        let pixels =
+            |m: &MediaDto| u64::from(m.width.unwrap_or(0)) * u64::from(m.height.unwrap_or(0));
+        if let Some(rest) = out.get_mut(1..) {
+            rest.sort_by_key(|m| std::cmp::Reverse(pixels(m)));
+        }
+        out
+    }
+
+    /// One media record as the app shows it, without its versions.
+    fn media_dto(
+        &self,
+        id: Uuid,
+        from_sources: &std::collections::HashMap<Uuid, Vec<String>>,
+    ) -> Option<MediaDto> {
+        let md = self.tree.media.get(&id)?;
+        Some(MediaDto {
+            id,
+            title: md.title.clone(),
+            mime: md.mime.clone(),
+            original_name: md.original_name.clone(),
+            date: md.date.as_ref().map(date_dto),
+            description: md.description.clone(),
+            place: md.place.and_then(|p| self.place_option(p)),
+            resolved: self.media_file_exists(&md.path),
+            width: self.media_dims(id, &md.path).0,
+            height: self.media_dims(id, &md.path).1,
+            sha256: md.sha256.clone(),
+            transcription: md.transcription.iter().map(text_region_dto).collect(),
+            rotation: md.shown_rotation(),
+            duration_ms: md
+                .mime
+                .as_deref()
+                .is_some_and(|t| t.starts_with("audio/"))
+                .then(|| self.media_length(id))
+                .flatten()
+                .map(|len| len.ms),
+            web_links: crate::web_links::collect(
+                md.description.iter().map(String::as_str).chain(
+                    from_sources
+                        .get(&id)
+                        .into_iter()
+                        .flatten()
+                        .map(String::as_str),
+                ),
+            ),
+            versions: Vec::new(),
+        })
+    }
+
+    /// The texts of every source that holds one of these media (title, publication, text, call
+    /// numbers), by media id, in source-id order. One pass over the sources per call, and none
+    /// when nothing is linked; sources with no media of these are skipped without reading their text.
+    fn source_texts_of(&self, links: &[MediaLink]) -> std::collections::HashMap<Uuid, Vec<String>> {
+        let mut out: std::collections::HashMap<Uuid, Vec<String>> = Default::default();
+        if links.is_empty() {
+            return out;
+        }
+        let wanted: std::collections::HashSet<Uuid> = links.iter().map(|l| l.media).collect();
+        let mut sources: Vec<_> = self
+            .tree
+            .sources
+            .iter()
+            .filter(|(_, s)| s.common.media.iter().any(|l| wanted.contains(&l.media)))
+            .collect();
+        sources.sort_by_key(|(id, _)| **id);
+        for (_, s) in sources {
+            let texts: Vec<String> = [&s.title, &s.publication, &s.text]
+                .into_iter()
+                .flatten()
+                .cloned()
+                .chain(s.repositories.iter().filter_map(|r| r.call_number.clone()))
+                .collect();
+            for l in &s.common.media {
+                if wanted.contains(&l.media) {
+                    out.entry(l.media)
+                        .or_default()
+                        .extend(texts.iter().cloned());
+                }
+            }
+        }
+        out
     }
 
     /// Whether a stored media path names a file inside `<project>/media`. The path is checked
@@ -280,6 +402,7 @@ impl Session {
                     ParticipantRef::Family(_) => None,
                 })
                 .collect(),
+            godparents: self.godparent_dtos(&e.godparents),
             citations: self.citations_dto(&e.common.citations),
             notes: self.note_dtos(&e.common.notes),
             media: self.media_dtos(&e.common.media),
@@ -295,6 +418,7 @@ impl Session {
             NameKind::Nickname => (NameKindDto::Nickname, None),
             NameKind::Immigrant => (NameKindDto::Immigrant, None),
             NameKind::Professional => (NameKindDto::Professional, None),
+            NameKind::AsRecorded => (NameKindDto::AsRecorded, None),
             NameKind::Other(t) => (NameKindDto::Other, Some(t.clone())),
         };
         NameDto {
@@ -362,6 +486,35 @@ pub fn person_detail(s: &Session, id: Uuid) -> Result<PersonDetail, ApiError> {
         notes: s.note_dtos(&p.common.notes),
         media: s.media_dtos(&p.common.media),
         citations: s.citations_dto(&p.common.citations),
+        godchildren: s.godchildren(id),
         changed: p.common.changed.unwrap_or(0),
     })
+}
+
+/// A clip as the app shows it.
+pub fn clip_dto(c: &gt_core::model::Clip) -> crate::dto::ClipDto {
+    crate::dto::ClipDto {
+        id: c.id,
+        start_ms: c.start_ms,
+        end_ms: c.end_ms,
+        label: c.label.clone(),
+    }
+}
+
+/// A stored piece of transcription as the app shows it.
+pub fn text_region_dto(r: &gt_core::model::TextRegion) -> crate::dto::TextRegionDto {
+    crate::dto::TextRegionDto {
+        id: r.id,
+        area: r.area.as_ref().map(|a| crate::command::TextAreaInput {
+            x: a.x,
+            y: a.y,
+            w: a.w,
+            h: a.h,
+        }),
+        rotation: r.rotation,
+        text: r.text.clone(),
+        start_ms: r.time.map(|t| t.start_ms),
+        end_ms: r.time.map(|t| t.end_ms),
+        speaker: r.speaker.clone(),
+    }
 }

@@ -515,6 +515,7 @@ impl<'a> Ctx<'a> {
                 media: id,
                 region,
                 primary,
+                clip: None,
             });
         }
     }
@@ -632,6 +633,7 @@ impl<'a> Ctx<'a> {
                 text: child(node, "text").map(text_of).unwrap_or_default(),
                 lang: None,
                 shared: false,
+                story: None,
             },
         );
     }
@@ -730,6 +732,10 @@ impl<'a> Ctx<'a> {
                 abbreviation: child_text(node, "sabbrev"),
                 text: None,
                 repositories,
+                kind: None,
+                issuer: None,
+                doc_number: None,
+                doc_date: None,
             },
         );
     }
@@ -815,6 +821,9 @@ impl<'a> Ctx<'a> {
         self.tree.media.insert(
             id,
             Media {
+                version_of: None,
+                map_layer: None,
+                place: None,
                 common: c,
                 path,
                 original_name,
@@ -823,6 +832,8 @@ impl<'a> Ctx<'a> {
                 date,
                 description: None,
                 sha256: None,
+                transcription: Vec::new(),
+                rotation: None,
             },
         );
     }
@@ -982,6 +993,7 @@ impl<'a> Ctx<'a> {
                 cause: child_text(node, "cause"),
                 negative: false,
                 assertion: new_assertion(),
+                godparents: Vec::new(),
                 participants: vec![],
             },
         );

@@ -139,7 +139,7 @@ fn media_files(s: &Session) -> usize {
 
 #[test]
 fn a_photo_comes_across_after_its_bytes_are_checked() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let mut owner = new_owner(&dir, "owner");
     let ivan = add(&mut owner, "Ivan");
     let (_rel, zip) = with_photo(&dir, &owner, ivan);
@@ -156,7 +156,7 @@ fn a_photo_comes_across_after_its_bytes_are_checked() {
 
 #[test]
 fn a_photo_whose_bytes_do_not_match_its_hash_is_blocked_with_what_needs_it() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let mut owner = new_owner(&dir, "owner");
     let ivan = add(&mut owner, "Ivan");
     let (_rel, zip) = with_photo(&dir, &owner, ivan);
@@ -189,7 +189,7 @@ fn a_photo_whose_bytes_do_not_match_its_hash_is_blocked_with_what_needs_it() {
 
 #[test]
 fn a_photo_missing_from_the_copy_is_blocked() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let mut owner = new_owner(&dir, "owner");
     let ivan = add(&mut owner, "Ivan");
     let (_rel, zip) = with_photo(&dir, &owner, ivan);
@@ -208,7 +208,7 @@ fn a_photo_missing_from_the_copy_is_blocked() {
 
 #[test]
 fn a_photo_path_outside_media_is_blocked_and_nothing_is_read_from_it() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let mut owner = new_owner(&dir, "owner");
     let ivan = add(&mut owner, "Ivan");
     let (rel, _zip) = with_photo(&dir, &owner, ivan);
@@ -241,7 +241,7 @@ fn media_entries(zip: &Path) -> usize {
 
 #[test]
 fn a_photo_no_record_refers_to_is_left_out_of_the_zip() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let mut owner = new_owner(&dir, "owner");
     let ivan = add(&mut owner, "Ivan");
     let (mut rel, zip) = with_photo(&dir, &owner, ivan);
@@ -281,7 +281,7 @@ fn link_dir(link: &Path, target: &Path) -> bool {
 
 #[test]
 fn a_media_folder_that_is_itself_a_link_is_not_read() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let mut owner = new_owner(&dir, "owner");
     let ivan = add(&mut owner, "Ivan");
     let (rel, _zip) = with_photo(&dir, &owner, ivan);
@@ -308,7 +308,7 @@ fn a_media_folder_that_is_itself_a_link_is_not_read() {
 
 #[test]
 fn a_record_pointing_at_someone_the_owner_removed_is_not_written() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let mut owner = new_owner(&dir, "owner");
     let olena = add(&mut owner, "Olena");
     let mut rel = relative_of(&owner, &dir, "rel");
@@ -345,7 +345,7 @@ fn a_record_pointing_at_someone_the_owner_removed_is_not_written() {
 
 #[test]
 fn a_record_the_owner_removed_is_not_brought_back_by_an_old_copy() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let mut owner = new_owner(&dir, "owner");
     let ivan = add(&mut owner, "Ivan");
     let olena = add(&mut owner, "Olena");
@@ -365,7 +365,7 @@ fn a_record_the_owner_removed_is_not_brought_back_by_an_old_copy() {
 
 #[test]
 fn an_owner_who_restored_an_older_backup_still_takes_the_copys_additions() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let mut owner = new_owner(&dir, "owner");
     let ivan = add(&mut owner, "Ivan");
     let backup = owner
@@ -394,7 +394,7 @@ fn an_owner_who_restored_an_older_backup_still_takes_the_copys_additions() {
 
 #[test]
 fn a_copy_saved_by_the_previous_schema_is_read_in_a_scratch_copy_only() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let mut owner = new_owner(&dir, "owner");
     let ivan = add(&mut owner, "Ivan");
     let mut rel = relative_of(&owner, &dir, "rel");
@@ -403,7 +403,7 @@ fn a_copy_saved_by_the_previous_schema_is_read_in_a_scratch_copy_only() {
     drop(rel);
     let db = rel_dir.join("tree.db");
     let c = rusqlite::Connection::open(&db).unwrap();
-    c.execute_batch("DROP TABLE merged_group; DROP TABLE merge_alias; PRAGMA user_version = 4;")
+    c.execute_batch("DROP TABLE place_record_person; DROP TABLE place_record; ALTER TABLE note DROP COLUMN story; ALTER TABLE media DROP COLUMN map_layer_json; DROP TABLE godparent; ALTER TABLE media DROP COLUMN version_of; ALTER TABLE source DROP COLUMN kind; ALTER TABLE source DROP COLUMN issuer; ALTER TABLE source DROP COLUMN doc_number; ALTER TABLE source DROP COLUMN doc_date_json; ALTER TABLE media DROP COLUMN place_id; ALTER TABLE media_link DROP COLUMN clip_id; ALTER TABLE media_link DROP COLUMN clip_start_ms; ALTER TABLE media_link DROP COLUMN clip_end_ms; ALTER TABLE media_link DROP COLUMN clip_label; ALTER TABLE media DROP COLUMN rotation; ALTER TABLE media DROP COLUMN transcription_json; DROP TABLE merged_group; DROP TABLE merge_alias; PRAGMA user_version = 4;")
         .unwrap();
     drop(c);
     let before = std::fs::read(&db).unwrap();
@@ -479,6 +479,7 @@ fn run(s: &mut Session, ids: &[Uuid], ops: &[Op]) {
                         id: ids[*i],
                     },
                     note: NoteInput {
+                        story: None,
                         id: None,
                         kind: NoteKindDto::General,
                         text: format!("note {n}"),
@@ -520,7 +521,7 @@ proptest! {
         owner_ops in proptest::collection::vec(op(), 0..7),
         rel_ops in proptest::collection::vec(op(), 0..7),
     ) {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = common::canonical_tempdir();
         let mut owner = new_owner(&dir, "owner");
         let ids: Vec<Uuid> = ["Ivan", "Olena", "Taras", "Oksana"]
             .iter()

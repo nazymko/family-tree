@@ -2,26 +2,41 @@
   import { errMessage } from '../editors/errors';
   import { untrack } from 'svelte';
   import { getApi, getPlatform } from '../api/context';
-  import type { AroundKin, ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
+  import { nodeKeys, refTagAt, screenFrames, type NodeKey, type PrintLayout } from './sheets';
+  import type { PlannedPage, PlannedPiece, SheetPlan } from './sheetPlan';
+  import { planSheetsAsync, sheetJob } from './sheetPlanJob';
+  import { tagDir, type DirScene } from './pieceView';
+  import { CAPTION_MAX_MM, CAPTION_MM, CAPTION_PT } from './pack';
+  import type { AroundKin, BranchDepth, OpenBranch, ChartEdge, ChartKind, ChartMeta, ChartNode, ChartRequest, ChartWindow, Id, Rect } from '../api/types';
   import { added } from '../state/added.svelte';
   import { project } from '../state/project.svelte';
   import { undoState as undo } from '../state/undo.svelte';
   import Button from '../ui/Button.svelte';
   import Checkbox from '../ui/Checkbox.svelte';
   import DirectionControl from '../ui/DirectionControl.svelte';
-  import { DEFAULT_DIRECTIONS, arrowStep, camAtSide, edgeStrip, isHorizontal, opposite, rootSide, type ChartDirection } from './direction';
+  import { DEFAULT_DIRECTIONS, DIRECTIONS, arrowStep, camAtSide, edgeStrip, isHorizontal, opposite, rootSide, type ChartDirection } from './direction';
   import IconButton from '../ui/IconButton.svelte';
+  import Menu, { type MenuItem } from '../ui/Menu.svelte';
+  import { compact } from '../ui/compact.svelte';
   import Segmented from '../ui/Segmented.svelte';
   import Select from '../ui/Select.svelte';
   import { centerOn, fit, panBy, tween, viewRect, zoomAt, type Camera } from './camera';
   import { hitHandle, hitTest, neighbor, type Dir } from './hit';
-  import { draw, themeFromCss, type Theme } from './renderer';
+  import { draw, lightPrintTheme, printCardsNeed, themeFromCss, type SheetFrame, type Theme } from './renderer';
+  import { SvgContext } from './svgContext';
   import { WindowCache } from './window';
   import AddRelativeMenu from './AddRelativeMenu.svelte';
   import ChartPictureMenu from './ChartPictureMenu.svelte';
+  import { createDoubleTap, createLongPress, isTouchPointer } from '../ui/longPress';
   import { isKeyboardMenu, mergeScenes, planPicture, sceneFor, tileRects, type PictureFormat, type PictureScope, type Scene } from './picture';
-  import { captionText, later, savePicture, suggestedName, type BuiltPicture } from './pictureExport';
-  import { t, plural, localeStore } from '../i18n';
+  import { captionText, chartTitle, later, printPicture, printPictures, savePicture, savePictures, suggestedName, type BuiltPicture } from './pictureExport';
+  import { A3_MIN_PT, A3_SUB_PT, A3_TITLE_PT, CARD_SMALL_PX, PT_PX, ellipsize, layoutA3, mmToPx, nameFloorPx, printDirection, printStretch, stretchScene, targetScale, type A3Background, type A3Choice, type A3DirectionMode, type A3Layout, type DirectionFit } from './a3';
+  import { a3Background, a3Direction, a3Orientation, a3Title } from './a3Pref.svelte';
+  import { namesAsRecorded, oldTypeface } from '../ui/namesPref.svelte';
+  import { loadOldTypeface } from '../ui/fonts';
+  import { sceneBounds, pictureFileName } from './picture';
+  import { settings } from '../state/settings.svelte';
+  import { t, plural, localeStore, currentTag } from '../i18n';
   import { nodeLabel, relationText } from '../i18n/relation';
   import { agentChanges } from '../state/agentChanges.svelte';
 
@@ -37,6 +52,10 @@
     onAunts,
     kin = 'line',
     onKin,
+    printLayout = 'today',
+    onPrintLayout,
+    openings = [],
+    onOpenings,
     onOpened,
     onSelect,
     onBuildAround,
@@ -63,6 +82,14 @@
     kin?: AroundKin;
     /** Shows the "Relatives" choice (line only, brothers and sisters, all relatives) in the toolbar when given. */
     onKin?: (kin: AroundKin) => void;
+    /** Chart built around one person: how it is laid out for the page (as today, compact, or sheets by branch). */
+    printLayout?: PrintLayout;
+    /** Shows the "Layout" choice in the toolbar when given. */
+    onPrintLayout?: (v: PrintLayout) => void;
+    /** Chart built around one person: the side branches opened per person. */
+    openings?: OpenBranch[];
+    /** Shows the controls to open the brothers and sisters, or the children, of the selected person when given. */
+    onOpenings?: (open: OpenBranch[]) => void;
     /** Called with the chart meta each time a chart is (re)opened. */
     onOpened?: (meta: ChartMeta) => void;
     /** Called whenever the selected node changes (also from the keyboard). */
@@ -127,6 +154,8 @@
   let openSeq = 0;
   let activeTween: { cancel(): void } | null = null;
   let theme: Theme | null = null;
+  /** The A3 sheets' frames on the screen chart; only with the "sheets" layout of an around chart. */
+  let sheetRects: Omit<SheetFrame, 'label'>[] = [];
   let rootNodeId = 0;
   let pendingAnnounce = false;
   // Relatives chart: the person the previous chart was centred on, to glide from when re-centring.
@@ -154,6 +183,26 @@
           : t('chartCanvas.descendantTools'),
   );
 
+  // Switching "names as recorded" redraws the cards (and the next print or picture uses the same names).
+  $effect(() => {
+    void namesAsRecorded.value;
+    untrack(() => invalidate());
+  });
+
+  // The old typeface of names as recorded: fetched before the cards are drawn with it, and the cards redraw once it is there.
+  $effect(() => {
+    if (!oldTypeface.value) {
+      untrack(() => invalidate());
+      return;
+    }
+    let live = true;
+    void loadOldTypeface().then(() => live && invalidate());
+    untrack(() => invalidate());
+    return () => {
+      live = false;
+    };
+  });
+
   function invalidate(): void {
     dirty = true;
     if (!rafId && !hidden) rafId = requestAnimationFrame(frame);
@@ -167,7 +216,7 @@
     const ctx = canvas.getContext('2d');
     if (!cur || !ctx) return;
     theme ??= themeFromCss();
-    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, focusMore: chosenMore, marked: new Set(markedIds), theme, kind, dir: dirNow, badged: agentChanges.unreviewed });
+    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, focusMore: chosenMore, marked: new Set(markedIds), theme, kind, dir: dirNow, badged: agentChanges.unreviewed, sheetFrames: sheetRects.map((r) => ({ ...r, label: t('picture.sheetFrame', { n: r.no }) })) });
   }
 
   $effect(() => {
@@ -279,7 +328,46 @@
     }
   }
 
+  /** How long the chart on screen waits before it lays out the print chart for its sheet frames. */
+  const FRAMES_DELAY_MS = 250;
+  let framesTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * The frames of the A3 sheets on the chart on screen, numbered as the print numbers them: they show the very plan the
+   * print and the save use ({@link plannedSheets}, in the orientation last chosen), each piece framed around the screen
+   * boxes of its people. Runs a little after the chart opened (a quick change of the layout or the person lays out one
+   * print chart, not one per step), the plan made off the main thread; nothing is framed until it arrives, and a result
+   * for a chart that is no longer open is dropped.
+   */
+  function scheduleFrames(m: ChartMeta, seq: number): void {
+    if (framesTimer) clearTimeout(framesTimer);
+    framesTimer = setTimeout(() => {
+      framesTimer = null;
+      // After the chart is drawn and the page is idle (the plan itself is made in a worker).
+      const go = () => void frameSheets(m, seq);
+      if (typeof requestIdleCallback === 'function') requestIdleCallback(go, { timeout: 1000 });
+      else go();
+    }, FRAMES_DELAY_MS);
+  }
+
+  async function frameSheets(m: ChartMeta, seq: number): Promise<void> {
+    try {
+      if (seq !== openSeq || printLayout !== 'sheets') return;
+      const planned = await plannedSheets(a3Orientation.value);
+      if (!planned || seq !== openSeq || printLayout !== 'sheets') return;
+      const scene = await wholeScene(m);
+      if (seq !== openSeq) return;
+      const keys = new Map(planned.dirs.map((d) => [d.direction, d.keys]));
+      sheetRects = screenFrames(planned.plan, (id, d) => keys.get(d)?.get(id), scene);
+      invalidate();
+    } catch {
+      // The frames are a hint only: the chart stays usable without them.
+    }
+  }
+
   function closeChart(): void {
+    if (framesTimer) clearTimeout(framesTimer);
+    framesTimer = null;
     activeTween?.cancel();
     cache?.dispose();
     cache = null;
@@ -291,9 +379,17 @@
     return typeof e === 'object' && e !== null && (e as { code?: string }).code === 'stale';
   }
 
+  function chartRequest(direction?: ChartDirection, print = false, layout: PrintLayout = printLayout): ChartRequest {
+    const req: ChartRequest =
+      kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? (many ? { kind, root, generations, kin, roots } : openings.length > 0 ? { kind, root, generations, kin, open: openings } : { kind, root, generations, kin }) : { kind, root, generations };
+    const folded: ChartRequest = kind === 'around' && layout !== 'today' ? { ...req, fold: true } : req;
+    return direction ? { ...folded, direction, ...(print ? { print } : {}) } : folded;
+  }
+
   /** `keepView`: reopened after an edit. The camera stays where it was and the selected person stays selected. */
   async function open(keepView = false): Promise<void> {
     const seq = ++openSeq;
+    sheetsMade = null;
     const keptPerson = keepView ? (selNode?.person?.id ?? null) : null;
     const keepCam = keepView && sized && rootRect !== null;
     closeChart();
@@ -304,9 +400,7 @@
     if (!keepCam) selNode = null;
     let m: ChartMeta;
     try {
-      const req: ChartRequest =
-        kind === 'relatives' ? { kind, root, generations, auntsUncles } : kind === 'around' ? (many ? { kind, root, generations, kin, roots } : { kind, root, generations, kin }) : { kind, root, generations };
-      m = await api.chartOpen(req);
+      m = await api.chartOpen(chartRequest());
     } catch (e) {
       if (seq !== openSeq) return;
       // The person was deleted while the screen was open: leave it quietly instead of showing an error.
@@ -330,6 +424,8 @@
       }
     });
     cache = c;
+    sheetRects = [];
+    if (kind === 'around' && printLayout === 'sheets') scheduleFrames(m, seq);
     c.onChange(() => {
       if (selected !== null) {
         const n = c.current()?.win.nodes.find((x) => x.id === selected);
@@ -548,6 +644,7 @@
     void generations;
     void auntsUncles;
     void kin;
+    void printLayout;
     void roots?.join();
     const flipped = dirNow !== lastDirection;
     lastDirection = dirNow;
@@ -561,6 +658,44 @@
       closeChart();
     };
   });
+
+  // The print's direction, orientation, title block and background change the sheets: the frames follow.
+  $effect(() => {
+    void a3Direction.value;
+    void a3Orientation.value;
+    void a3Title.value;
+    void a3Background.value;
+    untrack(() => {
+      if (meta && kind === 'around' && printLayout === 'sheets') scheduleFrames(meta, openSeq);
+    });
+  });
+
+  // Opening or closing a side branch re-lays the chart out; the view and the selected person stay where they are.
+  let lastOpenings = untrack(() => JSON.stringify(openings));
+  $effect(() => {
+    const now = JSON.stringify(openings);
+    if (now === lastOpenings) return;
+    lastOpenings = now;
+    untrack(() => {
+      if (kind === 'around' && !many) void open(true);
+    });
+  });
+
+  /** Set the depth of one opening of the selected person (null: closed); entries that open nothing are dropped. */
+  function setOpening(person: Id, field: 'siblings' | 'children', depth: BranchDepth | null): void {
+    const cur = openings.find((o) => o.person === person) ?? { person };
+    const next: OpenBranch = { ...cur };
+    if (depth) next[field] = depth;
+    else delete next[field];
+    const rest = openings.filter((o) => o.person !== person);
+    onOpenings?.(next.siblings || next.children ? [...rest, next] : rest);
+  }
+  const depthOf = (person: Id, field: 'siblings' | 'children'): string => openings.find((o) => o.person === person)?.[field] ?? 'off';
+  const depthOptions = (kids: boolean) => [
+    { value: 'off', label: t('chartCanvas.openOff') },
+    { value: 'children', label: kids ? t('chartCanvas.openKids') : t('chartCanvas.openWithChildren') },
+    { value: 'all', label: t('chartCanvas.openAll') },
+  ];
 
   // Edits, undo and redo bump project.rev (and change the undo state); reopen so the chart shows the new tree.
   const undoState = () => `${project.rev}|${undo.canUndo}|${undo.undoLabel}|${undo.canRedo}|${undo.redoLabel}`;
@@ -794,9 +929,15 @@
   const pointers = new Map<number, { x: number; y: number }>();
   let drag: { x: number; y: number; moved: boolean } | null = null;
   let pinch = 0;
+  // A finger held on a box opens the same menu as a right-click; two quick taps recentre like a double-click.
+  const press = createLongPress({ onLongPress: (p) => openMenuAt(p.x, p.y) });
+  const taps = createDoubleTap();
+  let lastPointerType = '';
 
   function onpointerdown(e: PointerEvent): void {
     if (e.button === 2) return; // the context menu handles the right button
+    lastPointerType = e.pointerType;
+    press.pointerdown(e);
     canvas?.focus();
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try {
@@ -813,6 +954,7 @@
   }
 
   function onpointermove(e: PointerEvent): void {
+    press.pointermove(e);
     const p = pointers.get(e.pointerId);
     if (!p) return;
     const dx = e.clientX - p.x;
@@ -837,7 +979,8 @@
   }
 
   function onpointerup(e: PointerEvent): void {
-    const wasClick = drag !== null && !drag.moved && pointers.size === 1;
+    const heldOpen = press.pointerup(e);
+    const wasClick = !heldOpen && drag !== null && !drag.moved && pointers.size === 1;
     pointers.delete(e.pointerId);
     if (pointers.size < 2) pinch = 0;
     drag = null;
@@ -845,6 +988,11 @@
     const cur = cache?.current();
     if (!cur) return;
     const w = toWorld(e);
+    if (isTouchPointer(e) && taps.tap(e.clientX, e.clientY)) {
+      const n = hitTest(cur.win, w.x, w.y);
+      if (n && n.dupOf === null) recentre(n);
+      return;
+    }
     // Shift+click marks people, to build the next chart around all of them.
     if (e.shiftKey && onBuildAround) {
       const hit = hitTest(cur.win, w.x, w.y);
@@ -894,6 +1042,8 @@
   }
 
   function ondblclick(e: MouseEvent): void {
+    // A finger's double tap is handled in onpointerup; the browser's own double-click would recentre twice.
+    if (lastPointerType === 'touch' || lastPointerType === 'pen') return;
     const cur = cache?.current();
     if (!cur) return;
     const w = toWorld(e);
@@ -904,8 +1054,7 @@
   // ------------------------------------------------------------ pictures
 
   /** Every node and line of the open chart, fetched in tiles at 100% so names and dates are full. */
-  async function wholeScene(): Promise<Scene> {
-    const m = meta;
+  async function wholeScene(m: ChartMeta | null = meta): Promise<Scene> {
     if (!m) return { nodes: [], edges: [] };
     const parts: Scene[] = [];
     for (const r of tileRects({ x: -1, y: -1, w: m.bounds.w + 2, h: m.bounds.h + 2 })) {
@@ -918,7 +1067,10 @@
   async function buildPicture(scope: PictureScope, format: PictureFormat): Promise<BuiltPicture | null> {
     if (!meta || !cache?.current()) return null;
     theme ??= themeFromCss();
-    const th = theme;
+    // White and transparent pages use the light colours whatever the app's theme is.
+    const bg = a3Background.value;
+    const th = bg === 'paper' ? theme : lightPrintTheme(theme);
+    const header = a3Title.value;
     const sel = selected;
     const focus = rootNodeId;
     const focusMore = chosenMore;
@@ -927,14 +1079,411 @@
     const scene: Scene =
       scope === 'screen' ? await api.chartWindow(meta.chartId, viewRect(shot.cam, shot.size), shot.cam.zoom) : sceneFor(scope, kind, await wholeScene(), sel);
     if (scene.nodes.length === 0) return null;
-    const plan = planPicture(scope, scene, scope === 'screen' ? shot : null, [], { dpr, vector: format === 'svg' });
+    const plan = planPicture(scope, scene, scope === 'screen' ? shot : null, [], { dpr, vector: format === 'svg', caption: header });
     return {
       plan,
       theme: { paper: th.paper, ink2: th.ink2, font: th.font },
-      caption: captionText(kind, rootName),
+      transparent: bg === 'transparent',
+      caption: header ? captionText(kind, rootName) : '',
       paint: (ctx, p) =>
         draw(ctx, scene, p.cam, { w: p.view.w, h: p.view.h, dpr: p.scale }, { selected: scope === 'screen' ? sel : null, focus, focusMore, theme: th, kind, dir: dirNow, handles: scope === 'screen' }),
     };
+  }
+
+  /** Size (page px) of a "→ sheet N" tag on a print at `scale`: the size of a card's dates on paper, kept between 6 and 9 pt. */
+  function refTagPx(scale: number): number {
+    return Math.min(9 * PT_PX, Math.max(A3_MIN_PT * PT_PX, CARD_SMALL_PX * scale));
+  }
+
+  /** Colours and title choice of an A3 picture, read once when it starts. */
+  interface A3Look {
+    th: Theme;
+    bg: A3Background;
+    header: boolean;
+  }
+
+  /** The print chart of an A3 picture in its chosen direction, cards stretched for their text (see printChart). */
+  interface A3Chart {
+    scene: Scene;
+    pick: DirectionFit;
+    meta: ChartMeta;
+    look: A3Look;
+    mode: A3DirectionMode;
+  }
+
+  /**
+   * Lays the chart out for an A3 print. A print keeps the direction on the screen; with "best fit" chosen it lays the chart
+   * out in every direction and keeps the one that prints largest. The screen's direction is not changed either way.
+   * The layouts are print charts: compact, outside the two-chart limit, so no chart the person has open is closed. Each is
+   * closed as soon as its boxes are read, whatever happens. `layout` is the print layout chosen when the print started:
+   * a change of the choice while it runs does not reach its requests.
+   */
+  async function printChart(choice: A3Choice, layout: PrintLayout): Promise<A3Chart | null> {
+    if (!meta) return null;
+    theme ??= themeFromCss();
+    // White and transparent pages use the light colours whatever the app's theme is; the paper tint keeps the app's colours.
+    const bg = a3Background.value;
+    const th = bg === 'paper' ? theme : lightPrintTheme(theme);
+    const header = a3Title.value;
+    const mode = a3Direction.value;
+    // Measures the cards' text as the picture draws it (with a real canvas when there is one).
+    const meter = new SvgContext(1, 1) as unknown as CanvasRenderingContext2D;
+    const found: { direction: ChartDirection; scene: Scene; meta: ChartMeta; bounds: Rect }[] = [];
+    for (const d of mode === 'best' ? DIRECTIONS : [dirNow]) {
+      const probe = await api.chartOpen(chartRequest(d, true, layout));
+      try {
+        const laid = await wholeScene(probe);
+        // Cards whose text needs more room (a long name on three lines, the relationship under the dates) make every card
+        // taller: the chart's height is stretched, into the page's empty room only, so the print is never smaller.
+        const scale = layoutA3(sceneBounds(laid), choice, header).scale;
+        const need = printCardsNeed(meter, laid.nodes, { theme: th, kind, focus: probe.rootNode, focusMore: new Set(probe.chosenNodes ?? []), nameMinPx: nameFloorPx(scale) });
+        const sc = stretchScene(laid, printStretch(sceneBounds(laid), need, choice, header));
+        found.push({ direction: d, scene: sc, meta: probe, bounds: sceneBounds(sc) });
+      } finally {
+        try {
+          await api.chartClose(probe.chartId);
+        } catch {
+          // The engine keeps at most six print charts and drops the oldest, so a close that failed cannot pile up.
+        }
+      }
+    }
+    const pick = printDirection(found, dirNow, mode, choice, header);
+    const chosen = found.find((f) => f.direction === pick.direction)!;
+    if (chosen.scene.nodes.length === 0) return null;
+    return { scene: chosen.scene, pick, meta: chosen.meta, look: { th, bg, header }, mode };
+  }
+
+  /** The tree name and today's date, for the right-hand part of an A3 title block. */
+  function a3Sub(): string {
+    const treeName = settings.value.treeName.trim();
+    const date = new Date().toLocaleDateString(currentTag(), { year: 'numeric', month: 'long', day: 'numeric' });
+    return treeName ? `${treeName} · ${date}` : date;
+  }
+
+  /** The "names are small" warning of a single A3 page. */
+  function a3Warning(c: A3Chart): string | undefined {
+    const lay = c.pick.layout;
+    if (!lay.tooSmall) return undefined;
+    return t('picture.a3Small', { pt: Math.round(lay.namePt * 10) / 10 }) + (c.mode === 'screen' ? ` ${t('picture.a3SmallBestHint')}` : '');
+  }
+
+  /**
+   * One A3 page of a print chart: `scene` drawn with the page layout `lay` and the title block (`title` on the left, `sub`
+   * on the right).
+   */
+  function buildA3For(
+    c: A3Chart,
+    scene: Scene,
+    lay: A3Layout,
+    format: PictureFormat,
+    text: { title: string; sub: string; warning?: string },
+  ): BuiltPicture {
+    const { th, bg, header } = c.look;
+    // The centre person (and the others it is built around) are the ones of the print chart, not the screen's box numbers.
+    const printFocus = c.meta.rootNode;
+    const printMore = new Set(c.meta.chosenNodes ?? []);
+    const dir = c.pick.direction;
+    const pxScale = format === 'svg' ? 1 : lay.pngScale;
+    const plan = {
+      cam: lay.cam,
+      view: { ...lay.px },
+      scale: pxScale,
+      width: format === 'svg' ? lay.px.w : lay.png.w,
+      height: format === 'svg' ? lay.px.h : lay.png.h,
+      reduced: false,
+      percent: 100,
+    };
+    return {
+      plan,
+      theme: { paper: th.paper, ink2: th.ink2, font: th.font },
+      transparent: bg === 'transparent',
+      caption: '',
+      pageMm: { ...lay.mm, orientation: lay.orientation },
+      warning: text.warning,
+      paint: (ctx, p) => {
+        draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: printFocus, focusMore: printMore, theme: th, kind, dir, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(lay.scale) });
+        if (!header) return;
+        drawTitleBlock(ctx, p.scale, lay, th, text);
+      },
+    };
+  }
+
+  /** The title block of an A3 page: the chart name on the left, the tree name and date on the right, a rule under both. */
+  function drawTitleBlock(ctx: CanvasRenderingContext2D, pxScale: number, lay: A3Layout, th: Theme, text: { title: string; sub: string }): void {
+    const left = lay.area.x;
+    const right = lay.px.w - lay.area.x;
+    const top = lay.area.y;
+    ctx.setTransform(pxScale, 0, 0, pxScale, 0, 0);
+    ctx.textBaseline = 'alphabetic';
+    // The tree name and date go to the right (at most 45% of the width); the chart name gets the rest. Long ones end in an ellipsis.
+    ctx.font = `${A3_SUB_PT * PT_PX}px ${th.font}`;
+    const subText = ellipsize((x) => ctx.measureText(x).width, text.sub, (right - left) * 0.45);
+    const subW = ctx.measureText(subText).width;
+    ctx.font = `600 ${A3_TITLE_PT * PT_PX}px ${th.serif}`;
+    const titleText = ellipsize((x) => ctx.measureText(x).width, text.title, right - left - subW - mmToPx(8));
+    ctx.textAlign = 'left';
+    ctx.fillStyle = th.ink;
+    ctx.fillText(titleText, left, top - mmToPx(6));
+    ctx.textAlign = 'right';
+    ctx.fillStyle = th.ink2;
+    ctx.font = `${A3_SUB_PT * PT_PX}px ${th.font}`;
+    ctx.fillText(subText, right, top - mmToPx(6));
+    ctx.beginPath();
+    ctx.moveTo(left, top - mmToPx(3));
+    ctx.lineTo(right, top - mmToPx(3));
+    ctx.strokeStyle = th.rule;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  /** The whole chart laid out on one A3 page: title block on top, the chart scaled to fill the rest. */
+  async function buildA3(choice: A3Choice, format: PictureFormat, layout: PrintLayout): Promise<BuiltPicture | null> {
+    const c = await printChart(choice, layout);
+    if (!c) return null;
+    return buildA3For(c, c.scene, c.pick.layout, format, { title: chartTitle(kind, rootName), sub: a3Sub(), warning: a3Warning(c) });
+  }
+
+  /** The surname a branch is named after: the top person's birth surname when one is shown, else the last word of the name. */
+  function branchSurname(n: ChartNode | undefined): string {
+    if (!n) return '';
+    if (!n.person) return n.label;
+    if (n.person.birthSurname) return n.person.birthSurname;
+    const words = n.person.name.trim().split(/\s+/);
+    return words[words.length - 1] ?? '';
+  }
+
+  /** The first word of the top person's name (their given name). */
+  function givenName(n: ChartNode | undefined): string {
+    const words = n?.person?.name.trim().split(/\s+/) ?? [];
+    return words.length > 1 ? words[0] : '';
+  }
+
+  /**
+   * A packed piece's caption: «Branch: <surname> (<given name>)», or «Branch: <surname>» without a given name; for a piece
+   * of childless brothers and sisters, «Brothers and sisters of <name>».
+   */
+  function branchCaption(top: ChartNode, siblingsOf: ChartNode | null = null): string {
+    if (siblingsOf?.person) return t('picture.siblingsTitle', { name: siblingsOf.person.name });
+    const surname = branchSurname(top);
+    const given = givenName(top);
+    return t('picture.branchTitle', { name: given ? `${surname} (${given})` : surname });
+  }
+
+  /** A piece's boxes as printed: a box standing for children on other pieces reads «Children» over their sheets. */
+  function groupBoxes(pc: PlannedPiece): PlannedPiece['view']['scene'] {
+    const sc = pc.view.scene;
+    if (pc.refGroups.size === 0) return sc;
+    const label = t('picture.childrenRef');
+    const sheets = (pages: number[]) => (pages.length > 1 ? t('picture.sheetRefMany', { n: pages.join(', ') }) : t('picture.sheetRef', { n: pages[0] }));
+    return {
+      ...sc,
+      nodes: sc.nodes.map((n) => {
+        const pages = pc.refGroups.get(n.id);
+        return pages && n.person
+          ? { ...n, ahnen: null, relation: undefined, role: undefined, kinship: undefined, person: { ...n.person, name: label, lifespan: sheets(pages), birthSurname: undefined, asRecorded: undefined } }
+          : n;
+      }),
+    };
+  }
+
+  /** One direction's print chart for "sheets by branch", with the chart it came from. */
+  interface PrintDirScene extends DirScene {
+    meta: ChartMeta;
+  }
+
+  /**
+   * The print chart of "sheets by branch" in all four directions, whatever the A3 direction setting says (spec amendment
+   * 21.11.2026: every piece takes its own direction). Compact folded cards, each direction's chart stretched once, fully,
+   * for its cards' text with the name floor of the target scale. Every print chart is closed as soon as its boxes are read.
+   */
+  async function printScenes(): Promise<{ dirs: PrintDirScene[]; look: A3Look } | null> {
+    if (!meta) return null;
+    theme ??= themeFromCss();
+    const bg = a3Background.value;
+    const th = bg === 'paper' ? theme : lightPrintTheme(theme);
+    const header = a3Title.value;
+    const meter = new SvgContext(1, 1) as unknown as CanvasRenderingContext2D;
+    const nameMinPx = nameFloorPx(targetScale());
+    const dirs: PrintDirScene[] = [];
+    for (const d of DIRECTIONS) {
+      const probe = await api.chartOpen(chartRequest(d, true, 'sheets'));
+      try {
+        const laid = await wholeScene(probe);
+        const need = printCardsNeed(meter, laid.nodes, { theme: th, kind, focus: probe.rootNode, focusMore: new Set(probe.chosenNodes ?? []), nameMinPx });
+        const scene = stretchScene(laid, Math.max(1, need));
+        dirs.push({ direction: d, scene, keys: nodeKeys(scene), meta: probe });
+      } finally {
+        try {
+          await api.chartClose(probe.chartId);
+        } catch {
+          // The engine keeps at most six print charts and drops the oldest, so a close that failed cannot pile up.
+        }
+      }
+    }
+    if (dirs.every((d) => d.scene.nodes.length === 0)) return null;
+    return { dirs, look: { th, bg, header } };
+  }
+
+  /**
+   * "Sheets by branch" planned (spec amendment 21.11.2026): the four print charts, cut once on the screen direction's,
+   * each piece in its own direction, packed onto A3 pages. The print and the frames on screen both plan with this, so the
+   * numbers on screen are the printed ones.
+   */
+  async function planA3Sheets(choice: A3Choice): Promise<{ dirs: PrintDirScene[]; look: A3Look; plan: SheetPlan } | null> {
+    const ps = await printScenes();
+    if (!ps) return null;
+    const { dirs, look } = ps;
+    const cut = dirs.find((d) => d.direction === dirNow) ?? dirs[0];
+    const centres = [...new Set([cut.meta.rootNode, ...(cut.meta.chosenNodes ?? [])])]
+      .map((id) => cut.keys.get(id))
+      .filter((k): k is NodeKey => k !== undefined);
+    const meter = new SvgContext(1, 1) as unknown as CanvasRenderingContext2D;
+    const capMax = mmToPx(CAPTION_MAX_MM);
+    const capW = (top: ChartNode, siblingsOf: ChartNode | null): number => {
+      meter.font = `${CAPTION_PT * PT_PX}px ${look.th.font}`;
+      return Math.min(capMax, meter.measureText(branchCaption(top, siblingsOf)).width);
+    };
+    // The tag of a reference box at the target scale, in world units (for the widest page number a set may have).
+    const ts = targetScale();
+    const tagPx = refTagPx(ts);
+    meter.font = `600 ${tagPx}px ${look.th.font}`;
+    const tagW = meter.measureText(t('picture.sheetRef', { n: 99 })).width / ts;
+    const tagH = (tagPx * 1.2) / ts;
+    const plan = await planSheetsAsync(sheetJob(dirs, { choice, header: look.header, screenDir: cut.direction, centres, tagW, tagH }, capW));
+    return { dirs, look, plan };
+  }
+
+  type PlannedSheets = { dirs: PrintDirScene[]; look: A3Look; plan: SheetPlan };
+  /** The last sheets plan made, with what it was made from: the frames, the print and the save share it. */
+  let sheetsMade: { key: string; planned: Promise<PlannedSheets | null> } | null = null;
+
+  /**
+   * The sheets plan for `choice`, made once per chart opening (an edit or another person reopens it), orientation, title
+   * block, background, screen direction and theme: the frames on screen, "Print" and "Save" all get this same plan.
+   */
+  function plannedSheets(choice: A3Choice): Promise<PlannedSheets | null> {
+    theme ??= themeFromCss();
+    const key = JSON.stringify([openSeq, choice, a3Title.value, a3Background.value, dirNow, theme.font, theme.paper, theme.ink, currentTag()]);
+    if (sheetsMade?.key !== key) {
+      const planned = planA3Sheets(choice);
+      const made = { key, planned };
+      sheetsMade = made;
+      // A plan that failed is made again next time.
+      planned.catch(() => {
+        if (sheetsMade === made) sheetsMade = null;
+      });
+    }
+    return sheetsMade.planned;
+  }
+
+  /**
+   * One packed A3 page: each piece drawn in its own direction at the page's scale in its slot, the "→ sheet N" tags of its
+   * reference boxes, its caption above it, and the title block (the chart title, "sheet N of M" and the tree name).
+   */
+  function buildA3Page(pg: PlannedPage, dirs: PrintDirScene[], look: A3Look, format: PictureFormat, text: { title: string; sub: string; warning?: string }): BuiltPicture {
+    const { th, bg, header } = look;
+    const lay = layoutA3({ x: 0, y: 0, w: 1, h: 1 }, pg.orientation, header);
+    const pxScale = format === 'svg' ? 1 : lay.pngScale;
+    const s = pg.scale;
+    const plan = {
+      cam: { x: 0, y: 0, zoom: 1 },
+      view: { ...lay.px },
+      scale: pxScale,
+      width: format === 'svg' ? lay.px.w : lay.png.w,
+      height: format === 'svg' ? lay.px.h : lay.png.h,
+      reduced: false,
+      percent: 100,
+    };
+    return {
+      plan,
+      theme: { paper: th.paper, ink2: th.ink2, font: th.font },
+      transparent: bg === 'transparent',
+      caption: '',
+      pageMm: { ...lay.mm, orientation: lay.orientation },
+      warning: text.warning,
+      paint: (ctx, p) => {
+        pg.pieces.forEach((pc, i) => {
+          const v = { ...pc.view, scene: groupBoxes(pc) };
+          const m = dirs.find((d) => d.direction === v.direction)!.meta;
+          const cam = { zoom: s, x: v.bounds.x - pc.x / s, y: v.bounds.y - pc.y / s };
+          draw(ctx, v.scene, cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: m.rootNode, focusMore: new Set(m.chosenNodes ?? []), theme: th, kind, dir: v.direction, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(s), keep: i > 0 });
+        });
+        ctx.setTransform(p.scale, 0, 0, p.scale, 0, 0);
+        // "→ sheet N" beside each reference box, on the side away from its ancestors, or towards them for a parent of
+        // someone on the piece (see tagDir).
+        ctx.font = `600 ${refTagPx(s)}px ${th.font}`;
+        ctx.fillStyle = th.ink2;
+        for (const pc of pg.pieces) {
+          const byId = new Map(pc.view.scene.nodes.map((n) => [n.id, n]));
+          const b = pc.view.bounds;
+          for (const [id, no] of pc.refPages) {
+            const n = byId.get(id);
+            // A box standing for children elsewhere names its sheets inside.
+            if (!n || pc.refGroups.has(id)) continue;
+            const at = refTagAt({ x: pc.x + (n.x - b.x) * s, y: pc.y + (n.y - b.y) * s, w: n.w * s, h: n.h * s }, tagDir(pc.view, id), 2 * s);
+            ctx.textAlign = at.align;
+            ctx.textBaseline = at.baseline;
+            ctx.fillText(t('picture.sheetRef', { n: no }), at.x, at.y);
+          }
+        }
+        // Each packed piece's caption, in its band above it.
+        ctx.font = `${CAPTION_PT * PT_PX}px ${th.font}`;
+        ctx.fillStyle = th.ink2;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        for (const pc of pg.pieces) {
+          if (pc.capY === null || !pc.top) continue;
+          const cap = ellipsize((x) => ctx.measureText(x).width, branchCaption(pc.top, pc.siblingsOf), mmToPx(CAPTION_MAX_MM));
+          ctx.fillText(cap, pc.x, pc.capY + mmToPx(CAPTION_MM) - mmToPx(1.8));
+        }
+        if (header) drawTitleBlock(ctx, p.scale, lay, th, text);
+      },
+    };
+  }
+
+  /**
+   * "Sheets by branch" (spec amendment 21.11.2026): the whole chart on one page as "compact" prints it when it reads
+   * there at the target size; otherwise the packed pages, each numbered "sheet N of M", the names-are-small warning on
+   * the first naming the pages below 6 pt.
+   */
+  async function buildA3Sheets(choice: A3Choice, format: PictureFormat): Promise<BuiltPicture[] | null> {
+    const planned = await plannedSheets(choice);
+    if (!planned || planned.plan.pages.length === 0) return null;
+    const { dirs, look, plan } = planned;
+    const title = chartTitle(kind, rootName);
+    const sub = a3Sub();
+    if (plan.single) {
+      const v = plan.pages[0].pieces[0].view;
+      const layout = layoutA3(v.bounds, choice, look.header);
+      const own = dirs.find((d) => d.direction === v.direction)!;
+      const c: A3Chart = { scene: v.scene, pick: { direction: v.direction, layout }, meta: own.meta, look, mode: a3Direction.value };
+      return [buildA3For(c, v.scene, layout, format, { title, sub, warning: a3Warning(c) })];
+    }
+    const total = plan.pages.length;
+    const small = plan.pages.filter((pg) => pg.namePt < A3_MIN_PT);
+    const smallest = Math.min(...small.map((pg) => pg.namePt));
+    const warning = small.length
+      ? `${t('picture.a3SmallSheets', { list: small.map((pg) => pg.no).join(', ') })} ${t('picture.a3Small', { pt: Math.round(smallest * 10) / 10 })}`
+      : undefined;
+    return plan.pages.map((pg, i) => buildA3Page(pg, dirs, look, format, { title, sub: `${t('picture.sheetOf', { n: pg.no, m: total })} · ${sub}`, warning: i === 0 ? warning : undefined }));
+  }
+
+  function pictureA3(choice: A3Choice, print: boolean): void {
+    if (savingPicture) return;
+    const setBusy = (b: boolean) => (savingPicture = b);
+    // The layout chosen when the print started: a change of the choice while it runs does not reach its requests.
+    const layout = printLayout;
+    const name = pictureFileName(`${chartTitle(kind, rootName)} (A3)`);
+    if (kind === 'around' && layout === 'sheets') {
+      // Saving remembers the orientation chosen; printing uses the one remembered. The frames on screen follow it.
+      if (!print) a3Orientation.set(choice);
+      const sheetsChoice = print ? a3Orientation.value : choice;
+      const build = (f: PictureFormat) => buildA3Sheets(sheetsChoice, f);
+      if (print) return void printPictures({ build, setBusy });
+      return void savePictures({ api, platform }, { fileName: name, build, setBusy });
+    }
+    if (print) return void printPicture({ build: (f) => buildA3(choice, f, layout), setBusy });
+    void savePicture({ api, platform }, { fileName: name, build: (f) => buildA3(choice, f, layout), setBusy });
   }
 
   function savePictureAs(scope: PictureScope): void {
@@ -958,19 +1507,27 @@
   function oncontextmenu(e: MouseEvent): void {
     e.preventDefault();
     canvas?.focus();
+    // The browser's own menu event for a finger press: the long-press helper has opened (or opens) the menu.
+    if (press.isNativeTouchMenu(e)) return;
     if (isKeyboardMenu(e as PointerEvent)) return pictureMenuAtSelection();
+    openMenuAt(e.clientX, e.clientY);
+  }
+
+  /** The picture/chart menu at a screen position; a box there is selected first. */
+  function openMenuAt(clientX: number, clientY: number): void {
+    canvas?.focus();
     const cur = cache?.current();
     let person: Id | null = null;
     if (cur) {
       // A right-click on a box selects that person first; a box shown elsewhere selects the original.
-      const hit = hitTest(cur.win, toWorld(e).x, toWorld(e).y);
+      const hit = hitTest(cur.win, toWorld({ clientX, clientY }).x, toWorld({ clientX, clientY }).y);
       const n = hit && hit.dupOf !== null ? (cur.win.nodes.find((x) => x.id === hit.dupOf) ?? hit) : hit;
       if (n) {
         select(n);
         person = realPerson(n)?.id ?? null;
       }
     }
-    void pictureMenu?.openAt(e.clientX, e.clientY, person);
+    void pictureMenu?.openAt(clientX, clientY, person);
   }
 
   // ------------------------------------------------------------ keyboard
@@ -1036,7 +1593,7 @@
   const ALL_GENERATIONS = 255;
   const genRange = $derived(kind === 'relatives' ? { min: 1, max: 6 } : kind === 'around' ? { min: 1, max: 8 } : { min: 3, max: 8 });
   /** Pedigree and the chart built around a person can show every generation. */
-  const canShowAll = $derived(kind === 'pedigree' || kind === 'around');
+  const canShowAll = $derived(kind === 'pedigree' || kind === 'around' || kind === 'relatives');
   const genOptions = $derived(
     Array.from({ length: genRange.max - genRange.min + 1 }, (_, i) => genRange.min + i).map((n) => ({
       value: String(n),
@@ -1046,10 +1603,34 @@
   let genValue = $derived(
     String(canShowAll && generations >= ALL_GENERATIONS ? ALL_GENERATIONS : Math.min(genRange.max, Math.max(genRange.min, generations))),
   );
+
+  // A phone: icons and a "more" menu instead of the long row of text buttons.
+  const overflow = $derived<MenuItem[]>([
+    { label: t('chartCanvas.zoomIn'), onselect: () => zoomBy(1.25) },
+    { label: t('chartCanvas.zoomOut'), onselect: () => zoomBy(0.8) },
+    ...(onBuildAround
+      ? [
+          {
+            label: markedIds.length >= 2 ? t('whole.buildAroundMany', { n: markedIds.length }) : t('whole.buildAround'),
+            disabled: markedIds.length < 2 && !realPerson(selNode),
+            onselect: buildAround,
+          },
+          { label: t('whole.openPerson'), disabled: !realPerson(selNode), onselect: () => realPerson(selNode) && onOpenPerson(realPerson(selNode)!.id) },
+        ]
+      : []),
+    ...(kind === 'relatives' ? [{ label: t('chartCanvas.centreOnMe'), disabled: !homeId, onselect: () => homeId && onRecentre(homeId) }] : []),
+    ...(markedIds.length > 0 ? [{ label: t('whole.clearMarked'), onselect: clearMarked }] : []),
+  ]);
 </script>
 
 <div class="chart" {hidden}>
-  <div class="toolbar" role="toolbar" aria-label={toolsLabel}>
+  <div class="toolbar" class:compact={compact.value} role="toolbar" aria-label={toolsLabel}>
+    {#if compact.value}
+      <IconButton label={t('chartCanvas.fit')} icon="whole" onclick={fitAll} />
+      <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={!homeId} onclick={() => homeId && onRecentre(homeId)} />
+      <Menu label={t('chartCanvas.moreTools')} items={overflow} />
+      <DirectionControl chart={kind} />
+    {:else}
     <Button onclick={() => zoomBy(1.25)}>{t('chartCanvas.zoomIn')}</Button>
     <Button onclick={() => zoomBy(0.8)}>{t('chartCanvas.zoomOut')}</Button>
     <Button onclick={fitAll}>{t('chartCanvas.fit')}</Button>
@@ -1063,9 +1644,10 @@
     {:else}
       <IconButton label={t('chartCanvas.goHome')} icon="home" disabled={!homeId} onclick={() => homeId && onRecentre(homeId)} />
     {/if}
+    {/if}
     {#if markedIds.length > 0}
       <div class="tool"><span class="marked" data-testid="marked-count">{plural('whole.nMarked', markedIds.length)}</span></div>
-      <Button onclick={clearMarked}>{t('whole.clearMarked')}</Button>
+      {#if !compact.value}<Button onclick={clearMarked}>{t('whole.clearMarked')}</Button>{/if}
     {/if}
     {#if onAunts}
       <div class="tool"><Checkbox label={t('chartCanvas.showAunts')} checked={auntsUncles} onchange={onAunts} /></div>
@@ -1084,7 +1666,37 @@
         />
       </div>
     {/if}
-    <ChartPictureMenu bind:this={pictureMenu} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
+    {#if onPrintLayout && kind === 'around'}
+      <div class="tool">
+        <Segmented
+          legend={t('chartCanvas.layout')}
+          options={[
+            { value: 'today', label: t('chartCanvas.layoutToday') },
+            { value: 'compact', label: t('chartCanvas.layoutCompact') },
+            { value: 'sheets', label: t('chartCanvas.layoutSheets') },
+          ]}
+          value={printLayout}
+          onchange={(v) => onPrintLayout(v as PrintLayout)}
+        />
+      </div>
+    {/if}
+    {#if onOpenings && !many}
+      {@const sel = realPerson(selNode)}
+      {#if sel && selNode?.canOpenSiblings}
+        <div class="tool" data-testid="open-siblings">
+          <Segmented legend={t('chartCanvas.openSiblings')} options={depthOptions(false)} value={depthOf(sel.id, 'siblings')} onchange={(v) => setOpening(sel.id, 'siblings', v === 'off' ? null : (v as BranchDepth))} />
+        </div>
+      {/if}
+      {#if sel && selNode?.canOpenChildren}
+        <div class="tool" data-testid="open-children">
+          <Segmented legend={t('chartCanvas.openChildren')} options={depthOptions(true)} value={depthOf(sel.id, 'children')} onchange={(v) => setOpening(sel.id, 'children', v === 'off' ? null : (v as BranchDepth))} />
+        </div>
+      {/if}
+      {#if openings.length > 0}
+        <Button onclick={() => onOpenings([])}>{t('chartCanvas.clearOpenings')}</Button>
+      {/if}
+    {/if}
+    <ChartPictureMenu bind:this={pictureMenu} personCount={openings.length > 0 ? meta?.personCount : undefined} ona3={pictureA3} hasSelection={selected !== null} busy={savingPicture} onpick={savePictureAs} restoreFocus={() => canvas?.focus()} {onOpenPerson} />
     <AddRelativeMenu person={realPerson(selNode)?.id ?? null} />
     {#if onGenerations}
       <div class="gens">
@@ -1147,6 +1759,32 @@
     gap: var(--s-3);
     padding-bottom: var(--s-3);
   }
+  /* A phone: one row of tools to swipe sideways, so the chart keeps the screen. */
+  @media (max-width: 940px) {
+    .toolbar {
+      flex-wrap: nowrap;
+      /* Never squeezed away by the chart below it (a phone in landscape has little height): the row keeps its height and swipes sideways. */
+      flex: none;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .toolbar > :global(*) {
+      flex: none;
+    }
+    .toolbar.compact {
+      flex-wrap: wrap;
+      overflow: visible;
+      align-items: center;
+    }
+    /* The generations picker keeps its (screen-reader) label but not the line above it: that line made the toolbar one row taller. */
+    .toolbar.compact .gens :global(label) {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+  }
   /* The toolbar rests on the bottom line so the labelled Select lines up with the buttons; an item shorter than a
      button (a checkbox, the radio group) would then sit low. Give it a button's height and centre it in that. */
   .tool {
@@ -1161,7 +1799,7 @@
   .hint {
     position: absolute;
     top: var(--s-2);
-    left: var(--s-2);
+    inset-inline-start: var(--s-2);
     margin: 0;
     padding: var(--s-1) var(--s-3);
     background: var(--paper-1, var(--paper-0));
@@ -1189,6 +1827,9 @@
     width: 100%;
     height: 100%;
     touch-action: none;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
     cursor: grab;
   }
   canvas:focus-visible {

@@ -84,6 +84,15 @@ fn mp4_audio_generic() -> Vec<u8> {
     out
 }
 
+/// A phone's voice recorder: brand `3gp4` in a file named .m4a.
+fn m4a_3gp4() -> Vec<u8> {
+    let mut out = 24u32.to_be_bytes().to_vec();
+    out.extend(b"ftyp3gp4");
+    out.extend(0u32.to_be_bytes());
+    out.extend(b"isom3gp4");
+    out
+}
+
 fn aac_adts() -> Vec<u8> {
     // sync 0xFFF, MPEG-4, layer 0, no CRC; AAC-LC, 44.1 kHz, mono; frame length 8.
     let mut out = vec![0xFF, 0xF1, 0x50, 0x40, 0x01, 0x00, 0xFC];
@@ -107,6 +116,7 @@ fn formats() -> Vec<(&'static str, Vec<u8>, &'static str)> {
         ("ogg opus", ogg_opus(), "audio/ogg"),
         ("m4a", m4a(), "audio/mp4"),
         ("mp4 audio, generic brand", mp4_audio_generic(), "audio/mp4"),
+        ("m4a from a phone recorder", m4a_3gp4(), "audio/mp4"),
         ("aac adts", aac_adts(), "audio/aac"),
         ("flac", flac(), "audio/flac"),
     ]
@@ -136,6 +146,7 @@ fn setup() -> (tempfile::TempDir, Session, Uuid, Uuid, PathBuf) {
     s.apply(EditCommand::SaveNote {
         target: owner(OwnerKind::Person, ivan),
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::Story,
             text: "He told this one at the table.".into(),
@@ -150,6 +161,164 @@ fn setup() -> (tempfile::TempDir, Session, Uuid, Uuid, PathBuf) {
 
 fn note_media(s: &Session, person: Uuid) -> Vec<MediaLinkDto> {
     s.get_person(person).unwrap().notes[0].media.clone()
+}
+
+fn mp4_box(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+    let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+    out.extend(kind);
+    out.extend(body);
+    out
+}
+
+/// An MP4-family file of the given brand with one track per handler type; `moov` last, after a
+/// block of `mdat`, as phones write it.
+fn mp4_with_tracks(brand: &[u8; 4], handlers: &[&[u8; 4]]) -> Vec<u8> {
+    let mut ftyp = brand.to_vec();
+    ftyp.extend(0u32.to_be_bytes());
+    ftyp.extend(brand);
+    let mut out = mp4_box(b"ftyp", &ftyp);
+    out.extend(mp4_box(b"mdat", &[0u8; 4000]));
+    let mut moov = mp4_box(b"mvhd", &[0u8; 100]);
+    for h in handlers {
+        let mut hdlr = vec![0u8; 8];
+        hdlr.extend(*h);
+        hdlr.extend([0u8; 12]);
+        moov.extend(mp4_box(
+            b"trak",
+            &mp4_box(b"mdia", &mp4_box(b"hdlr", &hdlr)),
+        ));
+    }
+    out.extend(mp4_box(b"moov", &moov));
+    out
+}
+
+#[test]
+fn a_video_with_a_sound_brand_is_refused_and_a_sound_only_file_is_taken() {
+    let (_d, mut s, ivan, note, src) = setup();
+    let brands: [&[u8; 4]; 6] = [b"M4A ", b"mp41", b"mp42", b"isom", b"3gp4", b"3gp6"];
+    for (i, brand) in brands.iter().enumerate() {
+        let f = write(
+            &src,
+            &format!("a{i}.m4a"),
+            &mp4_with_tracks(brand, &[b"soun"]),
+        );
+        let r = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+        assert!(r.failed.is_empty(), "{:?}: {:?}", brand, r.failed);
+        assert_eq!(r.attached.len(), 1);
+    }
+    let before = note_media(&s, ivan).len();
+    for (i, brand) in brands.iter().enumerate() {
+        for handlers in [&[b"vide"][..], &[b"soun", b"vide"][..]] {
+            let f = write(
+                &src,
+                &format!("v{i}.m4a"),
+                &mp4_with_tracks(brand, handlers),
+            );
+            let r = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+            assert!(r.attached.is_empty(), "{:?}", brand);
+            assert_eq!(r.failed.len(), 1);
+            assert_eq!(r.failed[0].reason, "this is a video, not a sound recording");
+        }
+    }
+    assert_eq!(note_media(&s, ivan).len(), before);
+}
+
+#[test]
+fn cut_or_garbled_boxes_do_not_panic_on_attach() {
+    let (_d, mut s, _ivan, note, src) = setup();
+    let full = mp4_with_tracks(b"3gp4", &[b"soun", b"vide"]);
+    for (i, cut) in [30usize, 40, 4020, full.len() - 20, full.len() - 1]
+        .into_iter()
+        .enumerate()
+    {
+        let f = write(&src, &format!("c{i}.m4a"), &full[..cut]);
+        // Taken or refused, never a panic.
+        let _ = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+    }
+    let mut junk = mp4_with_tracks(b"3gp4", &[b"soun"]);
+    let n = junk.len();
+    junk[n - 60..].fill(0xFF);
+    let f = write(&src, "junk.m4a", &junk);
+    let _ = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+}
+
+// ---- the size line of "send a copy" ----
+
+#[test]
+fn copy_size_counts_recordings_apart_from_pictures() {
+    let (_d, mut s, _ivan, note, src) = setup();
+    let empty = s.copy_size().unwrap();
+    assert_eq!((empty.photos, empty.recordings), (0, 0));
+    let mut other = wav();
+    other.push(0);
+    for (name, bytes) in [("v1.wav", wav()), ("v2.wav", other)] {
+        let f = write(&src, name, &bytes);
+        s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+    }
+    let size = s.copy_size().unwrap();
+    assert_eq!(
+        (size.photos, size.recordings),
+        (0, 2),
+        "a recording is not a photo"
+    );
+}
+
+// ---- date and title from the file name ----
+
+#[test]
+fn a_recording_named_by_a_phone_gets_its_date_a_title_and_the_time() {
+    let (_d, mut s, _ivan, note, src) = setup();
+    let f = write(&src, "Voice 261111_090049.wav", &wav());
+    let r = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+    let m = &r.attached[0];
+    assert_eq!(m.date.as_ref().map(|d| d.raw.as_str()), Some("11 NOV 2026"));
+    let language = s.settings().language;
+    let (title, description) = if language == Language::Uk {
+        (
+            "Запис розмови 11 листопада 2026 (Voice 261111_090049)",
+            "Записано о 09:00:49 (за назвою файлу).",
+        )
+    } else {
+        (
+            "Recording 11 November 2026 (Voice 261111_090049)",
+            "Recorded at 09:00:49 (from the file name).",
+        )
+    };
+    assert_eq!(m.title.as_deref(), Some(title));
+    assert_eq!(m.description.as_deref(), Some(description));
+    // The other language, on a second file.
+    s.set_settings(SettingsPatch {
+        language: Some(if language == Language::Uk {
+            Language::En
+        } else {
+            Language::Uk
+        }),
+        ..Default::default()
+    })
+    .unwrap();
+    let f = write(&src, "Voice_261111_090050.wav", &{
+        let mut v = wav();
+        v.push(0);
+        v
+    });
+    let r = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+    assert_ne!(r.attached[0].title.as_deref(), Some(title));
+    // The language switched, so the date is written the other way.
+    let other = if language == Language::Uk {
+        "Recording 11 November 2026 (Voice_261111_090050)"
+    } else {
+        "Запис розмови 11 листопада 2026 (Voice_261111_090050)"
+    };
+    assert_eq!(r.attached[0].title.as_deref(), Some(other));
+}
+
+#[test]
+fn a_recording_with_an_ordinary_name_gets_no_date() {
+    let (_d, mut s, _ivan, note, src) = setup();
+    let f = write(&src, "grandfather.wav", &wav());
+    let r = s.attach_files(owner(OwnerKind::Note, note), &[f]).unwrap();
+    let m = &r.attached[0];
+    assert!(m.date.is_none() && m.title.is_none() && m.description.is_none());
 }
 
 // ---- sniffing ----
@@ -345,6 +514,7 @@ fn editing_the_note_text_keeps_its_voice_samples() {
     s.apply(EditCommand::SaveNote {
         target: owner(OwnerKind::Person, ivan),
         note: NoteInput {
+            story: None,
             id: Some(note),
             kind: NoteKindDto::Story,
             text: "New words.".into(),
@@ -366,6 +536,8 @@ fn a_title_can_be_given_and_is_logged() {
     .unwrap();
     let id = note_media(&s, ivan)[0].media.id;
     s.apply(EditCommand::UpdateMedia {
+        place_text: None,
+        place_id: None,
         id,
         title: Some("Olena at the well".into()),
         description: None,
@@ -411,6 +583,7 @@ fn a_note_cannot_hold_notes_or_citations() {
         .apply(EditCommand::SaveNote {
             target: owner(OwnerKind::Note, note),
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::General,
                 text: "a note on a note".into(),
@@ -548,7 +721,7 @@ fn only_a_note_takes_sound_a_person_and_other_owners_refuse_it() {
     assert_eq!(r.failed.len(), 1);
     assert_eq!(
         r.failed[0].reason,
-        "sound recordings can only be attached to a note"
+        "sound recordings can only be attached to a note or a source"
     );
     let p = s.get_person(ivan).unwrap();
     assert_eq!(p.media.len(), before);
@@ -579,6 +752,7 @@ fn the_session_is_usable_between_preparing_and_committing() {
     s.apply(EditCommand::SaveNote {
         target: owner(OwnerKind::Person, ivan),
         note: NoteInput {
+            story: None,
             id: Some(note),
             kind: NoteKindDto::Story,
             text: "Edited meanwhile.".into(),
@@ -711,6 +885,7 @@ fn reusing_content_stored_with_a_wrong_type_corrects_the_type_and_logs_it() {
     s.apply(EditCommand::SaveNote {
         target: owner(OwnerKind::Person, ivan),
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::Story,
             text: "Said it again.".into(),

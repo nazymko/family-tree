@@ -238,6 +238,7 @@ fn places_after_edit_include_new_chain() {
             negative: false,
             private: false,
             preferred: true,
+            godparents: None,
             participants: None,
         },
     })

@@ -72,6 +72,7 @@ fn kind_token(k: &NameKind) -> String {
         NameKind::Nickname => "nickname".into(),
         NameKind::Immigrant => "immigrant".into(),
         NameKind::Professional => "professional".into(),
+        NameKind::AsRecorded => "as_recorded".into(),
         NameKind::Other(t) => format!("other:{t}"),
     }
 }
@@ -327,9 +328,20 @@ fn common_rows(c: &Common, w: &dyn Words) -> Vec<Row> {
         media,
         region,
         primary,
+        clip,
     } in media
     {
         let name = w.media(*media);
+        // A clip is its own row, keyed by the clip: one recording can have several on a record.
+        if let Some(c) = clip {
+            out.push(Row {
+                field: "mediaClip",
+                of: Some(name),
+                key: Some(c.id),
+                value: Some(gt_core::time::clip_text(c)),
+            });
+            continue;
+        }
         out.push(Row {
             field: "mediaPrimary",
             of: Some(name.clone()),
@@ -389,10 +401,12 @@ fn note_rows(n: &Note, w: &dyn Words) -> Vec<Row> {
         text: body,
         lang,
         shared,
+        story,
     } = n;
     let mut out = vec![
         row("noteKind", Some(enum_id(kind))),
         row("text", Some(body.clone()).filter(|s| !s.is_empty())),
+        row("story", story.clone().filter(|s| !s.is_empty())),
         text("lang", lang),
         row("shared", Some(yes(*shared))),
     ];
@@ -412,6 +426,7 @@ fn event_rows(e: &Event, w: &dyn Words) -> Vec<Row> {
         negative,
         assertion,
         participants,
+        godparents,
     } = e;
     let mut out = vec![
         row("eventKind", Some(enum_id(kind))),
@@ -433,6 +448,23 @@ fn event_rows(e: &Event, w: &dyn Words) -> Vec<Row> {
             of: Some(who),
             key: Some(id),
             value: Some(enum_id(role)),
+        });
+    }
+    for g in godparents {
+        let who = match (g.person, &g.name) {
+            (Some(p), _) => w.person(p),
+            (None, Some(n)) => n.clone(),
+            (None, None) => String::new(),
+        };
+        let value = match &g.note {
+            Some(n) if !n.trim().is_empty() => format!("{} ({})", g.role.id(), n.trim()),
+            _ => g.role.id().to_string(),
+        };
+        out.push(Row {
+            field: "godparent",
+            of: Some(who),
+            key: Some(g.id),
+            value: Some(value),
         });
     }
     out.extend(common_rows(common, w));
@@ -528,6 +560,10 @@ fn source_rows(s: &Source, w: &dyn Words) -> Vec<Row> {
         abbreviation,
         text: body,
         repositories,
+        kind,
+        issuer,
+        doc_number,
+        doc_date,
     } = s;
     let mut out = vec![
         text("title", title),
@@ -535,6 +571,10 @@ fn source_rows(s: &Source, w: &dyn Words) -> Vec<Row> {
         text("publication", publication),
         text("abbreviation", abbreviation),
         text("text", body),
+        row("sourceKind", kind.as_ref().map(|k| k.id())),
+        text("issuer", issuer),
+        text("docNumber", doc_number),
+        row("docDate", doc_date.as_ref().map(|d| d.display())),
     ];
     for RepoRef {
         repository,
@@ -618,16 +658,48 @@ fn media_rows(m: &Media, w: &dyn Words) -> Vec<Row> {
         date,
         description,
         sha256,
+        transcription,
+        rotation,
+        place,
+        version_of,
+        map_layer,
     } = m;
+    let written = gt_core::model::transcription_text(transcription);
     let mut out = vec![
         row("path", Some(path.clone()).filter(|s| !s.is_empty())),
         text("originalName", original_name),
         text("mime", mime),
         text("title", title),
         row("when", date.as_ref().map(|d| d.display())),
+        row("place", place.map(|p| w.place(p))),
         text("description", description),
         text("sha256", sha256),
+        row("transcription", Some(written).filter(|s| !s.is_empty())),
+        // How the picture is shown: "90°" clockwise; "0°" once someone set it back upright.
+        row("mediaRotation", rotation.map(|r| format!("{r}°"))),
+        // Another file of the same page: the one shown first.
+        row("versionOf", version_of.map(|v| w.media(v))),
     ];
+    // An old map on the Map: what it is, where its corners lie, and how it is drawn.
+    if let Some(l) = map_layer {
+        let deg = |v: i32| format!("{:.5}", f64::from(v) / 1e6);
+        out.extend([
+            text("mapSeries", &l.series),
+            text("mapYear", &l.year),
+            text("mapSource", &l.source),
+            row(
+                "mapCorners",
+                l.corners.map(|c| {
+                    c.iter()
+                        .map(|p| format!("{} {}", deg(p.lat_e6), deg(p.lon_e6)))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                }),
+            ),
+            row("mapOpacity", Some(format!("{}%", l.opacity))),
+            row("mapShown", Some(yes(l.visible))),
+        ]);
+    }
     out.extend(common_rows(common, w));
     out
 }

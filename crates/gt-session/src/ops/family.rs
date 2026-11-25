@@ -252,3 +252,32 @@ fn unset_preferred_elsewhere(p: &mut Planner, child: Uuid, keep: Uuid) {
         }
     }
 }
+
+/// One child taken out of one family, and a research note on the child that says which family and
+/// why: one change set, so one undo takes back both. The family, its partners and its other
+/// children stay.
+pub(crate) fn plan_child_link_removal(
+    tree: &gt_core::tree::Tree,
+    family: Uuid,
+    child: Uuid,
+    note: &str,
+    now: i64,
+    order: gt_core::date::DayOrder,
+) -> Result<(gt_store::ChangeSet, Option<Uuid>), ApiError> {
+    let mut p = Planner::new(tree, now, order);
+    unlink_child(&mut p, family, child)?;
+    super::cite::save_note(
+        &mut p,
+        crate::command::OwnerRef {
+            kind: crate::command::OwnerKind::Person,
+            id: child,
+        },
+        &crate::command::NoteInput {
+            story: None,
+            id: None,
+            kind: crate::dto::NoteKindDto::Research,
+            text: note.to_string(),
+        },
+    )?;
+    Ok((p.finish("Remove child from family".into()), Some(child)))
+}

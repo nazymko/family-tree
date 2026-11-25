@@ -38,16 +38,26 @@
   import NameEditor from '../editors/NameEditor.svelte';
   import NoteEditor from '../editors/NoteEditor.svelte';
   import VoiceSamples from '../media/VoiceSamples.svelte';
+  import PersonRecordings from '../media/PersonRecordings.svelte';
+  import { personRecordings } from '../media/clips';
   import QuickAdd from '../editors/QuickAdd.svelte';
   import EventEditor from '../editors/EventEditor.svelte';
   import SurnamesEditor from '../editors/SurnamesEditor.svelte';
   import FamilyEditor from '../editors/FamilyEditor.svelte';
   import CitationEditor from '../editors/CitationEditor.svelte';
+  import CitationList from '../editors/CitationList.svelte';
+  import { asRecordedLines } from './asRecorded';
   import { errMessage } from '../editors/errors';
-  import { t, plural, currentLocale, type MessageKey } from '../i18n';
+  import { t, plural, currentTag, type MessageKey } from '../i18n';
+  import NotesViewToggle from '../notes/NotesViewToggle.svelte';
+  import NoteShortened from '../notes/NoteShortened.svelte';
+  import NoteCitations from '../notes/NoteCitations.svelte';
+  import { shownNote } from '../notes/notesView.svelte';
   import { agentLabel, editLabel, eventKindLabel } from '../i18n/backend';
   import { withSexIcon } from '../ui/sex';
+  import { oldTypeface } from '../ui/namesPref.svelte';
   import { birthSurnameText } from '../ui/birthSurname';
+  import { baptismOf, godparentFull, godparentRoleText, shortGodparentName } from '../ui/godparents';
 
   let {
     id,
@@ -256,6 +266,8 @@
     nav.go(kind === 'around' ? { name: 'around', ids: [id] } : { name: kind });
   }
 
+  const recordingCount = $derived(detail ? personRecordings(detail).length : 0);
+
   /** Scrolls to a section and moves focus to its heading (the history folds open first). */
   async function jump(headingId: string) {
     if (headingId === 'h-history' && historyBox) historyBox.open = true;
@@ -264,11 +276,6 @@
     h?.scrollIntoView?.({ block: 'start' });
     h?.focus({ preventScroll: true });
   }
-
-  const moreItems = $derived<MenuItem[]>([
-    { label: t('surnames.button'), onselect: () => (dialog = { kind: 'surnames' }) },
-    { label: isHome ? t('common.homePerson') : t('person.makeHome'), onselect: () => void toggleHome() },
-  ]);
 
   const addItems = $derived<MenuItem[]>([
     { label: t('person.menu_father'), onselect: () => (dialog = { kind: 'quick', relation: 'father' }) },
@@ -319,7 +326,24 @@
 
   const birthEvent = $derived(detail?.events.find((x) => x.kind === 'birth'));
   const deathEvent = $derived(detail?.events.find((x) => x.kind === 'death'));
+  const baptismEvent = $derived(baptismOf(detail?.events));
+  /** "bap. 6 Feb 1906", with the place when it is not the birth place. Empty with neither. */
+  const baptismText = $derived.by(() => {
+    const b = baptismEvent;
+    if (!b) return '';
+    const samePlace = !!b.place && b.place.id === birthEvent?.place?.id;
+    const what = [b.date?.display, samePlace ? '' : b.place?.full].filter(Boolean).join(', ');
+    return what ? t('person.baptismShort', { date: what }) : '';
+  });
+  const godparents = $derived(baptismEvent?.godparents ?? []);
+  const godparentsTitle = $derived(godparents.map(godparentFull).join('\n'));
+  const godchildren = $derived(detail?.godchildren ?? []);
+  const godForKey = $derived(
+    detail?.sex === 'male' ? 'person.godfatherFor' : detail?.sex === 'female' ? 'person.godmotherFor' : 'person.godparentFor',
+  );
   const maiden = $derived(birthSurnameText(detail?.ref));
+  /** Names as a metric book or another record writes them (old spelling), shown under the main name. */
+  const recorded = $derived(asRecordedLines(detail?.names ?? []));
   const preferredName = $derived(detail ? (detail.names.find((n) => n.preferred) ?? detail.names[0]) : undefined);
   /** Shown on the card only when the surname changed with marriage. */
   const surnameLines = $derived.by(() => {
@@ -339,7 +363,10 @@
           ...surnameLines,
           ...(['birth', 'death'] as const).flatMap((k) => {
             const e = k === 'birth' ? birthEvent : deathEvent;
-            return e ? [{ label: k === 'birth' ? t('person.born') : t('person.died'), text: eventLine(e) || t('person.noDateOrPlace') }] : [];
+            if (k === 'birth' && !e && baptismEvent)
+              return [{ label: t('person.baptized'), text: eventLine(baptismEvent) || t('person.noDateOrPlace'), extra: '' }];
+            const extra = k === 'birth' ? baptismText : '';
+            return e ? [{ label: k === 'birth' ? t('person.born') : t('person.died'), text: eventLine(e) || t('person.noDateOrPlace'), extra }] : [];
           }),
         ]
       : [],
@@ -446,7 +473,7 @@
   }
   const whoWrote = (r: LogRowDto) => (r.actor.kind === 'user' ? t('changeLog.you') : r.actor.kind === 'agent' ? agentLabel(r.actor.id, r.actor.name) : t('changeLog.beforeTracking'));
   function when(ts: number): string {
-    return new Date(ts).toLocaleString(currentLocale());
+    return new Date(ts).toLocaleString(currentTag());
   }
 </script>
 
@@ -459,8 +486,17 @@
     <div class="card">
     <IndexCard as="section" ribbon={isHome}>
       <div class="head">
-        <h1 tabindex="-1" bind:this={title}><bdi dir="auto">{detail.ref.name}</bdi>{#if agentChanges.unreviewed.has(id)} <AgentBadge />{/if}</h1>
+        <h1 tabindex="-1" bind:this={title} data-person-id={id}><bdi dir="auto">{detail.ref.name}</bdi>{#if agentChanges.unreviewed.has(id)} <AgentBadge />{/if}</h1>
         {#if maiden}<p class="maiden">{maiden}</p>{/if}
+        {#each recorded as r (r.name.id)}
+          <p class="recorded" data-as-recorded={r.name.id}>
+            <button type="button" class="recorded-btn" title={[t('person.asRecordedTitle'), r.detail].filter(Boolean).join('\n')} onclick={() => (dialog = { kind: 'name', name: r.name })}
+              ><span class="recorded-label">{t('person.asRecorded')}</span> <bdi dir="auto" class="recorded-name" class:old-typeface={oldTypeface.value}>{r.name.display}</bdi><span class="recorded-src"
+                >{` · ${r.source ? [r.source, r.year].filter(Boolean).join(', ') : t('person.asRecordedNoSource')}`}</span
+              ></button
+            >
+          </p>
+        {/each}
         <p class="life">{detail.ref.lifespan || t('person.noDates')}</p>
         <div class="head-actions" role="group" aria-label={t('person.quickEdit')}>
           <Button
@@ -470,16 +506,30 @@
           <Button onclick={() => (dialog = { kind: 'event', event: birthEvent, newKind: 'birth' })}>
             {birthEvent ? t('person.editBirth') : t('person.addBirth')}
           </Button>
+          <Button onclick={() => (dialog = { kind: 'event', event: baptismEvent, newKind: 'baptism' })}>
+            {baptismEvent ? t('person.editBaptism') : t('person.addBaptism')}
+          </Button>
           <Button onclick={() => (dialog = { kind: 'event', event: deathEvent, newKind: 'death' })}>
             {deathEvent ? t('person.editDeath') : t('person.addDeath')}
           </Button>
-          <Menu label={t('person.more')} text={t('person.more')} items={moreItems} align="start" />
+          <Button onclick={() => (dialog = { kind: 'surnames' })}>{t('surnames.button')}</Button>
+          <Button onclick={() => void toggleHome()}>{isHome ? t('common.homePerson') : t('person.makeHome')}</Button>
         </div>
       </div>
       {#snippet body()}
         {#each cardLines as l (l.label)}
-          <p class="card-line"><span class="card-label" class:wide={surnameLines.length > 0}>{l.label}</span> {l.text}</p>
+          <p class="card-line"><span class="card-label" class:wide={surnameLines.length > 0}>{l.label}</span> {l.text}{#if 'extra' in l && l.extra}<span class="bap" data-baptism>{` · ${l.extra}`}</span>{/if}</p>
         {/each}
+        {#if godparents.length > 0}
+          <p class="card-line" data-godparents title={godparentsTitle}>
+            <span class="card-label" class:wide={surnameLines.length > 0}>{t('person.godparents')}</span>
+            {#each godparents as g, i (g.id)}{i > 0 ? ', ' : ''}{#if g.person}<button
+                  type="button"
+                  class="godlink"
+                  onclick={() => open(g.person!)}><bdi dir="auto">{g.person.name}</bdi></button
+                >{:else}<bdi dir="auto">{shortGodparentName(g.name)}</bdi>{/if}{/each}
+          </p>
+        {/if}
       {/snippet}
     </IndexCard>
     </div>
@@ -515,6 +565,9 @@
         <div class="qbtns" role="group" aria-labelledby="g-sections">
           <Button variant="secondary" onclick={() => jump('h-notes')}>{withCount(t('person.notes'), detail.notes.length)}</Button>
           <Button variant="secondary" onclick={() => jump('h-media')}>{withCount(t('nav.media'), detail.media.length)}</Button>
+          {#if recordingCount > 0}
+            <Button variant="secondary" onclick={() => jump('h-recordings')}>{withCount(t('rec.recordings'), recordingCount)}</Button>
+          {/if}
           <Button variant="secondary" onclick={() => jump('h-sources')}>{withCount(t('sources.title'), detail.citations.length)}</Button>
           <Button variant="secondary" onclick={() => jump('h-history')}>{t('person.history')}</Button>
           <Menu label={t('person.addMenu')} text={t('person.addMenu')} items={addItems} align="start" variant="secondary" />
@@ -542,7 +595,7 @@
       </div>
       <ul class="rows">
         {#each detail.names as n (n.id)}
-          <li>
+          <li data-name-id={n.id}>
             <span class="grow"><bdi dir="auto">{n.display}</bdi></span>
             <span class="meta">{n.preferred ? t('person.preferredSuffix', { kind: nameKind(n.kind) }) : nameKind(n.kind)}</span>
             <Button onclick={() => (dialog = { kind: 'name', name: n })} aria-label={t('person.editNameNamed', { name: n.display })}>{t('common.edit')}</Button>
@@ -553,6 +606,11 @@
               onclick={() => remove({ type: 'deleteName', person: id, name: n.id })}>{t('common.delete')}</Button
             >
           </li>
+          {#if n.kind === 'as_recorded' || n.citations.length > 0}
+            <li class="name-sources" data-name-sources={n.id} aria-label={t('person.nameSources')}>
+              <CitationList target={{ kind: 'name', id: n.id }} citations={n.citations} onChanged={() => {}} />
+            </li>
+          {/if}
         {/each}
       </ul>
     </section>
@@ -606,7 +664,7 @@
       {:else}
         <ul class="rows events">
           {#each detail.events as e (e.id)}
-            <li>
+            <li data-event-id={e.id}>
               <span class="kind">{eventKindLabel(e.kind, e.label)}</span>
               <EventSummary event={e} />
               <Button onclick={() => (dialog = { kind: 'event', event: e })} aria-label={t('person.editNamed', { label: eventKindLabel(e.kind, e.label) })}>{t('common.edit')}</Button>
@@ -664,15 +722,35 @@
       </div>
     </section>
 
+    {#if godchildren.length > 0}
+      <section aria-labelledby="h-godchildren" data-godchildren>
+        <h2 id="h-godchildren">{t('person.godchildren')}</h2>
+        <p class="meta">{t(godForKey as MessageKey)}</p>
+        <ul class="rows">
+          {#each godchildren as gc (gc.event + gc.person.id)}
+            <li>
+              <span class="grow"><Button variant="quiet" onclick={() => open(gc.person)}><bdi dir="auto">{gc.person.name}</bdi></Button></span>
+              <span class="meta"
+                >{godparentRoleText(gc.role, detail.sex)}{#if gc.date}, {t('person.godchildBaptism', { date: gc.date.display })}{/if}</span
+              >
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+
     <section aria-labelledby="h-notes">
       <div class="sec-head">
         <h2 id="h-notes" tabindex="-1">{t('person.notes')}</h2>
+        {#if detail.notes.length > 0 || familyNotes.length > 0}<NotesViewToggle />{/if}
         <Button onclick={() => (dialog = { kind: 'note' })}>{t('editor.addNote')}</Button>
       </div>
       {#each detail.notes as n (n.id)}
-        <article class="note">
+        <article class="note" data-note-id={n.id}>
           <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
-          <p class="note-text">{n.text}</p>
+          <p class="note-text">{shownNote(n).text}</p>
+          <NoteShortened note={n} />
+          <NoteCitations text={n.text} citations={detail.citations} onOpen={(c) => (dialog = { kind: 'citation', citation: c })} />
           <VoiceSamples items={n.media} />
           <div class="btns">
             <Button onclick={() => (dialog = { kind: 'note', note: n })} aria-label={t('person.editNote', { kind: t(`noteKind.${n.kind}`) })}>{t('common.edit')}</Button>
@@ -693,9 +771,10 @@
           <Button onclick={() => (dialog = { kind: 'family', family: fam.familyId })}>{t('person.openFamily')}</Button>
         </div>
         {#each fam.notes as n (n.id)}
-          <article class="note">
+          <article class="note" data-note-id={n.id}>
             <p class="note-kind">{t(`noteKind.${n.kind}`)}</p>
-            <p class="note-text">{n.text}</p>
+            <p class="note-text">{shownNote(n).text}</p>
+            <NoteShortened note={n} />
             <VoiceSamples items={n.media} />
             <div class="btns">
               <Button
@@ -717,6 +796,11 @@
     <section aria-labelledby="h-media">
       <h2 id="h-media" tabindex="-1">{t('nav.media')}</h2>
       {#if mediaSection}{@render mediaSection(detail)}{:else}<p class="empty">{t('person.attachedCount', { n: detail.media.length })}</p>{/if}
+    </section>
+
+    <section aria-labelledby="h-recordings">
+      <h2 id="h-recordings" tabindex="-1">{t('rec.recordings')}</h2>
+      <PersonRecordings {detail} />
     </section>
 
     <section aria-labelledby="h-sources">
@@ -817,6 +901,13 @@
     gap: var(--s-6);
     padding: var(--s-6);
   }
+  /* A narrow window: the shell already pads the page; a second gutter wastes a third of a phone's width. */
+  @media (max-width: 940px) {
+    .page {
+      padding: 0;
+      gap: var(--s-5);
+    }
+  }
   /* The text sections keep a readable width; the family tree may use the whole page. */
   .page > :not(.tree-sec) {
     max-width: 70rem;
@@ -893,6 +984,19 @@
   .card-label.wide {
     min-width: 12rem;
   }
+  .bap {
+    color: var(--ink-1);
+  }
+  .godlink {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: var(--verdigris);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
   section {
     display: grid;
     gap: var(--s-4);
@@ -916,6 +1020,37 @@
     gap: var(--s-3);
     min-height: 2.5rem;
     border-top: 1px solid var(--rule);
+  }
+  .rows li.name-sources {
+    display: block;
+    border-top: 0;
+    padding: 0 0 var(--s-3) var(--s-5);
+    font-size: var(--t-sm);
+  }
+  .recorded {
+    margin: 0;
+  }
+  .recorded-btn {
+    all: unset;
+    cursor: pointer;
+    color: var(--ink-1);
+    font-size: var(--t-sm);
+  }
+  .recorded-btn:hover .recorded-name,
+  .recorded-btn:focus-visible .recorded-name {
+    text-decoration: underline;
+  }
+  .recorded-btn:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .recorded-name.old-typeface {
+    font-family: var(--font-recorded);
+  }
+  .recorded-name {
+    font-family: var(--font-serif);
+    font-style: italic;
+    color: var(--ink-0);
   }
   .rows li:has(.changed) {
     flex-wrap: wrap;

@@ -54,6 +54,8 @@ pub struct Session {
     pub(crate) edit: crate::undo::EditState,
     /// Image sizes read so far (see `media.rs`).
     pub(crate) media_dims: crate::media::DimsCache,
+    /// Recording lengths read so far (see `media.rs`).
+    pub(crate) media_lengths: crate::media::LengthCache,
     /// The merge preview waiting for Apply (see `merge`).
     pub(crate) pending_merge: Option<Box<crate::merge::Plan>>,
 }
@@ -76,6 +78,7 @@ impl Session {
             charts: crate::chart::Charts::default(),
             edit: Default::default(),
             media_dims: Default::default(),
+            media_lengths: Default::default(),
             pending_merge: None,
         };
         s.rebuild();
@@ -303,6 +306,12 @@ impl Session {
             living_rule_changed = v != self.settings.living_max_age;
             rebuild |= living_rule_changed;
             self.settings.living_max_age = v;
+        }
+        if let Some(name) = patch.tree_name {
+            let name = name.trim().to_string();
+            self.project.meta_set(settings::KEY_TREE_NAME, &name)?;
+            rebuild |= name != self.settings.tree_name;
+            self.settings.tree_name = name;
         }
         if let Some(home) = patch.home_person {
             self.project.meta_set(

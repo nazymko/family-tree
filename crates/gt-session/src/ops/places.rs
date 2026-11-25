@@ -93,3 +93,67 @@ pub(super) fn place_for_text(p: &mut Planner, input: &str) -> Result<Option<Uuid
     }
     Ok(Some(leaf))
 }
+
+/// A place made from text (or found); its id is the plan's focus.
+pub(super) fn create(p: &mut Planner, input: &str) -> Result<Option<Uuid>, ApiError> {
+    place_for_text(p, input)
+}
+
+/// Sets (both given) or clears (both absent) the point of a place. Millionths of a degree.
+pub(super) fn set_coordinates(
+    p: &mut Planner,
+    id: Uuid,
+    lat_e6: Option<i32>,
+    lon_e6: Option<i32>,
+) -> Result<Option<Uuid>, ApiError> {
+    let point = match (lat_e6, lon_e6) {
+        (None, None) => None,
+        (Some(la), Some(lo)) => {
+            if !(-90_000_000..=90_000_000).contains(&la)
+                || !(-180_000_000..=180_000_000).contains(&lo)
+            {
+                return Err(invalid(
+                    "Latitude must be between -90 and 90 and longitude between -180 and 180.",
+                ));
+            }
+            Some((f64::from(la) / 1e6, f64::from(lo) / 1e6))
+        }
+        _ => return Err(invalid("Give both latitude and longitude, or neither.")),
+    };
+    let mut place: Place = p.get(id)?;
+    place.lat = point.map(|c| c.0);
+    place.lon = point.map(|c| c.1);
+    place.common.changed = Some(p.now);
+    p.put(place);
+    Ok(None)
+}
+
+/// An agent's point for a place, with where it comes from: the point is set and a research note on
+/// the place gives the source, in one change set the owner can undo. The note is how a place keeps
+/// its provenance; the point itself is the one the Map reads, as for the owner's own.
+pub(crate) fn plan_agent_coordinates(
+    tree: &Tree,
+    id: Uuid,
+    lat_e6: i32,
+    lon_e6: i32,
+    note: &str,
+    now: i64,
+    order: gt_core::date::DayOrder,
+) -> Result<(gt_store::ChangeSet, Option<Uuid>), ApiError> {
+    let mut p = Planner::new(tree, now, order);
+    set_coordinates(&mut p, id, Some(lat_e6), Some(lon_e6))?;
+    let n = gt_core::model::Note {
+        common: new_common(now),
+        kind: gt_core::model::NoteKind::Research,
+        text: note.to_string(),
+        lang: None,
+        shared: false,
+        story: None,
+    };
+    let note_id = n.common.id;
+    let mut place: Place = p.get(id)?;
+    place.common.notes.push(note_id);
+    p.put(place);
+    p.put(n);
+    Ok((p.finish("Set place coordinates".into()), Some(id)))
+}

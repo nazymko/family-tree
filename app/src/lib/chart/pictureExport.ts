@@ -1,9 +1,11 @@
 import type { Api, Platform } from '../api/api';
 import type { ChartKind } from '../api/types';
-import { currentLocale, t, type MessageKey } from '../i18n';
+import { currentTag, t, type MessageKey } from '../i18n';
 import { notices } from '../ui/notices.svelte';
 import { CAPTION_H, MARGIN, formatOf, pictureFileName, scalePlan, type PictureFormat, type PicturePlan, type PictureScope } from './picture';
+import { printDocument, printDocumentPages, printHtml, type A3Orientation } from './a3';
 import { SvgContext, escapeXml, parseFont } from './svgContext';
+import { fontFaceCss, loadChartFonts } from '../ui/fonts';
 
 /** Everything needed to paint one picture. */
 export interface BuiltPicture {
@@ -14,6 +16,12 @@ export interface BuiltPicture {
   caption: string;
   /** Draws the chart area: a chart draw function called with `plan.cam`, `plan.view` and `plan.scale` as its dpr. */
   paint: (ctx: CanvasRenderingContext2D, plan: PicturePlan) => void;
+  /** No background at all: the PNG keeps alpha 0 where nothing is drawn and the SVG has no background rect. */
+  transparent?: boolean;
+  /** A paper page: the SVG gets this size in millimetres (and a matching viewBox), and the PNG has no caption strip. */
+  pageMm?: { w: number; h: number; orientation: A3Orientation };
+  /** Shown after the picture is saved (for example, that the names are small). */
+  warning?: string;
 }
 
 const KIND_WORD: Record<ChartKind, MessageKey> = {
@@ -39,7 +47,7 @@ export function suggestedName(scope: PictureScope, kind: ChartKind, rootName: st
 
 /** "Pedigree - Ivan Koval · 4 November 2026", in the interface language. */
 export function captionText(kind: ChartKind, rootName: string, now = new Date()): string {
-  const date = now.toLocaleDateString(currentLocale(), { year: 'numeric', month: 'long', day: 'numeric' });
+  const date = now.toLocaleDateString(currentTag(), { year: 'numeric', month: 'long', day: 'numeric' });
   return `${chartTitle(kind, rootName)} · ${date}`;
 }
 
@@ -62,15 +70,24 @@ export async function renderPng(b: BuiltPicture): Promise<Uint8Array> {
   b.paint(ctx, plan);
   ctx.restore();
 
-  // The background goes behind what is drawn, so the picture is never transparent.
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.globalCompositeOperation = 'destination-over';
-  ctx.fillStyle = b.theme.paper;
-  ctx.fillRect(0, 0, plan.width, plan.height);
-  ctx.restore();
+  if (b.transparent) {
+    // Nothing goes behind the chart. A canvas that silently stayed empty is found by a probe instead of the background.
+    if (!alive(ctx)) throw new Error(t('picture.failed'));
+  } else {
+    // The background goes behind what is drawn, so the picture is never transparent.
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.fillStyle = b.theme.paper;
+    ctx.fillRect(0, 0, plan.width, plan.height);
+    ctx.restore();
+    // A canvas bigger than the browser can hold may be made anyway and silently stay empty: the background just painted
+    // is missing then, so the picture is treated as failed (and tried again smaller).
+    if (!painted(ctx)) throw new Error(t('picture.failed'));
+  }
 
-  // The caption.
+  // The caption (a paper page has its title block inside the chart instead).
+  if (b.pageMm || !b.caption) return toPng(canvas);
   ctx.setTransform(plan.scale, 0, 0, plan.scale, 0, 0);
   ctx.font = `12px ${b.theme.font}`;
   ctx.fillStyle = b.theme.ink2;
@@ -82,9 +99,57 @@ export async function renderPng(b: BuiltPicture): Promise<Uint8Array> {
   while (text.length > 1 && ctx.measureText(text).width > room) text = text.slice(0, -2).trimEnd() + '…';
   ctx.fillText(text, left, plan.view.h + CAPTION_H / 2);
 
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-  if (!blob) throw new Error(t('picture.failed'));
-  return new Uint8Array(await blob.arrayBuffer());
+  return toPng(canvas);
+}
+
+/** Whether the top-left pixel holds the opaque background (true when the context cannot tell, as in tests). */
+function painted(ctx: CanvasRenderingContext2D): boolean {
+  let px: ImageData | undefined;
+  try {
+    px = ctx.getImageData(0, 0, 1, 1) as ImageData | undefined;
+  } catch {
+    return false;
+  }
+  return !px?.data || px.data.length < 4 || px.data[3] !== 0;
+}
+
+/**
+ * Whether a canvas that is meant to stay transparent really holds pixels. A canvas the browser could not allocate keeps
+ * reading and writing nothing. The top-left pixel is read; when it is clear, a nearly invisible dot is drawn behind it,
+ * read back, and cleared again, so the corner ends as it was. True when the context cannot tell, as in tests.
+ */
+function alive(ctx: CanvasRenderingContext2D): boolean {
+  try {
+    const before = ctx.getImageData(0, 0, 1, 1) as ImageData | undefined;
+    if (!before?.data || before.data.length < 4) return true;
+    if (before.data[3] !== 0) return true;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, 0, 1, 1);
+    ctx.restore();
+    const after = ctx.getImageData(0, 0, 1, 1) as ImageData | undefined;
+    ctx.clearRect(0, 0, 1, 1);
+    return !after?.data || after.data.length < 4 || after.data[3] !== 0;
+  } catch {
+    return false;
+  }
+}
+
+/** The PNG bytes of a canvas; an oversized canvas gives no blob or an empty one in Chromium, which counts as a failure. */
+async function toPng(canvas: HTMLCanvasElement): Promise<Uint8Array> {
+  const blob = await new Promise<Blob | null>((resolve, reject) => {
+    try {
+      canvas.toBlob(resolve, 'image/png');
+    } catch (e) {
+      reject(e instanceof Error ? e : new Error(t('picture.failed')));
+    }
+  });
+  if (!blob || blob.size === 0) throw new Error(t('picture.failed'));
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  if (bytes.length === 0) throw new Error(t('picture.failed'));
+  return bytes;
 }
 
 function messageOf(e: unknown): string {
@@ -140,9 +205,25 @@ export function renderSvg(b: BuiltPicture): Uint8Array {
   const left = plan.view.w > 2 * MARGIN ? MARGIN : 12;
   const f = parseFont(`12px ${b.theme.font}`);
   const caption =
-    `<text x="${left}" y="${plan.view.h + CAPTION_H / 2}" font-family="${escapeXml(f.family)}" font-size="${f.size}" dominant-baseline="central" ` +
+    b.pageMm || !b.caption
+      ? ''
+      : `<text x="${left}" y="${plan.view.h + CAPTION_H / 2}" font-family="${escapeXml(f.family)}" font-size="${f.size}" dominant-baseline="central" ` +
     `fill="${escapeXml(b.theme.ink2)}">${escapeXml(b.caption)}</text>\n`;
-  return new TextEncoder().encode(ctx.toSvg(b.theme.paper, plan.view, caption));
+  const physical = b.pageMm ? { w: `${b.pageMm.w}mm`, h: `${b.pageMm.h}mm` } : undefined;
+  return new TextEncoder().encode(ctx.toSvg(b.transparent ? null : b.theme.paper, plan.view, caption, physical));
+}
+
+/** A single picture as a set of one; nothing stays nothing. */
+const one = (b: BuiltPicture | null): BuiltPicture[] | null => (b ? [b] : null);
+
+/** A chosen save path in parts: the folder, its separator, the file name without its ending, and the ending (".png"). */
+export function splitPath(dest: string): { dir: string; sep: string; base: string; ext: string } {
+  const cut = Math.max(dest.lastIndexOf('/'), dest.lastIndexOf('\\'));
+  const dir = cut >= 0 ? dest.slice(0, cut) : '';
+  const sep = cut >= 0 ? dest[cut] : '/';
+  const name = dest.slice(cut + 1);
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? { dir, sep, base: name.slice(0, dot), ext: name.slice(dot) } : { dir, sep, base: name, ext: '' };
 }
 
 /**
@@ -152,6 +233,20 @@ export function renderSvg(b: BuiltPicture): Uint8Array {
 export async function savePicture(
   deps: { api: Api; platform: Platform },
   args: { fileName: string; build: (format: PictureFormat) => Promise<BuiltPicture | null>; setBusy: (busy: boolean) => void },
+): Promise<void> {
+  return savePictures(deps, { ...args, build: async (format) => one(await args.build(format)) });
+}
+
+/**
+ * `savePicture` for a set of pictures (the A3 sheets of one chart). The save dialog runs once and gives the place and
+ * the name; a set of more than one goes into a NEW folder there named after it ("X — sheets", "X — sheets (2)" when
+ * taken, see `Api.makePictureFolder`), as "X — sheet 1.png" … "X — sheet M.png" in the chosen format, so nothing on
+ * the disk is replaced; the folder is then shown in the file manager (not on a phone). A single picture is saved at
+ * the chosen path, as always. One message when all are written.
+ */
+export async function savePictures(
+  deps: { api: Api; platform: Platform },
+  args: { fileName: string; build: (format: PictureFormat) => Promise<BuiltPicture[] | null>; setBusy: (busy: boolean) => void },
 ): Promise<void> {
   const dest = await deps.platform.pickSavePath({
     title: t('picture.dialogTitle'),
@@ -167,25 +262,85 @@ export async function savePicture(
   args.setBusy(true);
   try {
     await yieldFrame();
-    const built = await args.build(format);
-    if (!built) {
+    const set = await args.build(format);
+    if (!set || set.length === 0) {
+      notices.show({ message: t('picture.nothing') });
+      return;
+    }
+    let paths = [dest];
+    if (set.length > 1) {
+      const { dir, sep, base, ext } = splitPath(dest);
+      const folder = await deps.api.makePictureFolder(dir, t('picture.sheetsFolder', { name: base }));
+      paths = set.map((_, i) => `${folder}${sep}${base}${t('picture.sheetSuffix', { n: i + 1 })}${ext}`);
+    }
+    await later();
+    await loadChartFonts();
+    let smallest: PicturePlan | null = null;
+    for (let i = 0; i < set.length; i++) {
+      const built = set[i];
+      const path = paths[i];
+      let plan = built.plan;
+      let bytes: Uint8Array;
+      if (format === 'svg') {
+        bytes = renderSvg(built);
+      } else {
+        ({ bytes, plan } = await renderPngAdaptive(built));
+      }
+      await deps.api.savePicture(path, bytes);
+      if (deps.platform.isMobile && deps.platform.deliver && !(await deps.platform.deliver(path))) return;
+      if (format === 'png' && plan.reduced && (!smallest || plan.percent < smallest.percent)) smallest = plan;
+      if (i < set.length - 1) await later();
+    }
+    const base = smallest
+      ? t('picture.savedScaled', { percent: smallest.percent }) + (smallest.percent < 50 ? ` ${t('picture.svgHint')}` : '')
+      : t('picture.saved');
+    const warnings = [...new Set(set.map((b) => b.warning).filter((w): w is string => !!w))];
+    let message = warnings.length ? `${base} ${warnings.join(' ')}` : base;
+    // A set went into a folder of its own: show it. Failing to open it is only a note on the saved message.
+    if (set.length > 1 && !deps.platform.isMobile) {
+      try {
+        await deps.platform.reveal(paths[0]);
+      } catch {
+        message += ` ${t('picture.openFailed')}`;
+      }
+    }
+    notices.show({ message, ...(deps.platform.isMobile ? {} : { actionLabel: t('exp.reveal'), onaction: () => void deps.platform.reveal(paths[0]) }) });
+  } catch (e) {
+    notices.show({ message: messageOf(e) });
+  } finally {
+    args.setBusy(false);
+  }
+}
+
+/** Builds the A3 picture as SVG and sends it to the system print dialog. */
+export async function printPicture(args: { build: (format: PictureFormat) => Promise<BuiltPicture | null>; setBusy: (busy: boolean) => void }): Promise<void> {
+  return printPictures({ ...args, build: async (format) => one(await args.build(format)) });
+}
+
+/**
+ * Builds a set of A3 pictures (the sheets of one chart) as SVG and sends them to the system print dialog as one document,
+ * a page per picture. A single picture prints exactly as `printDocument` lays out one page.
+ */
+export async function printPictures(args: { build: (format: PictureFormat) => Promise<BuiltPicture[] | null>; setBusy: (busy: boolean) => void }): Promise<void> {
+  args.setBusy(true);
+  try {
+    await yieldFrame();
+    const set = await args.build('svg');
+    if (!set || set.length === 0 || set.some((b) => !b.pageMm)) {
       notices.show({ message: t('picture.nothing') });
       return;
     }
     await later();
-    let plan = built.plan;
-    let bytes: Uint8Array;
-    if (format === 'svg') {
-      bytes = renderSvg(built);
-    } else {
-      ({ bytes, plan } = await renderPngAdaptive(built));
-    }
-    await deps.api.savePicture(dest, bytes);
-    const scaled = format === 'png' && plan.reduced;
-    const message = scaled
-      ? t('picture.savedScaled', { percent: plan.percent }) + (plan.percent < 50 ? ` ${t('picture.svgHint')}` : '')
-      : t('picture.saved');
-    notices.show({ message, actionLabel: t('exp.reveal'), onaction: () => void deps.platform.reveal(dest) });
+    await loadChartFonts();
+    const pages = set.map((built) => {
+      // Paper has no transparency: a transparent picture prints on white.
+      const forPaper: BuiltPicture = built.transparent ? { ...built, transparent: false, theme: { ...built.theme, paper: '#FFFFFF' } } : built;
+      return { svg: new TextDecoder().decode(renderSvg(forPaper)), orientation: built.pageMm!.orientation };
+    });
+    const fonts = fontFaceCss();
+    await printHtml(pages.length === 1 ? printDocument(pages[0].svg, pages[0].orientation, fonts) : printDocumentPages(pages, fonts));
+    const warnings = [...new Set(set.map((b) => b.warning).filter((w): w is string => !!w))];
+    if (warnings.length) notices.show({ message: warnings.join(' ') });
   } catch (e) {
     notices.show({ message: messageOf(e) });
   } finally {

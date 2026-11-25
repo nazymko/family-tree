@@ -1,10 +1,12 @@
 <script lang="ts">
   import EmptyState from '../ui/EmptyState.svelte';
+  import { compact } from '../ui/compact.svelte';
   import Dropzone from '../media/Dropzone.svelte';
   import MediaGrid from '../media/MediaGrid.svelte';
   import MediaViewer from '../media/MediaViewer.svelte';
   import VoiceSamples, { voiceSamples } from '../media/VoiceSamples.svelte';
   import { isSound } from '../media/sound';
+  import { collapseVersions } from '../media/versions';
   import { getApi } from '../api/context';
   import { project } from '../state/project.svelte';
   import Button from '../ui/Button.svelte';
@@ -24,7 +26,7 @@
   let name = $state('');
   let all = $state<MediaLinkDto[]>([]);
   /** Pictures and documents, for the grid and the viewer. */
-  const items = $derived(all.filter((l) => !isSound(l.media)));
+  const items = $derived(collapseVersions(all.filter((l) => !isSound(l.media))));
   /** Recordings attached to the person: a row and a player each, never a thumbnail. */
   const sounds = $derived(voiceSamples(all));
   let loaded = $state(false);
@@ -67,7 +69,7 @@
     <Dropzone {target} targetName={name} onAttached={() => load()} onUndone={() => load()} {onSuggestEvent} />
     {#if all.length === 0}
       <EmptyState title={t('mediaView.nothingAttached')}>
-        {t('mediaView.noneBefore')}<bdi dir="auto">{name}</bdi>{t('mediaView.noneAfter')}
+        {t('mediaView.noneBefore')}<bdi dir="auto">{name}</bdi>{t(compact.value ? 'mediaView.noneAfterTouch' : 'mediaView.noneAfter')}
       </EmptyState>
     {:else}
       {#if items.length > 0}<MediaGrid {items} {target} onOpen={(i) => (open = i)} />{/if}

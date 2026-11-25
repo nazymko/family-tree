@@ -28,6 +28,9 @@ fn resolved_for(paths: &[String], make_files: impl Fn(&std::path::Path)) -> Vec<
         tree.media.insert(
             id,
             Media {
+                version_of: None,
+                map_layer: None,
+                place: None,
                 common: common(id),
                 path: p.clone(),
                 original_name: None,
@@ -36,6 +39,8 @@ fn resolved_for(paths: &[String], make_files: impl Fn(&std::path::Path)) -> Vec<
                 date: None,
                 description: None,
                 sha256: None,
+                transcription: Vec::new(),
+                rotation: None,
             },
         );
         tree.persons
@@ -47,6 +52,7 @@ fn resolved_for(paths: &[String], make_files: impl Fn(&std::path::Path)) -> Vec<
                 media: id,
                 region: None,
                 primary: false,
+                clip: None,
             });
     }
     let dir = tempfile::tempdir().unwrap();

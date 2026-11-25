@@ -1,5 +1,5 @@
 import type { Api } from '../api';
-import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus } from '../types';
+import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus, WholeBlockDto } from '../types';
 import type {
   ActorDto,
   BatchDto,
@@ -15,6 +15,9 @@ import type {
   LogFilterDto,
   LogRowDto,
   RecordHomeDto,
+  RecordRefDto,
+  LocationDto,
+  RecordingDto,
   ReviewScopeDto,
   UndoReport,
   RelinkResult,
@@ -33,6 +36,9 @@ import type {
   EditResult,
   EventDto,
   EventInput,
+  GodchildDto,
+  GodparentDto,
+  GodparentInput,
   ExifSuggestion,
   ExportOptions,
   FamilyDto,
@@ -46,6 +52,15 @@ import type {
   LocationWarningDto,
   MediaDto,
   MediaLinkDto,
+  PlaceEventsQuery,
+  PlaceEventsPage,
+  PlaceEventDto,
+  PlaceImportScanDto,
+  PlaceImportMapDto,
+  PlaceImportPreviewDto,
+  PlaceImportResultDto,
+  PlaceImportProgressDto,
+
   NameDto,
   NoteDto,
   OutlineItem,
@@ -72,15 +87,31 @@ import type {
   TraceImageInfo,
   UndoState,
   WholeMeta,
+  GazetteerCandidateDto,
+  GazetteerCountryDto,
+  GazetteerProgressDto,
+  GazetteerStatusDto,
+  MapDataDto,
+  MapEventDto,
+  MapLinkDto,
+  MapPersonDto,
+  MapPlaceDto,
+  MapScope,
+  MapCorner,
+  MapLayerDto,
+  MapLayerInput,
+  OziPlacementDto,
 } from '../types';
 import { personFieldChanges } from './fieldDiff';
 import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } from './build';
+import { modernVariants } from './orthography';
 import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
 import { orientLayout, type Layout } from './mockLayout';
 import { DEFAULT_DIRECTIONS } from '../../chart/direction';
+import { clockMs } from '../../media/clips';
 import { layoutDescendants, layoutPedigree, outlineOf, type RustLayoutSource } from './layout';
-import { GROUP_BASE, layoutAround, layoutAroundAll, layoutRelatives, relativesOutline, type RelLayout } from './relatives';
+import { GROUP_BASE, layoutAround, layoutAroundAll, layoutAroundOpen, layoutRelatives, openFlags, relativesOutline, type MockOpen, type RelLayout } from './relatives';
 import { layoutWhole, lineageOf, type WholeResult } from './wholeLayout';
 import { kinshipFinder } from './kinship';
 import { relationLabel, relationRole, type PartnerOf, type Rel } from './relation';
@@ -235,6 +266,8 @@ const LABELS: Record<EditCommand['type'], string> = {
   deleteName: 'Delete name',
   saveEvent: 'Save event',
   deleteEvent: 'Delete event',
+  addGodparent: 'Add godparent',
+  removeGodparent: 'Remove godparent',
   quickAdd: 'Add person',
   linkExisting: 'Add person',
   saveFamily: 'Save family',
@@ -255,10 +288,36 @@ const LABELS: Record<EditCommand['type'], string> = {
   deleteMedia: 'Delete media',
   setPrimaryMedia: 'Set primary media',
   updateMedia: 'Edit media',
+  setMediaTranscription: 'Edit transcription',
+  setMediaRotation: 'Turn picture',
+  groupMediaVersions: 'Group versions',
+  ungroupMediaVersion: 'Ungroup version',
+  addAudioClip: 'Add clip',
+  updateAudioClip: 'Edit clip',
+  deleteAudioClip: 'Delete clip',
   importDraft: 'Add traced people',
+  setPlaceCoordinates: 'Set place coordinates',
+  createPlace: 'Add place',
+  setMapLayer: 'Change map layer',
+  reorderMapLayers: 'Reorder map layers',
+  setMapLayersVisible: 'Show maps on the Map',
   addNumber: 'Record number',
 };
 
+/** The label the backend gives SetMapLayersVisible: show, hide, or both at once. */
+function visibilityLabel(cmd: Extract<EditCommand, { type: 'setMapLayersVisible' }>): string {
+  if (cmd.hidden.length === 0) return 'Show maps on the Map';
+  if (cmd.shown.length === 0) return 'Hide maps on the Map';
+  return 'Choose maps shown on the Map';
+}
+
+/** What a synthetic OziExplorer .map file gives in the mock: a sheet around 50.3 N, 30.6 E. */
+const MOCK_OZI_CORNERS: MapCorner[] = [
+  { latE6: 50_600_000, lonE6: 30_000_000 },
+  { latE6: 50_600_000, lonE6: 31_200_000 },
+  { latE6: 49_900_000, lonE6: 31_200_000 },
+  { latE6: 49_900_000, lonE6: 30_000_000 },
+];
 const missing = (what: string, id: Id) => new MockApiError('not_found', `No ${what} with id "${id}" in this project.`);
 const invalid = (message: string) => new MockApiError('invalid', message);
 const markerEntry = (id: Id) => new MockApiError('not_found', `"${id}" is the entry for unnamed brothers and sisters. It has no details.`);
@@ -267,6 +326,15 @@ const markerEntry = (id: Id) => new MockApiError('not_found', `"${id}" is the en
 function unnamedOk(n: NameDto): NameDto {
   return n.display ? n : { ...n, display: 'Unknown' };
 }
+
+/** A tiny invented country for the browser mock and the screenshots: villages that exist nowhere. */
+export const MOCK_GAZETTEER = [
+  { id: 9000001, name: 'Berezivka', local: 'Берегівка', region: 'Zelena oblast', lat: 50.52, lon: 30.28, pop: 1200 },
+  { id: 9000002, name: 'Berezivka', local: 'Берегівка', region: 'Syni oblast', lat: 49.1, lon: 33.4, pop: 300 },
+  { id: 9000003, name: 'Dubky', local: 'Дубки', region: 'Zelena oblast', lat: 50.31, lon: 31.05, pop: 800 },
+  { id: 9000004, name: 'Hlukhiv', local: 'Глухів', region: 'Zelena oblast', lat: 51.2, lon: 33.1, pop: 30000 },
+  { id: 9000005, name: 'Kyiv', local: 'Київ', region: 'Kyiv', lat: 50.45, lon: 30.52, pop: 2800000 },
+];
 
 export class MockApi implements Api {
   private db: Db;
@@ -296,6 +364,7 @@ export class MockApi implements Api {
       places: new Map(fixture.places.map((p) => [p.id, p])),
       sources: new Map(fixture.sources.map((s) => [s.id, s])),
       media: new Map(fixture.media.map((m) => [m.id, m])),
+      coords: new Map(Object.entries(fixture.placeCoords ?? {})),
     };
     // Fixture citations point at the fixture's SourceDto objects; re-point them at this database's copies.
     for (const p of this.db.persons.values()) this.relinkSources(p);
@@ -311,6 +380,7 @@ export class MockApi implements Api {
       chartDirections: { ...DEFAULT_DIRECTIONS },
       livingMaxAge: 100,
       homePerson: fixture.homePerson,
+      treeName: '',
     };
   }
 
@@ -358,7 +428,7 @@ export class MockApi implements Api {
 
   async copySize(): Promise<CopySizeDto> {
     const people = [...this.db.persons.values()].filter((p) => !p.siblingMarker).length;
-    return { bytes: this.copyBytes, photos: 38, people };
+    return { bytes: this.copyBytes, photos: 38, recordings: 4, people };
   }
 
   /** Zip and folder passed to `openReceivedCopy`, for tests. */
@@ -573,10 +643,55 @@ export class MockApi implements Api {
       parentSets: this.parentSets(id),
       partnerships: this.partnerships(id),
       notes: p.notes,
-      media: p.media,
+      // The person holds copies; edits (title, transcription) land on the media store.
+      media: p.media.map((l) => ({ ...l, media: this.shownMedia(l.media.id) ?? l.media })),
       citations: p.citations,
+      ...this.godchildrenField(id),
       changed: p.changed,
     });
+  }
+
+  /** `{ godchildren }` when `id` stood godparent for anyone, else nothing (the field is optional, as from Rust). */
+  private godchildrenField(id: Id): { godchildren?: GodchildDto[] } {
+    const list = this.godchildrenOf(id);
+    return list.length > 0 ? { godchildren: list } : {};
+  }
+
+  /** Everyone `id` stood godparent for (linked godparents only), oldest first. */
+  private godchildrenOf(id: Id): GodchildDto[] {
+    const out: { sort: number; row: GodchildDto }[] = [];
+    for (const child of this.db.persons.values()) {
+      for (const e of child.events) {
+        for (const g of e.godparents ?? []) {
+          if (g.person?.id !== id) continue;
+          out.push({ sort: e.date?.sortMin ?? Infinity, row: { event: e.id, kind: e.kind, date: e.date, person: this.ref(child), role: g.role } });
+        }
+      }
+    }
+    return out.sort((a, b) => a.sort - b.sort).map((x) => x.row);
+  }
+
+  /** One godparent from the input, checked as the Rust planner checks it. */
+  private godparentFrom(input: GodparentInput, old: GodparentDto[], principal: Id | null): GodparentDto {
+    const name = input.name?.trim() || null;
+    if ((input.person ? 1 : 0) + (name ? 1 : 0) !== 1)
+      throw invalid('A godparent is either a person in the tree or a name as the record writes it: give one of the two.');
+    if (!['godfather', 'godmother', 'godparent'].includes(input.role)) throw invalid(`"${input.role}" is not a godparent's role. Use godfather or godmother.`);
+    if (input.person && input.person === principal) throw invalid('Nobody is their own godparent.');
+    const keep = input.id && old.some((g) => g.id === input.id) ? input.id : this.ids.next();
+    return {
+      id: keep,
+      role: input.role,
+      person: input.person ? this.ref(this.person(input.person)) : null,
+      name,
+      note: input.note?.trim() || null,
+    };
+  }
+
+  private static sameGodparent(a: GodparentDto, b: GodparentDto): boolean {
+    if (a.person || b.person) return !!a.person && !!b.person && a.person.id === b.person.id;
+    const fold = (s: string | null) => (s ?? '').split(/\s+/).filter(Boolean).join(' ').toLowerCase();
+    return fold(a.name) === fold(b.name);
   }
 
   async getFamilyView(id: Id): Promise<FamilyViewDto> {
@@ -622,7 +737,75 @@ export class MockApi implements Api {
         return cp ? [{ person: this.ref(cp), rel: c.rel, birth: this.birth(cp)?.date?.display ?? '', preferred: c.preferred }] : [];
       }),
       notes: f.notes,
+      media: f.media ?? [],
     });
+  }
+
+  /** Every list of media links in the tree, with the record that holds it. */
+  private linkLists(): { owner: OwnerRef; links: MediaLinkDto[]; person: PersonRec | null }[] {
+    const out: { owner: OwnerRef; links: MediaLinkDto[]; person: PersonRec | null }[] = [];
+    const cites = (cs: CitationDto[], person: PersonRec | null) => {
+      for (const c of cs) if (c.media) out.push({ owner: { kind: 'citation', id: c.id }, links: c.media, person });
+    };
+    const notes = (ns: NoteDto[], person: PersonRec | null) => {
+      for (const n of ns) out.push({ owner: { kind: 'note', id: n.id }, links: n.media, person });
+    };
+    for (const p of this.db.persons.values()) {
+      out.push({ owner: { kind: 'person', id: p.id }, links: p.media, person: p });
+      notes(p.notes, p);
+      cites(p.citations, p);
+      for (const n of p.names) cites(n.citations, p);
+      for (const e of p.events) {
+        out.push({ owner: { kind: 'event', id: e.id }, links: e.media, person: p });
+        notes(e.notes, p);
+        cites(e.citations, p);
+      }
+    }
+    for (const f of this.db.families.values()) {
+      const first = (f.partner1 && this.db.persons.get(f.partner1)) || (f.partner2 && this.db.persons.get(f.partner2)) || null;
+      if (f.media) out.push({ owner: { kind: 'family', id: f.id }, links: f.media, person: first });
+      notes(f.notes, first);
+      cites(f.citations, first);
+      for (const e of f.events) {
+        out.push({ owner: { kind: 'event', id: e.id }, links: e.media, person: first });
+        notes(e.notes, first);
+        cites(e.citations, first);
+      }
+    }
+    for (const s of this.db.sources.values()) out.push({ owner: { kind: 'source', id: s.id }, links: s.media, person: null });
+    return out;
+  }
+
+  async getRecording(media: Id): Promise<RecordingDto> {
+    const m = this.db.media.get(media);
+    if (!m) throw missing('media item', media);
+    const sources: RecordingDto['sources'] = [];
+    const clips: RecordingDto['clips'] = [];
+    for (const { owner, links, person } of this.linkLists()) {
+      for (const l of links) {
+        if (l.media.id !== media) continue;
+        if (!l.clip) {
+          if (owner.kind === 'source') sources.push({ id: owner.id, title: this.db.sources.get(owner.id)?.title ?? null });
+          continue;
+        }
+        const title =
+          owner.kind === 'note'
+            ? (this.findNote(owner.id)?.text.split('\n')[0] ?? undefined)
+            : owner.kind === 'citation'
+              ? (this.findCitation(owner.id)?.source?.title ?? undefined)
+              : undefined;
+        const ev = owner.kind === 'event' ? this.findEvent(owner.id)?.ev : undefined;
+        clips.push({
+          clip: structuredClone(l.clip),
+          target: owner,
+          ...(title ? { title } : {}),
+          ...(ev ? { eventKind: ev.kind } : {}),
+          ...(person ? { person: this.ref(person) } : {}),
+        });
+      }
+    }
+    clips.sort((a, b) => a.clip.startMs - b.clip.startMs || a.clip.endMs - b.clip.endMs);
+    return structuredClone({ media: m, sources, clips });
   }
 
   async search(query: string, limit: number): Promise<SearchHitDto[]> {
@@ -638,7 +821,7 @@ export class MockApi implements Api {
       const f = folded.get(r.id)!;
       const at = f.indexOf(q);
       if (at < 0) continue;
-      const person: PersonRef = { id: r.id, name: r.name, lifespan: r.lifespan, sex: r.sex, living: r.living, private: r.private, ...(r.birthSurname ? { birthSurname: r.birthSurname } : {}), siblingMarker: false };
+      const person: PersonRef = { id: r.id, name: r.name, lifespan: r.lifespan, sex: r.sex, living: r.living, private: r.private, ...(r.birthSurname ? { birthSurname: r.birthSurname } : {}), ...(r.asRecorded ? { asRecorded: r.asRecorded } : {}), siblingMarker: false };
       const hit: SearchHitDto = { kind: 'person', id: r.id, label: r.name, snippet: r.lifespan || null, person };
       (at === 0 || f[at - 1] === ' ' ? starts : contains).push(hit);
       if (starts.length >= lim) break;
@@ -680,7 +863,7 @@ export class MockApi implements Api {
     const q = fold(prefix.trim());
     const out: SourceDto[] = [];
     for (const s of this.db.sources.values()) {
-      if (!q || fold(s.title ?? '').includes(q)) out.push(s);
+      if (!q || fold(s.title ?? '').includes(q)) out.push({ ...s, media: s.media?.map((l) => ({ ...l, media: this.shownMedia(l.media.id) ?? l.media })) });
       if (out.length >= Math.min(limit, MAX_SEARCH)) break;
     }
     return structuredClone(out);
@@ -808,6 +991,124 @@ export class MockApi implements Api {
     return found ? home(found[0], found[1]) : null;
   }
 
+  async locateRecords(refs: RecordRefDto[]): Promise<(LocationDto | null)[]> {
+    const { persons, families, sources } = this.db;
+    /** Holder of each note, citation and picture, by id; the first holder wins, as in the backend. */
+    const holders = new Map<Id, OwnerRef>();
+    /** Recordings a holder links as a stretch (a clip). */
+    const clipped = new Set<Id>();
+    const hold = (owner: OwnerRef, bag: OwnerBag) => {
+      for (const x of [...(bag.notes ?? []), ...(bag.citations ?? [])]) if (!holders.has(x.id)) holders.set(x.id, owner);
+      for (const m of bag.media ?? []) {
+        if (!holders.has(m.media.id)) {
+          holders.set(m.media.id, owner);
+          if (m.clip) clipped.add(m.media.id);
+        }
+      }
+    };
+    const events = new Map<Id, { page: LocationDto['page']; id: Id }>();
+    const citations = new Map<Id, Id | null>();
+    for (const p of persons.values()) {
+      hold({ kind: 'person', id: p.id }, p);
+      for (const n of p.names) hold({ kind: 'name', id: n.id }, n);
+      for (const e of p.events) {
+        hold({ kind: 'event', id: e.id }, e);
+        if (!p.siblingMarker) events.set(e.id, { page: 'person', id: p.id });
+      }
+    }
+    for (const f of families.values()) {
+      hold({ kind: 'family', id: f.id }, f);
+      for (const e of f.events) {
+        hold({ kind: 'event', id: e.id }, e);
+        events.set(e.id, { page: 'family', id: f.id });
+      }
+    }
+    for (const bag of [...persons.values(), ...families.values()]) {
+      for (const c of [...bag.citations, ...('events' in bag ? bag.events.flatMap((e) => e.citations) : [])]) citations.set(c.id, c.source?.id ?? null);
+    }
+    const nameOwner = new Map<Id, Id>();
+    for (const p of persons.values()) for (const n of p.names) nameOwner.set(n.id, p.id);
+    type Page = { page: LocationDto['page']; id: Id };
+    const pageOf = (o: OwnerRef): Page | null => {
+      switch (o.kind) {
+        case 'person':
+          return persons.has(o.id) && !persons.get(o.id)!.siblingMarker ? { page: 'person', id: o.id } : null;
+        case 'name':
+          return nameOwner.has(o.id) ? { page: 'person', id: nameOwner.get(o.id)! } : null;
+        case 'family':
+          return families.has(o.id) ? { page: 'family', id: o.id } : null;
+        case 'source':
+          return sources.has(o.id) ? { page: 'source', id: o.id } : null;
+        case 'event':
+          return events.get(o.id) ?? null;
+        case 'citation': {
+          const s = citations.get(o.id);
+          return s && sources.has(s) ? { page: 'source', id: s } : null;
+        }
+        default:
+          return null;
+      }
+    };
+    /** Up through the holders to a record with a page: the page and the records walked through. */
+    const climb = (start: OwnerRef): { page: Page; chain: OwnerRef[] } | null => {
+      let here: OwnerRef | undefined = start;
+      const chain: OwnerRef[] = [];
+      for (let i = 0; here && i < 16; i++) {
+        chain.push(here);
+        const page = pageOf(here);
+        if (page) return { page, chain };
+        here = holders.get(here.id);
+      }
+      return null;
+    };
+    /** Whether the page draws chain[i] as a row or item of its own. */
+    const drawn = (page: Page, chain: OwnerRef[], i: number): boolean => {
+      const node = chain[i];
+      const next = chain[i + 1];
+      const heldByPage = !!next && next.id === page.id;
+      const clip = clipped.has(node.id) && !!next && next.kind !== 'name';
+      if (node.kind === 'event') return true;
+      if (page.page === 'person') {
+        if (node.kind === 'name') return true;
+        if (node.kind === 'note' || node.kind === 'citation') return heldByPage;
+        if (node.kind === 'media') return heldByPage || clip;
+      } else if (page.page === 'family') {
+        if (node.kind === 'note') return heldByPage;
+        if (node.kind === 'media') return heldByPage && clip;
+      } else if (node.kind === 'media') return heldByPage;
+      return false;
+    };
+    const located = (start: OwnerRef): LocationDto | null => {
+      const found = climb(start);
+      if (!found) return null;
+      const { page, chain } = found;
+      const at = chain.findIndex((_, i) => drawn(page, chain, i));
+      const target = at >= 0 ? { kind: chain[at].kind, id: chain[at].id } : { kind: page.page as string, id: page.id };
+      return { page: page.page, id: page.id, target };
+    };
+    const noteIds = new Set<Id>();
+    for (const bag of [...persons.values(), ...families.values()]) for (const n of bag.notes) noteIds.add(n.id);
+    for (const p of persons.values()) for (const e of p.events) for (const n of e.notes) noteIds.add(n.id);
+    for (const f of families.values()) for (const e of f.events) for (const n of e.notes) noteIds.add(n.id);
+    return refs.map((r) => {
+      switch (r.kind) {
+        case 'person':
+        case 'family':
+        case 'source':
+        case 'event':
+          return located({ kind: r.kind, id: r.id });
+        case 'citation':
+          return citations.has(r.id) ? located({ kind: 'citation', id: r.id }) : null;
+        case 'media':
+          return this.db.media.has(r.id) ? located({ kind: 'media', id: r.id }) : null;
+        case 'note':
+          return noteIds.has(r.id) ? located({ kind: 'note', id: r.id }) : null;
+        default:
+          return null;
+      }
+    });
+  }
+
   async personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
     const rows = this.logRows.filter((e) => e.people.some((p) => p.id === id)).reverse();
     return { total: rows.length, offset, items: rows.slice(offset, offset + Math.min(limit, MAX_PAGE)).map((e) => this.logRow(e)) };
@@ -899,7 +1200,7 @@ export class MockApi implements Api {
 
   async apply(cmd: EditCommand): Promise<EditResult> {
     const addedStep = (cmd.type === 'quickAdd' || cmd.type === 'linkExisting') && cmd.parentRel === 'step' && (cmd.relation === 'father' || cmd.relation === 'mother');
-    const label = addedStep ? `Add step${cmd.relation}` : cmd.type === 'quickAdd' || cmd.type === 'linkExisting' ? `Add ${cmd.relation}` : LABELS[cmd.type];
+    const label = addedStep ? `Add step${cmd.relation}` : cmd.type === 'quickAdd' || cmd.type === 'linkExisting' ? `Add ${cmd.relation}` : cmd.type === 'setMapLayersVisible' ? visibilityLabel(cmd) : LABELS[cmd.type];
     const before = this.db;
     this.db = structuredClone(before);
     let outcome: { focus: Id | null; touched: Id[] };
@@ -939,7 +1240,7 @@ export class MockApi implements Api {
       else if (/[\\/]$/.test(path) || !/\.[A-Za-z0-9]{1,8}$/.test(name)) failed.push({ path, reason: 'Folders cannot be attached. Choose files.' });
       else if (/\.(exe|bat|cmd|msi|dll|com|scr)$/i.test(name)) failed.push({ path, reason: 'This file type cannot be attached.' });
       else if (target.kind === 'note' && !audioName.test(name)) failed.push({ path, reason: 'only sound recordings can be attached to a note' });
-      else if (target.kind !== 'note' && audioName.test(name)) failed.push({ path, reason: 'sound recordings can only be attached to a note' });
+      else if (target.kind !== 'note' && target.kind !== 'source' && audioName.test(name)) failed.push({ path, reason: 'sound recordings can only be attached to a note or a source' });
       else if (known.has(name.toLowerCase()) || accepted.some((a) => a.name.toLowerCase() === name.toLowerCase()))
         failed.push({ path, reason: 'Already attached' });
       else accepted.push({ path, name });
@@ -964,6 +1265,10 @@ export class MockApi implements Api {
           width: audioName.test(a.name) ? null : 1024,
           height: audioName.test(a.name) ? null : 768,
           sha256: null,
+          transcription: [],
+          rotation: 0,
+          // The backend reads a recording's length from its headers; the mock invents one from the name.
+          ...(audioName.test(a.name) ? { durationMs: 60_000 * (20 + (hashString(a.name) % 25)) + 17_000 } : {}),
         };
         this.db.media.set(m.id, m);
         bag.media.push({ media: m, primary: bag.media.length === 0 });
@@ -987,7 +1292,7 @@ export class MockApi implements Api {
   async chartOpen(req: ChartRequest): Promise<ChartMeta> {
     if (req.kind === 'whole') throw invalid('The whole tree has no starting person. Open it with the whole-tree command.');
     if (this.person(req.root).siblingMarker) throw markerEntry(req.root);
-    const generations = Math.max(1, Math.min(req.generations, req.kind === 'pedigree' || req.kind === 'around' ? 255 : 20));
+    const generations = Math.max(1, Math.min(req.generations, req.kind === 'pedigree' || req.kind === 'around' || req.kind === 'relatives' ? 255 : 20));
     if (req.kind === 'around') {
       const chosen = [req.root, ...(req.roots ?? [])].filter((id, i, all) => all.indexOf(id) === i && this.db.persons.has(id) && !this.person(id).siblingMarker);
       if (chosen.length > 1) return this.openAroundMany(chosen, req.kin ?? 'line');
@@ -1003,8 +1308,18 @@ export class MockApi implements Api {
       ...src,
       unions: (id) => src.unions(id).map((u) => ({ ...u, children: u.children.filter((c) => !this.person(c).siblingMarker) })),
     };
-    const laid =
+    // Side branches opened per person (one chosen person only; people not in the project and markers are left out).
+    const open: MockOpen[] =
       req.kind === 'around'
+        ? (req.open ?? [])
+            .filter((o) => this.db.persons.has(o.person) && !this.person(o.person).siblingMarker && (o.siblings || o.children))
+            .map((o) => ({ key: o.person, siblings: o.siblings, children: o.children }))
+        : [];
+    const openBase = req.kin === 'all' ? 'all' : req.kin === 'siblings' ? 'siblings' : 'line';
+    const laid =
+      req.kind === 'around' && open.length > 0
+        ? layoutAroundOpen(req.root, generations, openBase, open, openBase === 'line' ? { ...src, unions: line.unions } : src, line)
+        : req.kind === 'around'
         ? req.kin === 'all'
           ? layoutAroundAll(req.root, generations, src)
           : req.kin === 'siblings'
@@ -1014,9 +1329,30 @@ export class MockApi implements Api {
         ? layoutPedigree(req.root, generations, src)
         : req.kind === 'descendants'
           ? layoutDescendants(req.root, generations, src)
-          : layoutRelatives(req.root, Math.min(generations, 6), req.auntsUncles ?? true, src);
+          : layoutRelatives(req.root, generations, req.auntsUncles ?? true, src);
+    if (req.kind === 'around') {
+      const flags = openFlags(laid as RelLayout, openBase, openBase === 'line' ? line : src);
+      laid.nodes.forEach((n, i) => {
+        if (flags[i].siblings) n.canOpenSiblings = true;
+        if (flags[i].children) n.canOpenChildren = true;
+        if (n.dupOf === null && open.some((o) => o.key === n.person?.id)) n.opened = true;
+      });
+    }
     // The side the ancestors are drawn on, for this kind of chart.
-    const layout = orientLayout(laid, req.kind, this.settings.chartDirections[req.kind]);
+    const layout = orientLayout(laid, req.kind, req.direction ?? this.settings.chartDirections[req.kind]);
+    if (req.print) {
+      // Compact cards for a print, like the engine's: narrower and a little lower, the gaps in the same proportion.
+      const fx = 0.7;
+      const fy = 0.85;
+      for (const n of layout.nodes) {
+        n.x *= fx;
+        n.w *= fx;
+        n.y *= fy;
+        n.h *= fy;
+      }
+      for (const e of layout.edges) e.pts = e.pts.map((v, i) => v * (i % 2 === 0 ? fx : fy));
+      layout.bounds = { w: layout.bounds.w * fx, h: layout.bounds.h * fy };
+    }
     const chartId = this.nextChart++;
     this.charts.set(chartId, { kind: req.kind, layout, version: this.version, reference: req.root });
     return {
@@ -1226,10 +1562,14 @@ export class MockApi implements Api {
     }
     // The markers are drawn like people but are not counted as people.
     const markerAt = result.nodes.filter((n) => n.person?.siblingMarker).map((n) => ({ x: n.x + n.w / 2, y: n.y + n.h / 2 }));
-    const blocks = result.blocks.map((b) => {
+    // The main (largest, first) family block carries the name the user gave the tree.
+    const mainAt = result.blocks.findIndex((b) => !b.unconnected);
+    const blocks = result.blocks.map((b0, i) => {
+      const b: WholeBlockDto = i === mainAt && this.settings.treeName ? { ...b0, customName: this.settings.treeName } : b0;
       const inside = markerAt.filter((m) => m.x >= b.rect.x && m.x <= b.rect.x + b.rect.w && m.y >= b.rect.y && m.y <= b.rect.y + b.rect.h + b.bodyH).length;
       const people = b.people - inside;
-      return inside === 0 ? b : { ...b, people, title: b.title.replace(/\(\d+/, `(${people}`) };
+      const titled = b.customName ? { ...b, title: `${b.customName} (${b0.people} people)` } : b;
+      return inside === 0 ? titled : { ...titled, people, title: titled.title.replace(/\(\d+/, `(${people}`) };
     });
     const chartId = this.nextChart++;
     const meta: WholeMeta = {
@@ -1294,7 +1634,7 @@ export class MockApi implements Api {
       // Far out the backend sends the surname and sex only.
       const surnames = c.whole.surnames;
       return structuredClone({
-        nodes: nodes.map((n) => ({ ...n, label: '', person: { ...n.person!, name: surnames[n.id], lifespan: '', birthSurname: undefined } })),
+        nodes: nodes.map((n) => ({ ...n, label: '', person: { ...n.person!, name: surnames[n.id], lifespan: '', birthSurname: undefined, asRecorded: undefined } })),
         edges,
       });
     }
@@ -1435,6 +1775,45 @@ export class MockApi implements Api {
     this.openedMedia.push(id);
   }
 
+  /** The primary of a media item's version group: the item itself when it is in none. */
+  private versionHead(id: Id): Id {
+    const p = this.db.versionOf?.get(id);
+    return p && this.db.media.has(p) ? p : id;
+  }
+
+  /** The whole version group of a media item, primary first, then the most pixels first; one item when it has none. */
+  private versionGroup(id: Id): Id[] {
+    const head = this.versionHead(id);
+    const px = (m: Id) => {
+      const d = this.db.media.get(m);
+      return (d?.width ?? 0) * (d?.height ?? 0);
+    };
+    const rest = [...(this.db.versionOf ?? new Map<Id, Id>()).entries()].filter(([m, p]) => p === head && m !== head && this.db.media.has(m)).map(([m]) => m);
+    rest.sort((a, b) => px(b) - px(a));
+    return [head, ...rest];
+  }
+
+  /** A media item as the backend sends it: the stored record, with its version group when it has one. */
+  private shownMedia(id: Id): MediaDto | undefined {
+    const m = this.db.media.get(id);
+    if (!m) return undefined;
+    const group = this.versionGroup(id);
+    if (group.length < 2) return { ...m, versions: undefined };
+    return { ...m, versions: group.map((g) => ({ ...this.db.media.get(g)!, versions: undefined })) };
+  }
+
+  async allPictures(): Promise<MediaDto[]> {
+    const out = [...this.db.media.values()]
+      .filter((m) => !(m.mime ?? '').startsWith('audio/') && this.versionHead(m.id) === m.id)
+      .map((m) => {
+        const shown = this.shownMedia(m.id)!;
+        return { ...shown, transcription: [], versions: shown.versions?.map((v) => ({ ...v, transcription: [] })) };
+      });
+    const key = (m: MediaDto) => (m.title ?? m.originalName ?? '').toLowerCase();
+    out.sort((a, b) => key(a).localeCompare(key(b)) || a.id.localeCompare(b.id));
+    return structuredClone(out);
+  }
+
   /** Media no record links to: left by a deleted note or person, kept so that Undo can bring the record back. */
   async unlinkedMedia(): Promise<MediaDto[]> {
     const linked = new Set<Id>();
@@ -1492,6 +1871,27 @@ export class MockApi implements Api {
     return { bytes: 2_000 + this.db.persons.size * 140 };
   }
 
+  /** Paths taken before anything is made (tests set it); folders made by `makePictureFolder` are added. */
+  existingPaths = new Set<string>();
+  /** Folders made by `makePictureFolder`, in order. */
+  madeFolders: string[] = [];
+
+  async makePictureFolder(dir: string, name: string): Promise<string> {
+    const clean = name.trim();
+    if (!clean || clean === '.' || clean === '..' || /[\\/]/.test(clean)) throw invalid('There is no folder name for the sheets. Choose a file name and try again.');
+    if (!dir.trim()) throw invalid('That folder does not exist. Choose another folder and try again.');
+    const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : '/';
+    const base = dir.replace(/[\\/]+$/, '');
+    for (let n = 1; n < 1000; n++) {
+      const path = `${base}${sep}${n === 1 ? clean : `${clean} (${n})`}`;
+      if (this.existingPaths.has(path)) continue;
+      this.existingPaths.add(path);
+      this.madeFolders.push(path);
+      return path;
+    }
+    throw new MockApiError('io', 'Could not make a folder for the sheets: too many folders of that name. Choose another name and try again.');
+  }
+
   /** Pictures "saved" by `savePicture`, newest last (the mock writes no file). */
   savedPictures: { dest: string; bytes: Uint8Array }[] = [];
 
@@ -1520,6 +1920,7 @@ export class MockApi implements Api {
     if (patch.homePerson && !this.db.persons.has(patch.homePerson)) throw missing('person', patch.homePerson);
     next.backupsToKeep = Math.max(1, Math.min(100, Math.round(next.backupsToKeep)));
     next.livingMaxAge = Math.max(1, Math.min(150, Math.round(next.livingMaxAge)));
+    next.treeName = next.treeName.trim();
     this.settings = next;
     this.touch();
     return { ...this.settings };
@@ -1800,8 +2201,19 @@ export class MockApi implements Api {
     return birth;
   }
 
+  /** The earliest dated name of kind as_recorded (undated last, then their order); the same rule as the Rust index. */
+  private asRecorded(p: PersonRec): string | undefined {
+    if (p.siblingMarker) return undefined;
+    const main = this.prefName(p);
+    const list = p.names.filter((n) => n.kind === 'as_recorded' && !n.private && n !== main);
+    const key = (n: NameDto) => n.date?.sortMin ?? Number.POSITIVE_INFINITY;
+    const best = list.map((n, i) => ({ n, i })).sort((a, b) => key(a.n) - key(b.n) || a.i - b.i)[0]?.n;
+    return best?.display?.trim() || undefined;
+  }
+
   private ref(p: PersonRec): PersonRef {
     const birthSurname = this.birthSurname(p);
+    const asRecorded = this.asRecorded(p);
     return {
       id: p.id,
       name: this.prefName(p)?.display ?? '',
@@ -1810,6 +2222,7 @@ export class MockApi implements Api {
       living: !p.siblingMarker && this.isLiving(p),
       private: p.private,
       ...(birthSurname ? { birthSurname } : {}),
+      ...(asRecorded ? { asRecorded } : {}),
       siblingMarker: p.siblingMarker === true,
     };
   }
@@ -1839,7 +2252,7 @@ export class MockApi implements Api {
       for (const p of this.db.persons.values()) {
         const r = this.row(p);
         rows.push(r);
-        folded.set(p.id, fold(p.names.map((n) => n.display).join(' ')));
+        folded.set(p.id, fold(p.names.flatMap((n) => [n.display, ...modernVariants(n.display)]).join(' ')));
       }
       this.rowCache = { version: this.version, rows, folded };
     }
@@ -1963,6 +2376,247 @@ export class MockApi implements Api {
       out.push({ partner: f.partner1 === id ? f.partner2 : f.partner1, children: f.children.map((c) => c.person), married: f.kind !== 'unmarried' && f.kind !== 'other' });
     }
     return out;
+  }
+
+  // ------------------------------------------------------------------ map
+
+  async placeEvents(q: PlaceEventsQuery): Promise<PlaceEventsPage> {
+    const yearOf = (text: string): number | null => {
+      const m = /(\d{4})/.exec(text);
+      return m ? Number(m[1]) : null;
+    };
+    const place = this.db.places.get(q.place);
+    if (!place) throw missing('place', q.place);
+    const under = (id: Id | undefined) => {
+      const p = id ? this.db.places.get(id) : undefined;
+      return !!p && (p.id === place.id || p.full.endsWith(`, ${place.full}`));
+    };
+    const all: PlaceEventDto[] = [];
+    for (const person of this.db.persons.values()) {
+      if (person.private || person.siblingMarker) continue;
+      const n = person.names.find((x) => x.preferred) ?? person.names[0];
+      for (const e of person.events) {
+        if (e.private || e.negative || !under(e.place?.id)) continue;
+        const kind = e.kind === 'birth' || e.kind === 'death' ? e.kind : e.kind === 'marriage' ? 'marriage' : 'other';
+        all.push({
+          key: `e:${e.id}`, source: 'tree', ours: true, kind, kindDetail: e.kind, date: e.date?.display ?? '',
+          year: yearOf(e.date?.display ?? ''), place: e.place?.id ?? null,
+          people: [{ name: n?.display ?? '', asWritten: '', role: '', age: '', estate: '', note: '', person: person.id, living: false }],
+          book: '', page: '', recId: '', note: '', unsure: false,
+        });
+      }
+    }
+    for (const r of this.placeRecords) if (under(r.place)) all.push(r);
+    const fold1 = (x: string) => x.toLowerCase();
+    const who = q.who ?? 'all';
+    const base = all.filter((e) => (who === 'all' || (who === 'ours') === e.ours) && (!q.query || e.people.some((p) => fold1(`${p.name} ${p.asWritten}`).includes(fold1(q.query!)))));
+    const byKind = new Map<string, number>();
+    const byDecade = new Map<number, number>();
+    for (const e of base) {
+      byKind.set(e.kind, (byKind.get(e.kind) ?? 0) + 1);
+      if (e.year != null) byDecade.set(Math.floor(e.year / 10) * 10, (byDecade.get(Math.floor(e.year / 10) * 10) ?? 0) + 1);
+    }
+    const shown = base
+      .filter((e) => (!q.kinds?.length || q.kinds.includes(e.kind)) && (q.yearFrom == null || (e.year != null && e.year >= q.yearFrom)) && (q.yearTo == null || (e.year != null && e.year <= q.yearTo)))
+      .sort((a, b) => (a.year ?? 1e9) - (b.year ?? 1e9));
+    const offset = q.offset ?? 0;
+    const limit = Math.min(q.limit ?? 100, 500);
+    return structuredClone({
+      place,
+      total: shown.length,
+      offset,
+      // As the app answers: the name of a place under the one asked about, nothing for the place itself.
+      items: shown.slice(offset, offset + limit).map((e) => ({ ...e, place: e.place && e.place !== place.id ? (this.db.places.get(e.place)?.name ?? null) : null })),
+      overviewTotal: base.length,
+      byKind: [...byKind].map(([kind, count]) => ({ kind, count })),
+      byDecade: [...byDecade].sort((a, b) => a[0] - b[0]).map(([decade, count]) => ({ decade, count })),
+    });
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async placeImportScan(_paths: string[]): Promise<PlaceImportScanDto> {
+    return structuredClone(this.placeImportSample);
+  }
+
+  async placeImportPreview(_paths: string[], mapping: PlaceImportMapDto[]): Promise<PlaceImportPreviewDto> {
+    const lines = this.placeImportSample.groups.map((g) => {
+      const m = mapping.find((x) => x.book === g.book && x.village === g.village);
+      const dup = m?.place && this.placeImported.has(`${g.book}|${g.village}`) ? g.records : 0;
+      return { book: g.book, village: g.village, place: m?.place ?? null, records: g.records, new: m?.place ? g.records - dup : 0, duplicates: dup };
+    });
+    return {
+      lines,
+      totalNew: lines.reduce((n, l) => n + l.new, 0),
+      totalDuplicates: lines.reduce((n, l) => n + l.duplicates, 0),
+      unmapped: lines.filter((l) => !l.place).reduce((n, l) => n + l.records, 0),
+    };
+  }
+
+  async placeImportRun(paths: string[], mapping: PlaceImportMapDto[], onProgress?: (p: PlaceImportProgressDto) => void): Promise<PlaceImportResultDto> {
+    const pre = await this.placeImportPreview(paths, mapping);
+    const total = pre.totalNew;
+    onProgress?.({ done: total, total });
+    for (const l of pre.lines) if (l.place) this.placeImported.add(`${l.book}|${l.village}`);
+    return { added: pre.totalNew, duplicates: pre.totalDuplicates, unmapped: pre.unmapped };
+  }
+
+  async mapData(scope: MapScope): Promise<MapDataDto> {
+    const parents = (p: Id): Id[] => [...new Set([...this.db.families.values()].filter((f) => f.children.some((c) => c.person === p)).flatMap((f) => [f.partner1, f.partner2]).filter((x): x is Id => !!x))];
+    const real = (id: Id) => {
+      const p = this.db.persons.get(id);
+      return !!p && !p.siblingMarker && !p.private;
+    };
+    const gen = new Map<Id, number>();
+    const links: MapLinkDto[] = [];
+    if (scope.kind === 'all') {
+      for (const p of this.db.persons.values()) if (real(p.id)) gen.set(p.id, 0);
+    } else if (scope.person && real(scope.person)) {
+      gen.set(scope.person, 0);
+      const up = scope.kind === 'ancestors';
+      const max = scope.kind === 'person' ? 0 : (scope.generations ?? 40);
+      const todo = [scope.person];
+      for (let i = 0; i < todo.length; i++) {
+        const g = gen.get(todo[i])!;
+        if (g >= max) continue;
+        for (const q of up ? parents(todo[i]) : this.childrenOf(todo[i])) {
+          if (!real(q)) continue;
+          links.push(up ? { parent: q, child: todo[i] } : { parent: todo[i], child: q });
+          if (!gen.has(q)) {
+            gen.set(q, g + 1);
+            todo.push(q);
+          }
+        }
+      }
+    }
+    const places = new Map<Id, MapPlaceDto>();
+    const events: MapEventDto[] = [];
+    let without = 0;
+    const take = (e: EventDto, person: Id) => {
+      if (e.private) return;
+      if (!e.place) {
+        without++;
+        return;
+      }
+      if (!places.has(e.place.id)) {
+        const c = this.db.coords?.get(e.place.id);
+        places.set(e.place.id, { id: e.place.id, label: e.place.full, name: e.place.name, lat: c ? c[0] : null, lon: c ? c[1] : null });
+      }
+      events.push({ id: e.id, kind: e.kind, year: yearOf(e.date), place: e.place.id, person });
+    };
+    for (const [id] of gen) {
+      const p = this.person(id);
+      for (const e of p.events) if (e.participants.length === 0 || e.participants.some((x) => x.person.id === id && x.role === 'principal')) take(e, id);
+    }
+    for (const f of this.db.families.values()) {
+      for (const who of [f.partner1, f.partner2]) if (who && gen.has(who)) for (const e of f.events) take(e, who);
+    }
+    events.sort((a, b) => (a.year ?? -1e9) - (b.year ?? -1e9));
+    const people: MapPersonDto[] = [...gen].map(([id, g]) => {
+      const p = this.person(id);
+      const n = p.names.find((x) => x.preferred) ?? p.names[0];
+      return { id, name: n?.display ?? '', surname: n?.surnames[0] ?? '', generation: g, living: this.computeLiving(p) };
+    });
+    const layers = [...(this.db.layers?.values() ?? [])].map((l) => ({ ...l, title: this.db.media.get(l.media)?.title ?? l.title })).sort((a, b) => a.pos - b.pos);
+    return { places: [...places.values()], people, events, links, eventsWithoutPlace: without, layers: structuredClone(layers) };
+  }
+
+  async addMapLayerFile(path: string, title: string | null, layer: MapLayerInput, oziMapPath?: string | null): Promise<Id> {
+    const name = path.split(/[\\/]/).pop() ?? '';
+    if (!/\.(jpe?g|png|webp|gif|tiff?)$/i.test(name)) throw invalid('Only a picture (JPEG, PNG, WebP, GIF or TIFF) can be laid on the Map.');
+    const before = this.db;
+    this.db = structuredClone(before);
+    const id = this.ids.next();
+    const m: MediaDto = {
+      id,
+      title: title?.trim() || name.replace(/\.[^.]+$/, ''),
+      mime: mockMime(name),
+      originalName: name,
+      date: null,
+      description: null,
+      resolved: true,
+      width: 2000,
+      height: 1500,
+      sha256: null,
+      transcription: [],
+      rotation: 0,
+    };
+    this.db.media.set(id, m);
+    const layers = (this.db.layers ??= new Map());
+    const pos = Math.max(-1, ...[...layers.values()].map((l) => l.pos)) + 1;
+    const corners = layer.corners ?? (oziMapPath ? MOCK_OZI_CORNERS : null);
+    layers.set(id, {
+      media: id,
+      title: m.title,
+      series: layer.series ?? null,
+      year: layer.year ?? null,
+      source: layer.source ?? null,
+      corners: corners ? structuredClone(corners) : null,
+      opacity: layer.opacity,
+      visible: layer.visible,
+      pos,
+      width: 2000,
+      height: 1500,
+    });
+    this.undoStack.push({ label: 'Lay map on the Map', db: before });
+    this.redoStack = [];
+    this.touch();
+    return id;
+  }
+
+  async findOziMap(path: string): Promise<string | null> {
+    return /sheet/i.test(path) ? path.replace(/\.[^.]+$/, '_ozf.map') : null;
+  }
+
+  async oziCorners(mapPath: string, media: Id): Promise<OziPlacementDto> {
+    if (!this.db.media.has(media)) throw missing('media', media);
+    if (!/\.map$/i.test(mapPath)) throw invalid('This is not an OziExplorer .map file.');
+    return { corners: structuredClone(MOCK_OZI_CORNERS), fits: !/crop/i.test(mapPath) };
+  }
+
+  /** In the mock a picture whose name says "crop" does not fit its .map file. */
+  async oziCheck(mapPath: string, picturePath: string): Promise<OziPlacementDto> {
+    if (!/\.map$/i.test(mapPath)) throw invalid('This is not an OziExplorer .map file.');
+    return { corners: structuredClone(MOCK_OZI_CORNERS), fits: !/crop/i.test(picturePath) };
+  }
+
+  private gaz = new Set<string>();
+  /** Place records about people outside the tree (a test or a screenshot seeds them). */
+  placeRecords: (PlaceEventDto & { place: Id; ourPerson?: Id })[] = [];
+  /** What `placeImportScan` answers, whatever the paths: the mock reads no files. */
+  placeImportSample: PlaceImportScanDto = { files: 0, rows: 0, badRows: 0, groups: [] };
+  private placeImported = new Set<string>();
+
+  async gazetteerStatus(): Promise<GazetteerStatusDto> {
+    return { countries: [...this.gaz].map((country) => ({ country, rows: MOCK_GAZETTEER.length, bytes: 1_200_000 })), attribution: 'Place data: GeoNames (geonames.org), CC BY 4.0.' };
+  }
+
+  async gazetteerRemoteSize(country: string): Promise<number | null> {
+    return country.toUpperCase() === 'ZZ' ? 4_300_000 : null;
+  }
+
+  async gazetteerDownload(country: string, onProgress?: (p: GazetteerProgressDto) => void): Promise<GazetteerCountryDto> {
+    const cc = country.toUpperCase();
+    if (cc !== 'ZZ') throw new MockApiError('not_found', `GeoNames has no file for ${cc}.`);
+    onProgress?.({ country: cc, phase: 'download', done: 4_300_000, total: 4_300_000 });
+    this.gaz.add(cc);
+    return { country: cc, rows: MOCK_GAZETTEER.length, bytes: 1_200_000 };
+  }
+
+  async gazetteerRemove(country: string): Promise<void> {
+    this.gaz.delete(country.toUpperCase());
+  }
+
+  async gazetteerSuggest(place: Id, limit: number): Promise<GazetteerCandidateDto[]> {
+    const pl = this.db.places.get(place);
+    if (!pl || this.gaz.size === 0) return [];
+    const parts = pl.full.split(',').map((x) => fold(x.trim()));
+    const out: GazetteerCandidateDto[] = [];
+    for (const g of MOCK_GAZETTEER) {
+      if (fold(g.name) !== parts[0]) continue;
+      const region_match = parts.slice(1).some((x) => fold(g.region).includes(x));
+      out.push({ geonameId: g.id, country: 'ZZ', name: g.name, local: g.local, lat: g.lat, lon: g.lon, code: 'PPL', population: g.pop, region: g.region, regionLocal: g.region, score: 100 + (region_match ? 30 : 0), regionMatch: region_match });
+    }
+    return out.sort((a, b) => b.score - a.score).slice(0, limit);
   }
 
   private childrenOf(id: Id): Id[] {
@@ -2100,7 +2754,12 @@ export class MockApi implements Api {
       }
       case 'family': {
         const f = this.family(t.id);
-        return { notes: f.notes, citations: f.citations };
+        return { notes: f.notes, citations: f.citations, media: (f.media ??= []) };
+      }
+      case 'citation': {
+        const c = this.findCitation(t.id);
+        if (!c) throw missing('citation', t.id);
+        return { media: (c.media ??= []) };
       }
       case 'event': {
         const e = this.findEvent(t.id);
@@ -2114,7 +2773,11 @@ export class MockApi implements Api {
         }
         throw missing('name', t.id);
       }
-      case 'note': {
+      case 'source': {
+        const s = this.db.sources.get(t.id);
+        if (!s) throw missing('source', t.id);
+        return { media: s.media };
+      }      case 'note': {
         const n = this.findNote(t.id);
         if (!n) throw missing('note', t.id);
         return { media: n.media };
@@ -2150,7 +2813,7 @@ export class MockApi implements Api {
       source =
         existing ??
         (() => {
-          const s: SourceDto = { id: this.ids.next(), title, author: null, publication: null, abbreviation: null, text: null, citationCount: 0 };
+          const s: SourceDto = { id: this.ids.next(), title, author: null, publication: null, abbreviation: null, text: null, kind: null, issuer: null, docNumber: null, docDate: null, archive: null, callNumber: null, citationCount: 0, media: [] };
           this.db.sources.set(s.id, s);
           return s;
         })();
@@ -2190,6 +2853,13 @@ export class MockApi implements Api {
       order: this.settings.dayOrder,
     });
     ev.participants = (input.participants ?? []).map((x) => ({ person: this.ref(this.person(x.person)), role: x.role }));
+    const had = existing?.godparents ?? [];
+    const principal = ev.participants.find((x) => x.role === 'principal')?.person.id ?? null;
+    const gods = input.godparents ? input.godparents.map((g) => this.godparentFrom(g, had, principal)) : had;
+    gods.forEach((g, i) => {
+      if (gods.slice(0, i).some((o) => MockApi.sameGodparent(o, g))) throw invalid('The same godparent is in the list twice.');
+    });
+    if (gods.length > 0) ev.godparents = gods;
     if (existing) {
       ev.citations = existing.citations;
       ev.notes = existing.notes;
@@ -2276,6 +2946,31 @@ export class MockApi implements Api {
         return { focus: cmd.owner.kind === 'person' ? cmd.owner.id : null, touched: [cmd.owner.id, cmd.event] };
       }
 
+      case 'addGodparent': {
+        const hit = this.findEvent(cmd.event);
+        if (!hit) throw missing('event', cmd.event);
+        if (hit.ev.kind !== 'baptism' && hit.ev.kind !== 'christening')
+          throw invalid('Godparents go on a baptism or christening. Add that event first, then the godparents to it.');
+        const principal = hit.owner.kind === 'person' ? hit.owner.rec.id : null;
+        const g = this.godparentFrom({ ...cmd.godparent, id: undefined }, [], principal);
+        const list = hit.ev.godparents ?? [];
+        if (list.some((o) => MockApi.sameGodparent(o, g))) throw invalid('This godparent is on the event already.');
+        hit.ev.godparents = [...list, g];
+        return { focus: principal, touched: [hit.ev.id, ...(principal ? [principal] : [])] };
+      }
+
+      case 'removeGodparent': {
+        const hit = this.findEvent(cmd.event);
+        if (!hit) throw missing('event', cmd.event);
+        const list = hit.ev.godparents ?? [];
+        if (!list.some((g) => g.id === cmd.godparent)) throw missing('godparent', cmd.godparent);
+        const rest = list.filter((g) => g.id !== cmd.godparent);
+        if (rest.length > 0) hit.ev.godparents = rest;
+        else delete hit.ev.godparents;
+        const principal = hit.owner.kind === 'person' ? hit.owner.rec.id : null;
+        return { focus: principal, touched: [hit.ev.id, ...(principal ? [principal] : [])] };
+      }
+
       case 'quickAdd':
         return this.quickAdd(cmd);
 
@@ -2356,8 +3051,14 @@ export class MockApi implements Api {
         if (!cmd.note.text.trim()) throw invalid('Write some text for the note.');
         const i = cmd.note.id ? bag.notes.findIndex((n) => n.id === cmd.note.id) : -1;
         if (cmd.note.id && i < 0) throw missing('note', cmd.note.id);
-        if (i >= 0) bag.notes[i] = { ...bag.notes[i], kind: cmd.note.kind, text: cmd.note.text };
-        else bag.notes.push(makeNote(this.ids.next(), cmd.note.kind, cmd.note.text));
+        // A missing story leaves the note's story as it is; an empty one takes it off.
+        const story = cmd.note.story === undefined ? undefined : cmd.note.story.trim() || null;
+        if (i >= 0) {
+          bag.notes[i] = { ...bag.notes[i], kind: cmd.note.kind, text: cmd.note.text, ...(story !== undefined ? { story } : {}) };
+        } else {
+          const made = makeNote(this.ids.next(), cmd.note.kind, cmd.note.text);
+          bag.notes.push(story ? { ...made, story } : made);
+        }
         const saved = bag.notes[i >= 0 ? i : bag.notes.length - 1];
         return { focus: cmd.target.kind === 'person' ? cmd.target.id : null, touched: [cmd.target.id, saved.id] };
       }
@@ -2375,7 +3076,12 @@ export class MockApi implements Api {
         if (input.id) {
           const s = this.db.sources.get(input.id);
           if (!s) throw missing('source', input.id);
-          for (const k of ['title', 'author', 'publication', 'abbreviation', 'text'] as const) if (input[k] !== undefined) s[k] = input[k] || null;
+          for (const k of ['title', 'author', 'publication', 'abbreviation', 'text', 'issuer'] as const) if (input[k] !== undefined) s[k] = input[k] || null;
+          if (input.kind !== undefined) s.kind = input.kind.trim() || null;
+          if (input.docNumber !== undefined) s.docNumber = input.docNumber || null;
+          if (input.docDateRaw !== undefined) s.docDate = toDateDto(input.docDateRaw, this.settings.dayOrder);
+          if (input.archive !== undefined) s.archive = input.archive.trim() || null;
+          if (input.callNumber !== undefined) s.callNumber = input.callNumber.trim() || null;
           return { focus: null, touched: [s.id] };
         }
         if (!input.title?.trim()) throw invalid('Enter a source title.');
@@ -2386,7 +3092,14 @@ export class MockApi implements Api {
           publication: input.publication ?? null,
           abbreviation: input.abbreviation ?? null,
           text: input.text ?? null,
+          kind: input.kind?.trim() || null,
+          issuer: input.issuer || null,
+          docNumber: input.docNumber || null,
+          docDate: input.docDateRaw ? toDateDto(input.docDateRaw, this.settings.dayOrder) : null,
+          archive: input.archive?.trim() || null,
+          callNumber: input.callNumber?.trim() || null,
           citationCount: 0,
+          media: [],
         };
         this.db.sources.set(s.id, s);
         return { focus: null, touched: [s.id] };
@@ -2441,14 +3154,14 @@ export class MockApi implements Api {
         for (const id of cmd.media) {
           const m = this.db.media.get(id);
           if (!m) throw missing('media item', id);
-          if (!bag.media.some((l) => l.media.id === id)) bag.media.push({ media: m, primary: bag.media.length === 0 });
+          if (!bag.media.some((l) => l.media.id === id && !l.clip)) bag.media.push({ media: m, primary: !bag.media.some((l) => !l.clip) });
         }
         return { focus: cmd.target.kind === 'person' ? cmd.target.id : null, touched: [cmd.target.id, ...cmd.media] };
       }
 
       case 'detachMedia': {
         const bag = this.owner(cmd.target);
-        const i = bag.media?.findIndex((l) => l.media.id === cmd.media) ?? -1;
+        const i = bag.media?.findIndex((l) => l.media.id === cmd.media && !l.clip) ?? -1;
         if (!bag.media || i < 0) throw missing('media link', cmd.media);
         const [gone] = bag.media.splice(i, 1);
         if (gone.primary && bag.media[0]) bag.media[0].primary = true;
@@ -2458,18 +3171,25 @@ export class MockApi implements Api {
       case 'deleteMedia': {
         if (!this.db.media.has(cmd.id)) throw missing('media item', cmd.id);
         const touched: Id[] = [cmd.id];
-        const sweep = (links: MediaLinkDto[] | undefined, owner: Id) => {
-          const i = links?.findIndex((l) => l.media.id === cmd.id) ?? -1;
-          if (!links || i < 0) return;
-          const [gone] = links.splice(i, 1);
-          if (gone.primary && links[0]) links[0].primary = true;
-          touched.push(owner);
-        };
-        for (const p of this.db.persons.values()) {
-          sweep(p.media, p.id);
-          for (const e of p.events) sweep(e.media, e.id);
-          for (const n of p.notes) sweep(n.media, n.id);
+        // Every link to it goes, clips included, as in the backend.
+        for (const { owner, links } of this.linkLists()) {
+          const before = links.length;
+          const wasPrimary = links.some((l) => l.primary && l.media.id === cmd.id);
+          for (let i = links.length - 1; i >= 0; i--) if (links[i].media.id === cmd.id) links.splice(i, 1);
+          if (links.length === before) continue;
+          if (wasPrimary && links[0] && !links.some((l) => l.primary)) links[0].primary = true;
+          touched.push(owner.id);
         }
+        // The other versions of a deleted primary stay a group, under the largest of them.
+        const versions = this.db.versionOf;
+        if (versions && this.versionHead(cmd.id) === cmd.id) {
+          const [next, ...more] = this.versionGroup(cmd.id).slice(1);
+          if (next) {
+            versions.delete(next);
+            for (const v of more) versions.set(v, next);
+          }
+        }
+        versions?.delete(cmd.id);
         this.db.media.delete(cmd.id);
         return { focus: null, touched };
       }
@@ -2490,7 +3210,214 @@ export class MockApi implements Api {
         if (cmd.title !== undefined) m.title = cmd.title || null;
         if (cmd.description !== undefined) m.description = cmd.description || null;
         if (cmd.dateRaw !== undefined) m.date = toDateDto(cmd.dateRaw, this.settings.dayOrder);
+        if (cmd.placeId) {
+          const p = this.db.places.get(cmd.placeId);
+          if (!p) throw missing('place', cmd.placeId);
+          m.place = p;
+        } else if (cmd.placeText !== undefined) {
+          m.place = cmd.placeText.trim() ? this.ensurePlace(cmd.placeText) : undefined;
+        }
         return { focus: null, touched: [m.id] };
+      }
+
+      case 'setMediaTranscription': {
+        const m = this.db.media.get(cmd.id);
+        if (!m) throw missing('media item', cmd.id);
+        const seen = new Set<Id>();
+        const sound = (m.mime ?? '').startsWith('audio/');
+        const next = cmd.regions.map((r) => {
+          if (sound) {
+            if (r.area || r.rotation) throw invalid('A sound recording has no picture: give each piece its text, and its start and end times, without an area or a rotation.');
+            if ((r.startMs == null) !== (r.endMs == null)) throw invalid('Give a piece of a transcript both its start and its end, or neither.');
+            if (r.startMs != null && r.endMs != null && r.endMs <= r.startMs) throw invalid('A piece of a transcript must end after it starts.');
+            const id = r.id ?? this.ids.next();
+            if (seen.has(id)) throw invalid('Two pieces of the transcription have the same id.');
+            seen.add(id);
+            const speaker = r.speaker?.trim();
+            return {
+              id,
+              area: null,
+              rotation: 0 as const,
+              text: r.text,
+              ...(r.startMs != null ? { startMs: r.startMs, endMs: r.endMs } : {}),
+              ...(speaker ? { speaker } : {}),
+            };
+          }
+          if (r.startMs != null || r.endMs != null || r.speaker) throw invalid('Times and speakers belong to the transcript of a sound recording.');
+          const rotation = r.rotation ?? 0;
+          if (![0, 90, 180, 270].includes(rotation)) throw invalid('rotation must be 0, 90, 180 or 270.');
+          const a = r.area;
+          if (a && (![a.x, a.y, a.w, a.h].every(Number.isFinite) || a.w <= 0 || a.h <= 0 || a.x < 0 || a.y < 0 || a.x > 1 || a.y > 1))
+            throw invalid('An area must lie on the picture.');
+          const id = r.id ?? this.ids.next();
+          if (seen.has(id)) throw invalid('Two pieces of the transcription have the same id.');
+          seen.add(id);
+          return { id, area: a ? { x: a.x, y: a.y, w: Math.min(a.w, 1 - a.x), h: Math.min(a.h, 1 - a.y) } : null, rotation, text: r.text };
+        });
+        // As the backend: pieces stored since the sender read the list stay, after the piece they followed.
+        if (cmd.known) {
+          let after: Id | null = null;
+          for (const r of m.transcription) {
+            if (!cmd.known.includes(r.id) && !next.some((n) => n.id === r.id)) {
+              const i = after === null ? -1 : next.findIndex((n) => n.id === after);
+              next.splice(i + 1, 0, structuredClone(r));
+            }
+            after = r.id;
+          }
+        }
+        m.transcription = next;
+        return { focus: null, touched: [m.id] };
+      }
+
+      case 'addAudioClip':
+      case 'updateAudioClip': {
+        const label = cmd.label?.trim() ? cmd.label.trim() : null;
+        if (label && label.length > 200) throw invalid("A clip's label holds at most 200 characters.");
+        if (cmd.endMs <= cmd.startMs || cmd.startMs < 0) throw invalid('A clip must end after it starts.');
+        const clipBag = (t: OwnerRef) => {
+          if (!['note', 'citation', 'event', 'person', 'family'].includes(t.kind)) throw invalid('A clip goes on a note, citation, event, person or family.');
+          const bag = this.owner(t);
+          if (!bag.media) throw invalid('A clip cannot be attached to this record.');
+          return bag.media;
+        };
+        let media: MediaDto;
+        let id: Id;
+        if (cmd.type === 'addAudioClip') {
+          const m = this.db.media.get(cmd.media);
+          if (!m) throw missing('media item', cmd.media);
+          if (!(m.mime ?? '').startsWith('audio/')) throw invalid('Only a sound recording has clips.');
+          media = m;
+          id = this.ids.next();
+        } else {
+          const links = clipBag(cmd.target);
+          const i = links.findIndex((l) => l.clip?.id === cmd.clip);
+          if (i < 0) throw missing('clip', cmd.clip);
+          media = links[i].media;
+          id = cmd.clip;
+          links.splice(i, 1);
+        }
+        if (media.durationMs != null && cmd.endMs > media.durationMs) throw invalid(`The recording lasts ${clockMs(media.durationMs)}; a clip must end by then.`);
+        const to = cmd.type === 'updateAudioClip' && cmd.moveTo ? cmd.moveTo : cmd.target;
+        const links = clipBag(to);
+        if (links.some((l) => l.media.id === media.id && l.clip && l.clip.startMs === cmd.startMs && l.clip.endMs === cmd.endMs && l.clip.label === label))
+          throw invalid('That clip is already on this record.');
+        links.push({ media, primary: false, clip: { id, startMs: cmd.startMs, endMs: cmd.endMs, label } });
+        return { focus: null, touched: [to.id, media.id, id] };
+      }
+
+      case 'deleteAudioClip': {
+        const links = this.owner(cmd.target).media;
+        const i = links?.findIndex((l) => l.clip?.id === cmd.clip) ?? -1;
+        if (!links || i < 0) throw missing('clip', cmd.clip);
+        links.splice(i, 1);
+        return { focus: null, touched: [cmd.target.id, cmd.clip] };
+      }
+
+      case 'groupMediaVersions': {
+        const versions = (this.db.versionOf ??= new Map());
+        const head = this.db.media.get(cmd.primary);
+        if (!head) throw missing('media item', cmd.primary);
+        const members = new Set<Id>();
+        for (const o of [cmd.primary, ...cmd.others]) {
+          const m = this.db.media.get(o);
+          if (!m) throw missing('media item', o);
+          if ((m.mime ?? '').startsWith('audio/') !== (head.mime ?? '').startsWith('audio/')) {
+            throw invalid('A sound recording and a picture cannot be versions of one another.');
+          }
+          for (const g of this.versionGroup(o)) members.add(g);
+        }
+        members.delete(cmd.primary);
+        if (members.size === 0) throw invalid('Choose another file of the same page.');
+        versions.delete(cmd.primary);
+        for (const m of members) versions.set(m, cmd.primary);
+        return { focus: null, touched: [cmd.primary, ...members] };
+      }
+
+      case 'ungroupMediaVersion': {
+        const versions = (this.db.versionOf ??= new Map());
+        if (!this.db.media.has(cmd.media)) throw missing('media item', cmd.media);
+        const group = this.versionGroup(cmd.media);
+        if (group.length < 2) throw invalid('This file has no other versions.');
+        if (group[0] !== cmd.media) {
+          versions.delete(cmd.media);
+          return { focus: null, touched: [cmd.media] };
+        }
+        const rest = group.slice(1);
+        const next = cmd.newPrimary ?? rest[0];
+        if (!rest.includes(next)) throw invalid('The new primary must be one of the other versions.');
+        versions.delete(next);
+        for (const v of rest) if (v !== next) versions.set(v, next);
+        return { focus: null, touched: group };
+      }
+
+      case 'setMediaRotation': {
+        const m = this.db.media.get(cmd.id);
+        if (!m) throw missing('media item', cmd.id);
+        if (![0, 90, 180, 270].includes(cmd.rotation)) throw invalid('rotation must be 0, 90, 180 or 270.');
+        if ((m.mime ?? '').startsWith('audio/') || m.mime === 'application/pdf') throw invalid('Only a picture can be turned.');
+        m.rotation = cmd.rotation;
+        return { focus: null, touched: [m.id] };
+      }
+
+      case 'createPlace': {
+        const place = this.ensurePlace(cmd.text);
+        return { focus: place.id, touched: [place.id] };
+      }
+
+      case 'setPlaceCoordinates': {
+        if (!this.db.places.has(cmd.place)) throw missing('place', cmd.place);
+        const coords = (this.db.coords ??= new Map());
+        if (cmd.latE6 == null && cmd.lonE6 == null) coords.delete(cmd.place);
+        else if (cmd.latE6 == null || cmd.lonE6 == null) throw invalid('Give both the latitude and the longitude, or neither.');
+        else if (Math.abs(cmd.latE6) > 90_000_000 || Math.abs(cmd.lonE6) > 180_000_000) throw invalid('The latitude is within 90 degrees and the longitude within 180.');
+        else coords.set(cmd.place, [cmd.latE6 / 1e6, cmd.lonE6 / 1e6]);
+        return { focus: null, touched: [cmd.place] };
+      }
+
+      case 'setMapLayer': {
+        const m = this.db.media.get(cmd.media);
+        if (!m) throw missing('media', cmd.media);
+        const layers = (this.db.layers ??= new Map());
+        if (cmd.title !== undefined) m.title = cmd.title.trim() || null;
+        if (!cmd.layer) layers.delete(cmd.media);
+        else {
+          if (cmd.layer.opacity > 100) throw invalid('Opacity is 0 to 100.');
+          if (cmd.layer.corners && cmd.layer.corners.length !== 4) throw invalid('A map is placed by its four corners.');
+          const old = layers.get(cmd.media);
+          const pos = old?.pos ?? Math.max(-1, ...[...layers.values()].map((l) => l.pos)) + 1;
+          layers.set(cmd.media, {
+            media: cmd.media,
+            title: m.title,
+            series: cmd.layer.series ?? null,
+            year: cmd.layer.year ?? null,
+            source: cmd.layer.source ?? null,
+            corners: cmd.layer.corners ?? null,
+            opacity: cmd.layer.opacity,
+            visible: cmd.layer.visible,
+            pos,
+            width: m.width,
+            height: m.height,
+          });
+        }
+        return { focus: null, touched: [cmd.media] };
+      }
+
+      case 'setMapLayersVisible': {
+        const layers = this.db.layers ?? new Map<Id, MapLayerDto>();
+        if (cmd.shown.some((id) => cmd.hidden.includes(id))) throw invalid('A map is either shown or hidden, not both.');
+        const all: [Id, boolean][] = [...cmd.shown.map((id): [Id, boolean] => [id, true]), ...cmd.hidden.map((id): [Id, boolean] => [id, false])];
+        for (const [id] of all) if (!layers.has(id)) throw invalid('This picture is not on the Map.');
+        const changed = all.filter(([id, v]) => layers.get(id)!.visible !== v);
+        for (const [id, v] of changed) layers.get(id)!.visible = v;
+        return { focus: null, touched: changed.map(([id]) => id) };
+      }
+
+      case 'reorderMapLayers': {
+        const layers = this.db.layers ?? new Map<Id, MapLayerDto>();
+        const all = [...layers.keys()].sort().join();
+        if ([...cmd.order].sort().join() !== all) throw invalid('Give every map on the Map once, from the lowest to the top.');
+        cmd.order.forEach((id, i) => (layers.get(id)!.pos = i));
+        return { focus: null, touched: [...cmd.order] };
       }
 
       case 'addNumber': {
@@ -2585,6 +3512,8 @@ export class MockApi implements Api {
         width: this.trace.image.width ?? null,
         height: this.trace.image.height ?? null,
         sha256: null,
+        transcription: [],
+        rotation: 0,
       };
       this.db.media.set(picture.id, picture);
       const sid = this.ids.next();
@@ -2595,7 +3524,14 @@ export class MockApi implements Api {
         publication: null,
         abbreviation: null,
         text: `File: ${picture.originalName}`,
+        kind: 'photo',
+        issuer: null,
+        docNumber: null,
+        docDate: null,
+        archive: null,
+        callNumber: null,
         citationCount: 0,
+        media: [],
       });
       touched.push(sid);
     }

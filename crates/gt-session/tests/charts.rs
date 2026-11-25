@@ -77,23 +77,31 @@ fn pedigree_ged() -> String {
 
 fn pedigree_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
     ChartRequest {
+        open: None,
         kind: ChartKind::Pedigree,
         root: id_of(s, name),
         generations,
         aunts_uncles: None,
         kin: None,
         roots: None,
+        direction: None,
+        print: None,
+        fold: None,
     }
 }
 
 fn descendants_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
     ChartRequest {
+        open: None,
         kind: ChartKind::Descendants,
         root: id_of(s, name),
         generations,
         aunts_uncles: None,
         kin: None,
         roots: None,
+        direction: None,
+        print: None,
+        fold: None,
     }
 }
 
@@ -240,12 +248,16 @@ fn lru_keeps_two_charts() {
 fn open_unknown_person_is_not_found() {
     let (_d, mut s) = open_ged(&pedigree_ged());
     let req = ChartRequest {
+        open: None,
         kind: ChartKind::Pedigree,
         root: Uuid::nil(),
         generations: 3,
         aunts_uncles: None,
         kin: None,
         roots: None,
+        direction: None,
+        print: None,
+        fold: None,
     };
     assert_eq!(s.chart_open(&req).unwrap_err().code, ErrorCode::NotFound);
 }
@@ -567,12 +579,16 @@ fn relatives_ged() -> String {
 
 fn relatives_req(s: &Session, name: &str, generations: u32) -> ChartRequest {
     ChartRequest {
+        open: None,
         kind: ChartKind::Relatives,
         root: id_of(s, name),
         generations,
         aunts_uncles: None,
         kin: None,
         roots: None,
+        direction: None,
+        print: None,
+        fold: None,
     }
 }
 
@@ -684,6 +700,71 @@ fn relatives_generations_are_clamped() {
     assert_eq!(m.node_count, 8);
     let m0 = s.chart_open(&relatives_req(&s, "Petro Koval", 0)).unwrap();
     assert!(m0.node_count >= 1);
+}
+
+/// "Show all" on the relatives chart: past 6 generations every ancestor and descendant is shown.
+#[test]
+fn relatives_show_all_goes_past_six_generations() {
+    // P01 is the child of P02, ... up to P20; the middle person has 9 ancestors and 10 descendants...
+    let (_d, mut s) = open_ged(&chain_ged(20));
+    let count = |s: &mut Session, name: &str, g: u32| {
+        s.chart_open(&relatives_req(s, name, g)).unwrap().node_count
+    };
+    let all = count(&mut s, "P10 L", 255);
+    assert_eq!(all, 20, "every ancestor and descendant");
+    let six = count(&mut s, "P10 L", 6);
+    assert!(six < all, "6 generations show fewer ({six})");
+    assert_eq!(count(&mut s, "P01 L", 255), 20);
+    assert!(count(&mut s, "P01 L", 6) < 20);
+    assert_eq!(count(&mut s, "P20 L", 255), 20);
+}
+
+#[test]
+fn relatives_show_all_is_bounded_on_a_big_tree() {
+    // 160 children with 160 children each: about 25.8k people, more than MAX_NODES.
+    let mut recs = vec![indi(1, "Root /R/", "M", "")];
+    let mut n = 1000u32;
+    let mut fams = String::from(
+        "0 @F0@ FAM
+1 HUSB @I1@
+",
+    );
+    let mut kids = Vec::new();
+    for i in 0..160u32 {
+        let c = 2 + i;
+        recs.push(indi(c, &format!("C{i} /R/"), "M", ""));
+        fams.push_str(&format!(
+            "1 CHIL @I{c}@
+"
+        ));
+        let mut f = format!(
+            "0 @F{}@ FAM
+1 HUSB @I{c}@
+",
+            200 + i
+        );
+        for _ in 0..160 {
+            recs.push(indi(n, &format!("G{n} /R/"), "U", ""));
+            f.push_str(&format!(
+                "1 CHIL @I{n}@
+"
+            ));
+            n += 1;
+        }
+        kids.push(f);
+    }
+    recs.push(fams);
+    recs.extend(kids);
+    let (_d, mut s) = open_ged(&ged(&recs));
+    let t = std::time::Instant::now();
+    let m = s.chart_open(&relatives_req(&s, "Root R", 255)).unwrap();
+    let took = t.elapsed();
+    eprintln!(
+        "relatives show-all on {n} people: {} nodes in {took:?}",
+        m.node_count
+    );
+    assert!(m.node_count > 1000 && m.node_count as usize <= gt_session::chart::MAX_NODES);
+    assert!(took < std::time::Duration::from_secs(20), "{took:?}");
 }
 
 /// Petro's father Ivan has a sister Zoya (11) with a daughter Nina (12); their parents are Mykola and Hanna.
@@ -855,6 +936,41 @@ fn whole_tree_has_everyone_once_headings_and_an_unconnected_block() {
 }
 
 #[test]
+fn a_chosen_tree_name_heads_the_main_block_only_and_clearing_it_goes_back() {
+    let (dir, mut s) = open_ged(&whole_ged());
+    let auto = s.chart_open_whole().unwrap();
+    assert!(auto.blocks.iter().all(|b| b.custom_name.is_empty()));
+    s.set_settings(SettingsPatch {
+        tree_name: Some("  Hill House ".into()),
+        ..SettingsPatch::default()
+    })
+    .unwrap();
+    assert_eq!(s.settings().tree_name, "Hill House");
+    let w = s.chart_open_whole().unwrap();
+    assert_eq!(w.blocks[0].title, "Hill House (7 people)");
+    assert_eq!(w.blocks[0].custom_name, "Hill House");
+    assert_eq!(w.blocks[0].surname, "X");
+    assert_eq!(w.blocks[1].title, "Unconnected people (1)");
+    assert!(w.blocks[1].custom_name.is_empty());
+    // It is stored in the project.
+    s.close();
+    let mut s = Session::open(
+        &dir.path().join("project"),
+        SessionClock::fixed(today(), NOW_MS),
+    )
+    .unwrap();
+    assert_eq!(s.settings().tree_name, "Hill House");
+    s.set_settings(SettingsPatch {
+        tree_name: Some(String::new()),
+        ..SettingsPatch::default()
+    })
+    .unwrap();
+    let w = s.chart_open_whole().unwrap();
+    assert_eq!(w.blocks[0].title, "X family (7 people)");
+    assert!(w.blocks[0].custom_name.is_empty());
+}
+
+#[test]
 fn whole_tree_is_cached_per_revision() {
     let (_d, mut s) = open_ged(&whole_ged());
     let a = s.chart_open_whole().unwrap();
@@ -935,12 +1051,16 @@ fn whole_tree_commands_refuse_other_charts_and_other_charts_refuse_whole() {
         ErrorCode::Invalid
     );
     let req = ChartRequest {
+        open: None,
         kind: ChartKind::Whole,
         root: id_of(&s, "Me X"),
         generations: 3,
         aunts_uncles: None,
         kin: None,
         roots: None,
+        direction: None,
+        print: None,
+        fold: None,
     };
     assert_eq!(s.chart_open(&req).unwrap_err().code, ErrorCode::Invalid);
     let w = s.chart_open_whole().unwrap();
@@ -1137,4 +1257,26 @@ fn person_count_counts_a_person_drawn_twice_once() {
         .collect();
     assert_eq!(m.person_count as usize, distinct.len());
     assert!(m.person_count < m.node_count);
+}
+
+/// A parent family left with no parents (the owner deleted the only parent) still lists the child, listed first.
+/// The pedigree passes over it and draws the real parents.
+#[test]
+fn pedigree_skips_a_parent_family_with_no_parents() {
+    let mut records = vec!["0 @F9@ FAM\n1 CHIL @I1@\n".to_string()];
+    let base = pedigree_ged();
+    let body = base.trim_start_matches(HEAD).trim_end_matches("0 TRLR\n");
+    records.push(body.to_string());
+    let (_d, mut s) = open_ged(&ged(&records));
+    let me = id_of(&s, "Me X");
+    assert_eq!(
+        s.tree()
+            .families
+            .values()
+            .filter(|f| f.children.iter().any(|c| c.person == me))
+            .count(),
+        2
+    );
+    let m = s.chart_open(&pedigree_req(&s, "Me X", 3)).unwrap();
+    assert_eq!(m.node_count, 7);
 }

@@ -13,7 +13,12 @@ title: string,
 /**
  * The family's surname; empty when it has none and for the unconnected people.
  */
-surname: string, people: number, 
+surname: string, 
+/**
+ * The tree name the user chose, when this is the main (largest) family block and a name
+ * is set; empty otherwise. The app words the heading from it instead of `surname`.
+ */
+customName: string, people: number, 
 /**
  * The block of people who have no family link at all.
  */

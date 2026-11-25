@@ -76,6 +76,33 @@ describe('SvgContext', () => {
     const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
     expect(doc.getElementsByTagName('parsererror')).toHaveLength(0);
   });
+
+  it('restore_gives_back_the_styles_font_anchors_dash_and_transform_that_save_kept', () => {
+    const c = new SvgContext(100, 100, () => 10);
+    c.font = '12px serif';
+    c.textAlign = 'center';
+    c.strokeStyle = '#123456';
+    c.setTransform(2, 0, 0, 2, 5, 5);
+    c.save();
+    c.font = '20px sans-serif';
+    c.textAlign = 'left';
+    c.strokeStyle = '#abcdef';
+    c.setLineDash([4, 2]);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.restore();
+    expect([c.font, c.textAlign, c.strokeStyle]).toEqual(['12px serif', 'center', '#123456']);
+    c.beginPath();
+    c.moveTo(0, 0);
+    c.lineTo(10, 0);
+    c.stroke();
+    const svg = c.toSvg(null, { w: 100, h: 100 });
+    // The kept transform, and no dash.
+    expect(svg).toContain('matrix(2');
+    expect(svg).not.toContain('stroke-dasharray');
+    // A restore with nothing saved changes nothing.
+    c.restore();
+    expect(c.font).toBe('12px serif');
+  });
 });
 
 describe('helpers', () => {
@@ -87,5 +114,12 @@ describe('helpers', () => {
     expect(parseFont('italic bold 14.5px Georgia, serif')).toEqual({ style: 'italic', weight: 'bold', size: 14.5, family: 'Georgia, serif' });
     expect(parseFont('10px sans-serif')).toEqual({ style: 'normal', weight: 'normal', size: 10, family: 'sans-serif' });
     expect(parseFont('nonsense').size).toBe(12);
+    // The app's font stacks come from CSS custom properties written over several lines.
+    expect(parseFont("600 9.5px 'Source Serif 4', Georgia, 'Segoe UI',\n    'Noto Sans', serif")).toEqual({
+      style: 'normal',
+      weight: '600',
+      size: 9.5,
+      family: "'Source Serif 4', Georgia, 'Segoe UI', 'Noto Sans', serif",
+    });
   });
 });

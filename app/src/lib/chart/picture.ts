@@ -14,10 +14,19 @@ export interface Scene {
 export const MARGIN = 40;
 /** Height (px, before scaling) of the strip with the chart name and the date. */
 export const CAPTION_H = 30;
-/** Largest side (px) of a picture. */
-export const MAX_SIDE = 16384;
-/** Largest area (px) of a picture. */
-export const MAX_AREA = 200_000_000;
+/**
+ * Largest side (px) of a picture. Chromium (WebView2) and WebKit refuse a canvas side above 32,767 px; a little is kept
+ * spare so rounding never reaches the edge.
+ */
+export const MAX_SIDE = 32_000;
+/**
+ * Largest area (px) of a picture. Chromium allows about 268 MP per canvas, but each pixel holds 4 bytes, so 160 MP is
+ * already 640 MB for the canvas alone, plus what the PNG encoder needs; more than that risks running out of memory on an
+ * ordinary computer. When the browser still cannot make the canvas, the picture is tried again at half the size.
+ */
+export const MAX_AREA = 160_000_000;
+/** Pixels per px a whole or branch picture aims for (or the screen's ratio when higher), so names stay sharp when zoomed in. */
+export const SHARP = 3;
 /** Side (world units) of one request when a whole chart is fetched in pieces. */
 export const TILE = 4000;
 
@@ -142,7 +151,7 @@ export interface Fit {
   percent: number;
 }
 
-/** Scales a picture of `w` x `h` px down so each side is at most 16,384 px and the area at most about 200 MP. */
+/** Scales a picture of `w` x `h` px down so each side is at most `MAX_SIDE` px and the area at most `MAX_AREA` px. */
 export function fitScale(w: number, h: number): Fit {
   const s = Math.min(1, MAX_SIDE / Math.max(1, w, h), Math.sqrt(MAX_AREA / Math.max(1, w * h)));
   const reduced = s < 1;
@@ -215,17 +224,19 @@ const effective = (scale: number) => ({ reduced: scale < 1, percent: scale < 1 ?
 
 /**
  * How a picture is laid out. Whole and branch pictures show the scene at zoom 1 with a margin and are cropped to it, at
- * twice the pixels (or the screen's ratio when higher) so text is sharp; when that is too big they fall back to 1x, and
- * only then go below 1x. A screen picture is exactly the viewport at its zoom, at the screen's pixel ratio. A vector
- * picture (SVG) has no size limit and is never scaled.
+ * `SHARP` times the pixels (or the screen's ratio when higher) so text is sharp; when that is too big they take the
+ * largest scale that still fits `MAX_SIDE` and `MAX_AREA` (2.8x, 1.5x, ...), and go below 1x (`reduced`) only when even
+ * 1x does not fit. A screen picture is exactly the viewport at its zoom, at the screen's pixel ratio. A vector picture
+ * (SVG) has no size limit and is never scaled.
  */
 export function planPicture(
   scope: PictureScope,
   scene: Scene,
   screen: { cam: Camera; size: { w: number; h: number }; dpr: number } | null,
   extra: Rect[] = [],
-  opts: { dpr?: number; vector?: boolean } = {},
+  opts: { dpr?: number; vector?: boolean; caption?: boolean } = {},
 ): PicturePlan {
+  const strip = opts.caption === false ? 0 : CAPTION_H;
   let cam: Camera;
   let view: { w: number; h: number };
   const shot = scope === 'screen' ? screen : null;
@@ -238,18 +249,14 @@ export function planPicture(
     view = { w: Math.ceil(b.w + 2 * MARGIN), h: Math.ceil(b.h + 2 * MARGIN) };
   }
   if (opts.vector) {
-    return { cam, view, scale: 1, width: view.w, height: view.h + CAPTION_H, reduced: false, percent: 100 };
+    return { cam, view, scale: 1, width: view.w, height: view.h + strip, reduced: false, percent: 100 };
   }
   const dpr = Math.max(1, shot ? shot.dpr : (opts.dpr ?? 1));
-  const bases = shot ? [dpr] : [...new Set([Math.max(2, dpr), 1])];
-  let plan!: PicturePlan;
-  for (const base of bases) {
-    const f = fitScale(view.w * base, (view.h + CAPTION_H) * base);
-    const scale = base * f.scale;
-    plan = { cam, view, scale, width: f.w, height: f.h, ...effective(scale) };
-    if (!f.reduced) break;
-  }
-  return plan;
+  const base = shot ? dpr : Math.max(SHARP, dpr);
+  // The limits are checked on the 1x size, so the scale is continuous: as large as fits, up to `base`.
+  const f = fitScale(view.w * base, (view.h + strip) * base);
+  const scale = base * f.scale;
+  return { cam, view, scale, width: f.w, height: f.h, ...effective(scale) };
 }
 
 /** The same picture at `factor` times the size (for a retry when the browser could not make the canvas). */
@@ -270,9 +277,23 @@ export function scalePlan(plan: PicturePlan, factor: number): PicturePlan {
  * stay aligned and lines stay connected. Used for a branch picked from the very wide whole-tree rows.
  */
 export function compactX(scene: Scene, gap = 40): Scene {
+  const map = squeeze(spansOf(scene, (n) => [n.x, n.x + n.w], 0), gap);
+  return {
+    nodes: scene.nodes.map((n) => ({ ...n, x: map(n.x) })),
+    edges: scene.edges.map((e) => ({ ...e, pts: e.pts.map((v, i) => (i % 2 === 0 ? map(v) : v)) })),
+  };
+}
+
+/** The spans along one axis (`axis` 0 = x, 1 = y) the boxes (`span`) and the points of the lines take. */
+function spansOf(scene: Scene, span: (n: ChartNode) => [number, number], axis: 0 | 1): [number, number][] {
   const spans: [number, number][] = [];
-  for (const n of scene.nodes) spans.push([n.x, n.x + n.w]);
-  for (const e of scene.edges) for (let i = 0; i < e.pts.length; i += 2) spans.push([e.pts[i], e.pts[i]]);
+  for (const n of scene.nodes) spans.push(span(n));
+  for (const e of scene.edges) for (let i = axis; i < e.pts.length; i += 2) spans.push([e.pts[i], e.pts[i]]);
+  return spans;
+}
+
+/** The monotone mapping that shrinks every empty stretch between `spans` wider than `gap` down to `gap`. */
+function squeeze(spans: [number, number][], gap: number): (v: number) => number {
   spans.sort((a, b) => a[0] - b[0]);
   // The gaps between the merged spans, with the total removed up to and including each one.
   const cuts: { end: number; removed: number }[] = [];
@@ -285,13 +306,50 @@ export function compactX(scene: Scene, gap = 40): Scene {
     }
     reach = Math.max(reach, hi);
   }
-  const map = (x: number): number => {
-    for (let i = cuts.length - 1; i >= 0; i--) if (x >= cuts[i].end) return x - cuts[i].removed;
-    return x;
+  return (v: number): number => {
+    // The last cut at or before v (binary search: big scenes have thousands of cuts).
+    let lo = 0;
+    let hi = cuts.length - 1;
+    let at = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (v >= cuts[mid].end) {
+        at = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    return at < 0 ? v : v - cuts[at].removed;
   };
+}
+
+/**
+ * Squeezes the empty stretches out of a scene along x, then along y, by `compactX`'s rule: each stretch wider than
+ * `gap` with no box or line point in it shrinks to `gap`, through one monotone mapping per axis, so rows stay aligned,
+ * order is kept and lines stay connected. `occupied(n)` is the room a box holds (by default the box itself), e.g. the
+ * box and a tag drawn beside it: a neighbour is never squeezed onto it. It is called with the box as it is at that pass.
+ */
+export function compactBoth(scene: Scene, gap = 40, occupied: (n: ChartNode) => Rect = (n) => n): Scene {
+  const mx = squeeze(
+    spansOf(scene, (n) => {
+      const r = occupied(n);
+      return [r.x, r.x + r.w];
+    }, 0),
+    gap,
+  );
+  const a: Scene = {
+    nodes: scene.nodes.map((n) => ({ ...n, x: mx(n.x) })),
+    edges: scene.edges.map((e) => ({ ...e, pts: e.pts.map((v, i) => (i % 2 === 0 ? mx(v) : v)) })),
+  };
+  const my = squeeze(
+    spansOf(a, (n) => {
+      const r = occupied(n);
+      return [r.y, r.y + r.h];
+    }, 1),
+    gap,
+  );
   return {
-    nodes: scene.nodes.map((n) => ({ ...n, x: map(n.x) })),
-    edges: scene.edges.map((e) => ({ ...e, pts: e.pts.map((v, i) => (i % 2 === 0 ? map(v) : v)) })),
+    nodes: a.nodes.map((n) => ({ ...n, y: my(n.y) })),
+    edges: a.edges.map((e) => ({ ...e, pts: e.pts.map((v, i) => (i % 2 === 1 ? my(v) : v)) })),
   };
 }
 

@@ -116,7 +116,16 @@ fn scrub_dangling(t: &mut Tree, orig: &Tree) {
             r.source = None;
         }
     });
-    t.media.values_mut().for_each(|r| fix(&mut r.common));
+    t.media.values_mut().for_each(|r| {
+        fix(&mut r.common);
+        if r.place.is_some_and(|p| places.contains(&p)) {
+            r.place = None;
+        }
+        // A version whose primary was left out is a file of its own in the copy.
+        if r.version_of.is_some_and(|p| media.contains(&p)) {
+            r.version_of = None;
+        }
+    });
     t.notes.values_mut().for_each(|r| fix(&mut r.common));
 }
 
@@ -165,6 +174,7 @@ fn reach(t: &Tree) -> [HashSet<Uuid>; 6] {
         for id in &keep[2] {
             if let Some(m) = t.media.get(id) {
                 common_refs(&m.common, &mut notes, &mut cits, &mut media);
+                places.extend(m.place);
             }
         }
         for id in &keep[3] {
@@ -400,6 +410,11 @@ pub fn filter(tree: &Tree, policy: &PrivacyPolicy, today_jdn: i32) -> (Tree, Pri
             ParticipantRef::Family(f) => {
                 !gone_families.contains(&f) && !hidden_families.contains(&f)
             }
+        });
+        // A godparent who is hidden or left out goes, name and all: an export must not tell who.
+        e.godparents.retain(|g| {
+            g.person
+                .is_none_or(|x| !gone_persons.contains(&x) && !hidden.contains(&x))
         });
         let touched = e.participants.len() != n;
         let has_principal = e.participants.iter().any(|p| p.role == Role::Principal);

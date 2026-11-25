@@ -9,6 +9,9 @@ import type {
   LogRowDto,
   MediaDto,
   RecordHomeDto,
+  RecordRefDto,
+  LocationDto,
+  RecordingDto,
   ReviewScopeDto,
   UndoReport,
   AttachResult,
@@ -51,6 +54,21 @@ import type {
   TraceImageInfo,
   UndoState,
   WholeMeta,
+  GazetteerCandidateDto,
+  GazetteerCountryDto,
+  GazetteerProgressDto,
+  GazetteerStatusDto,
+  MapDataDto,
+  MapScope,
+  PlaceEventsQuery,
+  PlaceEventsPage,
+  PlaceImportScanDto,
+  PlaceImportMapDto,
+  PlaceImportPreviewDto,
+  PlaceImportResultDto,
+  PlaceImportProgressDto,
+  MapLayerInput,
+  OziPlacementDto,
 } from './types';
 import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus } from './types';
 
@@ -117,6 +135,10 @@ export interface Api {
   exifSuggestion(media: Id): Promise<ExifSuggestion | null>;
   /** Media that no record links to (left by a deleted note or person), so it can still be removed. */
   unlinkedMedia(): Promise<MediaDto[]>;
+  /** Every picture and document, one per version group (its primary, with the group in `versions`), without transcriptions: to pick another version of a page from. */
+  allPictures(): Promise<MediaDto[]>;
+  /** A sound recording with the sources it is on and every clip of it, each with the record it is linked to. */
+  getRecording(media: Id): Promise<RecordingDto>;
   /** add_media_file + Media record + link, one undo step. */
   /** `silent` asks the shell's default toaster to stay quiet because the caller shows its own notice. */
   attachFiles(target: OwnerRef, paths: string[], opts?: { silent?: boolean }): Promise<AttachResult>;
@@ -143,6 +165,33 @@ export interface Api {
   exportGedcom(opts: ExportOptions, dest: string, previewToken: string): Promise<{ bytes: number }>;
   /** Writes a chart picture (PNG bytes) to `dest`, replacing the file when it exists (the save dialog already asked). */
   savePicture(dest: string, bytes: Uint8Array): Promise<{ bytes: number }>;
+  /** Makes a NEW folder `name` in `dir` for a set of pictures (`name (2)`, `name (3)`… when taken) and returns its path. */
+  makePictureFolder(dir: string, name: string): Promise<string>;
+
+  // --- Map view: what the map draws, and the offline place data (the one download is the person's own click) ---
+  mapData(scope: MapScope): Promise<MapDataDto>;
+  /** One page of what happened in a place and the places under it: events of the tree and place records about others. */
+  placeEvents(query: PlaceEventsQuery): Promise<PlaceEventsPage>;
+  /** Reads index files (TSV) and says which books and villages they hold. Changes nothing. */
+  placeImportScan(paths: string[]): Promise<PlaceImportScanDto>;
+  /** What importing would add and what is stored already. */
+  placeImportPreview(paths: string[], mapping: PlaceImportMapDto[]): Promise<PlaceImportPreviewDto>;
+  /** Adds the records; `onProgress` hears how many are done. */
+  placeImportRun(paths: string[], mapping: PlaceImportMapDto[], onProgress?: (p: PlaceImportProgressDto) => void): Promise<PlaceImportResultDto>;
+  /** Copies a picture into the tree and lays it on the Map as an old map; corners from `layer.corners`, else from the OziExplorer .map file. Returns its media id. */
+  addMapLayerFile(path: string, title: string | null, layer: MapLayerInput, oziMapPath?: string | null): Promise<Id>;
+  /** The OziExplorer .map file next to a picture that names it, or null. */
+  findOziMap(path: string): Promise<string | null>;
+  /** The corners an OziExplorer .map file gives a picture already in the tree, and whether the file fits it. */
+  oziCorners(mapPath: string, media: Id): Promise<OziPlacementDto>;
+  /** The corners an OziExplorer .map file gives a picture about to be added, and whether the file fits it (not when the picture was cropped or framed otherwise). */
+  oziCheck(mapPath: string, picturePath: string): Promise<OziPlacementDto>;
+  gazetteerStatus(): Promise<GazetteerStatusDto>;
+  /** Download size in bytes of a country's place data, or null when unknown. */
+  gazetteerRemoteSize(country: string): Promise<number | null>;
+  gazetteerDownload(country: string, onProgress?: (p: GazetteerProgressDto) => void): Promise<GazetteerCountryDto>;
+  gazetteerRemove(country: string): Promise<void>;
+  gazetteerSuggest(place: Id, limit: number): Promise<GazetteerCandidateDto[]>;
   getSettings(): Promise<Settings>;
   setSettings(patch: Partial<Settings>): Promise<Settings>;
   /** Who changed what, newest first. The owner's changes never count as "not yet reviewed". */
@@ -159,6 +208,11 @@ export interface Api {
   hasUntrackedChanges(): Promise<boolean>;
   /** The record holding a note or citation, with the note or citation itself; null when it is gone. */
   recordHome(kind: 'note' | 'citation', id: Id): Promise<RecordHomeDto | null>;
+  /**
+   * Where each record is shown, in the same order: the page to open (and the note to bring into view). null when the
+   * record is gone or has no page (a place). One call for a whole list; a note or picture is found through its holder.
+   */
+  locateRecords(refs: RecordRefDto[]): Promise<(LocationDto | null)[]>;
   /** Every change group that reached this person, by anyone, newest first; values in full. */
   personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>>;
   /** Undoes one agent change; a fact someone changed since stays and is named in the report. */
@@ -204,4 +258,15 @@ export interface Platform {
   onFilesDropped(cb: (paths: string[]) => void, onHover?: (over: boolean) => void): () => void;
   onTreeChangedByAgent(cb: (e: AgentChangeEvent) => void): () => void;
   reveal(path: string): Promise<void>;
+  /** Opens a web page in the system browser. Only http and https addresses; anything else is refused. */
+  openUrl?(url: string): Promise<void>;
+  /**
+   * True on a phone or tablet. There a tree lives in the app's own storage (`treesDir`), there is no folder picker,
+   * and a file made for the person (`pickSavePath`) is handed over with `deliver` once it is written.
+   */
+  isMobile?: boolean;
+  /** Mobile only: the folder every tree of this app lives in. */
+  treesDir?(): Promise<string>;
+  /** Mobile only: offers the file `pickSavePath` returned to the person to save or send; false when they backed out. */
+  deliver?(path: string): Promise<boolean>;
 }

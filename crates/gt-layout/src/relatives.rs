@@ -9,12 +9,12 @@
 //!
 //! Work lists replace recursion; the only nesting is bounded by the generation limit.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::route::{Family, route};
 use crate::types::{
-    ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Node, PartnerOf, Rect, Rel, dup_edge,
-    link_children, new_node,
+    ChartSource, Edge, EdgeKind, Key, Layout, Metrics, Node, PartnerOf, Rect, Rel, couple_link,
+    dup_edge, link_children, member_col, new_node, order_unions, person_shift,
 };
 
 /// What to show around the centred person.
@@ -41,6 +41,8 @@ enum Tree {
     /// A brother or sister of the person or of an ancestor (all-relatives mode): every descendant. The
     /// number is the generations from the person up to the common ancestor.
     Kin(u8),
+    /// [`Tree::Kin`] cut after this many generations (an opened branch: 1 is the children only).
+    KinTo(u8, u8),
 }
 
 /// How a blood relative `up` generations above the common ancestor and `down` below it is named.
@@ -79,6 +81,7 @@ impl Tree {
             Tree::Niece => 1,
             Tree::Aunt => 1,
             Tree::Kin(_) => 250,
+            Tree::KinTo(_, n) => n,
         }
     }
 }
@@ -106,9 +109,579 @@ struct Unit {
     lean: i8,
     /// Absolute centre of the unit (person plus partners).
     cx: f32,
+    /// The first unit of a folded run of leaf boxes: the whole run, laid out as a grid (the compact print layout). The
+    /// unit then stands for the grid: its contour is the grid's and `cx` its middle.
+    fold: Option<Fold>,
+    /// One of the other units of a folded run: placed with the run's first unit, never on its own.
+    folded: bool,
 }
 
 type Contour = Vec<(f32, f32)>;
+
+/// A run of leaf boxes laid out as a grid: `k` boxes across, `c` sub-rows deep, filled sub-row by sub-row.
+#[derive(Clone)]
+struct Fold {
+    members: Vec<usize>,
+    k: usize,
+    c: usize,
+}
+
+/// The shortest run of leaf boxes that folds.
+const FOLD_MIN: usize = 6;
+
+/// The gap between two sub-rows of a folded run.
+const FOLD_GAP: f32 = 8.0;
+
+/// The widest grid shape tried for a chart: at most this many boxes across per sub-row deep ([`fold_shape`]).
+const FOLD_RATIO: f32 = 3.0;
+
+/// The most grid shapes tried for one chart (the ratio halves each time, see [`fold_search`]).
+const FOLD_TRIES: usize = 8;
+
+/// The grid of a run of `n` leaf boxes: the fewest sub-rows (at least two) that keep the grid at most `ratio` times as
+/// many boxes across as deep, but always two boxes across or more. Returns (across, deep).
+fn fold_shape(n: usize, ratio: f32) -> (usize, usize) {
+    let mut c = 2;
+    while c < n.div_ceil(2) && n.div_ceil(c) as f32 > ratio * c as f32 {
+        c += 1;
+    }
+    (n.div_ceil(c), c)
+}
+
+/// What one layout of a chart folds (the compact print layout): the grid shape ([`fold_shape`]) and the runs that stay
+/// unfolded, by the key of their first person.
+#[derive(Clone)]
+struct FoldPlan {
+    ratio: f32,
+    deny: HashSet<Key>,
+}
+
+/// A run that qualifies for folding: the key of its first person (the run's name in [`FoldPlan::deny`]), whether its
+/// grid can get in the way of other lines (brothers and sisters of an ancestor, who stand near the line and the
+/// connectors of the rows below), and the people in it.
+#[derive(Clone)]
+struct Candidate {
+    key: Key,
+    risky: bool,
+    people: Vec<Key>,
+}
+
+/// A layout and the runs in it that qualify for folding.
+type Folded = (Layout, Vec<Candidate>);
+
+/// How many layouts of a chart the fold may make, as people laid out in all: a chart of `n` people gets
+/// `FOLD_WORK / n` layouts, but never fewer than [`FOLD_MIN_RUNS`]. Past it the search stops and keeps the folds
+/// accepted so far (a safety net: the blame rounds of [`fold_checked`] settle a chart in a few layouts). Counted in
+/// layouts, not in time, so a chart folds the same on every machine.
+const FOLD_WORK: usize = 160_000;
+
+/// The fewest layouts the fold may make, however big the chart.
+const FOLD_MIN_RUNS: usize = 12;
+
+/// How many times [`fold_checked`] blames the grids that made a chart worse and lays it out again without them,
+/// before it falls back to trying the runs one at a time.
+const BLAME_ROUNDS: usize = 4;
+
+/// The unfolded chart that every folded one is held to, and how much layout work the search has left.
+struct FoldCheck {
+    base: Layout,
+    quality: crate::Quality,
+    /// [`crate::quality::trouble`] of the cards of `base`, by person.
+    trouble: HashMap<Key, (usize, usize)>,
+    /// The crossings of the lines of `base`, by the people they join.
+    crossings: HashMap<(Key, Key), usize>,
+    runs_left: usize,
+}
+
+impl FoldCheck {
+    fn new(base: Layout) -> Self {
+        let runs_left = (FOLD_WORK / base.nodes.len().max(1)).max(FOLD_MIN_RUNS);
+        let (cards, lines) = crate::quality::trouble(&base);
+        FoldCheck {
+            quality: crate::quality(&base),
+            trouble: by_person(&base, &cards),
+            crossings: by_line(&base, &lines),
+            base,
+            runs_left,
+        }
+    }
+
+    /// Whether `l` draws no more crossing lines, no more lines through cards and no more overlapping cards than the
+    /// unfolded chart.
+    fn clean(&self, l: &Layout) -> bool {
+        let q = crate::quality(l);
+        q.box_overlaps == 0
+            && q.lines_through_boxes <= self.quality.lines_through_boxes
+            && q.line_crossings <= self.quality.line_crossings
+    }
+
+    /// Lay the chart out with `plan`, while the work budget lasts.
+    fn run(
+        &mut self,
+        run: &mut impl FnMut(Option<&FoldPlan>) -> Folded,
+        plan: &FoldPlan,
+    ) -> Option<Folded> {
+        if self.runs_left == 0 {
+            return None;
+        }
+        self.runs_left -= 1;
+        Some(run(Some(plan)))
+    }
+
+    /// The folded runs of `l` (those of `cands` that `plan` does not deny) whose people are in more trouble than in
+    /// the unfolded chart: more crossings of their lines, or more lines through their cards or cards under their
+    /// lines or on top of theirs (each counted on its own, so fewer crossings never hide a line through a card). Only
+    /// the grid's own cards and lines are looked at, so a run is blamed for what its grid does where it stands.
+    ///
+    /// Where no grid is to blame that way (a grid moved other people's lines about), the grids that stand where a line
+    /// now crosses more lines than in the unfolded chart: a grid whose cards are within the line's reach.
+    fn blame(&self, l: &Layout, cands: &[Candidate], plan: &FoldPlan) -> Vec<Key> {
+        let (cards, lines) = crate::quality::trouble(l);
+        let now = by_person(l, &cards);
+        let sum = |t: &HashMap<Key, (usize, usize)>, people: &[Key]| {
+            people
+                .iter()
+                .filter_map(|k| t.get(k))
+                .fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
+        };
+        let folded: Vec<&Candidate> = cands
+            .iter()
+            .filter(|c| !plan.deny.contains(&c.key))
+            .collect();
+        let blamed: Vec<Key> = folded
+            .iter()
+            .filter(|c| {
+                let (now, then) = (sum(&now, &c.people), sum(&self.trouble, &c.people));
+                now.0 > then.0 || now.1 > then.1
+            })
+            .map(|c| c.key)
+            .collect();
+        if !blamed.is_empty() {
+            return blamed;
+        }
+        // The reach of every line that crosses more lines than it did, as (left, right, top, bottom).
+        let mut was = self.crossings.clone();
+        let mut worse: Vec<(f32, f32, f32, f32)> = Vec::new();
+        for (e, &c) in l.edges.iter().zip(&lines) {
+            let k = (l.nodes[e.from as usize].key, l.nodes[e.to as usize].key);
+            let before = was.get_mut(&k).map_or(0, std::mem::take);
+            if c > before {
+                let xs = e.pts.iter().step_by(2);
+                let ys = e.pts.iter().skip(1).step_by(2);
+                worse.push((
+                    xs.clone().copied().fold(f32::INFINITY, f32::min),
+                    xs.copied().fold(f32::NEG_INFINITY, f32::max),
+                    ys.clone().copied().fold(f32::INFINITY, f32::min),
+                    ys.copied().fold(f32::NEG_INFINITY, f32::max),
+                ));
+            }
+        }
+        let at: HashMap<Key, &Rect> = l
+            .nodes
+            .iter()
+            .filter(|n| n.dup_of.is_none())
+            .map(|n| (n.key, &n.rect))
+            .collect();
+        folded
+            .iter()
+            .filter(|c| {
+                let rects: Vec<&Rect> =
+                    c.people.iter().filter_map(|k| at.get(k).copied()).collect();
+                let x0 = rects.iter().map(|r| r.x).fold(f32::INFINITY, f32::min);
+                let x1 = rects
+                    .iter()
+                    .map(|r| r.x + r.w)
+                    .fold(f32::NEG_INFINITY, f32::max);
+                let y0 = rects.iter().map(|r| r.y).fold(f32::INFINITY, f32::min);
+                let y1 = rects
+                    .iter()
+                    .map(|r| r.y + r.h)
+                    .fold(f32::NEG_INFINITY, f32::max);
+                worse
+                    .iter()
+                    .any(|w| w.0 <= x1 && x0 <= w.1 && w.2 <= y1 && y0 <= w.3)
+            })
+            .map(|c| c.key)
+            .collect()
+    }
+}
+
+/// Per-line numbers by the people the line joins (lines joining the same two people add up).
+fn by_line(l: &Layout, per_line: &[usize]) -> HashMap<(Key, Key), usize> {
+    let mut out = HashMap::new();
+    for (e, &c) in l.edges.iter().zip(per_line) {
+        let k = (l.nodes[e.from as usize].key, l.nodes[e.to as usize].key);
+        *out.entry(k).or_insert(0) += c;
+    }
+    out
+}
+
+/// Per-card numbers by person (the first card of a person; repeats are not counted).
+fn by_person<T: Copy>(l: &Layout, per_card: &[T]) -> HashMap<Key, T> {
+    l.nodes
+        .iter()
+        .zip(per_card)
+        .filter(|(n, _)| n.dup_of.is_none())
+        .map(|(n, &t)| (n.key, t))
+        .collect()
+}
+
+/// The folded chart: `run` lays the chart out with a fold plan (None: unfolded) and lists the runs that qualify. Every
+/// grid shape in turn, widest first ([`FOLD_RATIO`], then half of it and so on, [`FOLD_TRIES`] at most), as long as
+/// each comes closer to the A3 ratio: the last that did. Where no run qualifies the chart is the unfolded one. A run
+/// that had to stay unfolded with one shape starts unfolded with the next, deeper one (a deeper grid reaches further).
+/// With the shape chosen, the runs blamed on the way and still unfolded get one more try, in groups ([`add_back`]):
+/// a run blamed beside a worse grid can fold once that one stays unfolded.
+///
+/// The search makes a bounded number of layouts ([`FOLD_WORK`]); when they run out it keeps the best clean chart so
+/// far, so a big chart never holds the app for long.
+fn fold_search(mut run: impl FnMut(Option<&FoldPlan>) -> Folded) -> Layout {
+    let mut plan = FoldPlan {
+        ratio: FOLD_RATIO,
+        deny: HashSet::new(),
+    };
+    let first = run(Some(&plan));
+    if first.1.is_empty() {
+        return first.0;
+    }
+    let mut check = FoldCheck::new(run(None).0);
+    let (l, mut blamed) = fold_checked(&mut run, &mut plan, &mut check, Some(first));
+    let mut best = (off_a3(&l), l, plan.clone());
+    for _ in 1..FOLD_TRIES {
+        if check.runs_left == 0 {
+            break;
+        }
+        plan.ratio /= 2.0;
+        let (l, more) = fold_checked(&mut run, &mut plan, &mut check, None);
+        blamed.extend(more);
+        let off = off_a3(&l);
+        if off >= best.0 {
+            break;
+        }
+        best = (off, l, plan.clone());
+    }
+    let (_, mut l, mut plan) = best;
+    let mut seen = HashSet::new();
+    blamed.retain(|k| plan.deny.contains(k) && seen.insert(*k));
+    add_back(&mut run, &mut plan, &mut check, &blamed, &mut l);
+    l
+}
+
+/// The chart with grids of `plan`'s shape that draws no more crossing lines, no more lines through cards and no more
+/// overlapping cards than the unfolded chart (`check`), and the runs blamed on the way.
+///
+/// `plan` as it is if that is clean. Else the grids that made it worse are blamed ([`FoldCheck::blame`]) and left
+/// unfolded, a few rounds at most: each round lays the chart out once, whatever the number of runs. Where that does
+/// not settle it: without the runs that can get in the way (or without any run, if that is not clean either), and
+/// then those runs back in groups ([`add_back`]). `plan.deny` ends as the runs left unfolded. `first`: the layout of
+/// `plan`, when already made. Out of work before any clean chart: the unfolded chart.
+fn fold_checked(
+    run: &mut impl FnMut(Option<&FoldPlan>) -> Folded,
+    plan: &mut FoldPlan,
+    check: &mut FoldCheck,
+    first: Option<Folded>,
+) -> (Layout, Vec<Key>) {
+    let tried = plan.deny.clone();
+    let Some((mut l, mut cands)) = first.or_else(|| check.run(run, plan)) else {
+        return (check.base.clone(), Vec::new());
+    };
+    let mut seen = HashSet::new();
+    cands.retain(|c| seen.insert(c.key));
+    let mut blamed = Vec::new();
+    for _ in 0..BLAME_ROUNDS {
+        if check.clean(&l) {
+            return (l, blamed);
+        }
+        let more = check.blame(&l, &cands, plan);
+        if more.is_empty() {
+            break;
+        }
+        plan.deny.extend(more.iter().copied());
+        blamed.extend(more);
+        let Some((next, _)) = check.run(run, plan) else {
+            plan.deny.extend(cands.iter().map(|c| c.key));
+            return (check.base.clone(), blamed);
+        };
+        l = next;
+    }
+    if check.clean(&l) {
+        return (l, blamed);
+    }
+    // Not settled by blame: the runs that can get in the way stay unfolded too, or every run; then back in groups
+    // (the blamed runs get their try after the search, see [`fold_search`]).
+    plan.deny = cands
+        .iter()
+        .filter(|c| c.risky || tried.contains(&c.key) || blamed.contains(&c.key))
+        .map(|c| c.key)
+        .collect();
+    let mut best = match check.run(run, plan) {
+        Some((l, _)) if check.clean(&l) => l,
+        _ => {
+            plan.deny = cands.iter().map(|c| c.key).collect();
+            check.base.clone()
+        }
+    };
+    let back: Vec<Key> = cands
+        .iter()
+        .map(|c| c.key)
+        .filter(|k| !tried.contains(k) && !blamed.contains(k) && plan.deny.contains(k))
+        .collect();
+    add_back(run, plan, check, &back, &mut best);
+    (best, blamed)
+}
+
+/// Fold the runs of `keys` (now left unfolded by `plan`) where the chart stays clean: all of them at once if that
+/// is clean, else each half in turn, down to single runs, while the work budget lasts. `best` is the clean chart of
+/// `plan` and ends as the clean chart of the runs folded.
+fn add_back(
+    run: &mut impl FnMut(Option<&FoldPlan>) -> Folded,
+    plan: &mut FoldPlan,
+    check: &mut FoldCheck,
+    keys: &[Key],
+    best: &mut Layout,
+) {
+    if keys.is_empty() || check.runs_left == 0 {
+        return;
+    }
+    for k in keys {
+        plan.deny.remove(k);
+    }
+    match check.run(run, plan) {
+        Some((l, _)) if check.clean(&l) => {
+            *best = l;
+            return;
+        }
+        _ => plan.deny.extend(keys.iter().copied()),
+    }
+    if keys.len() > 1 {
+        let (a, b) = keys.split_at(keys.len() / 2);
+        add_back(run, plan, check, a, best);
+        add_back(run, plan, check, b, best);
+    }
+}
+
+/// How far a chart is from the A3 ratio (√2), in either orientation: 1 is exactly A3.
+fn off_a3(l: &Layout) -> f32 {
+    let (w, h) = (l.bounds.w, l.bounds.h);
+    if w <= 0.0 || h <= 0.0 {
+        return f32::INFINITY;
+    }
+    let a = w.max(h) / w.min(h) / std::f32::consts::SQRT_2;
+    a.max(1.0 / a)
+}
+
+fn fold_width(k: usize, m: &Metrics) -> f32 {
+    k as f32 * m.node_w + k.saturating_sub(1) as f32 * m.gap_x
+}
+
+/// The contour of a folded run: the grid's width in every generation row its sub-rows reach.
+fn fold_contour(f: &Fold, m: &Metrics) -> Contour {
+    let step_y = m.node_h + m.gap_y * 4.0;
+    let pitch = m.node_h + FOLD_GAP;
+    let below = ((f.c - 1) as f32 * pitch / step_y).ceil() as usize;
+    let half = fold_width(f.k, m) / 2.0;
+    vec![(-half, half); 1 + below]
+}
+
+/// Fold the runs of `list`: consecutive leaf units (no partner, no children, not in `skip`, not a repeat) of the same
+/// `family` (the same parents), [`FOLD_MIN`] or more of them. The first unit of a run stays in the list and stands for
+/// the grid (shaped as `plan` says, see [`fold_shape`]); the others leave it. `skip` holds the people on the line and
+/// the brothers and sisters joined by a bar. Every qualifying run is listed in `cands` (marked `risky`), also the runs
+/// the plan denies, which stay as they are.
+#[allow(clippy::too_many_arguments)]
+fn fold_list<K: PartialEq>(
+    list: &mut Vec<usize>,
+    units: &mut [Unit],
+    nodes: &[Node],
+    skip: &HashSet<usize>,
+    family: impl Fn(&Unit) -> K,
+    plan: &FoldPlan,
+    risky: bool,
+    cands: &mut Vec<Candidate>,
+) {
+    if list.len() < FOLD_MIN {
+        return;
+    }
+    let leaf: Vec<bool> = list
+        .iter()
+        .map(|&u| {
+            let un = &units[u];
+            un.partners == 0
+                && un.children.is_empty()
+                && un.fold.is_none()
+                && !un.folded
+                && nodes[un.person as usize].dup_of.is_none()
+                && !skip.contains(&u)
+        })
+        .collect();
+    let same = |a: &Unit, b: &Unit| family(a) == family(b);
+    let mut out = Vec::with_capacity(list.len());
+    let mut i = 0;
+    while i < list.len() {
+        if !leaf[i] {
+            out.push(list[i]);
+            i += 1;
+            continue;
+        }
+        let mut j = i + 1;
+        while j < list.len() && leaf[j] && same(&units[list[j]], &units[list[i]]) {
+            j += 1;
+        }
+        let run = &list[i..j];
+        let key = nodes[units[run[0]].person as usize].key;
+        if run.len() >= FOLD_MIN {
+            cands.push(Candidate {
+                key,
+                risky,
+                people: run
+                    .iter()
+                    .map(|&u| nodes[units[u].person as usize].key)
+                    .collect(),
+            });
+        }
+        if run.len() >= FOLD_MIN && !plan.deny.contains(&key) {
+            let (k, c) = fold_shape(run.len(), plan.ratio);
+            for &v in &run[1..] {
+                units[v].folded = true;
+            }
+            units[run[0]].fold = Some(Fold {
+                members: run.to_vec(),
+                k,
+                c,
+            });
+            out.push(run[0]);
+        } else {
+            out.extend_from_slice(run);
+        }
+        i = j;
+    }
+    *list = out;
+}
+
+/// Fold the runs among the children of every unit ([`fold_list`]). Running it again folds nothing more.
+fn fold_children(
+    units: &mut [Unit],
+    nodes: &[Node],
+    skip: &HashSet<usize>,
+    plan: &FoldPlan,
+    cands: &mut Vec<Candidate>,
+) {
+    for i in 0..units.len() {
+        if units[i].children.len() < FOLD_MIN {
+            continue;
+        }
+        let mut ch = std::mem::take(&mut units[i].children);
+        fold_list(
+            &mut ch,
+            units,
+            nodes,
+            skip,
+            |u| u.attach,
+            plan,
+            false,
+            cands,
+        );
+        units[i].children = ch;
+    }
+}
+
+/// The cards a unit puts in its parents' family: its own card, or for a folded run the cards of the first sub-row (the
+/// other sub-rows get their lines from [`fold_edges`]).
+fn fold_top(units: &[Unit], u: usize) -> Vec<u32> {
+    match &units[u].fold {
+        Some(f) => f.members[..f.k.min(f.members.len())]
+            .iter()
+            .map(|&v| units[v].person)
+            .collect(),
+        None => vec![units[u].person],
+    }
+}
+
+/// Every card of a unit: its own, or every card of its folded run.
+fn fold_cards(units: &[Unit], u: usize) -> Vec<u32> {
+    match &units[u].fold {
+        Some(f) => f.members.iter().map(|&v| units[v].person).collect(),
+        None => vec![units[u].person],
+    }
+}
+
+/// Place the cards of a folded run whose middle is `cx` and whose first sub-row is at `y`.
+fn place_fold(f: &Fold, cx: f32, y: f32, units: &mut [Unit], nodes: &mut [Node], m: &Metrics) {
+    let left = cx - fold_width(f.k, m) / 2.0;
+    for (t, &u) in f.members.iter().enumerate() {
+        let x = left + (t % f.k) as f32 * (m.node_w + m.gap_x);
+        if t > 0 {
+            units[u].cx = x + m.node_w / 2.0;
+        }
+        let n = &mut nodes[units[u].person as usize];
+        n.rect.x = x;
+        n.rect.y = y + (t / f.k) as f32 * (m.node_h + FOLD_GAP);
+    }
+}
+
+/// The lines into the lower sub-rows of every folded run, from the routed lines into its first sub-row: each follows
+/// the family's line to its bus, runs along the bus to the gap between two columns of the grid nearest the parents,
+/// down that gap to just above its sub-row, along the gap above the sub-row and down onto the card. No line crosses a
+/// card: the bus runs above the first sub-row, and the column gap and the sub-row gaps hold no card.
+fn fold_edges(nodes: &[Node], units: &[Unit], edges: &mut Vec<Edge>, m: &Metrics) {
+    let mut extra = Vec::new();
+    for u in units {
+        let Some(f) = &u.fold else { continue };
+        if f.members.len() <= f.k {
+            continue;
+        }
+        let top = fold_top(units, f.members[0]);
+        let head = nodes[u.person as usize].rect;
+        let step = m.node_w + m.gap_x;
+        for e in edges
+            .iter()
+            .filter(|e| e.to == u.person && e.kind == EdgeKind::Parent && e.pts.len() >= 4)
+        {
+            let (sx, sy) = (e.pts[0], e.pts[1]);
+            // The family's bus: from a line of the same source into the first sub-row that has one.
+            let bus = edges
+                .iter()
+                .find(|o| {
+                    o.from == e.from
+                        && o.kind == EdgeKind::Parent
+                        && o.pts.len() >= 8
+                        && o.pts[0] == sx
+                        && o.pts[1] == sy
+                        && top.contains(&o.to)
+                })
+                .map_or((sy + head.y) / 2.0, |o| o.pts[3]);
+            let spine = (1..f.k)
+                .map(|q| head.x + q as f32 * step - m.gap_x / 2.0)
+                .min_by(|a, b| (a - sx).abs().total_cmp(&(b - sx).abs()))
+                .unwrap_or(head.x - m.gap_x / 2.0);
+            for &v in &f.members[f.k..] {
+                let to = units[v].person;
+                let r = nodes[to as usize].rect;
+                let yj = r.y - FOLD_GAP / 2.0;
+                let mut pts = vec![sx, sy];
+                for (x, y) in [
+                    (sx, bus),
+                    (spine, bus),
+                    (spine, yj),
+                    (r.cx(), yj),
+                    (r.cx(), r.y),
+                ] {
+                    let n = pts.len();
+                    if (pts[n - 2] - x).abs() > 0.01 || (pts[n - 1] - y).abs() > 0.01 {
+                        pts.extend([x, y]);
+                    }
+                }
+                extra.push(Edge {
+                    from: e.from,
+                    to,
+                    kind: EdgeKind::Parent,
+                    pts,
+                });
+            }
+        }
+    }
+    edges.extend(extra);
+}
 
 /// Place contours left to right, each as close as `gap` to everything already placed, row by row
 /// (Reingold and Tilford). Returns the centre of each item and the merged contour.
@@ -225,6 +798,13 @@ fn siblings(src: &dyn ChartSource, x: Key) -> Vec<Sibling> {
     }
     // Stable: undated people keep their listed order after the dated ones.
     out.sort_by_key(|s| src.birth_sort(s.key).unwrap_or(i32::MAX));
+    // Brothers and sisters of one parent only stand on that parent's side of the full ones, so their line does not run
+    // under the other parent or across the full siblings' line. Birth order still orders those within one family.
+    out.sort_by_key(|s| match s.hang {
+        [true, false] => 0,
+        [false, true] => 2,
+        _ => 1,
+    });
     out
 }
 
@@ -238,6 +818,9 @@ impl Sibling {
 /// The least gap between two partners' cards on these charts: wide enough for the partner connector, with the
 /// children's line hanging from its middle, to be seen.
 const PARTNER_GAP: f32 = 24.0;
+
+/// How far under the cards the connector of a far partner (the third and later of one person) dips.
+const FAR_PARTNER_DIP: f32 = 14.0;
 
 fn partner_room(m: &Metrics) -> Metrics {
     Metrics {
@@ -260,6 +843,12 @@ struct Builder<'a> {
     siblings: bool,
     /// All relatives: every ancestor on the line gets its brothers and sisters and all their descendants.
     all: bool,
+    /// Openings of side branches (the chart built around one person with some branches opened).
+    plan: Option<OpenPlan>,
+    /// Long runs of leaf boxes fold into grids as this says (the compact print layout).
+    fold: Option<FoldPlan>,
+    /// The runs that qualify for folding.
+    cands: Vec<Candidate>,
 }
 
 impl Builder<'_> {
@@ -306,6 +895,7 @@ impl Builder<'_> {
                 pend.push((at, kids));
             }
         }
+        order_unions(person, partners, &mut pend);
         self.pending.push(pend);
         self.units.push(Unit {
             person,
@@ -319,6 +909,8 @@ impl Builder<'_> {
             coff: Vec::new(),
             lean: 0,
             cx: 0.0,
+            fold: None,
+            folded: false,
         });
         Some(self.units.len() - 1)
     }
@@ -326,8 +918,8 @@ impl Builder<'_> {
     /// Create the children of `root` that `tree` allows, breadth first.
     fn expand(&mut self, root: usize, tree: Tree) {
         let limit = usize::from(tree.limit());
-        let mut queue = VecDeque::from([(root, 0usize)]);
-        while let Some((u, depth)) = queue.pop_front() {
+        let mut queue = VecDeque::from([(root, 0usize, limit)]);
+        while let Some((u, depth, limit)) = queue.pop_front() {
             let unions = std::mem::take(&mut self.pending[u]);
             let person = self.units[u].person;
             if unions.iter().all(|(_, c)| c.is_empty()) {
@@ -346,7 +938,7 @@ impl Builder<'_> {
                 ),
                 Tree::Niece => (Rel::NieceNephew, None),
                 Tree::Aunt => (Rel::Cousin, None),
-                Tree::Kin(up) => {
+                Tree::Kin(up) | Tree::KinTo(up, _) => {
                     let down = step.saturating_add(1);
                     (kin_rel(up, down), Some(kin_partner(up, down)))
                 }
@@ -360,11 +952,52 @@ impl Builder<'_> {
                     };
                     self.units[u].children.push(cu);
                     kid_nodes.push(self.units[cu].person);
-                    queue.push_back((cu, depth + 1));
+                    let own = self.opened_limit(tree, key, depth + 1, limit);
+                    queue.push_back((cu, depth + 1, own));
                 }
             }
             link_children(&mut self.nodes, person, &kid_nodes);
         }
+    }
+
+    /// How deep the descendants of a relative reached by an opened branch may go: the opened person's own choice
+    /// of how far their children are shown, when it reaches further than the branch above them allows.
+    fn opened_limit(&self, tree: Tree, key: Key, depth: usize, limit: usize) -> usize {
+        if !matches!(tree, Tree::KinTo(..)) {
+            return limit;
+        }
+        let Some(plan) = &self.plan else { return limit };
+        match plan.open.get(&key).and_then(|o| o.children) {
+            Some(BranchDepth::All) => limit.max(depth + 250),
+            Some(BranchDepth::Children) => limit.max(depth + 1),
+            None => limit,
+        }
+    }
+
+    /// The chart of several people: fold the runs of a list of brothers and sisters (runs share their parents; the
+    /// chosen people and the brothers and sisters joined by a bar of `bars` never fold).
+    fn fold_kin(&mut self, list: &mut Vec<usize>, bars: &[Vec<u32>], risky: bool) {
+        let Some(plan) = &self.fold else { return };
+        let barred: HashSet<u32> = bars.iter().flatten().copied().collect();
+        let skip: HashSet<usize> = list
+            .iter()
+            .copied()
+            .filter(|&u| {
+                let p = self.units[u].person;
+                barred.contains(&p) || self.nodes[p as usize].rel == Some(Rel::Focus)
+            })
+            .collect();
+        let (src, nodes) = (self.src, &self.nodes);
+        fold_list(
+            list,
+            &mut self.units,
+            nodes,
+            &skip,
+            |u| src.parents(nodes[u.person as usize].key),
+            plan,
+            risky,
+            &mut self.cands,
+        );
     }
 
     /// `side` is the parent slot (0 father side, 1 mother side) the block fills, if it is a parent's block.
@@ -466,6 +1099,23 @@ impl Builder<'_> {
         Some(self.blocks.len() - 1)
     }
 
+    /// How far the brothers and sisters of `key` are shown in all-relatives mode: everything, unless openings are
+    /// asked for, and then only what the base and the openings say.
+    fn sibling_depth(&self, key: Key, focus: bool) -> Option<BranchDepth> {
+        let Some(plan) = &self.plan else {
+            return Some(BranchDepth::All);
+        };
+        if plan.base == AroundBase::All {
+            return Some(BranchDepth::All);
+        }
+        let own = plan.open.get(&key).and_then(|o| o.siblings);
+        if focus && plan.base == AroundBase::Siblings {
+            own.or(Some(BranchDepth::Children))
+        } else {
+            own
+        }
+    }
+
     /// All-relatives mode: the brothers and sisters of block `bi`'s anchor, each with partners and all
     /// descendants. They stand on the outer side of the anchor: the father's slot on the left, the mother's on
     /// the right; the centred person's own brothers and sisters are placed in birth order around them.
@@ -479,6 +1129,9 @@ impl Builder<'_> {
             return;
         }
         let key = self.nodes[person as usize].key;
+        let Some(depth) = self.sibling_depth(key, row == 0) else {
+            return;
+        };
         let gens = u8::try_from(-row).unwrap_or(u8::MAX);
         let mut sibs = siblings(self.src, key);
         if let Some(i) = sibs.iter().position(|s| s.key == key) {
@@ -508,7 +1161,11 @@ impl Builder<'_> {
                 else {
                     continue;
                 };
-                self.expand(u, Tree::Kin(up));
+                let tree = match depth {
+                    BranchDepth::All => Tree::Kin(up),
+                    BranchDepth::Children => Tree::KinTo(up, 1),
+                };
+                self.expand(u, tree);
                 u
             };
             self.units[u].hang = s.hang;
@@ -536,7 +1193,7 @@ pub fn relatives(
     m: &Metrics,
     max_nodes: usize,
 ) -> Layout {
-    lay_out(src, root, o, true, false, false, m, max_nodes)
+    lay_out(src, root, o, true, false, false, None, None, m, max_nodes).0
 }
 
 /// The chart "built around" one person: only their own line. The person stands in the middle, their
@@ -555,7 +1212,7 @@ pub fn around(
         generations,
         aunts: false,
     };
-    lay_out(src, root, &o, false, false, false, m, max_nodes)
+    lay_out(src, root, &o, false, false, false, None, None, m, max_nodes).0
 }
 
 /// [`around`] with the person's brothers and sisters beside them, each with their partners and descendants.
@@ -571,7 +1228,7 @@ pub fn around_with_siblings(
         generations,
         aunts: false,
     };
-    lay_out(src, root, &o, true, true, false, m, max_nodes)
+    lay_out(src, root, &o, true, true, false, None, None, m, max_nodes).0
 }
 
 /// [`around`] with all relatives: the brothers and sisters of the person and of every ancestor on the line
@@ -591,7 +1248,127 @@ pub fn around_all_kin(
         generations,
         aunts: false,
     };
-    lay_out(src, root, &o, true, true, true, m, max_nodes)
+    lay_out(src, root, &o, true, true, true, None, None, m, max_nodes).0
+}
+
+/// How much of an opened branch is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BranchDepth {
+    /// The opened people with partners and their children.
+    Children,
+    /// The opened people with partners and all their descendants.
+    All,
+}
+
+/// One opening: the brothers and sisters, and/or the children, of one person.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenSpec {
+    pub key: Key,
+    pub siblings: Option<BranchDepth>,
+    pub children: Option<BranchDepth>,
+}
+
+/// What the chart around one person shows before any opening.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AroundBase {
+    Line,
+    Siblings,
+    All,
+}
+
+#[derive(Clone)]
+struct OpenPlan {
+    base: AroundBase,
+    open: HashMap<Key, OpenSpec>,
+}
+
+/// The chart built around one person with side branches opened: the base chart (`base`), plus for each opened
+/// person their brothers and sisters and/or their children to the chosen depth. Nothing opened is exactly the
+/// base chart. The last entry for a person wins.
+///
+/// `fold` (the compact print layout): every run of six or more leaf boxes in one group (brothers and sisters,
+/// or children of one couple) that have no partner and nothing below them folds into a grid of short sub-rows under
+/// one bracket, in its place; everything else keeps its place too. The grids' shape is chosen for the whole chart:
+/// shapes from wide to deep are tried and the chart closest to the A3 ratio is kept. A folded chart never draws more
+/// crossing lines, lines through cards or overlapping cards than the unfolded one: a run whose grid would (a group of
+/// an ancestor's brothers and sisters between the ancestor's couple and the couple's child, where the line to the
+/// child runs through the gaps the grid fills) stays unfolded. Where no run is that long the chart is exactly the
+/// unfolded one.
+#[allow(clippy::too_many_arguments)]
+pub fn around_open(
+    src: &dyn ChartSource,
+    root: Key,
+    generations: u8,
+    base: AroundBase,
+    open: &[OpenSpec],
+    fold: bool,
+    m: &Metrics,
+    max_nodes: usize,
+) -> Layout {
+    let o = RelativesOptions {
+        generations,
+        aunts: false,
+    };
+    // Nothing opened: the base charts ([`around`], [`around_with_siblings`], [`around_all_kin`]).
+    let (siblings, centred, all, plan) = if open.is_empty() {
+        match base {
+            AroundBase::Line => (false, false, false, None),
+            AroundBase::Siblings => (true, true, false, None),
+            AroundBase::All => (true, true, true, None),
+        }
+    } else {
+        let plan = OpenPlan {
+            base,
+            open: open.iter().map(|s| (s.key, *s)).collect(),
+        };
+        (true, true, true, Some(plan))
+    };
+    let run = |folds: Option<&FoldPlan>| {
+        lay_out(
+            src,
+            root,
+            &o,
+            siblings,
+            centred,
+            all,
+            plan.clone(),
+            folds,
+            m,
+            max_nodes,
+        )
+    };
+    if !fold {
+        return run(None).0;
+    }
+    fold_search(run)
+}
+
+/// For each node of a chart from [`around_open`]: whether the person's brothers and sisters can be opened, and
+/// whether their children can. Only blood relatives and people on the line qualify; partners never do.
+pub fn open_flags(src: &dyn ChartSource, layout: &Layout, base: AroundBase) -> Vec<(bool, bool)> {
+    layout
+        .nodes
+        .iter()
+        .map(|n| {
+            if n.dup_of.is_some() {
+                return (false, false);
+            }
+            match n.rel {
+                Some(Rel::Focus | Rel::Ancestor(_)) => (
+                    base != AroundBase::All && siblings(src, n.key).len() > 1,
+                    false,
+                ),
+                Some(
+                    Rel::Sibling { .. }
+                    | Rel::AuntUncle { .. }
+                    | Rel::NieceNephew
+                    | Rel::Cousin
+                    | Rel::Kin { .. },
+                ) => (false, n.more_down),
+                _ => (false, false),
+            }
+        })
+        .collect()
 }
 
 /// An ancestor block whose brothers and sisters stand inside the line: block, anchor, left side, units, offsets.
@@ -608,7 +1385,6 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
     let gap = m.gap_x;
     let nw = m.node_w;
     let pstep = nw + m.couple_gap;
-    let uw = |u: &Unit| nw * (1.0 + u.partners as f32) + m.couple_gap * u.partners as f32;
     let lo_row = units.iter().map(|u| u.row).min().unwrap_or(0);
     let hi_row = units
         .iter()
@@ -632,7 +1408,7 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
             .iter()
             .position(|&u| u == blocks[0].anchor)
             .unwrap_or(0);
-        let pv = -(uw(&units[group[k]]) - nw) / 2.0;
+        let pv = person_shift(units[group[k]].partners, m);
         let refx = places[k] + pv;
         for (j, &u) in group.iter().enumerate() {
             units[u].cx = places[j] - refx;
@@ -706,7 +1482,7 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
                     if j == ak {
                         continue;
                     }
-                    let acx = xs[pi] + (uw(&units[blocks[ub].anchor]) - nw) / 2.0;
+                    let acx = xs[pi] - person_shift(units[blocks[ub].anchor].partners, m);
                     let row0 = units[u].row;
                     for (d, &(l, h)) in units[u].ctr.iter().enumerate() {
                         let r = idx(row0 + d as i32);
@@ -725,7 +1501,7 @@ fn solve_all(units: &mut [Unit], blocks: &mut [Block], m: &Metrics) {
             for (&ub, &x) in parents.iter().zip(&xs) {
                 blocks[ub].ax = x;
                 let a = blocks[ub].anchor;
-                units[a].cx = x + (uw(&units[a]) - nw) / 2.0;
+                units[a].cx = x - person_shift(units[a].partners, m);
                 lf[i] = lf[i].min(x - nw / 2.0);
                 rf[i] = rf[i].max(x + nw / 2.0);
             }
@@ -820,6 +1596,10 @@ fn fill_contours(units: &mut [Unit], m: &Metrics) {
     let gap = m.gap_x;
     let uw = |u: &Unit| m.node_w * (1.0 + u.partners as f32) + m.couple_gap * u.partners as f32;
     for i in (0..units.len()).rev() {
+        if let Some(f) = &units[i].fold {
+            units[i].ctr = fold_contour(f, m);
+            continue;
+        }
         let w = uw(&units[i]);
         let ch = units[i].children.clone();
         let own = (-w / 2.0, w / 2.0);
@@ -851,29 +1631,32 @@ fn unit_edges(nodes: &[Node], units: &[Unit]) -> (Vec<Edge>, Vec<Family>) {
     let mut edges = Vec::new();
     let mut fams: Vec<Family> = Vec::new();
     for u in units {
+        // Every couple connector joins the person to one partner, never a partner to the next partner.
         for k in 1..=u.partners {
             let to = u.person + k;
-            let a = nodes[(to - 1) as usize].rect;
+            let a = nodes[u.person as usize].rect;
             let b = nodes[to as usize].rect;
+            // A far partner (third and later) is joined by a connector dipping under the cards in between.
+            let (pts, _) = couple_link(a, b, FAR_PARTNER_DIP);
             edges.push(Edge {
-                from: to - 1,
+                from: u.person,
                 to,
                 kind: EdgeKind::Partner,
-                pts: vec![a.right(), a.cy(), b.x, b.cy()],
+                pts,
             });
         }
         let mut by_parents: HashMap<Vec<u32>, usize> = HashMap::new();
         for &c in &u.children {
             let cu = &units[c];
             let parents = match cu.attach {
-                Some(pn) => vec![pn - 1, pn],
+                Some(pn) => vec![u.person, pn],
                 None => vec![u.person],
             };
             let at = *by_parents.entry(parents.clone()).or_insert_with(|| {
                 fams.push(Family::new(parents, Vec::new(), None));
                 fams.len() - 1
             });
-            fams[at].children.push(cu.person);
+            fams[at].children.extend(fold_top(units, c));
         }
     }
     (edges, fams)
@@ -916,7 +1699,7 @@ pub fn around_many(
     m: &Metrics,
     max_nodes: usize,
 ) -> Layout {
-    around_many_kin(src, chosen, generations, ManyKin::Line, m, max_nodes)
+    around_many_kin(src, chosen, generations, ManyKin::Line, false, m, max_nodes)
 }
 
 /// How much of the wider family [`around_many_kin`] shows.
@@ -938,14 +1721,39 @@ pub enum ManyKin {
 /// sisters of the ancestors are then hung outward, nearest generation first: the families left of the middle of the
 /// chosen row go to the left, the others to the right, each clearing row by row everything already placed. Everyone
 /// is drawn once; a relative reached by two ways appears where the first put them and the second gets a link.
+///
+/// `fold`: long runs of leaf boxes fold into grids, as in [`around_open`]: brothers and sisters in the chosen row and
+/// of the ancestors, and children; the grids' shape is chosen for the whole chart, closest to the A3 ratio, and a run
+/// whose grid would draw more crossing lines (or lines through cards) than the unfolded chart stays unfolded.
 pub fn around_many_kin(
     src: &dyn ChartSource,
     chosen: &[Key],
     generations: u8,
     kin: ManyKin,
+    fold: bool,
     m: &Metrics,
     max_nodes: usize,
 ) -> Layout {
+    let run = |folds: Option<&FoldPlan>| {
+        many_kin_folded(src, chosen, generations, kin, folds, m, max_nodes)
+    };
+    if !fold {
+        return run(None).0;
+    }
+    fold_search(run)
+}
+
+/// [`around_many_kin`] folded as `fold` says (None: nothing folds); also the runs that qualify for folding.
+#[allow(clippy::too_many_arguments)]
+fn many_kin_folded(
+    src: &dyn ChartSource,
+    chosen: &[Key],
+    generations: u8,
+    kin: ManyKin,
+    fold: Option<&FoldPlan>,
+    m: &Metrics,
+    max_nodes: usize,
+) -> (Layout, Vec<Candidate>) {
     // Brothers and sisters with families of a line ancestor cannot always stand on the outer side whatever the
     // order of the chosen row: with two or three chosen people try the other orders too (chosen partners stay
     // adjacent) and keep the one with the fewest crossing lines, then the shortest lines; ties keep the given order.
@@ -977,10 +1785,10 @@ pub fn around_many_kin(
     };
     // The spine solve first; where it cannot keep the parents over the chosen people in any order, the older way.
     for legacy in [false, true] {
-        let mut best: Option<((usize, f32), Layout)> = None;
+        let mut best: Option<((usize, f32), Folded)> = None;
         for o in &orders {
-            let Some((l, off)) =
-                around_many_kin_with(src, o, generations, kin, m, max_nodes, legacy)
+            let Some((l, off, cands)) =
+                around_many_kin_with(src, o, generations, kin, fold, m, max_nodes, legacy)
             else {
                 continue;
             };
@@ -991,20 +1799,20 @@ pub fn around_many_kin(
                 continue;
             }
             if sc.0 == 0 && best.is_none() {
-                return l;
+                return (l, cands);
             }
             if best
                 .as_ref()
                 .is_none_or(|b| sc.0 < b.0.0 || (sc.0 == b.0.0 && sc.1 < b.0.1 - 0.5))
             {
-                best = Some((sc, l));
+                best = Some((sc, (l, cands)));
             }
         }
         if let Some((_, l)) = best {
             return l;
         }
     }
-    Layout::finish(Vec::new(), Vec::new(), 0, false)
+    (Layout::finish(Vec::new(), Vec::new(), 0, false), Vec::new())
 }
 
 fn permute(v: &mut Vec<usize>, k: usize, f: &mut dyn FnMut(&[usize])) {
@@ -1021,15 +1829,17 @@ fn permute(v: &mut Vec<usize>, k: usize, f: &mut dyn FnMut(&[usize])) {
 
 /// `legacy` hangs the brothers and sisters of the ancestors the older way, one family at a time beside the couple, which
 /// keeps the parents over the chosen people when the spine solve cannot (None: the spine solve could not).
+#[allow(clippy::too_many_arguments)]
 fn around_many_kin_with(
     src: &dyn ChartSource,
     chosen: &[Key],
     generations: u8,
     kin: ManyKin,
+    fold: Option<&FoldPlan>,
     m: &Metrics,
     max_nodes: usize,
     legacy: bool,
-) -> Option<(Layout, f32)> {
+) -> Option<(Layout, f32, Vec<Candidate>)> {
     // One chosen person with every relative: the all-relatives layout puts each ancestor's brothers and sisters on the
     // outer side of the ancestor's couple, which the several-people layout below cannot do.
     // A chosen partner without known parents or siblings adds nothing the one-person layout does not draw.
@@ -1045,10 +1855,10 @@ fn around_many_kin_with(
             generations,
             aunts: false,
         };
-        return Some((
-            lay_out(src, chosen[0], &o, true, true, true, m, max_nodes),
-            0.0,
-        ));
+        let (l, cands) = lay_out(
+            src, chosen[0], &o, true, true, true, None, fold, m, max_nodes,
+        );
+        return Some((l, 0.0, cands));
     }
     let m = &partner_room(m);
     let with_sibs = kin != ManyKin::Line;
@@ -1070,6 +1880,9 @@ fn around_many_kin_with(
         truncated: false,
         siblings: false,
         all: false,
+        plan: None,
+        fold: fold.cloned(),
+        cands: Vec::new(),
     };
     // A chosen person who is an ancestor of another one goes first: the other one is then drawn as a descendant.
     let mut ancestors: std::collections::HashSet<Key> = std::collections::HashSet::new();
@@ -1208,9 +2021,19 @@ fn around_many_kin_with(
         }
         bars.push(bar);
     }
+    for g in &mut groups {
+        b.fold_kin(&mut g.0, &bars, false);
+    }
     let roots: Vec<usize> = groups.into_iter().flat_map(|g| g.0).collect();
     if roots.is_empty() {
-        return Some((Layout::finish(Vec::new(), Vec::new(), 0, b.truncated), 0.0));
+        return Some((
+            Layout::finish(Vec::new(), Vec::new(), 0, b.truncated),
+            0.0,
+            Vec::new(),
+        ));
+    }
+    if let Some(plan) = &b.fold {
+        fold_children(&mut b.units, &b.nodes, &HashSet::new(), plan, &mut b.cands);
     }
     fill_contours(&mut b.units, m);
     let gap = m.gap_x;
@@ -1251,7 +2074,10 @@ fn around_many_kin_with(
     let mut chain: HashMap<u32, Vec<i32>> = HashMap::new();
     for (i, &r) in roots.iter().enumerate() {
         for j in 0..=b.units[r].partners {
-            chain.insert(b.units[r].person + j, vec![i as i32, 2 * j as i32]);
+            chain.insert(
+                b.units[r].person + j,
+                vec![i as i32, 2 * member_col(b.units[r].partners, j) as i32],
+            );
         }
     }
     let mut spine_groups: Vec<SpineGroup> = Vec::new();
@@ -1319,6 +2145,65 @@ fn around_many_kin_with(
                 c: (lo + hi) / 2.0,
                 w,
             });
+        }
+        let fresh_at: Vec<Vec<(Key, f32)>> = plans
+            .iter()
+            .map(|p| match p.fresh.len() {
+                2 => vec![
+                    (p.fresh[0], p.c - pstep / 2.0),
+                    (p.fresh[1], p.c + pstep / 2.0),
+                ],
+                1 => vec![(p.fresh[0], p.c)],
+                _ => Vec::new(),
+            })
+            .collect();
+        // A couple of fresh parents whose two partners both have parents of their own on the chart stands with
+        // each partner on the side of their own parents: a partner whose brother or sister (or other child of their
+        // parents) stands in this row on one side of the couple goes to that side. Otherwise the order is kept.
+        let mut pulls: Option<HashMap<Key, (f32, u32)>> = None;
+        for (pi, plan) in plans.iter_mut().enumerate() {
+            if plan.fresh.len() != 2 {
+                continue;
+            }
+            let (a, b2) = (plan.fresh[0], plan.fresh[1]);
+            let (pa, pb) = (src.parents(a), src.parents(b2));
+            if pa.iter().all(Option::is_none) || pb.iter().all(Option::is_none) {
+                continue;
+            }
+            // Where every parent's children of this row stand, by default order: sum of x and count.
+            let idx = pulls.get_or_insert_with(|| {
+                let mut m: HashMap<Key, (f32, u32)> = HashMap::new();
+                for p in &fresh_at {
+                    for &(o, x) in p {
+                        for q in src.parents(o).into_iter().flatten() {
+                            let e = m.entry(q).or_insert((0.0, 0));
+                            e.0 += x;
+                            e.1 += 1;
+                        }
+                    }
+                }
+                m
+            });
+            let c = plan.c;
+            let pull = |ps: [Option<Key>; 2]| -> f32 {
+                let (mut sum, mut n) = (0.0, 0u32);
+                for q in ps.into_iter().flatten() {
+                    if let Some(&(s, k)) = idx.get(&q) {
+                        // Without the couple's own two people (counted once each in the index).
+                        let own: Vec<f32> = fresh_at[pi]
+                            .iter()
+                            .filter(|(o, _)| src.parents(*o).into_iter().flatten().any(|z| z == q))
+                            .map(|&(_, x)| x)
+                            .collect();
+                        sum += s - own.iter().sum::<f32>();
+                        n += k - own.len() as u32;
+                    }
+                }
+                if n == 0 { 0.0 } else { sum / n as f32 - c }
+            };
+            if pull(pa) > pull(pb) + 0.5 {
+                plan.fresh.swap(0, 1);
+            }
         }
         // Place from the middle of the row outward: the group nearest the middle where it wants to be, the next
         // one outside it only as far as needed to clear it.
@@ -1491,11 +2376,19 @@ fn around_many_kin_with(
         mut nodes,
         units,
         truncated,
+        cands,
         ..
     } = b;
+    // The lower sub-rows of a folded run get their lines from `fold_edges`, not from the family's bracket.
+    let deep: HashSet<u32> = units
+        .iter()
+        .filter_map(|u| u.fold.as_ref())
+        .flat_map(|f| f.members[f.k.min(f.members.len())..].iter())
+        .map(|&v| units[v].person)
+        .collect();
     {
         let mut seen = std::collections::HashSet::new();
-        links.retain(|l| seen.insert(*l));
+        links.retain(|l| !deep.contains(&l.1) && seen.insert(*l));
     }
     // Keep every coordinate non-negative: the canvas bounds start at the origin.
     let min_x = nodes.iter().map(|n| n.rect.x).fold(f32::INFINITY, f32::min);
@@ -1527,6 +2420,15 @@ fn around_many_kin_with(
         nodes[c as usize].nav.parent.get_or_insert(p);
         nodes[p as usize].nav.child.get_or_insert(c);
     }
+    for u in &units {
+        if let Some(f) = &u.fold {
+            let up = nodes[u.person as usize].nav.parent;
+            for &v in &f.members {
+                let n = &mut nodes[units[v].person as usize].nav;
+                n.parent = n.parent.or(up);
+            }
+        }
+    }
     let mut by_parents: HashMap<Vec<u32>, usize> = HashMap::new();
     for c in child_order {
         let mut ps = parents_of.remove(&c).unwrap_or_default();
@@ -1547,6 +2449,7 @@ fn around_many_kin_with(
     }
     let routed = route(&mut nodes, &mut edges, fams, m);
     edges.extend(routed);
+    fold_edges(&nodes, &units, &mut edges, m);
     for v in 0..nodes.len() {
         if let Some(orig) = nodes[v].dup_of {
             edges.push(dup_edge(&nodes, v as u32, orig, m.gap_x));
@@ -1554,7 +2457,7 @@ fn around_many_kin_with(
     }
     link_rows(&mut nodes);
     let root = units[roots[0]].person;
-    Some((Layout::finish(nodes, edges, root, truncated), off))
+    Some((Layout::finish(nodes, edges, root, truncated), off, cands))
 }
 
 /// Set the boxes of every unit from `from` on from its centre, and the centres of its children. The units whose
@@ -1563,6 +2466,9 @@ fn place_units(units: &mut [Unit], nodes: &mut [Node], from: usize, m: &Metrics)
     let step_y = m.node_h + m.gap_y * 4.0;
     let pstep = m.node_w + m.couple_gap;
     for i in from..units.len() {
+        if units[i].folded {
+            continue;
+        }
         let w =
             m.node_w * (1.0 + units[i].partners as f32) + m.couple_gap * units[i].partners as f32;
         let x0 = units[i].cx - w / 2.0;
@@ -1570,8 +2476,11 @@ fn place_units(units: &mut [Unit], nodes: &mut [Node], from: usize, m: &Metrics)
         let p = units[i].person;
         for k in 0..=units[i].partners {
             let n = &mut nodes[(p + k) as usize];
-            n.rect.x = x0 + k as f32 * pstep;
+            n.rect.x = x0 + member_col(units[i].partners, k) as f32 * pstep;
             n.rect.y = y;
+        }
+        if let Some(f) = units[i].fold.clone() {
+            place_fold(&f, units[i].cx, y, units, nodes, m);
         }
         let ch = units[i].children.clone();
         for (k, &c) in ch.iter().enumerate() {
@@ -1698,6 +2607,7 @@ fn arrange_ancestors(
             made.push(u);
         }
         bars.push(bar);
+        b.fold_kin(&mut made, &bars[bars.len() - 1..], true);
         let k = made.len() as i32;
         for (i, u) in made.into_iter().enumerate() {
             let mut kk = ch.clone();
@@ -1705,6 +2615,9 @@ fn arrange_ancestors(
             kk.push(if left { i as i32 - k } else { i as i32 + 1 });
             sibs.push((u, kk, left, id));
         }
+    }
+    if let Some(plan) = &b.fold {
+        fold_children(&mut b.units, &b.nodes, &HashSet::new(), plan, &mut b.cands);
     }
     fill_contours(&mut b.units, m);
     let ukey = |i: usize| {
@@ -1758,7 +2671,10 @@ fn arrange_ancestors(
         for k in 0..=b.units[r].partners {
             at.insert(
                 b.units[r].person + k,
-                (bodies.len(), -w / 2.0 + nw / 2.0 + k as f32 * pstep),
+                (
+                    bodies.len(),
+                    -w / 2.0 + nw / 2.0 + member_col(b.units[r].partners, k) as f32 * pstep,
+                ),
             );
         }
         let x = b.units[r].cx;
@@ -1800,7 +2716,7 @@ fn arrange_ancestors(
         let Some(&(ub, off)) = at.get(&g.kids[0]) else {
             continue;
         };
-        if (off + (uw(&b.units[roots[ub]]) - nw) / 2.0).abs() < 0.01 {
+        if (off - person_shift(b.units[roots[ub]].partners, m)).abs() < 0.01 {
             bodies[ub].goal = Goal::Under(roots.len() + gi, off);
         }
     }
@@ -2143,7 +3059,11 @@ fn hang_ancestor_siblings_legacy(
             made.push(u);
         }
         bars.push(bar);
+        b.fold_kin(&mut made, &bars[bars.len() - 1..], true);
         fams.push((cx < mid, made));
+    }
+    if let Some(plan) = &b.fold {
+        fold_children(&mut b.units, &b.nodes, &HashSet::new(), plan, &mut b.cands);
     }
     fill_contours(&mut b.units, m);
     let gap = m.gap_x;
@@ -2201,9 +3121,11 @@ fn lay_out(
     siblings: bool,
     centred: bool,
     all: bool,
+    plan: Option<OpenPlan>,
+    fold: Option<&FoldPlan>,
     m: &Metrics,
     max_nodes: usize,
-) -> Layout {
+) -> (Layout, Vec<Candidate>) {
     let m = &partner_room(m);
     let o = RelativesOptions {
         generations: o.generations.max(1),
@@ -2226,6 +3148,9 @@ fn lay_out(
         truncated: false,
         siblings,
         all,
+        plan,
+        fold: fold.cloned(),
+        cands: Vec::new(),
     };
     let top = -i32::from(o.generations);
     b.make_block(root, 0, &o, None);
@@ -2275,6 +3200,34 @@ fn lay_out(
     // Widths, bottom-up: children and ancestor blocks are always created after their owners.
     let gap = m.gap_x;
     let uw = |u: &Unit| m.node_w * (1.0 + u.partners as f32) + m.couple_gap * u.partners as f32;
+    let mut cands = Vec::new();
+    if let Some(folds) = fold {
+        // The people on the line (the centred person and the ancestors) never fold, nor brothers and sisters joined by
+        // a bar.
+        let skip: HashSet<usize> = blocks
+            .iter()
+            .map(|b| b.anchor)
+            .chain((0..units.len()).filter(|&u| units[u].hang == [false, false]))
+            .collect();
+        for bi in 0..blocks.len() {
+            // Brothers and sisters on the inner side of their ancestor stand between the ancestor's couple and the
+            // couple's child; a grid there can stand in the way of the line between those two.
+            let inner = all && matches!(sibling_side(&units, &blocks, bi), Some((_, true)));
+            let mut group = std::mem::take(&mut blocks[bi].group);
+            fold_list(
+                &mut group,
+                &mut units,
+                &nodes,
+                &skip,
+                |u| u.hang,
+                folds,
+                inner,
+                &mut cands,
+            );
+            blocks[bi].group = group;
+        }
+        fold_children(&mut units, &nodes, &skip, folds, &mut cands);
+    }
     fill_contours(&mut units, m);
     if all {
         solve_all(&mut units, &mut blocks, m);
@@ -2297,7 +3250,7 @@ fn lay_out(
         let ghi = acc.iter().map(|c| c.1).fold(f32::NEG_INFINITY, f32::max);
         // One person alone in the group (the chart of one line): the person's box, not the whole family
         // below, is what the parents stand over, so the group is made symmetric about the box.
-        let pv = -(uw(&units[group[0]]) - m.node_w) / 2.0;
+        let pv = person_shift(units[group[0]].partners, m);
         let (glo, ghi, pivot) = if !siblings && group.len() == 1 {
             let half = (pv - glo).max(ghi - pv);
             (pv - half, pv + half, pv)
@@ -2311,7 +3264,7 @@ fn lay_out(
         if centred && siblings {
             // The anchor's box, not the middle of the whole group, stands under the parents: brothers
             // and sisters (and their families) spread to either side and the block widens to hold them.
-            let pv = -(uw(&units[blocks[i].anchor]) - m.node_w) / 2.0;
+            let pv = person_shift(units[blocks[i].anchor].partners, m);
             let ag = anchor_k.map_or(gw / 2.0, |k| gplace[k] + pv);
             let mut x = 0.0;
             let mut centres = Vec::new();
@@ -2382,6 +3335,9 @@ fn lay_out(
     let has_cousins = units.iter().any(|u| u.rel_cousin);
     let step_p = m.node_w + m.couple_gap;
     for i in 0..units.len() {
+        if units[i].folded {
+            continue;
+        }
         let ch = units[i].children.clone();
         let w = uw(&units[i]);
         let x0 = units[i].cx - w / 2.0;
@@ -2396,8 +3352,11 @@ fn lay_out(
         let p = units[i].person;
         for k in 0..=units[i].partners {
             let n = &mut nodes[(p + k) as usize];
-            n.rect.x = x0 + k as f32 * step_p;
+            n.rect.x = x0 + member_col(units[i].partners, k) as f32 * step_p;
             n.rect.y = y;
+        }
+        if let Some(f) = units[i].fold.clone() {
+            place_fold(&f, units[i].cx, y, &mut units, &mut nodes, m);
         }
         for (k, &c) in ch.iter().enumerate() {
             units[c].cx = units[i].cx + units[i].coff[k];
@@ -2437,7 +3396,7 @@ fn lay_out(
                 fams.push(Family::new(parents, Vec::new(), zone_top));
                 fams.len() - 1
             });
-            fams[at].children.push(units[r].person);
+            fams[at].children.extend(fold_top(&units, r));
         }
     }
     for blk in &blocks {
@@ -2451,6 +3410,7 @@ fn lay_out(
     }
     let routed = route(&mut nodes, &mut edges, fams, m);
     edges.extend(routed);
+    fold_edges(&nodes, &units, &mut edges, m);
     for v in 0..nodes.len() {
         if let Some(orig) = nodes[v].dup_of {
             edges.push(dup_edge(&nodes, v as u32, orig, m.gap_x));
@@ -2466,8 +3426,9 @@ fn lay_out(
                 .map(|ub| units[blocks[ub].anchor].person)
         };
         for &r in &blk.group {
-            let p = units[r].person;
-            nodes[p as usize].nav.parent = first_up(units[r].hang);
+            for p in fold_cards(&units, r) {
+                nodes[p as usize].nav.parent = first_up(units[r].hang);
+            }
         }
         let anchor = units[blk.anchor].person;
         for &ub in &blk.ups {
@@ -2489,5 +3450,5 @@ fn lay_out(
         }
     }
     link_rows(&mut nodes);
-    Layout::finish(nodes, edges, 0, truncated)
+    (Layout::finish(nodes, edges, 0, truncated), cands)
 }

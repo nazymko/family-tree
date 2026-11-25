@@ -28,6 +28,7 @@ fn add_note(target: OwnerRef, text: &str) -> EditCommand {
     EditCommand::SaveNote {
         target,
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: text.into(),
@@ -50,6 +51,7 @@ fn event(owner: EventOwner, kind: &str) -> EditCommand {
             negative: false,
             private: false,
             preferred: true,
+            godparents: None,
             participants: None,
         },
     }
@@ -228,6 +230,7 @@ fn undo_after_the_owner_edited_the_record_drops_that_step_and_keeps_the_edit() {
     s.apply(EditCommand::SaveNote {
         target: person(eva),
         note: NoteInput {
+            story: None,
             id: Some(note),
             kind: NoteKindDto::General,
             text: "Owner text".into(),

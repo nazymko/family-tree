@@ -6,6 +6,8 @@ import type { AgentBatchSpec, AgentBatchResult, MockApi } from './MockApi';
  * action under test) or a sensible default. `simulateDrop` fires the registered drop callbacks.
  */
 export class MockPlatform implements Platform {
+  /** Set to true in a test to behave like a phone or tablet. */
+  isMobile = false;
   calls: { method: string; args: unknown[] }[] = [];
   next: { file?: string | null; files?: string[]; folder?: string | null; save?: string | null } = {};
   private dropCallbacks = new Set<{ cb: (paths: string[]) => void; onHover?: (over: boolean) => void }>();
@@ -54,8 +56,24 @@ export class MockPlatform implements Platform {
     for (const cb of this.agentCallbacks) cb({ touched, agent });
   }
 
+  async treesDir(): Promise<string> {
+    this.calls.push({ method: 'treesDir', args: [] });
+    return '/data/app/trees';
+  }
+
+  async deliver(path: string): Promise<boolean> {
+    this.calls.push({ method: 'deliver', args: [path] });
+    return true;
+  }
+
   async reveal(path: string): Promise<void> {
     this.calls.push({ method: 'reveal', args: [path] });
+  }
+
+  async openUrl(url: string): Promise<void> {
+    this.calls.push({ method: 'openUrl', args: [url] });
+    if (!/^https?:\/\//i.test(url)) return;
+    if (typeof window !== 'undefined') window.open(url, '_blank', 'noopener');
   }
 
   simulateHover(over: boolean): void {

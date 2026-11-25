@@ -7,7 +7,7 @@
   import TextField from '../ui/TextField.svelte';
   import { getApi } from '../api/context';
   import type { AgentAccessState, ConnectionDto, NewConnectionDto } from '../api/api';
-  import { currentLocale, t } from '../i18n';
+  import { currentTag, t } from '../i18n';
   import { agentErrorText } from '../i18n/backend';
 
   const api = getApi();
@@ -150,7 +150,7 @@
       .catch((e) => (rules = message(e)));
   }
 
-  const dateOf = (ms: number) => new Date(ms).toLocaleDateString(currentLocale());
+  const dateOf = (ms: number) => new Date(ms).toLocaleDateString(currentTag());
 </script>
 
 <section class="agent" aria-labelledby="agent-title">

@@ -553,11 +553,24 @@ impl Project {
         living: &[(Uuid, bool)],
         meta: &LogMeta,
     ) -> Result<(), StoreError> {
+        self.apply_changes_adjusting(cs, living, meta, &crate::PlaceRecordAdjust::default())
+    }
+
+    /// [`Project::apply_changes`], and in the same transaction the place records that follow a
+    /// place merge (or go back with its undo): see [`crate::PlaceRecordAdjust`].
+    pub fn apply_changes_adjusting(
+        &mut self,
+        cs: &ChangeSet,
+        living: &[(Uuid, bool)],
+        meta: &LogMeta,
+        adjust: &crate::PlaceRecordAdjust,
+    ) -> Result<(), StoreError> {
         self.conn.set_prepared_statement_cache_capacity(64);
         let tx = self.conn.transaction()?;
         tx.pragma_update(None, "defer_foreign_keys", true)?;
         let mut affected = Affected::default();
         apply_set(&tx, cs, meta, &mut affected)?;
+        crate::place_moves::adjust_place_records(&tx, cs.group, adjust)?;
         finish_apply(&tx, affected, living)?;
         tx.commit()?;
         Ok(())

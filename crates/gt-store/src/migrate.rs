@@ -13,6 +13,46 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
         include_str!("migrations/0004_log_index.sql"),
     ),
     ("0005_merge", include_str!("migrations/0005_merge.sql")),
+    (
+        "0006_media_text",
+        include_str!("migrations/0006_media_text.sql"),
+    ),
+    (
+        "0007_media_rotation",
+        include_str!("migrations/0007_media_rotation.sql"),
+    ),
+    (
+        "0008_audio_clips",
+        include_str!("migrations/0008_audio_clips.sql"),
+    ),
+    (
+        "0009_media_place",
+        include_str!("migrations/0009_media_place.sql"),
+    ),
+    (
+        "0010_source_kind",
+        include_str!("migrations/0010_source_kind.sql"),
+    ),
+    (
+        "0011_media_versions",
+        include_str!("migrations/0011_media_versions.sql"),
+    ),
+    (
+        "0012_godparents",
+        include_str!("migrations/0012_godparents.sql"),
+    ),
+    (
+        "0013_map_layers",
+        include_str!("migrations/0013_map_layers.sql"),
+    ),
+    (
+        "0014_note_story",
+        include_str!("migrations/0014_note_story.sql"),
+    ),
+    (
+        "0015_place_records",
+        include_str!("migrations/0015_place_records.sql"),
+    ),
 ];
 
 pub(crate) fn user_version(conn: &Connection) -> Result<i32, StoreError> {

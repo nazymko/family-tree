@@ -15,6 +15,8 @@ const EDIT_KEYS: Record<string, [label: MessageKey, done: MessageKey]> = {
   'Delete name': ['edit.deleteName', 'edit.doneNameDeleted'],
   'Save event': ['edit.saveEvent', 'edit.doneEventSaved'],
   'Delete event': ['edit.deleteEvent', 'edit.doneEventDeleted'],
+  'Add godparent': ['edit.addGodparent', 'edit.doneGodparentAdded'],
+  'Remove godparent': ['edit.removeGodparent', 'edit.doneGodparentRemoved'],
   'Save family': ['edit.saveFamily', 'edit.doneFamilySaved'],
   'Delete family': ['edit.deleteFamily', 'edit.doneFamilyDeleted'],
   'Add child to family': ['edit.addChildToFamily', 'edit.doneChildAddedToFamily'],
@@ -33,7 +35,25 @@ const EDIT_KEYS: Record<string, [label: MessageKey, done: MessageKey]> = {
   'Delete media': ['edit.deleteMedia', 'edit.doneMediaDeleted'],
   'Set primary media': ['edit.setPrimaryMedia', 'edit.donePrimaryMediaSet'],
   'Edit media': ['edit.editMedia', 'edit.doneMediaSaved'],
+  'Edit transcription': ['edit.editTranscription', 'edit.doneTranscriptionSaved'],
+  'Turn picture': ['edit.turnPicture', 'edit.donePictureTurned'],
+  'Group versions': ['edit.groupVersions', 'edit.doneVersionsGrouped'],
+  'Ungroup version': ['edit.ungroupVersion', 'edit.doneVersionUngrouped'],
+  'Add clip': ['edit.addClip', 'edit.doneClipAdded'],
+  'Edit clip': ['edit.editClip', 'edit.doneClipSaved'],
+  'Delete clip': ['edit.deleteClip', 'edit.doneClipDeleted'],
+  'Correct date': ['edit.correctDate', 'edit.doneDateCorrected'],
   'Record number': ['edit.recordNumber', 'edit.doneNumberRecorded'],
+  'Add place': ['edit.addPlace', 'edit.donePlaceAdded'],
+  'Set place coordinates': ['edit.setPlaceCoordinates', 'edit.donePlaceCoordinatesSet'],
+  'Clear place coordinates': ['edit.clearPlaceCoordinates', 'edit.donePlaceCoordinatesCleared'],
+  'Lay map on the Map': ['edit.layMap', 'edit.doneMapLaid'],
+  'Change map layer': ['edit.changeMapLayer', 'edit.doneMapLayerChanged'],
+  'Take map off the Map': ['edit.takeMapOff', 'edit.doneMapTakenOff'],
+  'Reorder map layers': ['edit.reorderMapLayers', 'edit.doneMapLayersReordered'],
+  'Show maps on the Map': ['edit.showMapLayers', 'edit.doneMapLayersShown'],
+  'Hide maps on the Map': ['edit.hideMapLayers', 'edit.doneMapLayersHidden'],
+  'Choose maps shown on the Map': ['edit.chooseMapLayers', 'edit.doneMapLayersChosen'],
   'Link media files': ['edit.linkMediaFiles', 'edit.doneMediaFilesLinked'],
   'Add father': ['edit.addFather', 'edit.doneFatherAdded'],
   'Add mother': ['edit.addMother', 'edit.doneMotherAdded'],
@@ -51,6 +71,8 @@ export function editLabel(label: string): string {
   if (m) return t(m[1] === 'Undo' ? 'edit.undoPrefix' : 'edit.redoPrefix', { label: editLabel(m[2]) });
   const merged = /^Merged copy: (.+)$/.exec(label);
   if (merged) return t('merge.mergedLabel', { name: merged[1] });
+  const rewritten = /^Rewrite note: ([\s\S]+)$/.exec(label);
+  if (rewritten) return t('edit.rewriteNote', { reason: rewritten[1] });
   const keys = EDIT_KEYS[label];
   return keys ? t(keys[0]) : label;
 }
@@ -97,6 +119,7 @@ const EVENT_KINDS = new Set([
   'christening',
   'baptism',
   'death',
+  'missing',
   'burial',
   'cremation',
   'adoption',
@@ -188,6 +211,9 @@ export const KIND_KEYS: Record<string, keyof typeof en.be.kind> = {
   media: 'media',
   'media file': 'mediaFile',
   'media link': 'mediaLink',
+  'piece of transcription': 'textPiece',
+  clip: 'clip',
+  godparent: 'godparent',
 };
 
 /** The heading of a group of repairs in the import report ("dangling_pointer" as words); an unknown kind reads as its name. */
@@ -328,9 +354,10 @@ export function recordKindLabel(kind: string): string {
 }
 
 /** The heading of a group on the whole-tree chart, in the app's language. */
-export function wholeBlockTitle(b: Pick<WholeBlockDto, 'surname' | 'people' | 'unconnected'>): string {
+export function wholeBlockTitle(b: Pick<WholeBlockDto, 'surname' | 'people' | 'unconnected'> & { customName?: string }): string {
   if (b.unconnected) return t('whole.blockUnconnected', { n: b.people });
   const people = plural('common.people', b.people);
+  if (b.customName) return t('whole.blockNamed', { name: b.customName, people });
   return b.surname ? t('whole.blockFamily', { surname: b.surname, people }) : t('whole.blockNoSurname', { people });
 }
 

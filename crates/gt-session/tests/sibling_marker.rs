@@ -326,6 +326,7 @@ fn a_family_reads_back_with_its_notes() {
             id: family,
         },
         note: NoteInput {
+            story: None,
             id: None,
             kind: NoteKindDto::General,
             text: "They moved in spring.".into(),
@@ -369,12 +370,16 @@ fn marker_is_not_a_chart_root_family_view_or_person() {
     ] {
         let err = s
             .chart_open(&ChartRequest {
+                open: None,
                 kind,
                 root: m,
                 generations: 3,
                 aunts_uncles: None,
                 kin: None,
                 roots: None,
+                direction: None,
+                print: None,
+                fold: None,
             })
             .unwrap_err();
         assert_eq!(err.code, ErrorCode::NotFound);
@@ -438,6 +443,7 @@ fn marker_refuses_note() {
         EditCommand::SaveNote {
             target: owner(m),
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::General,
                 text: "two more daughters".into(),
@@ -555,6 +561,7 @@ fn marker_refuses_edits_and_events() {
                 negative: false,
                 private: false,
                 preferred: true,
+                godparents: None,
                 participants: None,
             },
         },

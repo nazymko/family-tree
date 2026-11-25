@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 
 use super::*;
-use gt_core::model::{EventKind, NoteKind, ParentRel, Role, UnionKind};
+use gt_core::date::{DayOrder, GenDate};
+use gt_core::model::{EventKind, NoteKind, ParentRel, Role, SourceKind, UnionKind};
 
 /// Words that name an id after its number.
 struct Stub;
@@ -78,6 +79,7 @@ fn note(text: &str) -> Note {
         text: text.into(),
         lang: None,
         shared: false,
+        story: None,
     }
 }
 
@@ -121,6 +123,7 @@ fn event(place: Option<Uuid>, role: Role) -> Event {
             proof: None,
             confidence: Some(2),
         },
+        godparents: Vec::new(),
         participants: vec![Participant {
             target: ParticipantRef::Person(u(9)),
             role,
@@ -254,11 +257,19 @@ fn citation_source_place_repository_and_media_have_their_fields() {
             repository: u(8),
             call_number: Some("A-1".into()),
         }],
+        kind: Some(SourceKind::MetricBook),
+        issuer: Some("Office".into()),
+        doc_number: Some("N 5".into()),
+        doc_date: Some(GenDate::parse("1 MAR 1901", DayOrder::Dmy)),
     };
     assert_eq!(
         diff(Some(Record::Source(source)), None),
         vec![
             row("title", Some("Parish book"), None),
+            row("sourceKind", Some("metric_book"), None),
+            row("issuer", Some("Office"), None),
+            row("docNumber", Some("N 5"), None),
+            row("docDate", Some("1 Mar 1901"), None),
             row("repository", Some("Repository 8, A-1"), None),
         ]
     );
@@ -298,6 +309,9 @@ fn citation_source_place_repository_and_media_have_their_fields() {
         ]
     );
     let media = Media {
+        version_of: None,
+        map_layer: None,
+        place: None,
         common: common(8),
         path: "media/a.jpg".into(),
         original_name: None,
@@ -306,6 +320,8 @@ fn citation_source_place_repository_and_media_have_their_fields() {
         date: None,
         description: None,
         sha256: None,
+        transcription: Vec::new(),
+        rotation: None,
     };
     assert_eq!(
         diff(None, Some(Record::Media(media))),
@@ -346,6 +362,7 @@ fn media_links_external_ids_and_unknown_data_are_all_shown() {
             h: 0.4,
         }),
         primary: true,
+        clip: None,
     }];
     with.common.ext_ids = vec![ExternalId {
         kind: ExtIdKind::Exid {

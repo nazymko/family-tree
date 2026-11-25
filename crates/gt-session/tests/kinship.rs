@@ -254,12 +254,16 @@ fn chart_windows_carry_kinship_for_the_reference_person() {
     let me = id_of(&s, "Max Test");
     let m = s
         .chart_open(&ChartRequest {
+            open: None,
             kind: ChartKind::Pedigree,
             root: me,
             generations: 3,
             aunts_uncles: None,
             kin: None,
             roots: None,
+            direction: None,
+            print: None,
+            fold: None,
         })
         .unwrap();
     let all = Rect {

@@ -1,13 +1,25 @@
+import fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { makeFakeContext } from '../../test-setup';
 import { MockApi } from '../api/mock/MockApi';
 import { MockPlatform } from '../api/mock/MockPlatform';
-import type { ChartKind, ChartNode } from '../api/types';
+import type { ChartEdge, ChartKind, ChartNode, ChartRequest } from '../api/types';
+import { setLanguage } from '../i18n';
+import type { PrintLayout } from './sheets';
+import { bigAround, capturePrints, servePrintCharts } from './testing/syntheticAround';
+import { draw, type Theme } from './renderer';
+import { SvgContext } from './svgContext';
+import { sceneBounds, type Scene } from './picture';
+import { nodeKeys, screenFrames } from './sheets';
+import { planSheets } from './sheetPlan';
+import { loadFam } from './testing/famScenes';
 import { notices } from '../ui/notices.svelte';
 import ChartCanvas from './ChartCanvas.svelte';
 import WholeCanvas from './WholeCanvas.svelte';
 import Host from './testing/Host.svelte';
+import type { ChartDirection } from './direction';
+import { A3_BACKGROUND_KEY, A3_DIRECTION_KEY, A3_ORIENTATION_KEY, A3_TITLE_KEY, a3Background, a3Direction, a3Orientation, a3Title } from './a3Pref.svelte';
 import { allNodes, attachContext, fakeRaf, lastCamera, makeApi, richestRoot } from './testing/helpers';
 
 const RECT = { left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON() {} };
@@ -32,7 +44,7 @@ function stubOffscreen() {
 /** Boxes painted into a picture: the rectangles added to a path, minus the one clip rectangle. */
 const boxes = (ctx: ReturnType<typeof makeFakeContext>) => ctx.calls.filter((c) => c.op === 'rect').length - 1;
 
-async function setupChart(kind: ChartKind = 'pedigree') {
+async function setupChart(kind: ChartKind = 'pedigree', direction?: ChartDirection) {
   const raf = fakeRaf();
   const { api, fx } = makeApi();
   const root = await richestRoot(api, fx, kind);
@@ -41,7 +53,7 @@ async function setupChart(kind: ChartKind = 'pedigree') {
   const winSpy = vi.spyOn(api, 'chartWindow');
   const saveSpy = vi.spyOn(api, 'savePicture');
   render(Host, {
-    props: { api, view: ChartCanvas, props: { kind, root, generations: 6, onRecentre: vi.fn(), onOpenPerson: vi.fn() }, platform },
+    props: { api, view: ChartCanvas, props: { kind, root, generations: 6, onRecentre: vi.fn(), onOpenPerson: vi.fn(), ...(direction ? { direction } : {}) }, platform },
   });
   const canvas = screen.getByRole('application') as HTMLCanvasElement;
   const ctx = attachContext(canvas);
@@ -52,6 +64,9 @@ async function setupChart(kind: ChartKind = 'pedigree') {
   raf.pump(2);
   return { api, platform, raf, canvas, ctx, openSpy, winSpy, saveSpy, root };
 }
+
+/** An A3 save lays the chart out up to four times; under a loaded machine that takes longer than waitFor's 1 s. */
+const A3_WAIT = { timeout: 15000 };
 
 const selectedLabel = () => screen.getByRole('option').textContent;
 // The menu is named for the pictures alone, or for the person and the pictures when it starts with the add items.
@@ -64,6 +79,15 @@ async function rightClick(el: Element, at = { clientX: 400, clientY: 300 }) {
 
 beforeEach(() => {
   notices.dismiss();
+  // Every case starts with the default A3 direction (as on screen).
+  localStorage.removeItem(A3_DIRECTION_KEY);
+  a3Direction.reload();
+  localStorage.removeItem(A3_ORIENTATION_KEY);
+  a3Orientation.reload();
+  localStorage.removeItem(A3_TITLE_KEY);
+  localStorage.removeItem(A3_BACKGROUND_KEY);
+  a3Title.reload();
+  a3Background.reload();
 });
 
 afterEach(() => {
@@ -72,7 +96,7 @@ afterEach(() => {
 });
 
 describe('picture menu on a chart', () => {
-  it('right_click_on_empty_space_opens_a_menu_with_only_the_three_save_items', async () => {
+  it('right_click_on_empty_space_opens_a_menu_with_only_the_save_items', async () => {
     const s = await setupChart();
     expect(screen.queryByRole('menu')).toBeNull();
     await rightClick(s.canvas, { clientX: 5, clientY: 5 });
@@ -81,6 +105,10 @@ describe('picture menu on a chart', () => {
       'Save the whole chart as a picture…',
       "Save the selected person's branch as a picture…",
       'Save what is on the screen as a picture…',
+      'Save for A3 print…',
+      'Save for A3 print, landscape…',
+      'Save for A3 print, portrait…',
+      'Print on A3…',
     ]);
     expect(items.every((i) => i.getAttribute('aria-disabled') !== 'true')).toBe(true);
   });
@@ -102,7 +130,7 @@ describe('picture menu on a chart', () => {
     const s = await setupChart();
     const button = screen.getByRole('button', { name: 'Save as picture' });
     await fireEvent.click(button);
-    expect(within(menu()).getAllByRole('menuitem')).toHaveLength(3);
+    expect(within(menu()).getAllByRole('menuitem')).toHaveLength(7);
     // The button also closes it.
     await fireEvent.mouseDown(button);
     await fireEvent.click(button);
@@ -117,16 +145,18 @@ describe('picture menu on a chart', () => {
     await waitFor(() => expect(within(menu()).getAllByRole('menuitem').length).toBeGreaterThan(3));
     const m = menu();
     const items = within(m).getAllByRole('menuitem');
-    const last = items.length - 1;
+    // The last stop is the "names as recorded" choice, a checkable item.
+    const choices = within(m).getAllByRole('menuitemradio');
+    const end = choices[choices.length - 1];
     expect(items[0]).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'ArrowDown' });
     expect(items[1]).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'End' });
-    expect(items[last]).toHaveFocus();
+    expect(end).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'ArrowDown' });
     expect(items[0]).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'ArrowUp' });
-    expect(items[last]).toHaveFocus();
+    expect(end).toHaveFocus();
     await fireEvent.keyDown(m, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(s.canvas).toHaveFocus();
@@ -159,14 +189,161 @@ describe('picture menu on a chart', () => {
     const shot = made.find((x) => !x.canvas.isConnected)!;
     expect(boxes(shot.ctx)).toBe(m.nodeCount);
     const tr = shot.ctx.calls.filter((c) => c.op === 'setTransform').map((c) => c.args as number[]);
-    // The world is drawn at 100% zoom with twice the pixels (a sharp picture), starting 40 px before the first box.
+    // The world is drawn at 100% zoom with three times the pixels (a sharp picture), starting 40 px before the first box.
     const all = await allNodes(s.api as MockApi, m.chartId);
     const x0 = Math.min(...all.map((n) => n.x));
     const y0 = Math.min(...all.map((n) => n.y));
-    expect(tr.some((a) => a[0] === 2 && a[3] === 2 && Math.abs(a[4] + (x0 - 40) * 2) < 1e-6 && Math.abs(a[5] + (y0 - 40) * 2) < 1e-6)).toBe(true);
+    expect(tr.some((a) => a[0] === 3 && a[3] === 3 && Math.abs(a[4] + (x0 - 40) * 3) < 1e-6 && Math.abs(a[5] + (y0 - 40) * 3) < 1e-6)).toBe(true);
     expect(shot.ctx.calls.some((c) => c.op === 'fillText' && /Pedigree/.test(String(c.args[0])))).toBe(true); // the caption
     await waitFor(() => expect(notices.current?.message).toBe('Picture saved'));
     expect((s.platform.calls.find((c) => c.method === 'pickSavePath')!.args[0] as { extensions: string[] }).extensions).toEqual(['png', 'svg']);
+  });
+
+  it('the_menu_offers_the_a3_direction_as_on_screen_by_default_and_remembers_best_fit', async () => {
+    const s = await setupChart();
+    await rightClick(s.canvas);
+    const radios = within(menu()).getAllByRole('menuitemradio').slice(0, 2);
+    expect(radios.map((r) => r.textContent?.trim())).toEqual(['Direction: as on screen', 'Direction: best fit']);
+    expect(radios.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false']);
+    // Choosing one ticks it and leaves the menu open for the save.
+    await fireEvent.click(radios[1]);
+    expect(menu()).toBeTruthy();
+    const after = within(menu()).getAllByRole('menuitemradio').slice(0, 2);
+    expect(after.map((r) => r.getAttribute('aria-checked'))).toEqual(['false', 'true']);
+    expect(localStorage.getItem(A3_DIRECTION_KEY)).toBe('best');
+    // The arrow keys reach the choices too.
+    after[1].focus();
+    await fireEvent.keyDown(menu(), { key: 'ArrowUp' });
+    expect(after[0]).toHaveFocus();
+    await fireEvent.keyDown(menu(), { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    // Kept for the next menu.
+    await rightClick(s.canvas);
+    expect(within(menu()).getByRole('menuitemradio', { name: 'Direction: best fit' }).getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('the_menu_has_the_title_block_and_background_choices_and_remembers_them', async () => {
+    const s = await setupChart();
+    await rightClick(s.canvas);
+    const title = within(menu()).getByRole('menuitemradio', { name: 'Title block' });
+    expect(title.getAttribute('aria-checked')).toBe('true');
+    expect(within(menu()).getByRole('menuitemradio', { name: 'Background: paper' }).getAttribute('aria-checked')).toBe('true');
+    await fireEvent.click(title);
+    await fireEvent.click(within(menu()).getByRole('menuitemradio', { name: 'Background: transparent' }));
+    expect(localStorage.getItem(A3_TITLE_KEY)).toBe('0');
+    expect(localStorage.getItem(A3_BACKGROUND_KEY)).toBe('transparent');
+    expect(within(menu()).getByRole('menuitemradio', { name: 'Title block' }).getAttribute('aria-checked')).toBe('false');
+    expect(within(menu()).getByRole('menuitemradio', { name: 'Background: transparent' }).getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('an_a3_save_without_title_block_on_a_transparent_page_paints_no_background_and_no_title', async () => {
+    const made = stubOffscreen();
+    a3Title.set(false);
+    a3Background.set('transparent');
+    const s = await setupChart();
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled(), A3_WAIT);
+    const page = made[made.length - 1];
+    expect(page.canvas.width).toBeGreaterThan(4000);
+    const calls = page.ctx.calls;
+    expect(calls.some((c) => c.op === 'fillRect' && (c.args[2] as number) === page.canvas.width)).toBe(false);
+    // No title block: no 18 pt serif chart name and no rule under it.
+    expect(calls.some((c) => c.op === 'set:font' && /600 [\d.]+px/.test(String(c.args[0])) && Number(/([\d.]+)px/.exec(String(c.args[0]))![1]) > 23)).toBe(false);
+  });
+
+  it('a_default_a3_save_lays_the_chart_out_once_in_the_direction_on_screen', async () => {
+    stubOffscreen();
+    // Ancestors on the left: not what this chart has by default, and not what best fit has to pick.
+    const s = await setupChart('around', 'left');
+    const closeSpy = vi.spyOn(s.api, 'chartClose');
+    const before = s.openSpy.mock.calls.length;
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled(), A3_WAIT);
+    const probes = s.openSpy.mock.calls.slice(before).map((c) => c[0]);
+    expect(probes).toHaveLength(1);
+    expect(probes[0].print).toBe(true);
+    expect(probes[0].direction).toBe('left');
+    expect(closeSpy.mock.calls.length).toBe(1);
+  });
+
+  it('a_print_under_compact_asks_for_a_folded_layout_and_under_as_today_does_not', async () => {
+    stubOffscreen();
+    for (const [layout, fold] of [['compact', true], ['today', undefined]] as const) {
+      const raf = fakeRaf();
+      const { api, fx } = makeApi();
+      const root = await richestRoot(api, fx, 'around');
+      const openSpy = vi.spyOn(api, 'chartOpen');
+      const saveSpy = vi.spyOn(api, 'savePicture');
+      const { unmount } = render(Host, { props: { api, view: ChartCanvas, props: { kind: 'around', root, generations: 6, printLayout: layout, onRecentre: vi.fn(), onOpenPerson: vi.fn() }, platform: new MockPlatform() } });
+      const canvas = screen.getByRole('application') as HTMLCanvasElement;
+      attachContext(canvas);
+      canvas.getBoundingClientRect = () => RECT;
+      await waitFor(() => expect(openSpy).toHaveBeenCalled());
+      await new Promise((r) => setTimeout(r, 0));
+      raf.pump(2);
+      const before = openSpy.mock.calls.length;
+      await rightClick(canvas);
+      await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
+      await waitFor(() => expect(saveSpy).toHaveBeenCalled(), A3_WAIT);
+      const probes = openSpy.mock.calls.slice(before).map((c) => c[0]);
+      expect(probes.length).toBeGreaterThan(0);
+      expect(probes.every((r) => r.print === true && r.fold === fold)).toBe(true);
+      unmount();
+    }
+  });
+
+  it('an_a3_save_lays_out_print_charts_only_and_closes_them_without_touching_the_open_chart', async () => {
+    stubOffscreen();
+    a3Direction.set('best');
+    const s = await setupChart('around');
+    const closeSpy = vi.spyOn(s.api, 'chartClose');
+    const screenChart = (await s.openSpy.mock.results[0].value).chartId;
+    const before = s.openSpy.mock.calls.length;
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, portrait/ }));
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled(), A3_WAIT);
+    const probes = s.openSpy.mock.calls.slice(before).map((c) => c[0]);
+    // Best fit: one layout per direction; every one a print chart that sets its own direction.
+    expect(probes.length).toBe(4);
+    expect(probes.every((r) => r.print === true && r.direction !== undefined)).toBe(true);
+    // Each was closed, and the chart on screen was not.
+    expect(closeSpy.mock.calls.length).toBe(4);
+    expect(closeSpy.mock.calls.some((c) => c[0] === screenChart)).toBe(false);
+    expect(s.saveSpy.mock.calls[0][0]).toMatch(/\(A3\)\.png$/);
+  });
+
+  it('an_error_in_the_middle_of_the_probes_still_closes_every_print_chart', async () => {
+    stubOffscreen();
+    a3Direction.set('best');
+    const s = await setupChart('around');
+    const closeSpy = vi.spyOn(s.api, 'chartClose');
+    const before = s.openSpy.mock.calls.length;
+    // The window read of the third print chart fails.
+    let reads = 0;
+    s.winSpy.mockImplementation(async (id, rect, zoom) => {
+      const printCharts = s.openSpy.mock.calls.length - before;
+      if (printCharts === 3) {
+        reads++;
+        throw new Error('window failed');
+      }
+      return MockApi.prototype.chartWindow.call(s.api, id, rect, zoom);
+    });
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, landscape/ }));
+    await waitFor(() => expect(reads).toBeGreaterThan(0), A3_WAIT);
+    await waitFor(() => expect(closeSpy.mock.calls.length).toBe(s.openSpy.mock.calls.length - before), A3_WAIT);
+    expect(s.saveSpy).not.toHaveBeenCalled();
+  });
+
+  it('a_close_that_fails_does_not_stop_the_a3_save', async () => {
+    stubOffscreen();
+    const s = await setupChart('around');
+    vi.spyOn(s.api, 'chartClose').mockRejectedValue(new Error('gone'));
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print, portrait/ }));
+    await waitFor(() => expect(s.saveSpy, JSON.stringify(notices.current)).toHaveBeenCalled(), A3_WAIT);
   });
 
   it('the_branch_item_saves_the_selected_person_and_the_people_behind_them_only', async () => {
@@ -287,6 +464,143 @@ describe('picture menu on a chart', () => {
   });
 });
 
+describe('A3 print layouts on the around chart', () => {
+  /** fam-b (synthetic, 369 people) as each direction's print chart lays it out; the surname is the person's key, so names are unique. */
+  function famChart(d: ChartDirection): ReturnType<typeof bigAround> {
+    const { scene, root } = loadFam('fam-b', d);
+    const nodes = scene.nodes.map((n) => {
+      // The key as the surname: short enough to stay one word on the card.
+      const name = `${n.person!.name.split(' ')[0]} K${n.person!.id.slice(1)}`;
+      return { ...n, person: { ...n.person!, name }, label: name };
+    });
+    return { nodes, edges: scene.edges, root };
+  }
+  const famCharts = new Map<ChartDirection, ReturnType<typeof bigAround>>();
+  const famFor = (req: ChartRequest) => {
+    const d = req.direction ?? 'top';
+    if (!famCharts.has(d)) famCharts.set(d, famChart(d));
+    return famCharts.get(d)!;
+  };
+
+  async function renderAround(layout: PrintLayout) {
+    const raf = fakeRaf();
+    const { api, fx } = makeApi();
+    const root = await richestRoot(api, fx, 'around');
+    const openSpy = vi.spyOn(api, 'chartOpen');
+    const saveSpy = vi.spyOn(api, 'savePicture');
+    const platform = new MockPlatform();
+    // Print charts get the synthetic chart in the direction asked for; the chart on screen stays the mock's.
+    servePrintCharts(api, openSpy, famFor);
+    render(Host, { props: { api, view: ChartCanvas, props: { kind: 'around', root, generations: 6, printLayout: layout, onRecentre: vi.fn(), onOpenPerson: vi.fn() }, platform } });
+    const canvas = screen.getByRole('application') as HTMLCanvasElement;
+    attachContext(canvas);
+    canvas.getBoundingClientRect = () => RECT;
+    await waitFor(() => expect(openSpy).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    raf.pump(2);
+    return { api, platform, canvas, openSpy, saveSpy };
+  }
+
+  /** The text of every page of a print document, in order. */
+  const pages = (html: string) =>
+    html
+      .split('<div class="sheet')
+      .slice(1)
+      .map((b) => [...b.matchAll(/>([^<]+)<\/text>/g)].map((m) => m[1]));
+
+  /** Prints the sheets in Ukrainian and gives the printed document and the print charts asked for. */
+  async function printSheets() {
+    stubOffscreen();
+    const printed = capturePrints();
+    const s = await renderAround('sheets');
+    await rightClick(s.canvas);
+    const item = within(menu()).getByRole('menuitem', { name: /^Print on A3/ });
+    // The sheets are titled in the language of the moment of printing.
+    setLanguage('uk');
+    await fireEvent.click(item);
+    await waitFor(() => expect(printed).toHaveLength(1), A3_WAIT);
+    return { s, html: printed[0] };
+  }
+
+  it('sheets_print_pages_from_plan', async () => {
+    const { s, html } = await printSheets();
+    // The print charts were folded, as for "compact".
+    expect(s.openSpy.mock.calls.filter((c) => c[0].print).every((c) => c[0].fold === true)).toBe(true);
+    const texts = pages(html);
+    const m = texts.length;
+    expect(m).toBeGreaterThan(1);
+    // One picture per page (each SVG nests its chart area in an inner one).
+    expect(html.match(/<svg xmlns=/g)).toHaveLength(m);
+    expect(html.match(/break-after:page/g)).toHaveLength(m - 1);
+    texts.forEach((text, i) => expect(text.join(' | ')).toContain(`аркуш ${i + 1} з ${m}`));
+    const all = texts.flat();
+    // The packed pieces carry «Гілка: <surname> (<given name>)»; the cover has none.
+    expect(all.some((x) => /^Гілка: \S+ \(\S+\)$/.test(x))).toBe(true);
+    const refs = all.filter((x) => x.startsWith('→ арк. ')).flatMap((x) => x.slice('→ арк. '.length).split(', ').map(Number));
+    expect(refs.length).toBeGreaterThan(0);
+    for (const n of refs) expect(n >= 1 && n <= m, `→ арк. ${n}`).toBe(true);
+  }, 60000);
+
+  it('page_draws_every_piece', async () => {
+    const { html } = await printSheets();
+    const texts = pages(html);
+    const shared = texts.filter((t) => t.filter((x) => x.startsWith('Гілка: ')).length >= 2);
+    expect(shared.length).toBeGreaterThan(0);
+    for (const text of shared) {
+      // Each piece's top person (the caption names them) is drawn on the page: a later piece does not wipe an earlier one.
+      for (const cap of text.filter((x) => x.startsWith('Гілка: '))) {
+        const surname = /^Гілка: (\S+)/.exec(cap)![1];
+        expect(text.some((x) => !x.startsWith('Гілка: ') && x.split(' ').includes(surname)), surname).toBe(true);
+      }
+    }
+  }, 60000);
+
+  it('children_elsewhere_print_as_one_box', async () => {
+    const { html } = await printSheets();
+    const all = pages(html).flat();
+    // A family's children on other sheets: one «Діти» box, its tag listing their sheets.
+    expect(all.filter((x) => x === 'Діти').length).toBeGreaterThan(0);
+    expect(all.some((x) => /^→ арк\. \d+(, \d+)*$/.test(x))).toBe(true);
+  }, 60000);
+
+  it('sheets_ignore_direction_setting', async () => {
+    expect(a3Direction.value).toBe('screen');
+    stubOffscreen();
+    const printed = capturePrints();
+    const s = await renderAround('sheets');
+    // The frames on screen plan first, with the four print charts whatever the direction setting.
+    await waitFor(() => expect(s.openSpy.mock.calls.filter((c) => c[0].print)).toHaveLength(4), A3_WAIT);
+    expect(s.openSpy.mock.calls.filter((c) => c[0].print).map((c) => c[0].direction)).toEqual(['top', 'bottom', 'left', 'right']);
+    await new Promise((r) => setTimeout(r, 50));
+    s.openSpy.mockClear();
+    // The print takes the plan the frames show: it lays out no print chart of its own.
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Print on A3/ }));
+    await waitFor(() => expect(printed).toHaveLength(1), A3_WAIT);
+    expect(s.openSpy.mock.calls.filter((c) => c[0].print)).toEqual([]);
+  }, 60000);
+
+  it('sheets_save_into_new_folder', async () => {
+    stubOffscreen();
+    const s = await renderAround('sheets');
+    s.platform.next.save = 'C:/Mock/Around.svg';
+    const folderSpy = vi.spyOn(s.api, 'makePictureFolder');
+    await rightClick(s.canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
+    await waitFor(() => expect(s.platform.calls.filter((c) => c.method === 'reveal')).toHaveLength(1), A3_WAIT);
+    const m = s.saveSpy.mock.calls.length;
+    expect(m).toBeGreaterThan(1);
+    expect(s.platform.calls.filter((c) => c.method === 'pickSavePath')).toHaveLength(1);
+    expect(folderSpy).toHaveBeenCalledTimes(1);
+    // Every page in a new folder named after the chosen file; the folder is shown once all are written.
+    expect(s.saveSpy.mock.calls.map((c) => c[0])).toEqual(Array.from({ length: m }, (_, i) => `C:/Mock/Around — sheets/Around — sheet ${i + 1}.svg`));
+    expect(s.platform.calls.filter((c) => c.method === 'reveal').map((c) => c.args[0])).toEqual(['C:/Mock/Around — sheets/Around — sheet 1.svg']);
+    const second = new TextDecoder().decode(s.saveSpy.mock.calls[1][1]);
+    expect(second).toContain(`Sheet 2 of ${m}`);
+    expect(second).toMatch(/Branch: \S+/);
+  }, 60000);
+});
+
 describe('picture menu on the whole tree', () => {
   async function setupWhole() {
     const mm = window.matchMedia;
@@ -365,4 +679,118 @@ describe('picture menu on the whole tree', () => {
     expect(boxes(branch.ctx)).toBeLessThan(wholeBoxes);
     expect(branch.ctx.calls.some((c) => c.op === 'fillText' && /family \(\d+ people\)/.test(String(c.args[0])))).toBe(false);
   });
+});
+
+/**
+ * Screenshots of the three layouts of the around chart, from a SYNTHETIC tree (invented names, about 280 people) laid out
+ * by the real engine. First write the layouts (keys only), then draw them:
+ *   SHOTS_DIR=<folder> cargo test -p gt-layout --test fold_shots -- --ignored   (writes <folder>/fold-*.json)
+ *   SHOTS_DIR=<folder> npx vitest run src/lib/chart/ChartPicture.test.ts -t "print layout screenshots"
+ * Writes screen-today / screen-compact / screen-sheets (whole, and a readable crop in light and dark) .svg and the first
+ * sheets as printed (print-sheet-N.svg).
+ */
+describe.skipIf(!process.env.SHOTS_DIR)('print layout screenshots', () => {
+  const GIVEN = ['Orest', 'Bohdana', 'Taras', 'Oksana', 'Lev', 'Halyna', 'Yaroslav', 'Mariika', 'Stepan', 'Daryna', 'Ihor', 'Zoriana'];
+  const SUR = ['Bondar', 'Hrytsenko', 'Melnyk', 'Tkach'];
+
+  /** The line a key belongs to (the fixture of `fold_shots.rs`: Ahnentafel keys, and 1000 + n * 100 + i for the brothers and sisters of n). */
+  const surname = (key: number): string => {
+    const k = key >= 1000 ? Math.floor((key - 1000) / 100) : key;
+    if (k < 4) return 'Testenko';
+    return SUR[(k >> (Math.floor(Math.log2(k)) - 2)) - 4];
+  };
+
+  /** A layout written by `fold_shots.rs`, with invented names. */
+  function loaded(name: string): ReturnType<typeof bigAround> {
+    const raw = JSON.parse(fs.readFileSync(`${process.env.SHOTS_DIR}/${name}.json`, 'utf8')) as {
+      root: number;
+      nodes: { id: number; key: number; x: number; y: number; w: number; h: number; gen: number; dupOf: number | null }[];
+      edges: { from: number; to: number; kind: ChartEdge['kind']; pts: number[] }[];
+    };
+    const nav = { parent: null, child: null, prev: null, next: null };
+    const nodes: ChartNode[] = raw.nodes.map((n) => {
+      const label = `${GIVEN[(n.key * 7) % GIVEN.length]} ${surname(n.key)}`;
+      const born = 2000 + n.gen * 30 + (n.key % 9);
+      return { id: n.id, person: { id: `shot-${n.key}`, name: label, lifespan: `${born} – ${born + 60}`, sex: n.key % 2 ? 'female' : 'male', living: false, private: false, siblingMarker: false }, x: n.x, y: n.y, w: n.w, h: n.h, gen: n.gen, ahnen: null, dupOf: n.dupOf, moreUp: false, moreDown: false, nav, label };
+    });
+    return { nodes, edges: raw.edges, root: raw.root };
+  }
+
+  const light: Theme = { paper: '#FBFBF8', rule: '#C6CABF', ink: '#1B2230', ink2: '#5A6272', ribbon: '#9B2C3F', wash: '#F1DDE0', font: 'system-ui, sans-serif', serif: 'Georgia, serif' };
+  const dark: Theme = { ...light, paper: '#1A1F28', rule: '#2C3340', ink: '#E3E5DD', ink2: '#8A91A0', ribbon: '#E58A98', wash: '#3A1F26' };
+
+  type Frame = ReturnType<typeof screenFrames>[number];
+  const asScene = (c: ReturnType<typeof bigAround>): Scene => ({ nodes: c.nodes, edges: c.edges });
+
+  /** Draws `scene` (or the part `crop` of it) at `scale` into an SVG file. */
+  function shot(scene: Scene, frames: Frame[], file: string, root: number, opts: { th?: Theme; crop?: { x: number; y: number; w: number; h: number }; scale?: number } = {}): void {
+    const th = opts.th ?? light;
+    const b = opts.crop ?? sceneBounds(scene);
+    // Whole charts at most 4,000 px wide.
+    const scale = opts.scale ?? Math.min(0.5, 4000 / b.w);
+    const pad = 40;
+    const w = Math.ceil(b.w * scale + 2 * pad);
+    const h = Math.ceil(b.h * scale + 2 * pad);
+    const ctx = new SvgContext(w, h);
+    draw(ctx as unknown as CanvasRenderingContext2D, scene, { x: b.x - pad / scale, y: b.y - pad / scale, zoom: scale }, { w, h, dpr: 1 }, {
+      selected: null,
+      focus: root,
+      theme: th,
+      kind: 'around',
+      handles: false,
+      lod: 'full',
+      sheetFrames: frames.map((f) => ({ ...f, label: `sheet ${f.no}` })),
+    });
+    fs.writeFileSync(`${process.env.SHOTS_DIR}/${file}`, ctx.toSvg(th.paper, { w, h }));
+  }
+
+  it('screens_as_today_compact_and_sheets', () => {
+    const today = loaded('fold-off');
+    const compact = loaded('fold-on');
+    const print = loaded('fold-print');
+    expect(compact.nodes.length).toBeGreaterThan(240);
+    // Compact folds: the chart on screen is narrower than as today.
+    expect(sceneBounds(asScene(compact)).w).toBeLessThan(sceneBounds(asScene(today)).w * 0.9);
+    shot(asScene(today), [], 'screen-today.svg', today.root);
+    shot(asScene(compact), [], 'screen-compact.svg', compact.root);
+    // The frames: the print chart planned as the print plans it (one layout serving every direction here), framed
+    // around the same people on screen.
+    const ps = asScene(print);
+    const keys = nodeKeys(ps);
+    const dirs = (['top', 'bottom', 'left', 'right'] as const).map((direction) => ({ direction, scene: ps, keys }));
+    const plan = planSheets(dirs, { choice: 'auto', header: true, screenDir: 'top', centres: [keys.get(print.root)!], capW: () => 200, tagW: 60, tagH: 14 });
+    expect(plan.pages.length).toBeGreaterThan(1);
+    const frames = screenFrames(plan, (id) => keys.get(id), asScene(compact));
+    shot(asScene(compact), frames, 'screen-sheets.svg', compact.root);
+    // A readable part: 2,400 px of the chart from just left of the second line sheet's frame (its label in view) on.
+    const [, b] = [...frames].sort((p, q) => p.x - q.x);
+    const all = sceneBounds(asScene(compact));
+    const crop = { x: b.x - 600, y: all.y - 40, w: 2400, h: all.h + 80 };
+    shot(asScene(compact), frames, 'screen-sheets-crop.svg', compact.root, { crop, scale: 0.8 });
+    shot(asScene(compact), frames, 'screen-sheets-crop-dark.svg', compact.root, { crop, scale: 0.8, th: dark });
+  });
+
+  it('prints_two_sheets', async () => {
+    stubOffscreen();
+    const raf = fakeRaf();
+    const { api, fx } = makeApi();
+    const root = await richestRoot(api, fx, 'around');
+    const openSpy = vi.spyOn(api, 'chartOpen');
+    const saveSpy = vi.spyOn(api, 'savePicture');
+    const platform = new MockPlatform();
+    servePrintCharts(api, openSpy, loaded('fold-print'), loaded('fold-on'));
+    render(Host, { props: { api, view: ChartCanvas, props: { kind: 'around', root, generations: 6, printLayout: 'sheets', onRecentre: vi.fn(), onOpenPerson: vi.fn() }, platform } });
+    const canvas = screen.getByRole('application') as HTMLCanvasElement;
+    attachContext(canvas);
+    canvas.getBoundingClientRect = () => RECT;
+    await waitFor(() => expect(openSpy).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    raf.pump(2);
+    platform.next.save = `${process.env.SHOTS_DIR}/print.svg`;
+    await rightClick(canvas);
+    await fireEvent.click(within(menu()).getByRole('menuitem', { name: /^Save for A3 print…/ }));
+    await waitFor(() => expect(saveSpy.mock.calls.length).toBeGreaterThan(1), A3_WAIT);
+    await new Promise((r) => setTimeout(r, 500));
+    saveSpy.mock.calls.slice(0, 3).forEach((c, i) => fs.writeFileSync(`${process.env.SHOTS_DIR}/print-sheet-${i + 1}.svg`, c[1]));
+  }, 60000);
 });

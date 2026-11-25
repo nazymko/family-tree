@@ -69,6 +69,7 @@ fn note(n: u128, text: &str) -> Note {
         text: text.into(),
         lang: None,
         shared: false,
+        story: None,
     }
 }
 
@@ -394,6 +395,7 @@ fn event(n: u128, participants: Vec<Participant>) -> Event {
             proof: None,
             confidence: None,
         },
+        godparents: Vec::new(),
         participants,
     }
 }
@@ -468,6 +470,7 @@ fn a_replaced_media_link_changed_since_stays_untouched() {
             h: 1.0,
         }),
         primary,
+        clip: None,
     };
     let with = |links: Vec<MediaLink>| {
         let mut p = person(1, "Ivan");

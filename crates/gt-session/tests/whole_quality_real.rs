@@ -11,7 +11,7 @@ use gt_layout::{Metrics, quality, whole};
 #[ignore = "needs a real tree file in GT_REAL_TREE"]
 fn measure_a_real_tree() {
     let path = std::env::var("GT_REAL_TREE").unwrap();
-    let scratch = tempfile::tempdir().unwrap();
+    let scratch = common::canonical_tempdir();
     let copy = scratch.path().join(format!("copy{}", extension(&path)));
     std::fs::copy(&path, &copy).unwrap();
     let format = gt_import::detect(&copy).unwrap();

@@ -3,12 +3,14 @@
   const chosenGenerations = $state<Record<string, number>>({});
   const chosenAunts = $state({ on: true });
   const chosenKin = $state<{ value: AroundKin }>({ value: 'line' });
+  const chosenLayout = $state<{ value: PrintLayout }>({ value: 'today' });
 </script>
 
 <script lang="ts">
   import { getApi } from '../api/context';
-  import type { AroundKin, ChartKind, ChartMeta, Id } from '../api/types';
+  import type { AroundKin, ChartKind, ChartMeta, Id, OpenBranch } from '../api/types';
   import ChartCanvas from '../chart/ChartCanvas.svelte';
+  import type { PrintLayout } from '../chart/sheets';
   import OutlineMirror from '../chart/OutlineMirror.svelte';
   import { directionOf } from '../chart/direction';
   import { OUTLINE_GROUP_BASE } from '../chart/outline';
@@ -70,6 +72,16 @@
   }
 
   let mode = $state<string>(initialMode());
+  /** Side branches opened on the chart built around one person. They stay while the tabs are switched and are cleared
+   *  when the chart is built around other people. */
+  let openings = $state<OpenBranch[]>([]);
+  let openingsFor = '';
+  $effect(() => {
+    const who = aroundIds.join(',');
+    if (who === openingsFor) return;
+    openingsFor = who;
+    openings = [];
+  });
     let home = $state<Id | null>(null);
   let meta = $state<ChartMeta | null>(null);
   let settingsLoaded = $state(false);
@@ -239,6 +251,10 @@
         onAunts={kind === 'relatives' ? (v) => (chosenAunts.on = v) : undefined}
         kin={chosenKin.value}
         onKin={around ? (v) => (chosenKin.value = v) : undefined}
+        printLayout={chosenLayout.value}
+        onPrintLayout={around ? (v) => (chosenLayout.value = v) : undefined}
+        {openings}
+        onOpenings={around && aroundIds.length === 1 ? (v) => (openings = v) : undefined}
         onOpened={opened}
         selectId={selectedNode}
         onSelect={select}
@@ -321,6 +337,14 @@
     padding: var(--s-1) var(--s-2);
     font-weight: 600;
     color: var(--ink-0);
+  }
+  @media (pointer: coarse) and (max-height: 500px) {
+    .view {
+      gap: var(--s-2);
+    }
+    header {
+      gap: var(--s-4);
+    }
   }
   .outline {
     flex: 1;

@@ -40,7 +40,7 @@ fn jpeg_bytes(w: u32, h: u32) -> Vec<u8> {
 
 /// Writes a file outside the project, attaches it to `person` and returns the media id.
 fn attach(host: &TestHost, person: Uuid, name: &str, bytes: &[u8]) -> Uuid {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::link_free_tempdir();
     let path = dir.path().join(name);
     std::fs::write(&path, bytes).unwrap();
     with(host, |s| {
@@ -126,6 +126,7 @@ fn namesakes_distinguishable() {
                 negative: false,
                 private: false,
                 preferred: true,
+                godparents: None,
                 participants: None,
             },
         })
@@ -208,6 +209,7 @@ fn records_can_be_read_by_id() {
                     publication: None,
                     abbreviation: None,
                     text: Some("The whole transcript".into()),
+                    ..Default::default()
                 },
             })
             .unwrap()
@@ -273,6 +275,7 @@ fn get_person_includes_notes_on_names() {
                 id: name,
             },
             note: NoteInput {
+                story: None,
                 id: None,
                 kind: NoteKindDto::General,
                 text: "Spelled this way in the parish book".into(),
@@ -382,7 +385,7 @@ fn person_with_voice_sample(host: &TestHost, bytes: &[u8]) -> (Uuid, Uuid, Uuid)
         let note = s.get_person(id).unwrap().notes[0].id;
         (id, note)
     });
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::link_free_tempdir();
     let path = dir.path().join("table-story.wav");
     std::fs::write(&path, bytes).unwrap();
     let media = with(host, |s| {
@@ -400,6 +403,8 @@ fn person_with_voice_sample(host: &TestHost, bytes: &[u8]) -> (Uuid, Uuid, Uuid)
     });
     with(host, |s| {
         s.apply(EditCommand::UpdateMedia {
+            place_text: None,
+            place_id: None,
             id: media,
             title: Some("At the table".into()),
             description: None,
@@ -433,13 +438,16 @@ fn get_media_of_a_voice_sample_is_details_only_never_the_bytes() {
 /// A host whose tree holds one imported-looking media record: the stored type is whatever
 /// `mime` says (nothing, or free text such as "mp3"), the file behind it is the generated `bytes`.
 fn host_with_imported_media(mime: Option<&str>, bytes: &[u8]) -> (TestHost, Uuid) {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::link_free_tempdir();
     let proj = dir.path().join("project");
     let id = Uuid::now_v7();
     let mut tree = Tree::new();
     tree.media.insert(
         id,
         Media {
+            version_of: None,
+            map_layer: None,
+            place: None,
             common: Common {
                 id,
                 private: false,
@@ -457,6 +465,8 @@ fn host_with_imported_media(mime: Option<&str>, bytes: &[u8]) -> (TestHost, Uuid
             date: None,
             description: None,
             sha256: None,
+            transcription: Vec::new(),
+            rotation: None,
         },
     );
     let mut p = Project::create(&proj).unwrap();
@@ -608,6 +618,7 @@ fn sources_and_places_page_and_filter() {
                     publication: None,
                     abbreviation: None,
                     text: None,
+                    ..Default::default()
                 },
             })
             .unwrap();
@@ -693,7 +704,7 @@ fn log_and_history_read_back() {
 #[test]
 fn find_by_number_reads_the_agents_numbering() {
     let host = empty_host();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::link_free_tempdir();
     let proj = dir.path().join("project");
     let id = Uuid::now_v7();
     // Stored directly, the way `AddNumber` stores it, to pin down how it is stored.
@@ -980,6 +991,7 @@ fn heavy_person(host: &TestHost) -> (Uuid, Vec<Uuid>) {
                     publication: None,
                     abbreviation: None,
                     text: Some("T".repeat(200_000)),
+                    ..Default::default()
                 },
             })
             .unwrap()
@@ -1020,6 +1032,7 @@ fn heavy_person(host: &TestHost) -> (Uuid, Vec<Uuid>) {
                         negative: false,
                         private: false,
                         preferred: false,
+                        godparents: None,
                         participants: None,
                     },
                 })
@@ -1032,6 +1045,7 @@ fn heavy_person(host: &TestHost) -> (Uuid, Vec<Uuid>) {
                         id: event,
                     },
                     note: NoteInput {
+                        story: None,
                         id: None,
                         kind: NoteKindDto::Transcription,
                         text: format!("{n}{}", "N".repeat(14_998)),
@@ -1196,6 +1210,7 @@ fn a_huge_note_on_an_event_or_name_is_a_preview_too() {
             s.apply(EditCommand::SaveNote {
                 target: OwnerRef { kind, id: target },
                 note: NoteInput {
+                    story: None,
                     id: None,
                     kind: NoteKindDto::General,
                     text: long.clone(),
@@ -1366,6 +1381,7 @@ fn a_cited_transcript_does_not_come_back_with_every_citation() {
                     publication: None,
                     abbreviation: None,
                     text: Some(transcript.clone()),
+                    ..Default::default()
                 },
             })
             .unwrap()
@@ -1420,6 +1436,7 @@ fn long_text_can_be_read_in_pieces() {
                     publication: None,
                     abbreviation: None,
                     text: Some(text.clone()),
+                    ..Default::default()
                 },
             })
             .unwrap()
@@ -1555,6 +1572,7 @@ fn common(id: Uuid, field: &str, links: &Links) -> Common {
                 h: 0.75,
             }),
             primary: true,
+            clip: None,
         }],
         ext_ids: vec![
             ExternalId {
@@ -1759,6 +1777,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
             cause: Some(mark("event-cause")),
             negative: true,
             assertion: assertion(),
+            godparents: Vec::new(),
             participants: vec![
                 Participant {
                     target: ParticipantRef::Person(ids.person),
@@ -1816,6 +1835,10 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
                 repository: ids.repository,
                 call_number: Some(mark("source-call-number")),
             }],
+            kind: Some(SourceKind::Other(mark("source-kind"))),
+            issuer: Some(mark("source-issuer")),
+            doc_number: Some(mark("source-doc-number")),
+            doc_date: None,
         },
     );
     tree.repositories.insert(
@@ -1862,6 +1885,9 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
     tree.media.insert(
         ids.media,
         Media {
+            version_of: None,
+            map_layer: None,
+            place: None,
             common: common(ids.media, "media", &second),
             path: mark("media-path"),
             original_name: Some(mark("media-original-name")),
@@ -1870,9 +1896,14 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
             date: Some(date("media-date")),
             description: Some(mark("media-description")),
             sha256: Some(mark("media-sha")),
+            transcription: Vec::new(),
+            rotation: None,
         },
     );
     let plain_media = |id: Uuid, title: &str| Media {
+        version_of: None,
+        map_layer: None,
+        place: None,
         common: plain(id),
         path: mark("plain-path"),
         original_name: None,
@@ -1881,6 +1912,8 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
         date: None,
         description: None,
         sha256: None,
+        transcription: Vec::new(),
+        rotation: None,
     };
     tree.media
         .insert(second.media, plain_media(second.media, "second-media"));
@@ -1894,6 +1927,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
         text: mark(text),
         lang: None,
         shared: false,
+        story: None,
     };
     tree.notes.insert(
         ids.note,
@@ -1903,6 +1937,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
             text: mark("note-text"),
             lang: Some(mark("note-lang")),
             shared: true,
+            story: Some(mark("note-story")),
         },
     );
     tree.notes
@@ -1960,6 +1995,7 @@ fn seed_everything(tree: &mut gt_core::tree::Tree) -> Seeded {
                 proof: None,
                 confidence: None,
             },
+            godparents: Vec::new(),
             participants: Vec::new(),
         },
     );
@@ -2048,7 +2084,7 @@ fn shows_all(tool: &str, args: Value, host: &TestHost, marks: &[&str]) -> (Strin
 #[test]
 fn every_field_of_every_record_is_readable() {
     let host = empty_host();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::link_free_tempdir();
     let proj = dir.path().join("project");
     let mut tree = gt_core::tree::Tree::new();
     let ids = seed_everything(&mut tree);
@@ -2266,7 +2302,8 @@ fn every_field_of_every_record_is_readable() {
         &host,
         &[
             "note-kind",
-            "note-text",
+            "note-lang",
+            "note-story",
             "note-lang",
             "second-citation",
             "second-note",
@@ -2352,6 +2389,7 @@ fn log_and_history_give_agents_plain_words_not_the_app_markers() {
                 negative: false,
                 private: false,
                 preferred: true,
+                godparents: None,
                 participants: None,
             },
         };

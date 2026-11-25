@@ -1,4 +1,4 @@
-# Project database schema (version 5)
+# Project database schema (version 12)
 
 A gene-tree project is a folder:
 
@@ -10,7 +10,7 @@ MyFamily.genetree/
   backups/    timestamped copies of tree.db
 ```
 
-`tree.db` is plain SQLite and can be read with any SQLite tool. The schema version is stored in `PRAGMA user_version` (currently `5`), and migrations are applied in order when a project is opened. A project written by a newer version of the app is refused.
+`tree.db` is plain SQLite and can be read with any SQLite tool. The schema version is stored in `PRAGMA user_version` (currently `8`), and migrations are applied in order when a project is opened. A project written by a newer version of the app is refused.
 
 ## Conventions
 
@@ -95,7 +95,7 @@ Links a child to a family and says how the child is related to each partner.
 
 ### `event`
 A fact with a date and place. Family events (marriage and so on) are events whose participant is the family.
-- `kind`: event type such as `birth`, `death`, `marriage`, `residence`, or `custom:<text>`.
+- `kind`: event type such as `birth`, `death`, `missing` (went missing without trace; it does not count as a death), `marriage`, `residence`, or `custom:<text>`.
 - `date_raw`, `date_json`, `date_sort_min`, `date_sort_max`: when it happened (`date_sort_min` is indexed).
 - `place_id`: where it happened.
 - `description`: free-text detail (for example the occupation).
@@ -113,6 +113,17 @@ Who took part in an event.
 - `target_type`: `person` or `family`.
 - `target_id`: the person or family id.
 - `role`: `principal`, `witness`, `godparent`, `clergy`, `officiator`, `informant`, `parent`, `father`, `mother`, `child`, `spouse`, `husband`, `wife`, `friend`, `neighbor`, `multiple`, or `other:<text>`.
+
+### `godparent`
+Who stood godparent at a baptism or christening (schema 12). The rows belong to their event.
+- `event_id`: the event.
+- `pos`: order among the event's godparents.
+- `person_id`: the godparent, when they are a person in the tree; no foreign key (a deleted person's row becomes their name).
+- `name`: the godparent as the record writes them, when they are not a person in the tree. Exactly one of `person_id` and `name` is set.
+- `role`: `godfather`, `godmother`, or `godparent` (not said which).
+- `note`: what else the record says of them.
+
+The schema 12 migration moves `participant` rows with the role `godparent` (or `other:Godfather` / `other:Godmother`) here, the role following the person's sex. GEDCOM: a person is an `ASSO` pointer on the event with `RELA Godfather` (5.5.1) or `ROLE GODP` + `PHRASE Godfather` (7.0); a name only is `ASSO @VOID@` with the name as its `PHRASE` (7.0) or, since 5.5.1 has no void pointer, a `NOTE Godfather: <name>` on the event with the godparent's note on the following lines. The import reads all of these back.
 
 ## Places
 
@@ -137,6 +148,8 @@ The names a place has had, in several languages and periods.
 A book, record set or other source.
 - `title`, `author`, `publication`, `abbreviation`: bibliographic data.
 - `text`: transcribed or descriptive text.
+- `kind`: what kind of material it is (schema 10): a stable id (`civil_registry_extract`, `civil_certificate`, `metric_book`, `census`, `household_book`, `military_record`, `archive_document`, `personal_document`, `photo`, `gravestone`, `oral_testimony`, `book_or_article`, `website_or_database`, `genealogy_tree`, `research_analysis`, `other`), or `other:<label>` for a free label; null when nobody has said, as on every older row. An unknown id is read as a label.
+- `issuer`, `doc_number`, `doc_date_json` (schema 10): the office that issued the document, the number it gave and the date on it (a serialised date, as `date_json` elsewhere). Null on older rows. Which archive and which case the source is kept in stays in `repo_ref` (repository and call number).
 
 ### `repository`
 An archive or library.
@@ -173,6 +186,11 @@ A file in `media/` (or elsewhere) with its description.
 - `date_raw`, `date_json`, `date_sort_min`, `date_sort_max`: date of the item.
 - `description`: free-text description.
 - `sha256`: hex SHA-256 of the file, used to detect duplicates.
+- `transcription_json`: what is written on the picture (schema 6), or null when nothing is. A JSON array of pieces in reading order, each `{"id", "area", "rotation", "text"}`: `area` is `{"x", "y", "w", "h"}`, fractions from 0 to 1 of the picture as it is displayed (after its EXIF orientation), from the top left corner, or null for text with no place on the picture (a whole transcript); `rotation` is how far the writing is turned clockwise, 0, 90, 180 or 270. On a sound recording the same array is a time-coded transcript: each piece has no `area` and may have `"time": {"start_ms", "end_ms"}` (milliseconds from the start of the recording, start before end; a piece whose times are not in that order loses them when the tree opens) and `"speaker"` (who says it, as written); both are left out when absent, and a recording has no transcript unless one is entered. The text belongs to the picture wherever it is attached. The joined full text is the pieces' texts, trimmed, with a blank line between them. A GEDCOM export does not carry it (GEDCOM has no place for it), and it is not in the search tables.
+- `rotation`: how the picture is shown (schema 7): degrees clockwise, 0, 90, 180 or 270, on top of its EXIF orientation; null when nobody has turned it, which shows as 0. The transcription's areas stay on the picture upright by EXIF, before this turn, so turning a picture never moves them. A value that is not a quarter turn is read as 0 when the tree opens. A GEDCOM export does not carry it.
+- `place_id`: where the media was made, a recording recorded or a picture taken (schema 9): the id of a `place`, the same places the events use; null when nobody has said, as on every older row. It has no foreign key; a place that is gone reads as none when the tree opens. A GEDCOM export does not carry it.
+- `version_of`: when this file is another version of the same page or document, a copy in other quality (schema 11): the id of the `media` row that is the group's primary, shown and opened first; null on the primary itself and on every file with no other versions, as on every older row. It never names a row that has a `version_of` of its own. It has no foreign key; a primary that is gone reads as none when the tree opens, and a chain reads as its first primary. Files, transcriptions and links stay on each version. A GEDCOM export writes every version as an ordinary OBJE record.
+- `map_layer_json`: when the picture is an old map laid on the Map (schema 13), its layer as JSON: `series`, `year`, `source` (text, each optional), `corners` (four `{lat_e6, lon_e6}` points in WGS 84 microdegrees: top left, top right, bottom right, bottom left of the picture; absent while the map is not placed yet), `opacity` (0 to 100), `visible`, and `pos` (drawing order, lowest first). Null on every other file and on every older row; JSON that does not read is taken as no layer. Taking a map off the Map sets it back to null and keeps the file. A GEDCOM export writes the layer as a NOTE under the OBJE record.
 
 ### `note`
 A note or story, written in Markdown. Links to people and places use `genetree://person/<uuid>` addresses.
@@ -180,6 +198,28 @@ A note or story, written in Markdown. Links to people and places use `genetree:/
 - `text`: the Markdown text.
 - `lang`: language code.
 - `shared`: `1` if the note is shared between several records rather than owned by one.
+- `story`: a readable retelling of `text` (schema 14), shown in the app's story view; null when the note has none, as on every older row. It never replaces `text`.
+
+## Place records
+
+Records about people who are not in the tree, for a place's list of events. A bulk side table beside the tree: not in the change log, not in undo, never rewritten by a save of the tree, and not in a GEDCOM export.
+
+### `place_record`
+One record of a church book, confession list, revision or census (schema 15).
+- `id`: integer key.
+- `place_id`: the `place` the record happened in. No foreign key: a place that is gone leaves its records unreachable, and undoing the place's removal brings them back.
+- `kind`: `birth`, `marriage`, `death`, `confession`, `revision`, `census` or `other`.
+- `date`: the date as the book gives it, partial dates allowed; `year`: the sortable year read from it (null when none).
+- `book`, `page`, `rec_id`: the source. `rec_id` with `book` is unique when `rec_id` is not empty, so adding the same index twice adds nothing.
+- `note`, `unsure` (`1` when the reading or the identification is doubtful).
+- `search`: the participants' names in lower case, for the name search.
+- `batch_id`: the agent batch that added it, when an agent did; `added_ms`: when (Unix ms).
+
+### `place_record_person`
+A person named in a record.
+- `record_id`: the `place_record`; `ord`: position in the record.
+- `role`, `given`, `patronymic`, `surname`, `as_written`, `estate`, `age`, `note`: as the book gives them.
+- `person_id`: the person of the tree this participant is, when a relative; null otherwise. No foreign key.
 
 ## Polymorphic links and external ids
 
@@ -196,12 +236,13 @@ Attaches a note to any record or assertion.
 - `note_id`: the note.
 
 ### `media_link`
-Attaches a media item to any record, optionally to a region of the picture (for example one face).
+Attaches a media item to any record, optionally to a region of the picture (for example one face) or to a clip: a stretch of a sound recording (schema 8). A clip lives on its link because it belongs to exactly one record: the same stretch told on two records is two links, and one recording cut into many clips is many links, so undo, history, merges and the agent's own-item rules work on clips as on any other link.
 - `target_type`, `target_id`: the record carrying the media.
 - `pos`: order among that record's media.
 - `media_id`: the media item.
 - `primary`: `1` if this is the record's main picture.
 - `region_x`, `region_y`, `region_w`, `region_h`: the region as fractions of the picture from 0 to 1 (left, top, width, height); all null for the whole picture.
+- `clip_id`, `clip_start_ms`, `clip_end_ms`, `clip_label`: a clip of a sound recording (schema 8), all null for the whole media. `clip_id` is a UUID that stays the same when the clip's times or label change; the times are milliseconds from the start of the recording, start before end, and within its length when the length is known; `clip_label` is an optional short name. A link whose clip cannot be read (no id, a time that is not a whole number of milliseconds, an end not after the start) is left out when the tree opens, with a note on stderr, rather than shown as the whole recording. A GEDCOM export does not carry clips (GEDCOM has no place for them): it writes the recording once, on its source, and not on the records its clips are attached to.
 
 ### `ext_id`
 Identifiers of a record in other systems.

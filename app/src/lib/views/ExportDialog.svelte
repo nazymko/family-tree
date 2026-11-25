@@ -11,6 +11,7 @@
   import type { ExportOptions, PrivacyPreview } from '../api/api';
   import { t, formatNumber } from '../i18n';
   import { backendError } from '../i18n/backend';
+  import { handOver, onMobile, revealAction } from '../ui/mobile';
 
   let { onClose, onSendCopy }: { onClose: () => void; onSendCopy?: () => void } = $props();
 
@@ -69,10 +70,10 @@
     exporting = true;
     try {
       const r = await api.exportGedcom(preview.options, dest, preview.token);
+      if (!(await handOver(platform, dest))) return;
       notices.show({
         message: t('exp.exported', { kb: formatNumber(Math.max(1, Math.round(r.bytes / 1024))), file: fileOf(dest) }),
-        actionLabel: t('exp.reveal'),
-        onaction: () => void platform.reveal(dest),
+        ...revealAction(platform, dest, t('exp.reveal')),
       });
     } catch (e) {
       exportError = errMessage(e, t('edit.wentWrong'));
@@ -189,8 +190,9 @@
       <h3>{t('exp.copyTitle')}</h3>
       <p class="hint">{t('exp.copyHint1')}</p>
       <p class="hint">{t('exp.copyHint2')}</p>
+      {#if onMobile(platform)}<p class="hint" data-testid="mobile-no-folder-copy">{t('mobile.noFolders')}</p>{/if}
       <div class="copyButtons">
-        <Button disabled={saving} onclick={saveCopy}>{t('exp.saveCopy')}</Button>
+        {#if !onMobile(platform)}<Button disabled={saving} onclick={saveCopy}>{t('exp.saveCopy')}</Button>{/if}
         {#if onSendCopy}<Button disabled={saving} onclick={onSendCopy}>{t('exp.sendCopy')}</Button>{/if}
       </div>
     </section>

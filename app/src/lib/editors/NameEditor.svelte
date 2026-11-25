@@ -10,6 +10,8 @@
   import EditorDialog from './EditorDialog.svelte';
   import { errMessage, opt, splitList } from './errors';
   import { t } from '../i18n';
+  import { OLD_LETTERS, insertAtCaret } from './oldLetters';
+  import { oldTypeface, RECORDED_FAMILY } from '../ui/namesPref.svelte';
 
   let {
     person,
@@ -20,7 +22,7 @@
 
   const api = getApi();
   const KINDS = $derived(
-    (['birth', 'married', 'aka', 'religious', 'nickname', 'immigrant', 'professional', 'other'] as const).map((value) => ({
+    (['birth', 'married', 'aka', 'religious', 'nickname', 'immigrant', 'professional', 'as_recorded', 'other'] as const).map((value) => ({
       value,
       label: t(`nameKind.${value}`),
     })),
@@ -49,6 +51,22 @@
    * (a real tree had its married surname land there); a field that already has a value keeps the section open.
    */
   let more =$state([init.prefix, init.call, init.surnamePrefix, init.suffix, init.nickname, init.lang].some((v) => v.trim() !== ''));
+  /** The name field the caret was last in: the old-letter buttons insert there (a button click moves focus off the field). */
+  let lastField: HTMLInputElement | null = null;
+  function rememberField(e: FocusEvent): void {
+    const el = e.target;
+    if (el instanceof HTMLInputElement && el.dataset.oldLetters !== undefined) lastField = el;
+  }
+  function insertLetter(ch: string): void {
+    const el = lastField;
+    if (!el || !el.isConnected) return;
+    const at = insertAtCaret(el.value, el.selectionStart ?? el.value.length, el.selectionEnd ?? el.value.length, ch);
+    el.value = at.value;
+    // The field's own binding listens to `input`.
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.focus();
+    el.setSelectionRange(at.caret, at.caret);
+  }
   let saving = $state(false);
   let error = $state('');
   const dirty = $derived(JSON.stringify(f) !== JSON.stringify(init));
@@ -99,9 +117,25 @@
 >
   <Select label={t('editor.kindOfName')} options={KINDS} bind:value={f.kind} />
   {#if f.kind === 'other'}<TextField label={t('editor.describeKind')} bind:value={f.kindText} />{/if}
-  <TextField label={t('editor.given')} bind:value={f.given} />
-  <TextField label={t('editor.patronymic')} bind:value={f.patronymic} />
-  <TextField label={t('editor.surnames')} hint={t('editor.surnamesHint')} bind:value={f.surnames} />
+  <div class="name-fields" class:recorded={f.kind === 'as_recorded' && oldTypeface.value} onfocusin={rememberField}>
+    <TextField label={t('editor.given')} data-old-letters="" bind:value={f.given} />
+    <TextField label={t('editor.patronymic')} data-old-letters="" bind:value={f.patronymic} />
+    <TextField label={t('editor.surnames')} hint={t('editor.surnamesHint')} data-old-letters="" bind:value={f.surnames} />
+    <div class="old-letters" role="group" aria-label={t('editor.oldLetters')}>
+      {#each OLD_LETTERS as l (l.ch)}
+        {@const label = t('editor.insertOldLetter', { letter: l.ch, name: t(`editor.oldLetterName.${l.name}`) })}
+        <button
+          type="button"
+          class="old-letter"
+          aria-label={label}
+          title={label}
+          style:font-family="{RECORDED_FAMILY}, var(--font-serif)"
+          onmousedown={(e) => e.preventDefault()}
+          onclick={() => insertLetter(l.ch)}>{l.ch}</button
+        >
+      {/each}
+    </div>
+  </div>
   {#if more}
     <TextField label={t('editor.surnamePrefix')} hint={t('editor.surnamePrefixHint')} bind:value={f.surnamePrefix} />
     <TextField label={t('editor.prefix')} hint={t('editor.prefixHint')} bind:value={f.prefix} />
@@ -116,3 +150,37 @@
   <Checkbox label={t('editor.preferredName')} bind:checked={f.preferred} />
   <Checkbox label={t('editor.private')} bind:checked={f.isPrivate} />
 </EditorDialog>
+
+<style>
+  .name-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-5);
+  }
+  .name-fields.recorded :global(input.control) {
+    font-family: var(--font-recorded);
+  }
+  .old-letters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+  }
+  .old-letter {
+    min-width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-1);
+    background: var(--paper-1);
+    color: var(--ink-0);
+    font-size: 1.0625rem;
+    cursor: pointer;
+  }
+  .old-letter:hover {
+    background: var(--paper-2, var(--paper-1));
+  }
+  .old-letter:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+</style>

@@ -1,5 +1,9 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { isTouchPointer } from './longPress';
+
+  /** The last press on a row came from a finger: one tap opens the item. */
+  let lastTouch = false;
 
   let {
     total,
@@ -233,8 +237,15 @@
         data-loading={item === null ? 'true' : undefined}
         style:height="{rowHeight}px"
         style:transform="translateY({i * rowHeight}px)"
-        onclick={() => onSelect(i)}
-        ondblclick={() => onActivate(i)}
+        onpointerdown={(e) => (lastTouch = isTouchPointer(e))}
+        onclick={() => {
+          onSelect(i);
+          // A finger has no double-click: one tap opens the item. The mouse keeps select, then double-click.
+          if (lastTouch) onActivate(i);
+        }}
+        ondblclick={() => {
+          if (!lastTouch) onActivate(i);
+        }}
         onkeydown={() => {}}
       >
         {@render row(item, i, i === selectedIndex)}
