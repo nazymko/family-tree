@@ -80,9 +80,19 @@ pub fn no_tree_host() -> TestHost {
     }
 }
 
+/// A temp dir whose path holds no link: on macOS `/var` is a link to `/private/var`,
+/// and the tools refuse a file path that goes through a link.
+fn link_free_tempdir() -> TempDir {
+    let base = std::env::temp_dir();
+    // Only on Unix: on Windows `canonicalize` returns a `\?\` path.
+    #[cfg(unix)]
+    let base = base.canonicalize().unwrap();
+    tempfile::tempdir_in(base).unwrap()
+}
+
 /// A host with the test key and an empty tree open.
 pub fn empty_host() -> TestHost {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = link_free_tempdir();
     let proj = dir.path().join("project");
     drop(Project::create(&proj).unwrap());
     let session = Session::open(&proj, SessionClock::system()).unwrap();
