@@ -40,7 +40,7 @@ fn jpeg_bytes(w: u32, h: u32) -> Vec<u8> {
 
 /// Writes a file outside the project, attaches it to `person` and returns the media id.
 fn attach(host: &TestHost, person: Uuid, name: &str, bytes: &[u8]) -> Uuid {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::link_free_tempdir();
     let path = dir.path().join(name);
     std::fs::write(&path, bytes).unwrap();
     with(host, |s| {
@@ -385,7 +385,7 @@ fn person_with_voice_sample(host: &TestHost, bytes: &[u8]) -> (Uuid, Uuid, Uuid)
         let note = s.get_person(id).unwrap().notes[0].id;
         (id, note)
     });
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::link_free_tempdir();
     let path = dir.path().join("table-story.wav");
     std::fs::write(&path, bytes).unwrap();
     let media = with(host, |s| {
@@ -438,7 +438,7 @@ fn get_media_of_a_voice_sample_is_details_only_never_the_bytes() {
 /// A host whose tree holds one imported-looking media record: the stored type is whatever
 /// `mime` says (nothing, or free text such as "mp3"), the file behind it is the generated `bytes`.
 fn host_with_imported_media(mime: Option<&str>, bytes: &[u8]) -> (TestHost, Uuid) {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::link_free_tempdir();
     let proj = dir.path().join("project");
     let id = Uuid::now_v7();
     let mut tree = Tree::new();
@@ -704,7 +704,7 @@ fn log_and_history_read_back() {
 #[test]
 fn find_by_number_reads_the_agents_numbering() {
     let host = empty_host();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::link_free_tempdir();
     let proj = dir.path().join("project");
     let id = Uuid::now_v7();
     // Stored directly, the way `AddNumber` stores it, to pin down how it is stored.
@@ -2084,7 +2084,7 @@ fn shows_all(tool: &str, args: Value, host: &TestHost, marks: &[&str]) -> (Strin
 #[test]
 fn every_field_of_every_record_is_readable() {
     let host = empty_host();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::link_free_tempdir();
     let proj = dir.path().join("project");
     let mut tree = gt_core::tree::Tree::new();
     let ids = seed_everything(&mut tree);

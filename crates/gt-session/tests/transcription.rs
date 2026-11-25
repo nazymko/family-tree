@@ -373,7 +373,7 @@ fn agent_attaches_a_picture_once_to_a_source() {
 
 #[test]
 fn agent_files_are_checked_before_anything_is_copied() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let refused = |p: &Path| check_agent_file(p).unwrap_err().message;
     assert!(refused(Path::new("relative/page.jpg")).contains("full path"));
     assert!(refused(&dir.path().join("missing.jpg")).contains("no file"));

@@ -2033,7 +2033,7 @@ fn a_birthday_crossing_the_rule_does_not_stop_every_write() {
         "0 @I1@ INDI\n1 NAME Eva /Meyer/\n1 SEX F\n1 BIRT\n2 DATE 1928\n\
          0 @I2@ INDI\n1 NAME Ivan /Koval/\n1 SEX M\n",
     );
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let proj = dir.path().join("project");
     let mut p = gt_store::Project::create(&proj).unwrap();
     p.save_tree(&tree, today()).unwrap();

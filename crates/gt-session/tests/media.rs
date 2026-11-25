@@ -603,7 +603,7 @@ fn media_bytes_unknown_id_not_found() {
 #[test]
 fn stored_paths_outside_media_are_never_served() {
     let mut tree = tree_of(SAMPLE);
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let secret = write(dir.path(), "secret.jpg", &jpeg(10, 10, [1, 1, 1]));
     let inside_project = write(
         &dir.path().join("project"),

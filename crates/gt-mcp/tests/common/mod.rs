@@ -82,7 +82,7 @@ pub fn no_tree_host() -> TestHost {
 
 /// A temp dir whose path holds no link: on macOS `/var` is a link to `/private/var`,
 /// and the tools refuse a file path that goes through a link.
-fn link_free_tempdir() -> TempDir {
+pub fn link_free_tempdir() -> TempDir {
     let base = std::env::temp_dir();
     // Only on Unix: on Windows `canonicalize` returns a `\?\` path.
     #[cfg(unix)]

@@ -267,7 +267,7 @@ fn heavy_twenty_people_of_a_5000_person_tree_open_in_reasonable_time() {
     let tree = synthetic_tree(5_000, 1_500);
     let mut ids: Vec<_> = tree.persons.keys().copied().collect();
     ids.sort();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let proj = dir.path().join("project");
     let mut p = Project::create(&proj).unwrap();
     p.save_tree(&tree, today()).unwrap();
@@ -307,7 +307,7 @@ fn heavy_twenty_people_of_a_5000_person_tree_with_siblings_and_all_relatives() {
     let tree = synthetic_tree(5_000, 1_500);
     let mut ids: Vec<_> = tree.persons.keys().copied().collect();
     ids.sort();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let proj = dir.path().join("project");
     let mut p = Project::create(&proj).unwrap();
     p.save_tree(&tree, today()).unwrap();

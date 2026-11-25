@@ -29,6 +29,16 @@ const APP_ORIGIN: &str = "http://tauri.localhost";
 #[cfg(not(windows))]
 const APP_ORIGIN: &str = "tauri://localhost";
 
+/// A temp dir whose path holds no link: on macOS `/var` is a link to `/private/var`,
+/// and the agent tools refuse a file path that goes through a link.
+fn canonical_tempdir() -> tempfile::TempDir {
+    let base = std::env::temp_dir();
+    // Only on Unix: on Windows `canonicalize` returns a `\?\` path.
+    #[cfg(unix)]
+    let base = base.canonicalize().unwrap();
+    tempfile::tempdir_in(base).unwrap()
+}
+
 fn state_in(root: &Path) -> AppState {
     let config = root.join("config");
     let hashes = FileHashes::new(&config);
@@ -152,7 +162,7 @@ fn open(state: &AppState, dir: &Path) {
 
 #[test]
 fn create_then_connect_then_revoke() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     let on = set(&w, true, port);
@@ -180,7 +190,7 @@ fn create_then_connect_then_revoke() {
 
 #[test]
 fn key_not_in_settings_file() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let (id, key, _) = create(&w, "Reader");
 
@@ -213,7 +223,7 @@ fn key_not_in_settings_file() {
 
 #[test]
 fn port_taken_reports_error() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let holder = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let port = holder.local_addr().unwrap().port();
@@ -240,7 +250,7 @@ fn port_taken_reports_error() {
 
 #[test]
 fn enabled_resumes_on_start() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let port = free_port();
     let key = {
         let (app, w) = app_with(state_in(dir.path()));
@@ -266,7 +276,7 @@ fn enabled_resumes_on_start() {
 
 #[test]
 fn off_stays_off_on_start() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (app, w) = app_with(state_in(dir.path()));
     agent_access::resume(app.handle());
     let state = invoke(&w, "agent_access_state", json!({})).unwrap();
@@ -278,7 +288,7 @@ fn off_stays_off_on_start() {
 
 #[test]
 fn resume_failure_is_stored_and_not_fatal() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let holder = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let port = holder.local_addr().unwrap().port();
     let config = dir.path().join("config");
@@ -296,7 +306,7 @@ fn resume_failure_is_stored_and_not_fatal() {
 
 #[test]
 fn a_port_out_of_range_in_the_file_does_not_start() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let config = dir.path().join("config");
     let mut saved = settings_file::load_settings(&config);
     saved.agent_access.enabled = true;
@@ -312,7 +322,7 @@ fn a_port_out_of_range_in_the_file_does_not_start() {
 
 #[test]
 fn a_missing_hash_is_said_and_that_key_does_not_work() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let port = free_port();
     let key = {
         let (app, w) = app_with(state_in(dir.path()));
@@ -336,7 +346,7 @@ fn a_missing_hash_is_said_and_that_key_does_not_work() {
 
 #[test]
 fn off_then_on_with_the_same_port_succeeds_at_once() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -362,7 +372,7 @@ fn off_then_on_with_the_same_port_succeeds_at_once() {
 /// A client still connected to the old server must not stop the port being taken again.
 #[test]
 fn off_then_on_with_a_connection_still_open() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -388,7 +398,7 @@ fn off_then_on_with_a_connection_still_open() {
 
 #[test]
 fn changing_the_port_moves_the_server_and_frees_the_old_port() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let (a, b) = (free_port(), free_port());
     set(&w, true, a);
@@ -409,7 +419,7 @@ fn changing_the_port_moves_the_server_and_frees_the_old_port() {
 
 #[test]
 fn turning_on_twice_keeps_the_same_server() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -423,7 +433,7 @@ fn turning_on_twice_keeps_the_same_server() {
 
 #[test]
 fn ports_outside_the_range_are_refused_and_nothing_changes() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let before = invoke(&w, "agent_access_state", json!({})).unwrap();
     for port in [0, 80, 1023, 65536, 70000] {
@@ -448,7 +458,7 @@ fn ports_outside_the_range_are_refused_and_nothing_changes() {
 
 #[test]
 fn port_and_switch_outlive_the_app() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     {
         let (_app, w) = app_with(state_in(dir.path()));
         set(&w, false, 9001);
@@ -464,7 +474,7 @@ fn port_and_switch_outlive_the_app() {
 
 #[test]
 fn the_state_has_the_shape_the_frontend_expects() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let made = invoke(
         &w,
@@ -492,7 +502,7 @@ fn the_state_has_the_shape_the_frontend_expects() {
 
 #[test]
 fn a_connection_needs_a_name() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let e = invoke(&w, "agent_connection_create", json!({ "name": "   " })).unwrap_err();
     assert_eq!(e["code"], json!("invalid"));
@@ -503,7 +513,7 @@ fn a_connection_needs_a_name() {
 
 #[test]
 fn revoking_an_unknown_connection_is_not_found() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     for id in [Uuid::from_u128(5).to_string(), "not-an-id".to_string()] {
         let e = invoke(&w, "agent_connection_revoke", json!({ "id": id })).unwrap_err();
@@ -513,7 +523,7 @@ fn revoking_an_unknown_connection_is_not_found() {
 
 #[test]
 fn each_key_is_its_own_agent() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -548,7 +558,7 @@ fn each_key_is_its_own_agent() {
 
 #[test]
 fn revoking_while_off_means_it_fails_after_turning_on() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     let (id, key, _) = create(&w, "Reader");
@@ -561,7 +571,7 @@ fn revoking_while_off_means_it_fails_after_turning_on() {
 /// The request was let in before the revoke, and its body arrives after it.
 #[test]
 fn a_request_already_under_way_when_revoked_runs_nothing() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -588,7 +598,7 @@ fn the_keychain_entry_is_named_after_the_connection() {
 
 #[test]
 fn rules_are_the_ones_agents_get() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let rules = invoke(&w, "agent_rules", json!({})).unwrap();
     assert_eq!(rules, json!(gt_mcp::RULES));
@@ -596,7 +606,7 @@ fn rules_are_the_ones_agents_get() {
 
 #[test]
 fn reading_works_through_the_app_and_a_closed_tree_answers_plainly() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let project = empty_project(dir.path());
     let (app, w) = app_with(state_in(dir.path()));
     let port = free_port();
@@ -634,7 +644,7 @@ fn reading_works_through_the_app_and_a_closed_tree_answers_plainly() {
 
 #[test]
 fn a_host_kept_alive_by_a_late_request_finds_no_session() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let project = empty_project(dir.path());
     let (app, w) = app_with(state_in(dir.path()));
     let port = free_port();
@@ -683,7 +693,7 @@ fn a_host_kept_alive_by_a_late_request_finds_no_session() {
 
 #[test]
 fn shutdown_frees_the_port_and_twice_is_fine() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -702,7 +712,7 @@ fn shutdown_frees_the_port_and_twice_is_fine() {
 
 #[test]
 fn changes_reach_the_page_as_an_event_at_once() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (app, _w) = app_with(state_in(dir.path()));
     let got: Arc<Mutex<Vec<String>>> = Arc::default();
     let sink = Arc::clone(&got);
@@ -788,7 +798,7 @@ fn refused_connecting(port: u16) -> bool {
 
 #[test]
 fn turning_off_stops_the_server_even_if_it_cannot_be_saved() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -809,7 +819,7 @@ fn turning_off_stops_the_server_even_if_it_cannot_be_saved() {
 
 #[test]
 fn off_that_could_not_be_saved_is_saved_by_a_later_action() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -824,7 +834,7 @@ fn off_that_could_not_be_saved_is_saved_by_a_later_action() {
 
 #[test]
 fn off_that_could_not_be_saved_is_saved_at_shutdown() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -838,7 +848,7 @@ fn off_that_could_not_be_saved_is_saved_at_shutdown() {
 
 #[test]
 fn revoking_with_both_stores_failing_stops_the_key_and_can_be_tried_again() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -877,7 +887,7 @@ fn revoking_with_both_stores_failing_stops_the_key_and_can_be_tried_again() {
 
 #[test]
 fn a_key_stays_refused_when_the_server_is_moved_after_a_failed_revoke() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     set(&w, true, free_port());
     let (id, key, _) = create(&w, "Reader");
@@ -897,7 +907,7 @@ fn a_key_stays_refused_when_the_server_is_moved_after_a_failed_revoke() {
 
 #[test]
 fn revoking_with_only_settings_failing_keeps_the_key_out_after_restart() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let port = free_port();
     let key;
     {
@@ -926,7 +936,7 @@ fn revoking_with_only_settings_failing_keeps_the_key_out_after_restart() {
 
 #[test]
 fn revoking_with_only_the_keychain_failing_is_retried_at_the_next_start() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let id;
     {
         let (app, w) = app_with(state_in(dir.path()));
@@ -955,7 +965,7 @@ fn revoking_with_only_the_keychain_failing_is_retried_at_the_next_start() {
 
 #[test]
 fn a_failed_revoke_is_finished_by_later_actions() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -976,7 +986,7 @@ fn a_failed_revoke_is_finished_by_later_actions() {
 
 #[test]
 fn a_failed_revoke_is_finished_at_shutdown() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (app, w) = app_with(state_in(dir.path()));
     set(&w, true, free_port());
     let id = create(&w, "Reader").0;
@@ -993,7 +1003,7 @@ fn a_failed_revoke_is_finished_at_shutdown() {
 
 #[test]
 fn revoking_the_connection_an_error_names_clears_the_error() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let port = free_port();
     let (id, other) = {
         let (app, w) = app_with(state_in(dir.path()));
@@ -1023,7 +1033,7 @@ fn revoking_the_connection_an_error_names_clears_the_error() {
 
 #[test]
 fn moving_to_a_taken_port_keeps_the_working_server() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -1046,7 +1056,7 @@ fn moving_to_a_taken_port_keeps_the_working_server() {
 
 #[test]
 fn moving_when_the_move_cannot_be_saved_keeps_the_working_server() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -1073,7 +1083,7 @@ fn moving_when_the_move_cannot_be_saved_keeps_the_working_server() {
 
 #[test]
 fn connection_names_are_trimmed_short_and_plain_and_not_repeated() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let make = |name: String| invoke(&w, "agent_connection_create", json!({ "name": name }));
     let message = |e: Value| e["message"].as_str().unwrap().to_string();
@@ -1108,7 +1118,7 @@ fn connection_names_are_trimmed_short_and_plain_and_not_repeated() {
 
 #[test]
 fn a_stored_hash_with_a_sign_is_not_a_hash() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     std::fs::create_dir_all(dir.path()).unwrap();
     let id = Uuid::from_u128(5);
     let signed = "+a".repeat(32);
@@ -1181,7 +1191,7 @@ fn tool_bare(port: u16, name: &str, arguments: Value) -> Value {
 
 #[test]
 fn a_new_state_asks_for_no_key_and_access_is_still_off() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (app, w) = app_with(state_in(dir.path()));
     agent_access::resume(app.handle());
     let state = state_of(&w);
@@ -1193,7 +1203,7 @@ fn a_new_state_asks_for_no_key_and_access_is_still_off() {
     // Whether something else (the owner's own app) holds the default port must not matter, so the proof that
     // starting up with access off opens no listener is made on a port nobody holds.
     let port = free_port();
-    let other = tempfile::tempdir().unwrap();
+    let other = canonical_tempdir();
     let config = other.path().join("config");
     std::fs::create_dir_all(&config).unwrap();
     std::fs::write(
@@ -1216,7 +1226,7 @@ fn a_new_state_asks_for_no_key_and_access_is_still_off() {
 
 #[test]
 fn an_old_settings_file_reads_as_no_key_required_with_access_still_off() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let config = dir.path().join("config");
     std::fs::create_dir_all(&config).unwrap();
     // As an earlier build wrote it: no requireKey anywhere.
@@ -1241,7 +1251,7 @@ fn an_old_settings_file_reads_as_no_key_required_with_access_still_off() {
 
 #[test]
 fn an_old_settings_file_with_access_on_comes_back_keyless() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let port = free_port();
     let config = dir.path().join("config");
     std::fs::create_dir_all(&config).unwrap();
@@ -1259,7 +1269,7 @@ fn an_old_settings_file_with_access_on_comes_back_keyless() {
 #[test]
 fn a_settings_file_that_cannot_be_read_gives_defaults_with_access_off() {
     // Existing behaviour kept: an unreadable or malformed file is the defaults, so access is off.
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let config = dir.path().join("config");
     std::fs::create_dir_all(&config).unwrap();
     for text in [
@@ -1275,7 +1285,7 @@ fn a_settings_file_that_cannot_be_read_gives_defaults_with_access_off() {
 
 #[test]
 fn without_a_key_a_request_runs_as_the_builtin_agent_that_the_log_lists() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let project = empty_project(dir.path());
     let state = state_in(dir.path());
     open(&state, &project);
@@ -1309,7 +1319,7 @@ fn without_a_key_a_request_runs_as_the_builtin_agent_that_the_log_lists() {
 
 #[test]
 fn without_a_key_a_valid_key_keeps_its_connection_name_and_a_bad_one_is_refused() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let project = empty_project(dir.path());
     let state = state_in(dir.path());
     open(&state, &project);
@@ -1359,7 +1369,7 @@ fn without_a_key_a_valid_key_keeps_its_connection_name_and_a_bad_one_is_refused(
 
 #[test]
 fn requiring_a_key_refuses_the_next_request_and_not_requiring_lets_it_in_again() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -1387,7 +1397,7 @@ fn requiring_a_key_refuses_the_next_request_and_not_requiring_lets_it_in_again()
 
 #[test]
 fn the_requirement_survives_a_restart_and_a_stop() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let port = free_port();
     {
         let (app, w) = app_with(state_in(dir.path()));
@@ -1408,7 +1418,7 @@ fn the_requirement_survives_a_restart_and_a_stop() {
 
 #[test]
 fn stopping_closes_the_door_for_a_request_with_no_key_too() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -1424,7 +1434,7 @@ fn stopping_closes_the_door_for_a_request_with_no_key_too() {
 
 #[test]
 fn no_connection_can_take_the_builtin_agents_name_in_either_language() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     for name in [
         " agent WITHOUT a key ",
@@ -1449,7 +1459,7 @@ fn no_connection_can_take_the_builtin_agents_name_in_either_language() {
 #[test]
 fn a_connection_that_already_had_the_name_still_works_under_its_own_id() {
     // Made before the name was reserved: it is in the file and keeps working.
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let project = empty_project(dir.path());
     let config = dir.path().join("config");
     let id = Uuid::from_u128(5);
@@ -1500,7 +1510,7 @@ fn a_connection_that_already_had_the_name_still_works_under_its_own_id() {
 
 #[test]
 fn a_batch_names_its_agent_by_id() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let project = empty_project(dir.path());
     let state = state_in(dir.path());
     open(&state, &project);
@@ -1515,7 +1525,7 @@ fn a_batch_names_its_agent_by_id() {
 
 #[test]
 fn a_key_that_could_not_be_saved_is_not_hidden_by_access_being_off() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     // Access off from the start, and nothing about it unsaved: only the key is.
     break_settings(dir.path());
@@ -1528,7 +1538,7 @@ fn a_key_that_could_not_be_saved_is_not_hidden_by_access_being_off() {
 
 #[test]
 fn both_failed_saves_are_said_together() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -1543,7 +1553,7 @@ fn both_failed_saves_are_said_together() {
 
 #[test]
 fn requiring_a_key_stops_a_request_already_past_its_head() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -1563,7 +1573,7 @@ fn requiring_a_key_stops_a_request_already_past_its_head() {
 
 #[test]
 fn requiring_a_key_that_cannot_be_saved_applies_now_says_so_and_can_be_tried_again() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -1589,7 +1599,7 @@ fn requiring_a_key_that_cannot_be_saved_applies_now_says_so_and_can_be_tried_aga
 
 #[test]
 fn a_requirement_that_could_not_be_saved_is_saved_by_a_later_action() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -1603,7 +1613,7 @@ fn a_requirement_that_could_not_be_saved_is_saved_by_a_later_action() {
 
 #[test]
 fn not_requiring_a_key_applies_only_once_it_is_saved() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -1621,7 +1631,7 @@ fn not_requiring_a_key_applies_only_once_it_is_saved() {
 
 #[test]
 fn without_a_key_a_web_page_and_a_wrong_host_are_still_refused() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let (_app, w) = app_with(state_in(dir.path()));
     let port = free_port();
     set(&w, true, port);
@@ -1644,7 +1654,7 @@ fn without_a_key_a_web_page_and_a_wrong_host_are_still_refused() {
 
 #[test]
 fn without_a_key_the_agent_still_cannot_change_who_is_alive_or_claim_a_name() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = canonical_tempdir();
     let project = empty_project(dir.path());
     let state = state_in(dir.path());
     open(&state, &project);

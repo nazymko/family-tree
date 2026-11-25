@@ -101,7 +101,7 @@ struct Family {
 }
 
 fn family() -> Family {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let proj = dir.path().join("owner");
     drop(Project::create(&proj).unwrap());
     let mut owner = open_at(&proj, NOW_MS);
@@ -515,7 +515,7 @@ fn a_merge_undone_but_left_in_the_ledger_is_offered_again() {
 #[test]
 fn a_tree_that_is_not_a_copy_of_this_one_is_refused() {
     let mut f = family();
-    let other = tempfile::tempdir().unwrap();
+    let other = common::canonical_tempdir();
     let proj = other.path().join("other");
     drop(Project::create(&proj).unwrap());
     let mut o = open_at(&proj, NOW_MS);
@@ -618,7 +618,7 @@ fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
 #[test]
 fn hostile_zips_are_refused_in_plain_words() {
     let mut f = family();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     type Entries<'a> = Vec<(&'a str, &'a [u8])>;
     let cases: Vec<(&str, Entries)> = vec![
         ("traversal", vec![("tree.db", b"x"), ("../evil.txt", b"x")]),
@@ -677,7 +677,7 @@ fn a_database_with_triggers_is_refused() {
 #[test]
 fn a_zip_bomb_is_refused() {
     let mut f = family();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let zip = dir.path().join("bomb.zip");
     let big = vec![0u8; 64 << 20];
     use std::io::Write;

@@ -73,7 +73,7 @@ fn med<T>(n: usize, mut f: impl FnMut() -> T) -> Duration {
 fn run(people: usize, families: usize, writes: usize, notes: usize) {
     let tree = synthetic_tree(people, families);
     let ids: Vec<Uuid> = tree.persons.keys().copied().collect();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let proj = dir.path().join("project");
     let mut p = Project::create(&proj).unwrap();
     p.save_tree(&tree, today()).unwrap();
@@ -197,7 +197,7 @@ fn five_thousand_people() {
 fn reading_who_is_unreviewed_and_the_batches_does_not_scan_the_log_per_group() {
     let tree = synthetic_tree(85, 30);
     let ids: Vec<Uuid> = tree.persons.keys().copied().collect();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::canonical_tempdir();
     let proj = dir.path().join("project");
     let mut p = Project::create(&proj).unwrap();
     p.save_tree(&tree, today()).unwrap();

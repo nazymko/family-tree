@@ -171,7 +171,7 @@ fn heavy_twenty_people_of_a_5000_person_tree() {
     let tree = synthetic_tree(5_000, 1_500);
     let mut ids: Vec<_> = tree.persons.keys().copied().collect();
     ids.sort();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = common::link_free_tempdir();
     let proj = dir.path().join("project");
     let mut p = Project::create(&proj).unwrap();
     p.save_tree(&tree, 2_461_000).unwrap();
