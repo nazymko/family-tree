@@ -56,6 +56,8 @@ if ($Release) {
     throw "GT_KEYSTORE points to a missing file: $($env:GT_KEYSTORE)"
   }
 }
+# Rust outputs go to CARGO_TARGET_DIR when set (e.g. a data drive), else <repo>/target.
+$targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $root 'target' }
 $profileName = if ($Release) { 'release' } else { 'debug' }
 
 if (-not (Test-Path (Join-Path $android 'gradlew.bat'))) {
@@ -66,7 +68,7 @@ if (-not (Test-Path (Join-Path $android 'gradlew.bat'))) {
 foreach ($abi in $Abis) {
   $m = $map[$abi]
   if (-not $m) { throw "Unknown ABI $abi" }
-  $lib = Join-Path $root "target/$($m.triple)/$profileName/libgt_app_lib.so"
+  $lib = Join-Path $targetDir "$($m.triple)/$profileName/libgt_app_lib.so"
   Push-Location $app
   try {
     $npmArgs = @('run', 'tauri', '--', 'android', 'build', '--apk', '--target', $m.tauri)

@@ -16,6 +16,8 @@ pwsh scripts/android-build.ps1 -Abis arm64-v8a  # one ABI
 The APK is `app/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`.
 `npm --prefix app run tauri -- android build --debug --apk` also works when Windows Developer Mode is on (Tauri links
 the library with a symbolic link, which Windows refuses otherwise; the script copies the library instead).
+The script honours `CARGO_TARGET_DIR` (e.g. `E:/gene-tree-target/android`) when it looks for the built library, so Rust
+output can live on another drive; no Developer Mode is needed because the symlink failure is ignored and the library is copied.
 
 Install and start: `adb install -r <apk>` then `adb shell am start -n app.gene_tree.desktop/.MainActivity`.
 
