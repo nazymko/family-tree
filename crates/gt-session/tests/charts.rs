@@ -724,22 +724,31 @@ fn relatives_show_all_is_bounded_on_a_big_tree() {
     // 160 children with 160 children each: about 25.8k people, more than MAX_NODES.
     let mut recs = vec![indi(1, "Root /R/", "M", "")];
     let mut n = 1000u32;
-    let mut fams = String::from("0 @F0@ FAM
+    let mut fams = String::from(
+        "0 @F0@ FAM
 1 HUSB @I1@
-");
+",
+    );
     let mut kids = Vec::new();
     for i in 0..160u32 {
         let c = 2 + i;
         recs.push(indi(c, &format!("C{i} /R/"), "M", ""));
-        fams.push_str(&format!("1 CHIL @I{c}@
-"));
-        let mut f = format!("0 @F{}@ FAM
+        fams.push_str(&format!(
+            "1 CHIL @I{c}@
+"
+        ));
+        let mut f = format!(
+            "0 @F{}@ FAM
 1 HUSB @I{c}@
-", 200 + i);
+",
+            200 + i
+        );
         for _ in 0..160 {
             recs.push(indi(n, &format!("G{n} /R/"), "U", ""));
-            f.push_str(&format!("1 CHIL @I{n}@
-"));
+            f.push_str(&format!(
+                "1 CHIL @I{n}@
+"
+            ));
             n += 1;
         }
         kids.push(f);
@@ -750,7 +759,10 @@ fn relatives_show_all_is_bounded_on_a_big_tree() {
     let t = std::time::Instant::now();
     let m = s.chart_open(&relatives_req(&s, "Root R", 255)).unwrap();
     let took = t.elapsed();
-    eprintln!("relatives show-all on {n} people: {} nodes in {took:?}", m.node_count);
+    eprintln!(
+        "relatives show-all on {n} people: {} nodes in {took:?}",
+        m.node_count
+    );
     assert!(m.node_count > 1000 && m.node_count as usize <= gt_session::chart::MAX_NODES);
     assert!(took < std::time::Duration::from_secs(20), "{took:?}");
 }

@@ -14,7 +14,10 @@ use gt_layout::{AroundBase, Direction, EdgeKind, Key, Layout, Metrics, around_op
 struct Rng(u64);
 impl Rng {
     fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         self.0 >> 33
     }
     fn below(&mut self, n: u64) -> u64 {
@@ -49,7 +52,11 @@ impl Gen {
             return;
         }
         let sp = self.new_key();
-        let n = if big { 2 + self.r.below(5) } else { self.r.below(5) };
+        let n = if big {
+            2 + self.r.below(5)
+        } else {
+            self.r.below(5)
+        };
         let kids: Vec<Key> = (0..n).map(|_| self.new_key()).collect();
         self.s.family(Some(p), Some(sp), &kids);
         for &k in &kids {
@@ -60,8 +67,20 @@ impl Gen {
 
 /// Root 1; Ahnentafel ancestors down to `gens` generations, some lines ending early; each ancestor with a sibling group
 /// of uneven size (a few large leaf groups that fold, most small), siblings with families of uneven depth.
-fn tree(seed: u64, gens: u32, sib_max: u64, big_branches: &[Key], marry: u64) -> (MapSource, usize) {
-    let mut g = Gen { s: MapSource::default(), next: 100_000, r: Rng(seed), people: 1, marry };
+fn tree(
+    seed: u64,
+    gens: u32,
+    sib_max: u64,
+    big_branches: &[Key],
+    marry: u64,
+) -> (MapSource, usize) {
+    let mut g = Gen {
+        s: MapSource::default(),
+        next: 100_000,
+        r: Rng(seed),
+        people: 1,
+        marry,
+    };
     let last: Key = (1 << gens) - 1;
     // Lines that stop early: a few ancestors without parents.
     let mut has_parents = vec![false; (last + 1) as usize];
@@ -85,7 +104,13 @@ fn tree(seed: u64, gens: u32, sib_max: u64, big_branches: &[Key], marry: u64) ->
         }
         g.people += 2;
         let gen_level = 31 - n.leading_zeros(); // 0 for root
-        let sibs = if n == 1 { 3 } else if g.r.chance(15) { 10 + g.r.below(sib_max) } else { g.r.below(6) };
+        let sibs = if n == 1 {
+            3
+        } else if g.r.chance(15) {
+            10 + g.r.below(sib_max)
+        } else {
+            g.r.below(6)
+        };
         let mut kids: Vec<Key> = (0..sibs).map(|_| g.new_key()).collect();
         let at = g.r.below(kids.len() as u64 + 1) as usize;
         kids.insert(at, n);
@@ -123,7 +148,13 @@ fn json(l: &Layout) -> String {
         let _ = write!(
             out,
             "{sep}{{\"id\":{},\"key\":{},\"x\":{},\"y\":{},\"w\":{},\"h\":{},\"gen\":{},\"dupOf\":{dup}}}",
-            n.id, n.key, r1(n.rect.x), r1(n.rect.y), r1(n.rect.w), r1(n.rect.h), n.r#gen
+            n.id,
+            n.key,
+            r1(n.rect.x),
+            r1(n.rect.y),
+            r1(n.rect.w),
+            r1(n.rect.h),
+            n.r#gen
         );
     }
     out.push_str("],\"edges\":[");
@@ -136,7 +167,13 @@ fn json(l: &Layout) -> String {
             EdgeKind::Dup => "dup",
         };
         let pts: Vec<String> = e.pts.iter().map(|&v| r1(v).to_string()).collect();
-        let _ = write!(out, "{sep}{{\"from\":{},\"to\":{},\"kind\":\"{kind}\",\"pts\":[{}]}}", e.from, e.to, pts.join(","));
+        let _ = write!(
+            out,
+            "{sep}{{\"from\":{},\"to\":{},\"kind\":\"{kind}\",\"pts\":[{}]}}",
+            e.from,
+            e.to,
+            pts.join(",")
+        );
     }
     out.push_str("]}");
     out
@@ -145,9 +182,13 @@ fn json(l: &Layout) -> String {
 #[test]
 #[ignore = "writes app fixtures: FAM_FIXTURES_DIR=<dir>"]
 fn write_fam_fixtures() {
-    let Ok(dir) = std::env::var("FAM_FIXTURES_DIR") else { return };
+    let Ok(dir) = std::env::var("FAM_FIXTURES_DIR") else {
+        return;
+    };
     std::fs::create_dir_all(&dir).unwrap();
-    let cases: [(&str, u64, u32, u64, &[Key], u64); 4] = [
+    // (name, seed, generations, siblings, big-family generations, marry percent)
+    type Case = (&'static str, u64, u32, u64, &'static [Key], u64);
+    let cases: [Case; 4] = [
         ("fam-a", 11, 6, 8, &[5], 55),
         ("fam-b", 23, 6, 10, &[4], 30),
         ("fam-c", 37, 5, 12, &[2, 3], 40),
@@ -155,7 +196,12 @@ fn write_fam_fixtures() {
     ];
     for (name, seed, gens, sib, big, marry) in cases {
         let (s, n) = tree(seed, gens, sib, big, marry);
-        for (dn, d) in [("top", Direction::Top), ("bottom", Direction::Bottom), ("left", Direction::Left), ("right", Direction::Right)] {
+        for (dn, d) in [
+            ("top", Direction::Top),
+            ("bottom", Direction::Bottom),
+            ("left", Direction::Left),
+            ("right", Direction::Right),
+        ] {
             let m = Metrics::compact().for_direction(Direction::Top, d);
             let mut l = around_open(&s, 1, 255, AroundBase::All, &[], true, &m, 100_000);
             l.orient(Direction::Top, d);
