@@ -144,6 +144,10 @@ fn write_needs_batch() {
         ),
         ("add_place", json!({"name": "Zelenivka"})),
         ("merge_places", json!({"keep_id": id, "merge_ids": [id]})),
+        (
+            "merge_people",
+            json!({"keep_id": id, "merge_id": id, "reason": "x"}),
+        ),
         ("delete_place", json!({"place_id": id})),
         ("move_place", json!({"place_id": id, "new_parent_id": null})),
         ("update_place", json!({"place_id": id})),
@@ -1487,6 +1491,7 @@ fn only_the_tools_named_here_can_write() {
             "move_place",
             "update_place",
             "merge_places",
+            "merge_people",
         ]
     );
 }

@@ -149,6 +149,19 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
             ),
             call: merge_places::<H>,
         },
+        Tool {
+            name: "merge_people",
+            description: "Merges a duplicate person (merge_id) into the person who stays (keep_id), in one step the owner can undo with the batch (the log has one change group, Merge people). Everything of the merged person moves to keep_id: family links as child, partner and parent (the same couple in two families becomes one family), events, all names (kept as alternative names), notes, citations, pictures with their regions, godparent links in both directions, and numbers. The merged person is then removed. Merge only when the evidence that they are the same person is clear: the same parents or the same spouse and matching dates. Give that evidence in reason (required); it is kept in the log and in a research note on keep_id. When the evidence is doubtful, do not merge: list the pair in your report. Refused, with the reason, when the ids are equal or unknown, when one is an ancestor of the other, when the two have different recorded sexes (unless one is unknown), when the two are partners of one family, when merge_id is the owner's home person, or when the merge would make anyone count as alive who counted as dead. If either counted as dead, the result counts as dead. The answer counts what moved and lists conflicts to look at, such as two different birth dates kept as two events.",
+            schema: with_batch(
+                &["keep_id", "merge_id", "reason"],
+                json!({
+                    "keep_id": {"type": "string", "description": "The id of the person who stays."},
+                    "merge_id": {"type": "string", "description": "The id of the duplicate to merge into it; this person is removed."},
+                    "reason": {"type": "string", "maxLength": 1000, "description": "The evidence that they are the same person: same parents or spouse, matching dates, the record that shows it."},
+                }),
+            ),
+            call: merge_people::<H>,
+        },
     ]
 }
 
@@ -355,6 +368,40 @@ fn merge_places<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
             "citations": c.citations,
             "pictures": c.pictures,
         },
+    }))
+}
+
+fn merge_people<H: Host>(host: &H, ctx: &AgentCtx, args: &Value) -> ToolResult {
+    let batch = batch_arg(args)?;
+    let keep = uuid_arg(args, "keep_id")?;
+    let merge = uuid_arg(args, "merge_id")?;
+    let reason = long(args, "reason")?
+        .filter(|r| !r.trim().is_empty())
+        .ok_or_else(|| {
+            invalid("reason must give the evidence that the two are the same person.".into())
+        })?;
+    let (outcome, reached) = host.with_session(&mut |s: &mut Session| {
+        s.merge_people_as_agent(keep, merge, &reason, ctx, batch)
+    })?;
+    host.changed(&reached, ctx);
+    let c = &outcome.counts;
+    answer(&json!({
+        "id": keep,
+        "removed": merge,
+        "moved": {
+            "names": c.names,
+            "events": c.events,
+            "eventsFoldedIntoEqualOnes": c.events_folded,
+            "familiesAsPartner": c.families_as_partner,
+            "familiesAsChild": c.families_as_child,
+            "familiesFoldedIntoSameCouple": c.families_folded,
+            "godparentLinks": c.godparent_links,
+            "notes": c.notes,
+            "citations": c.citations,
+            "pictures": c.pictures,
+            "numbers": c.numbers,
+        },
+        "conflicts": outcome.conflicts,
     }))
 }
 

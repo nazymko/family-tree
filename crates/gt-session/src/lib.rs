@@ -41,8 +41,9 @@ mod web_links;
 
 pub use agent::{
     AGENT_AUDIO_MAX, AGENT_FILE_MAX, AGENT_PDF_MAX, AgentCtx, AgentFile, AgentWrite,
-    EventCorrection, NameCorrection, PLACE_MERGE_MAX, PLACE_NAMES_MAX, PlaceEdit,
-    PlaceMergeOutcome, VerifiedEvidence, check_agent_file, check_agent_path, prepare_agent_file,
+    EventCorrection, NameCorrection, PLACE_MERGE_MAX, PLACE_NAMES_MAX, PeopleMergeCounts,
+    PeopleMergeOutcome, PlaceEdit, PlaceMergeOutcome, VerifiedEvidence, check_agent_file,
+    check_agent_path, prepare_agent_file,
 };
 pub use command::{
     CitationArg, CitationInput, CitationPatch, CloneOf, DeleteImpact, DraftFamily, DraftPerson,
