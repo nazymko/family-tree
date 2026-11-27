@@ -10,6 +10,7 @@ pub mod gazetteer;
 pub mod mobile;
 pub mod protocol;
 pub mod settings_file;
+pub mod startup;
 pub mod state;
 
 use state::AppState;
@@ -87,6 +88,13 @@ pub fn run() {
             };
             #[cfg(not(debug_assertions))]
             let state = AppState::new(dir);
+            // Open the tree before the page and the agent server start, so both find it open.
+            // A second launch never gets here (the single-instance plugin stops it first).
+            #[cfg(desktop)]
+            let cli = startup::cli_path(std::env::args().skip(1));
+            #[cfg(not(desktop))]
+            let cli: Option<String> = None;
+            startup::run(&state, cli.as_deref());
             app.manage(state);
             // Scratch copies of a merge that did not finish hold a whole, unfiltered tree.
             // A test copy leaves the shared temp folder alone: the owner's own app may be in the middle of a merge.

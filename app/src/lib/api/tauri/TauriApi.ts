@@ -1,6 +1,6 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Api } from '../api';
+import type { Api, StartupOutcome } from '../api';
 import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus } from '../types';
 import type {
   BatchDto,
@@ -87,6 +87,10 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 
 /** The real backend: every method is one Tauri command named in snake_case. */
 export class TauriApi implements Api {
+  startupOutcome(): Promise<StartupOutcome> {
+    return call('startup_outcome');
+  }
+
   recentProjects(): Promise<RecentProject[]> {
     return call('recent_projects');
   }

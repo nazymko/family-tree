@@ -43,6 +43,7 @@ macro_rules! command_list {
 
 command_list!(
     recent_projects,
+    startup_outcome,
     create_project,
     open_project,
     close_project,
@@ -171,6 +172,7 @@ fn app_patch(state: &AppState) -> SettingsPatch {
         theme: Some(s.theme),
         language: Some(s.language),
         backups_to_keep: Some(s.backups_to_keep),
+        reopen_last: Some(s.reopen_last),
         chart_directions: Some(s.chart_directions),
         ..SettingsPatch::default()
     }
@@ -290,6 +292,12 @@ pub fn location_warning(dir: &Path) -> Option<LocationWarningDto> {
             provider: None,
         },
     })
+}
+
+/// What the start-up auto-open did; the page takes it once and shows the tree or the message.
+#[tauri::command(async)]
+pub fn startup_outcome(state: State<'_, AppState>) -> Option<crate::startup::StartupOutcome> {
+    AppState::lock(&state.startup).take()
 }
 
 #[tauri::command(async)]
@@ -1295,6 +1303,7 @@ pub struct SettingsPatchWire {
     pub theme: Option<gt_session::Theme>,
     pub language: Option<gt_session::Language>,
     pub backups_to_keep: Option<u32>,
+    pub reopen_last: Option<bool>,
     pub chart_directions: Option<gt_session::ChartDirections>,
     pub living_max_age: Option<u32>,
     #[serde(deserialize_with = "some_or_null")]
@@ -1317,6 +1326,7 @@ pub fn get_settings_impl(state: &AppState) -> Settings {
         theme: a.theme,
         language: a.language,
         backups_to_keep: a.backups_to_keep,
+        reopen_last: a.reopen_last,
         chart_directions: a.chart_directions,
         ..Settings::default()
     }
@@ -1345,6 +1355,7 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
             theme: patch.theme,
             language: patch.language,
             backups_to_keep: patch.backups_to_keep,
+            reopen_last: patch.reopen_last,
             chart_directions: patch.chart_directions,
             living_max_age: patch.living_max_age,
             home_person: patch.home_person,
@@ -1368,6 +1379,9 @@ pub fn set_settings_impl(state: &AppState, patch: SettingsPatchWire) -> ApiResul
         }
         if let Some(v) = patch.backups_to_keep {
             a.backups_to_keep = v;
+        }
+        if let Some(v) = patch.reopen_last {
+            a.reopen_last = v;
         }
         if let Some(v) = patch.chart_directions {
             a.chart_directions = v;

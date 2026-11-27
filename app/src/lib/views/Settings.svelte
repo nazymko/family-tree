@@ -3,6 +3,7 @@
   const [FSI, LRI, PDI] = [0x2068, 0x2066, 0x2069].map((c) => String.fromCharCode(c));
   import { errMessage } from '../editors/errors';
   import Select from '../ui/Select.svelte';
+  import Checkbox from '../ui/Checkbox.svelte';
   import TextField from '../ui/TextField.svelte';
   import Combobox from '../ui/Combobox.svelte';
   import Banner from '../ui/Banner.svelte';
@@ -168,6 +169,11 @@
         />
       {/each}
     </fieldset>
+    <Checkbox
+      label={t('settings.reopenLast')}
+      checked={settings.value.reopenLast}
+      onchange={(v) => change({ reopenLast: v })}
+    />
     <TextField label={t('settings.backups')} type="number" min="1" max="50" bind:value={backups} onchange={commitBackups} />
   </div>
   {#if platform.isMobile}

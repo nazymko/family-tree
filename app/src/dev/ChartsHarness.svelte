@@ -12,6 +12,7 @@
   import Descendants from '../lib/views/Descendants.svelte';
   import WholeCanvas from '../lib/chart/WholeCanvas.svelte';
   import { setLanguage } from '../lib/i18n';
+  import { branchesPref } from '../lib/chart/branchesPref.svelte';
 
   const q = new URLSearchParams(location.search);
   const fx = fixtureTree(500);
@@ -24,6 +25,13 @@
   if (q.get('theme') === 'dark' || q.get('theme') === 'light') applyTheme(q.get('theme') as 'dark' | 'light');
   try {
     localStorage.setItem('gt.chartView', q.get('mode') ?? 'chart');
+  } catch {
+    // Storage is optional here.
+  }
+  try {
+    // ?branches=1 turns the "families as branches" display on, ?branches=0 off.
+    if (q.get('branches') !== null) localStorage.setItem('gt.chartBranches', q.get('branches') === '1' ? '1' : '0');
+    branchesPref.reload();
   } catch {
     // Storage is optional here.
   }
