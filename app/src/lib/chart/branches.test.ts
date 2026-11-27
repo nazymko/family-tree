@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ChartEdge, ChartNode } from '../api/types';
 import { makeApi, richestRoot, BIG } from './testing/helpers';
-import { TWIG_SAMPLES, planBranches, sCurve, type Family } from './branches';
+import { TWIG_SAMPLES, limb, planBranches, sCurve, type Family } from './branches';
+import { boughWidth } from './renderer';
 
 /** A top-down family line as the layouts draw it: down from the junction, across, down onto the child. */
 function zEdge(from: number, to: number, sx: number, sy: number, cx: number, top: number): ChartEdge {
@@ -51,6 +52,19 @@ describe('planBranches', () => {
     expect(Math.abs(pts[pts.length - 2] - pts[pts.length - 4])).toBeLessThan(2);
     const across = sCurve([0, 0], [100, 80], 'x');
     expect(Math.abs(across[3] - across[1])).toBeLessThan(2);
+  });
+
+  it('forks_a_limb_off_the_bough_and_drops_it_onto_the_card', () => {
+    const pts = limb([0, 0], [100, 80], 'y');
+    // Leaves the knot sideways (first step mostly along x), arrives straight down onto the card.
+    expect(pts[2] - pts[0]).toBeGreaterThan(Math.abs(pts[3] - pts[1]));
+    expect(Math.abs(pts[pts.length - 2] - pts[pts.length - 4])).toBeLessThan(2);
+    for (let i = 0; i < pts.length; i += 2) {
+      expect(pts[i]).toBeGreaterThanOrEqual(0);
+      expect(pts[i]).toBeLessThanOrEqual(100);
+      expect(pts[i + 1]).toBeGreaterThanOrEqual(0);
+      expect(pts[i + 1]).toBeLessThanOrEqual(80);
+    }
   });
 
   it('keeps_the_corners_of_a_line_of_another_shape', () => {
@@ -104,9 +118,37 @@ describe('the branches of a chart built around a person (synthetic tree)', () =>
     });
   }
 
+  it('never_extends_a_bough_beyond_its_own_junction_and_children', async () => {
+    const { edges } = await aroundScene('all');
+    for (const f of planBranches(edges)) {
+      const lines = edges.filter((e) => (e.kind === 'parent' || e.kind === 'sibling') && e.from === f.from && e.pts[0] === f.bough[0] && e.pts[1] === f.bough[1]);
+      const xs = [f.bough[0], ...lines.map((e) => e.pts[e.pts.length - 2])];
+      const lo = Math.min(...xs);
+      const hi = Math.max(...xs);
+      const all = [f.bough, ...f.twigs.map((t) => t.pts)];
+      for (const pts of all) {
+        for (let i = 0; i < pts.length; i += 2) {
+          expect(pts[i]).toBeGreaterThanOrEqual(lo - 0.01);
+          expect(pts[i]).toBeLessThanOrEqual(hi + 0.01);
+        }
+      }
+      expect(f.twigs).toHaveLength(lines.length);
+    }
+  });
+
   it('gives_the_same_plan_every_time', async () => {
     const a = await aroundScene('all');
     const b = await aroundScene('all');
     expect(planBranches(a.edges)).toEqual(planBranches(b.edges));
+  });
+});
+
+describe('the thickness of a bough', () => {
+  it('is_thickest_under_the_centre_and_thinner_every_generation', () => {
+    const w = [0, 1, 2, 3, 4, 8].map((g) => boughWidth(g));
+    for (let i = 1; i < w.length; i++) expect(w[i]).toBeLessThanOrEqual(w[i - 1]);
+    expect(w[0]).toBeGreaterThan(w[3]);
+    expect(boughWidth(-2)).toBe(boughWidth(2));
+    expect(w[5]).toBeGreaterThan(0);
   });
 });

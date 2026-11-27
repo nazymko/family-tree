@@ -61,6 +61,33 @@ export function sCurve(a: [number, number], b: [number, number], axis: 'x' | 'y'
 }
 
 /**
+ * The limb from `a` (the knot) to `b` (a child's card): it leaves the knot across the bough's `axis` and turns into
+ * the child along that axis, so it forks away from the bough like a branch and drops onto the card. It stays inside
+ * the box of `a` and `b`, where the layout keeps the cards clear.
+ */
+export function limb(a: [number, number], b: [number, number], axis: 'x' | 'y', n: number = TWIG_SAMPLES): number[] {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const c1: [number, number] = axis === 'y' ? [a[0] + dx * 0.6, a[1]] : [a[0], a[1] + dy * 0.6];
+  const c2: [number, number] = axis === 'y' ? [b[0], b[1] - dy * 0.6] : [b[0] - dx * 0.6, b[1]];
+  const out: number[] = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const u = 1 - t;
+    const w0 = u * u * u;
+    const w1 = 3 * u * u * t;
+    const w2 = 3 * u * t * t;
+    const w3 = t * t * t;
+    out.push(w0 * a[0] + w1 * c1[0] + w2 * c2[0] + w3 * b[0], w0 * a[1] + w1 * c1[1] + w2 * c2[1] + w3 * b[1]);
+  }
+  out[0] = a[0];
+  out[1] = a[1];
+  out[out.length - 2] = b[0];
+  out[out.length - 1] = b[1];
+  return out;
+}
+
+/**
  * The families among a set of edges, as branches. Families come out in the order of their first edge and twigs in the
  * order of the edges; nothing depends on anything but the edges.
  */
@@ -90,7 +117,7 @@ export function planBranches(edges: readonly ChartEdge[]): Family[] {
       p.length === 8 &&
       vertical !== horizontal &&
       (vertical ? same(p[4], p[6]) && same(p[5], p[3]) : same(p[5], p[7]) && same(p[4], p[2]));
-    if (z) fam.twigs.push({ to: e.to, pts: sCurve(fam.knot, [p[6], p[7]], vertical ? 'y' : 'x'), curved: true });
+    if (z) fam.twigs.push({ to: e.to, pts: limb(fam.knot, [p[6], p[7]], vertical ? 'y' : 'x'), curved: true });
     else fam.twigs.push({ to: e.to, pts: rest, curved: false });
   }
   return families;
