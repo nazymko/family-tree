@@ -181,6 +181,9 @@
     min-width: 11rem;
     padding: var(--s-2);
     display: grid;
+    align-content: start;
+    grid-auto-rows: max-content;
+    height: auto;
     background: var(--paper-1);
     border: 1px solid var(--rule);
     border-radius: var(--r-2);

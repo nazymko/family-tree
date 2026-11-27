@@ -36,7 +36,9 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === '--keep') keep = true;
   else wanted.push(args[i].replace(/\.e2e\.ts$/, '').replace(/^.*[\\/]/, ''));
 }
-const all = fs.readdirSync(specsDir).filter((f) => f.endsWith('.e2e.ts')).map((f) => f.replace(/\.e2e\.ts$/, ''));
+// Specs with their own runner (a fixture and a local server): maps is run by scripts/maps-shots.mjs, not from the synthetic tree.
+const OWN_RUNNER = new Set(['maps']);
+const all = fs.readdirSync(specsDir).filter((f) => f.endsWith('.e2e.ts') && !OWN_RUNNER.has(f.replace(/\.e2e\.ts$/, ''))).map((f) => f.replace(/\.e2e\.ts$/, ''));
 for (const w of wanted) if (!all.includes(w)) die(`no such spec: ${w}. Specs: ${all.join(', ')}`);
 const specs = (wanted.length ? wanted : all).sort((a, b) => (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99));
 if (!jobs) jobs = Math.max(2, Math.min(6, Math.floor(os.cpus().length / 2.5)));
