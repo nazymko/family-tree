@@ -45,6 +45,22 @@
     return () => opener?.focus?.();
   });
 
+  // Focus can fall to the page behind (a focused button was removed, or the engine does not focus a clicked button):
+  // Escape must still close the topmost dialog then, so listen on the window for keys that start outside the panel.
+  $effect(() => {
+    if (!open || !panel) return;
+    const el = panel;
+    const outside = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || el.contains(e.target as Node)) return;
+      const all = document.querySelectorAll('[role="dialog"]');
+      if (all[all.length - 1] !== el) return;
+      e.preventDefault();
+      onclose();
+    };
+    window.addEventListener('keydown', outside);
+    return () => window.removeEventListener('keydown', outside);
+  });
+
   function onkeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       e.preventDefault();
