@@ -1,4 +1,4 @@
-import type { Api } from '../api';
+import type { Api, StartupOutcome } from '../api';
 import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus, WholeBlockDto } from '../types';
 import type {
   ActorDto,
@@ -377,6 +377,7 @@ export class MockApi implements Api {
       theme: 'system',
       language: 'system',
       backupsToKeep: 10,
+      reopenLast: true,
       chartDirections: { ...DEFAULT_DIRECTIONS },
       livingMaxAge: 100,
       homePerson: fixture.homePerson,
@@ -385,6 +386,10 @@ export class MockApi implements Api {
   }
 
   // ---------------------------------------------------------------- projects
+
+  async startupOutcome(): Promise<StartupOutcome> {
+    return { opened: null, notice: null };
+  }
 
   async recentProjects(): Promise<RecentProject[]> {
     return [

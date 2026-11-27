@@ -293,6 +293,9 @@ impl Session {
         if let Some(v) = patch.backups_to_keep {
             self.settings.backups_to_keep = v;
         }
+        if let Some(v) = patch.reopen_last {
+            self.settings.reopen_last = v;
+        }
         if let Some(v) = patch.chart_directions {
             self.settings.chart_directions = v;
         }

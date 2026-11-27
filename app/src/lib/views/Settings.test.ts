@@ -112,4 +112,16 @@ describe('Settings', () => {
     const ar = within(box).getAllByRole('option').find((o) => o.textContent?.includes('العربية'))?.textContent ?? '';
     expect(ar).toMatch(/^⁨العربية⁩ — ⁦\d+ %⁩$/);
   });
+
+  it('reopen_last_toggle_is_on_by_default_and_saves', async () => {
+    const user = userEvent.setup();
+    const api = await mount();
+    const box = screen.getByRole('checkbox', { name: 'Reopen the last tree at startup' });
+    expect(box).toBeChecked();
+    await user.click(box);
+    expect((await api.getSettings()).reopenLast).toBe(false);
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Reopen the last tree at startup' })).not.toBeChecked());
+    await user.click(screen.getByRole('checkbox', { name: 'Reopen the last tree at startup' }));
+    expect((await api.getSettings()).reopenLast).toBe(true);
+  });
 });

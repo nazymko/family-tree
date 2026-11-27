@@ -36,6 +36,7 @@ pub struct SettingsPatch {
     pub theme: Option<Theme>,
     pub language: Option<Language>,
     pub backups_to_keep: Option<u32>,
+    pub reopen_last: Option<bool>,
     pub chart_directions: Option<ChartDirections>,
     pub living_max_age: Option<u32>,
     pub home_person: Option<Option<Uuid>>,
