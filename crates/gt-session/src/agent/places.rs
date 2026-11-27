@@ -177,6 +177,7 @@ impl Session {
         }
         let adjust = PlaceRecordAdjust {
             moves: ids.iter().map(|id| (*id, keep)).collect(),
+            person_moves: Vec::new(),
             restore_group: None,
         };
         let changed: Vec<Uuid> = cs.changes.iter().map(|c| c.id).collect();

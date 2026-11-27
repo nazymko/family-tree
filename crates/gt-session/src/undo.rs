@@ -372,6 +372,7 @@ impl Session {
             .then_some(g.group);
             let adjust = gt_store::PlaceRecordAdjust {
                 moves: Vec::new(),
+                person_moves: Vec::new(),
                 restore_group: restore,
             };
             self.commit_adjusting(&cs, Actor::User, None, &adjust)?;

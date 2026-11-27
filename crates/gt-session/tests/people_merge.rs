@@ -14,7 +14,7 @@ use uuid::Uuid;
 /// same man, entered twice. Ivan and Ioan both have a family with Maria Koval. Petro is Ivan's
 /// child, Stepan Ioan's. Ioan's death year differs by one.
 const TREE: &str = "\
-0 @I1@ INDI\n1 NAME Hryhorii /Bondar/\n1 SEX M\n1 BIRT\n2 DATE 1800\n1 DEAT\n2 DATE 1870\n1 FAMS @F1@\n\
+0 @I1@ INDI\n1 NAME Hryhorii /Bondar/\n1 SEX M\n1 BIRT\n2 DATE 1800\n2 PLAC Verbka\n1 DEAT\n2 DATE 1870\n1 FAMS @F1@\n\
 0 @I2@ INDI\n1 NAME Olha /Bondar/\n1 SEX F\n1 BIRT\n2 DATE 1805\n1 FAMS @F1@\n\
 0 @I3@ INDI\n1 NAME Ivan /Bondar/\n1 SEX M\n1 BIRT\n2 DATE 1830\n1 DEAT\n2 DATE 1900\n1 FAMC @F1@\n1 FAMS @F2@\n1 NOTE Ivan lived by the mill.\n\
 0 @I4@ INDI\n1 NAME Ioan /Bondar/\n1 NAME Yoan /Bondar/\n1 SEX M\n1 BIRT\n2 DATE 1830\n1 DEAT\n2 DATE 1901\n1 FAMC @F1@\n1 FAMS @F3@\n1 NOTE Ioan sang in the choir.\n1 SOUR @S1@\n\
@@ -396,4 +396,71 @@ fn one_undo_of_the_batch_restores_everything() {
     assert_eq!(w.s.tree().persons.len(), before.persons.len());
     assert_eq!(w.s.tree().families.len(), before.families.len());
     assert_eq!(w.s.tree().events.len(), before.events.len());
+}
+
+fn record_people(w: &World, place: Uuid) -> Vec<Option<Uuid>> {
+    w.s.place_events(&PlaceEventsQuery {
+        place,
+        ..Default::default()
+    })
+    .unwrap()
+    .items
+    .iter()
+    .filter(|e| e.source == "record")
+    .flat_map(|e| e.people.iter().map(|p| p.person))
+    .collect()
+}
+
+#[test]
+fn place_record_links_follow_the_merged_person_and_undo_brings_them_back() {
+    let mut w = world();
+    let (ivan, ioan) = (w.ivan, w.ioan);
+    let place = *w.s.tree().places.keys().next().unwrap();
+    let person = |given: &str, who: Uuid| gt_store::PlaceRecordPerson {
+        role: "child".into(),
+        given: given.into(),
+        surname: "Bondar".into(),
+        person: Some(who),
+        ..Default::default()
+    };
+    // One record names Ioan, another names both men (two entries of one book page).
+    let rec = |id: &str, people: Vec<gt_store::PlaceRecordPerson>| gt_store::PlaceRecordInput {
+        kind: "birth".into(),
+        date: "1830".into(),
+        book: "BK-1".into(),
+        page: "1".into(),
+        rec_id: id.into(),
+        people,
+        ..Default::default()
+    };
+    w.s.add_place_records(
+        place,
+        &[
+            rec("r:1", vec![person("Ioan", ioan)]),
+            rec("r:2", vec![person("Ivan", ivan), person("Ioan", ioan)]),
+        ],
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        record_people(&w, place)
+            .iter()
+            .filter(|p| **p == Some(ioan))
+            .count(),
+        2
+    );
+
+    merge(&mut w, ivan, ioan).unwrap();
+    let after = record_people(&w, place);
+    assert_eq!(after.len(), 3);
+    assert!(after.iter().all(|p| *p == Some(ivan)), "{after:?}");
+
+    w.s.undo_batch(w.batch).unwrap();
+    let back = record_people(&w, place);
+    assert_eq!(
+        back.iter().filter(|p| **p == Some(ioan)).count(),
+        2,
+        "{back:?}"
+    );
+    assert_eq!(back.iter().filter(|p| **p == Some(ivan)).count(), 1);
 }

@@ -607,7 +607,13 @@ impl Session {
             id: ctx.id,
             name: ctx.name.clone(),
         };
-        self.commit(&cs, actor, Some(batch))?;
+        // Place records that name the merged person as a participant follow in the same
+        // transaction, and come back with an undo.
+        let adjust = gt_store::PlaceRecordAdjust {
+            person_moves: vec![(merge, keep)],
+            ..Default::default()
+        };
+        self.commit_adjusting(&cs, actor, Some(batch), &adjust)?;
         for id in people_reached(&self.tree, &changed) {
             if !reached.contains(&id) {
                 reached.push(id);
