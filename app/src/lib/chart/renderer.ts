@@ -3,6 +3,7 @@ import { connectorMarks, segKey, type Marks } from './junctions';
 import type { Camera } from './camera';
 import type { ChartDirection } from './direction';
 import { HANDLE_R, handleSpots } from './hit';
+import { planBranches, type Family } from './branches';
 import { t } from '../i18n';
 import { birthSurnameText } from '../ui/birthSurname';
 import { RECORDED_FAMILY, cardName, usesOldTypeface } from '../ui/namesPref.svelte';
@@ -54,6 +55,8 @@ export interface DrawOpts {
   nameMinPx?: number;
   /** "Sheets" layout on screen: where each printed A3 sheet falls, drawn as a thin dashed frame with its label, under the cards. */
   sheetFrames?: readonly SheetFrame[];
+  /** Draw every family as a branch of a tree instead of the connector lines (the chart built around people). */
+  branches?: boolean;
   /** Draw over what is already on the canvas (several pieces of a packed A3 page): the page is not cleared first. */
   keep?: boolean;
 }
@@ -221,6 +224,78 @@ function drawDots(ctx: CanvasRenderingContext2D, dots: number[], color: string, 
   }
   ctx.fillStyle = color;
   ctx.fill();
+}
+
+/** The branches of one window's edges, planned once per window, not once per frame. */
+const branchCache = new WeakMap<ChartEdge[], Family[]>();
+
+/** Colours of the "branches" display: wood for the boughs, green for the buds where a twig meets a card. */
+export const BRANCH_WOOD = '#8A6A45';
+export const BRANCH_LEAF = '#6F9A52';
+
+/** Draws the families of the window as boughs and twigs (the "branches" display). Widths are world units, never thinner than 1.5 screen px. */
+function drawBranches(ctx: CanvasRenderingContext2D, edges: ChartEdge[], focus: number | null, zoom: number, lod: Lod): void {
+  let fams = branchCache.get(edges);
+  if (!fams) {
+    fams = planBranches(edges);
+    branchCache.set(edges, fams);
+  }
+  if (fams.length === 0) return;
+  const floor = 1.5 / zoom;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = BRANCH_WOOD;
+  ctx.fillStyle = BRANCH_WOOD;
+  for (const heavy of [false, true]) {
+    const sel = fams.filter((f) => (f.from === focus) === heavy);
+    if (sel.length === 0) continue;
+    const bough = Math.max(heavy ? 7 : 4.5, floor);
+    ctx.lineWidth = bough;
+    ctx.beginPath();
+    for (const f of sel) {
+      ctx.moveTo(f.bough[0], f.bough[1]);
+      ctx.lineTo(f.bough[2], f.bough[3]);
+    }
+    ctx.stroke();
+    ctx.lineWidth = Math.max(bough * 0.55, floor);
+    ctx.beginPath();
+    for (const f of sel) {
+      for (const tw of f.twigs) {
+        if (tw.pts.length < 4) continue;
+        ctx.moveTo(tw.pts[0], tw.pts[1]);
+        for (let i = 2; i < tw.pts.length; i += 2) ctx.lineTo(tw.pts[i], tw.pts[i + 1]);
+      }
+    }
+    ctx.stroke();
+    if (lod === 'dots') continue;
+    // A knot where the bough divides into twigs.
+    ctx.beginPath();
+    for (const f of sel) {
+      if (f.twigs.length < 2) continue;
+      ctx.moveTo(f.knot[0] + bough * 0.8, f.knot[1]);
+      ctx.arc(f.knot[0], f.knot[1], bough * 0.8, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  }
+  if (lod === 'dots') {
+    ctx.restore();
+    return;
+  }
+  // A bud at the end of every twig.
+  ctx.fillStyle = BRANCH_LEAF;
+  ctx.beginPath();
+  const r = Math.max(2.6, 3 / zoom);
+  for (const f of fams) {
+    for (const tw of f.twigs) {
+      const n = tw.pts.length;
+      if (n < 4) continue;
+      ctx.moveTo(tw.pts[n - 2] + r, tw.pts[n - 1]);
+      ctx.arc(tw.pts[n - 2], tw.pts[n - 1], r, 0, Math.PI * 2);
+    }
+  }
+  ctx.fill();
+  ctx.restore();
 }
 
 export function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
@@ -397,7 +472,12 @@ export function draw(
   const parent: ChartEdge[] = [];
   const partner: ChartEdge[] = [];
   const dup: ChartEdge[] = [];
-  for (const e of win.edges) (e.kind === 'parent' || e.kind === 'sibling' ? parent : e.kind === 'partner' ? partner : dup).push(e);
+  const grown = opts.branches === true;
+  for (const e of win.edges) {
+    if (e.kind === 'parent' || e.kind === 'sibling') {
+      if (!grown) parent.push(e);
+    } else (e.kind === 'partner' ? partner : dup).push(e);
+  }
   let marks = marksCache.get(win.edges);
   if (!marks) {
     marks = connectorMarks(win.edges);
@@ -407,7 +487,8 @@ export function draw(
   strokeEdges(ctx, partner, theme.ink2, 2, z, null);
   strokeEdges(ctx, dup, theme.ribbon, 1, z, [6 / z, 4 / z]);
   ctx.setLineDash([]);
-  if (lod !== 'dots') drawDots(ctx, marks.dots, theme.ink2, z);
+  if (grown) drawBranches(ctx, win.edges, focus, z, lod);
+  else if (lod !== 'dots') drawDots(ctx, marks.dots, theme.ink2, z);
 
   if (lod === 'dots') {
     ctx.beginPath();
