@@ -32,6 +32,7 @@
   import { captionText, chartTitle, later, printPicture, printPictures, savePicture, savePictures, suggestedName, type BuiltPicture } from './pictureExport';
   import { A3_MIN_PT, A3_SUB_PT, A3_TITLE_PT, CARD_SMALL_PX, PT_PX, ellipsize, layoutA3, mmToPx, nameFloorPx, printDirection, printStretch, stretchScene, targetScale, type A3Background, type A3Choice, type A3DirectionMode, type A3Layout, type DirectionFit } from './a3';
   import { a3Background, a3Direction, a3Orientation, a3Title } from './a3Pref.svelte';
+  import { branchesPref } from './branchesPref.svelte';
   import { namesAsRecorded, oldTypeface } from '../ui/namesPref.svelte';
   import { loadOldTypeface } from '../ui/fonts';
   import { sceneBounds, pictureFileName } from './picture';
@@ -203,6 +204,13 @@
     };
   });
 
+  /** The "families as branches" display: a choice of the chart built around people only. */
+  const branchesOn = $derived(kind === 'around' && branchesPref.value);
+
+  /** The generation of every box this chart has shown (by box id), so a bough keeps its thickness when its card is off screen. */
+  let genSeen: Record<number, number> = {};
+  const genOf = (id: number): number | undefined => genSeen[id];
+
   function invalidate(): void {
     dirty = true;
     if (!rafId && !hidden) rafId = requestAnimationFrame(frame);
@@ -216,13 +224,15 @@
     const ctx = canvas.getContext('2d');
     if (!cur || !ctx) return;
     theme ??= themeFromCss();
-    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, focusMore: chosenMore, marked: new Set(markedIds), theme, kind, dir: dirNow, badged: agentChanges.unreviewed, sheetFrames: sheetRects.map((r) => ({ ...r, label: t('picture.sheetFrame', { n: r.no }) })) });
+    for (const n of cur.win.nodes) genSeen[n.id] = n.gen;
+    draw(ctx, cur.win, cam, { w: size.w, h: size.h, dpr }, { selected, focus: rootNodeId, focusMore: chosenMore, marked: new Set(markedIds), theme, kind, dir: dirNow, branches: branchesOn, genOf, badged: agentChanges.unreviewed, sheetFrames: sheetRects.map((r) => ({ ...r, label: t('picture.sheetFrame', { n: r.no }) })) });
   }
 
   $effect(() => {
     void agentChanges.unreviewed;
     void localeStore.locale; // words drawn on the canvas (a nameless person's name, relations) follow the language
     void markedIds;
+    void branchesOn;
     invalidate();
   });
 
@@ -371,6 +381,7 @@
     activeTween?.cancel();
     cache?.dispose();
     cache = null;
+    genSeen = {};
     if (meta) void api.chartClose(meta.chartId).catch(() => {});
     meta = null;
   }
@@ -1086,7 +1097,7 @@
       transparent: bg === 'transparent',
       caption: header ? captionText(kind, rootName) : '',
       paint: (ctx, p) =>
-        draw(ctx, scene, p.cam, { w: p.view.w, h: p.view.h, dpr: p.scale }, { selected: scope === 'screen' ? sel : null, focus, focusMore, theme: th, kind, dir: dirNow, handles: scope === 'screen' }),
+        draw(ctx, scene, p.cam, { w: p.view.w, h: p.view.h, dpr: p.scale }, { selected: scope === 'screen' ? sel : null, focus, focusMore, theme: th, kind, dir: dirNow, branches: branchesOn, genOf, handles: scope === 'screen' }),
     };
   }
 
@@ -1201,7 +1212,7 @@
       pageMm: { ...lay.mm, orientation: lay.orientation },
       warning: text.warning,
       paint: (ctx, p) => {
-        draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: printFocus, focusMore: printMore, theme: th, kind, dir, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(lay.scale) });
+        draw(ctx, scene, lay.cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: printFocus, focusMore: printMore, theme: th, kind, dir, branches: branchesOn, genOf, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(lay.scale) });
         if (!header) return;
         drawTitleBlock(ctx, p.scale, lay, th, text);
       },
@@ -1406,7 +1417,7 @@
           const v = { ...pc.view, scene: groupBoxes(pc) };
           const m = dirs.find((d) => d.direction === v.direction)!.meta;
           const cam = { zoom: s, x: v.bounds.x - pc.x / s, y: v.bounds.y - pc.y / s };
-          draw(ctx, v.scene, cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: m.rootNode, focusMore: new Set(m.chosenNodes ?? []), theme: th, kind, dir: v.direction, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(s), keep: i > 0 });
+          draw(ctx, v.scene, cam, { w: lay.px.w, h: lay.px.h, dpr: p.scale }, { selected: null, focus: m.rootNode, focusMore: new Set(m.chosenNodes ?? []), theme: th, kind, dir: v.direction, branches: branchesOn, genOf, handles: false, lod: 'full', compact: true, nameMinPx: nameFloorPx(s), keep: i > 0 });
         });
         ctx.setTransform(p.scale, 0, 0, p.scale, 0, 0);
         // "→ sheet N" beside each reference box, on the side away from its ancestors, or towards them for a parent of
@@ -1652,6 +1663,11 @@
     {#if onAunts}
       <div class="tool"><Checkbox label={t('chartCanvas.showAunts')} checked={auntsUncles} onchange={onAunts} /></div>
     {/if}
+    {#if kind === 'around'}
+      <div class="tool branches" title={t('chartCanvas.branchesHint')}>
+        <Checkbox label={t('chartCanvas.branches')} checked={branchesPref.value} onchange={(on) => branchesPref.set(on)} />
+      </div>
+    {/if}
     {#if onKin}
       <div class="tool">
         <Segmented
@@ -1787,6 +1803,12 @@
   }
   /* The toolbar rests on the bottom line so the labelled Select lines up with the buttons; an item shorter than a
      button (a checkbox, the radio group) would then sit low. Give it a button's height and centre it in that. */
+  /* A separator from the next group of tools. */
+  .branches {
+    padding-inline-end: var(--s-4);
+    margin-inline-end: var(--s-2);
+    border-inline-end: 1px solid var(--rule);
+  }
   .tool {
     display: flex;
     align-items: center;

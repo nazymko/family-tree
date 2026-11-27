@@ -1974,6 +1974,8 @@ export const en = {
     aroundTools: 'Tools for the chart built around a person',
     centreOnMe: 'Centre on me',
     showAunts: 'Show aunts and uncles',
+    branches: 'Branches',
+    branchesHint: 'Show families as branches',
     kin: 'Relatives',
     kinLine: 'Line only',
     kinSiblings: 'Brothers and sisters',
