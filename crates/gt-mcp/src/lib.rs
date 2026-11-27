@@ -96,7 +96,14 @@ pub const INSTRUCTIONS: &str = concat!(
      refused: leave a note and list it in your report. The batch undoes it.\n\n\
      Taking back a citation: remove_own_citation (citation, reason) removes a citation you made \
      yourself, when it points to a misread record. Only that citation and its links go; the \
-     source stays. A citation the owner made is refused. The batch undoes it.\n"
+     source stays. A citation the owner made is refused. The batch undoes it.\n\n\
+     Merging people: merge_people (keep_id, merge_id, reason) merges a duplicate person into the one \
+     who stays, in one step the batch undoes. Merge only when the same-person evidence is clear: the \
+     same parents or spouse and matching dates; list doubtful pairs in your report instead of merging \
+     them, and give the evidence in reason. Names, family links, events, notes, citations, pictures, \
+     godparent links and numbers move to keep_id. Refused for different recorded sexes, for an \
+     ancestor and a descendant, and when anyone would count as alive who counted as dead. The answer \
+     counts what moved and lists conflicts (such as two birth dates) to look at.\n"
 );
 
 /// What the server needs from the app. Used as a generic bound only.
