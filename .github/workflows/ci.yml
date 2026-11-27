@@ -116,7 +116,7 @@ jobs:
       # several at a time, one isolated wdio run per spec, each with its own log (GT_E2E_LOGS, uploaded below).
       - name: Run the flows (virtual display)
         if: runner.os == 'Linux'
-        run: xvfb-run --auto-servernum node scripts/gate.mjs --e2e
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" node scripts/gate.mjs --e2e
         env:
           GT_E2E_SHOTS: ${{ runner.temp }}/gt-e2e-shots
           GT_E2E_LOGS: ${{ runner.temp }}/gt-e2e-logs

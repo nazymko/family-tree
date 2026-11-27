@@ -75,6 +75,11 @@ async function chooseLanguage(code: string, heading: string) {
   await $(`h1=${heading}`).waitForDisplayed({ timeout: 20000 });
 }
 
+/** One key press at a time: WebKitWebDriver drops the second of two equal letters sent in one keys() call ("bloom" came out "blom"). */
+async function typeText(text: string) {
+  for (const ch of text) await browser.keys(ch);
+}
+
 describe('Text on pictures and the recording transcript', () => {
   before(async () => {
     await ready();
@@ -96,11 +101,11 @@ describe('Text on pictures and the recording transcript', () => {
 
     await click('Mark text');
     await dragOnPicture([-170, -130], [20, -90]);
-    await browser.keys('Dear Marta, the orchard is in bloom.');
+    await typeText('Dear Marta, the orchard is in bloom.');
     await browser.keys('Tab');
     await click('Mark text');
     await dragOnPicture([-170, 60], [60, 120]);
-    await browser.keys('Lviv, May');
+    await typeText('Lviv, May');
     await browser.keys('Tab');
     await browser.waitUntil(async () => (await $$('.layer .box')).length === 2, { timeoutMsg: 'two pieces should be marked' });
 
