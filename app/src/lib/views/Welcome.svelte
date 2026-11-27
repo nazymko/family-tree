@@ -7,6 +7,7 @@
   import { getApi, getPlatform } from '../api/context';
   import type { RecentProject } from '../api/types';
   import { enterProject } from '../state/openTree';
+  import { startup } from '../state/startup.svelte';
   import { openReceivedCopy } from '../state/openReceived';
   import { t, currentTag } from '../i18n';
   import { versionLine } from './about';
@@ -95,6 +96,13 @@
     </header>
 
     {#if error}<Banner kind="error">{error}</Banner>{/if}
+    {#if startup.notice}
+      <Banner kind="warning">
+        {startup.notice.kind === 'missing'
+          ? t('welcome.startupMissing', { name: startup.notice.message, dir: startup.notice.dir })
+          : t('welcome.startupFailed', { message: startup.notice.message })}
+      </Banner>
+    {/if}
 
     {#if mode === 'home'}
       <div class="actions">

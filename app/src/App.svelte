@@ -3,6 +3,7 @@
   import { settings } from './lib/state/settings.svelte';
   import { nav } from './lib/state/nav.svelte';
   import { project } from './lib/state/project.svelte';
+  import { runStartup } from './lib/state/startup.svelte';
   import { observeApi } from './lib/state/observe';
   import Shell from './lib/views/Shell.svelte';
   import Welcome from './lib/views/Welcome.svelte';
@@ -16,6 +17,7 @@
   const api = observeApi(bundle.api);
   setApi(api, bundle.platform);
   void settings.load(api);
+  void runStartup(api);
 
   // Development only: `?route=family|people|...` opens the mock tree straight onto a view (used for screenshots).
   if (import.meta.env.DEV && typeof location !== 'undefined') {

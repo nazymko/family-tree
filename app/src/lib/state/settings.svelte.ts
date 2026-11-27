@@ -10,6 +10,7 @@ const DEFAULTS: Settings = {
   theme: 'system',
   language: 'system',
   backupsToKeep: 10,
+  reopenLast: true,
   chartDirections: { ...DEFAULT_DIRECTIONS },
   livingMaxAge: 100,
   homePerson: null,

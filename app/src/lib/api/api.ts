@@ -74,7 +74,14 @@ import type { AgentAccessState, AppInfo, NewConnectionDto, UpdateStatus } from '
 
 export type * from './types';
 
+/** What the start-up auto-open did (the tree is already open in the backend when `opened` is set). */
+export interface StartupOutcome {
+  opened: ProjectInfo | null;
+  notice: { kind: 'missing' | 'failed'; dir: string; message: string } | null;
+}
+
 export interface Api {
+  startupOutcome(): Promise<StartupOutcome>;
   recentProjects(): Promise<RecentProject[]>;
   createProject(dir: string, name: string): Promise<ProjectInfo>;
   openProject(dir: string): Promise<ProjectInfo>;

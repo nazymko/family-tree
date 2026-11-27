@@ -20,6 +20,8 @@ pub struct AppState {
     pub keys: Arc<dyn KeyStore>,
     /// The offline place index, loaded on first use and dropped when a country is added or removed.
     pub gazetteer: Mutex<Option<Arc<gt_gazetteer::Gazetteer>>>,
+    /// What the start-up auto-open did; the page takes it once.
+    pub startup: Mutex<Option<crate::startup::StartupOutcome>>,
 }
 
 impl AppState {
@@ -49,6 +51,7 @@ impl AppState {
             agent: AgentAccess::new(hashes),
             keys: Arc::new(Keychain),
             gazetteer: Mutex::new(None),
+            startup: Mutex::new(None),
         }
     }
 

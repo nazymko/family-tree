@@ -530,6 +530,8 @@ pub struct Settings {
     /// Interface language; `system` follows the OS language.
     pub language: Language,
     pub backups_to_keep: u32,
+    /// App setting: open the most recent tree when the app starts.
+    pub reopen_last: bool,
     /// App setting: the side the ancestors are drawn on, for each kind of chart.
     pub chart_directions: ChartDirections,
     /// Project setting.
@@ -549,6 +551,7 @@ impl Default for Settings {
             theme: Theme::System,
             language: Language::Uk,
             backups_to_keep: 10,
+            reopen_last: true,
             chart_directions: ChartDirections::default(),
             living_max_age: 100,
             home_person: None,

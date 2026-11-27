@@ -11,6 +11,10 @@ export type Settings = { dayOrder: DayOrder, nameOrder: NameOrder, theme: Theme,
  */
 language: Language, backupsToKeep: number, 
 /**
+ * App setting: open the most recent tree when the app starts.
+ */
+reopenLast: boolean, 
+/**
  * App setting: the side the ancestors are drawn on, for each kind of chart.
  */
 chartDirections: ChartDirections, 

@@ -22,6 +22,8 @@ pub struct AppSettings {
     pub theme: Theme,
     pub language: Language,
     pub backups_to_keep: u32,
+    /// Open the most recent tree when the app starts.
+    pub reopen_last: bool,
     /// The side the ancestors are drawn on, per kind of chart.
     pub chart_directions: ChartDirections,
     /// The one switch of the first versions; read once to fill `chart_directions` and never written back.
@@ -75,6 +77,7 @@ impl Default for AppSettings {
             theme: Theme::System,
             language: Language::Uk,
             backups_to_keep: 10,
+            reopen_last: true,
             chart_directions: ChartDirections::default(),
             tree_direction: None,
             agent_access: AgentAccessSettings::default(),

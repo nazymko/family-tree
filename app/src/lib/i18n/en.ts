@@ -43,6 +43,7 @@ export const en = {
     themeDark: 'Dark',
     themeSystem: 'System',
     backups: 'Backups to keep',
+    reopenLast: 'Reopen the last tree at startup',
     treeDirection: 'Where the ancestors are drawn',
     treeDirectionHint: 'Each kind of chart remembers its own side. The family view has top and bottom only.',
     dirPedigree: 'Pedigree',
@@ -619,6 +620,8 @@ export const en = {
     saveOffered: 'The file is ready: choose where to save or send it.',
   },
   welcome: {
+    startupMissing: 'The last tree "{name}" could not be reopened: its folder is gone ({dir}).',
+    startupFailed: 'The last tree could not be reopened: {message}',
     lede: 'Your family history, kept on your own computer.',
     importFile: 'Import a family tree file',
     createTree: 'Create a new tree',
