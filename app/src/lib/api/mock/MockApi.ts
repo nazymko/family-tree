@@ -32,6 +32,7 @@ import type {
   CitationInput,
   DatePreview,
   DayOrder,
+  EmptyFamilyDto,
   EditCommand,
   EditResult,
   EventDto,
@@ -107,6 +108,7 @@ import { IdGen, fold, hashString, makeEvent, makeName, makeNote, mulberry32 } fr
 import { modernVariants } from './orthography';
 import type { Db, FamilyRec, Fixture, PersonRec } from './model';
 import { MockApiError } from './model';
+import { listEmptyFamilies, removeEmptyFamily } from './emptyFamilies';
 import { orientLayout, type Layout } from './mockLayout';
 import { DEFAULT_DIRECTIONS } from '../../chart/direction';
 import { clockMs } from '../../media/clips';
@@ -1117,6 +1119,33 @@ export class MockApi implements Api {
   async personHistory(id: Id, offset: number, limit: number): Promise<Page<LogRowDto>> {
     const rows = this.logRows.filter((e) => e.people.some((p) => p.id === id)).reverse();
     return { total: rows.length, offset, items: rows.slice(offset, offset + Math.min(limit, MAX_PAGE)).map((e) => this.logRow(e)) };
+  }
+
+  async listEmptyFamilies(): Promise<EmptyFamilyDto[]> {
+    return listEmptyFamilies(this.db, (p) => this.ref(p));
+  }
+
+  async removeEmptyFamily(family: Id, notesTo?: Id | null): Promise<EditResult> {
+    const label = 'Remove empty family';
+    const before = this.db;
+    this.db = structuredClone(before);
+    let touched: Id[];
+    try {
+      touched = removeEmptyFamily(this.db, family, notesTo ?? null, (id) => {
+        const p = this.db.persons.get(id);
+        return p ? this.ref(p).name : id;
+      });
+    } catch (e) {
+      this.db = before;
+      throw e;
+    }
+    this.undoStack.push({ label, db: before });
+    if (this.undoStack.length > 200) this.undoStack.shift();
+    this.redoStack = [];
+    this.touch();
+    const ids = [...new Set(touched)];
+    this.record(label, 'delete', new Set(ids), before);
+    return { label, focus: null, touched: ids, undo: this.currentUndo() };
   }
 
   async undoChangeGroup(group: string): Promise<UndoReport> {

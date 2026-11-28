@@ -7,6 +7,7 @@
 mod http;
 mod protocol;
 mod records;
+mod tools_families;
 mod tools_godparent;
 mod tools_map;
 mod tools_places;
@@ -103,7 +104,15 @@ pub const INSTRUCTIONS: &str = concat!(
      them, and give the evidence in reason. Names, family links, events, notes, citations, pictures, \
      godparent links and numbers move to keep_id. Refused for different recorded sexes, for an \
      ancestor and a descendant, and when anyone would count as alive who counted as dead. The answer \
-     counts what moved and lists conflicts (such as two birth dates) to look at.\n"
+     counts what moved and lists conflicts (such as two birth dates) to look at.\n\n\
+     Cleaning up families: list_empty_families (kind?) lists families with no partners, or with one \
+     partner and no children, with what each holds, who made it and when, and why it could not be \
+     removed. remove_empty_family (family_id, reason, notes_to?) removes such a family of any author \
+     in your batch; remove_child_from_family (family_id, child_id, reason) removes one child link of \
+     any author. Both keep every person in the family tree: a child needs another family with a partner. \
+     Refused for a real couple, a real single-parent family, events, a missing reason, and a child \
+     who would have no parent family left. Notes, citations and pictures of a removed family move to \
+     notes_to, a partner or a child. The batch undoes it.\n"
 );
 
 /// What the server needs from the app. Used as a generic bound only.
@@ -173,6 +182,7 @@ pub(crate) fn tools<H: Host>() -> Vec<Tool<H>> {
         tools_verified::tools::<H>(),
         tools_map::tools::<H>(),
         tools_places::tools::<H>(),
+        tools_families::tools::<H>(),
     ]
     .into_iter()
     .flatten()

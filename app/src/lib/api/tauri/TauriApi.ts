@@ -33,6 +33,7 @@ import type {
   CitationDto,
   DatePreview,
   DayOrder,
+  EmptyFamilyDto,
   EditCommand,
   EditResult,
   ExifSuggestion,
@@ -381,6 +382,12 @@ export class TauriApi implements Api {
   }
   undoChangeBatch(batch: string): Promise<UndoReport> {
     return call('undo_change_batch', { batch });
+  }
+  listEmptyFamilies(): Promise<EmptyFamilyDto[]> {
+    return call('list_empty_families');
+  }
+  removeEmptyFamily(family: Id, notesTo?: Id | null): Promise<EditResult> {
+    return call('remove_empty_family', { family, notesTo: notesTo ?? null });
   }
   // --- Agent access ---
   agentAccessState(): Promise<AgentAccessState> {

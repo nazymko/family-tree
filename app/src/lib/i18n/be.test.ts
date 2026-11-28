@@ -63,6 +63,10 @@ const EXCLUDED_TEXT: Record<string, string> = {
   'No secure random numbers are available.': 'agent access only; `agent.errNoRandom`',
   'only sound recordings can be attached to a note': 'worded by `failureLine` in Dropzone.svelte as `voice.onlySoundOnNote` (it adds the file name)',
   'sound recordings can only be attached to a note or a source': 'worded by `failureLine` in Dropzone.svelte as `voice.soundOnlyOnNote`',
+  'notes_to must be a partner or a child of the family being removed.': 'sent only to MCP agents; the app always offers a member',
+  'The family holds notes, citations or pictures. Give notes_to: a partner or a child of the family, who takes them over.': 'sent only to MCP agents; the app sends the suggested member',
+  '{} is not a child in this family, so there is no link to remove.': 'sent only to MCP agents (remove_child_from_family)',
+  '{} has no other family with a parent: removing this link would cut them off from the родовід. Link them to their real parents first.': 'sent only to MCP agents (remove_child_from_family)',
 };
 
 /** Messages passed to a helper as a variable, so no text can be read from the call. Reviewed one by one. */
@@ -79,6 +83,9 @@ const DYNAMIC_OK: Record<string, string> = {
   'crates/gt-session/src/map_layers.rs|f.reason.clone()': 'the reason of an `AttachFailure` from `prepare_attach`: the reasons a file was not attached, worded below',
   'crates/gt-session/src/ozi.rs|msg': 'the helper `bad` itself',
   'crates/gt-session/src/place_events.rs|m': 'the helper `invalid` itself',
+  'crates/gt-session/src/empty_families.rs|msg': 'the helper `refused` itself (agent answers)',
+  'crates/gt-session/src/empty_families.rs|e.message': 'an agent refusal passed on to the owner as `Invalid`: the texts below',
+  'crates/gt-session/src/empty_families.rs|blockers.join(" ")': 'the blockers of an empty family: shown in the Settings row, sent to agents in English',
 };
 
 const { messages, dynamic } = extractMessages(sources, /gt-session\/src\/error\.rs$/);

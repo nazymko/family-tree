@@ -22,6 +22,7 @@ import type {
   CitationDto,
   DatePreview,
   DayOrder,
+  EmptyFamilyDto,
   EditCommand,
   EditResult,
   ExifSuggestion,
@@ -225,6 +226,10 @@ export interface Api {
   /** Undoes one agent change; a fact someone changed since stays and is named in the report. */
   undoChangeGroup(group: string): Promise<UndoReport>;
   undoChangeBatch(batch: string): Promise<UndoReport>;
+  /** Families with no partners, or one partner and no children: the clean-up list, with what blocks removing each. */
+  listEmptyFamilies(): Promise<EmptyFamilyDto[]>;
+  /** Removes an empty or parentless family (one undo step); its notes, citations and pictures move to `notesTo`, a partner or a child. */
+  removeEmptyFamily(family: Id, notesTo?: Id | null): Promise<EditResult>;
   // --- Agent access ---
   agentAccessState(): Promise<AgentAccessState>;
   /** Turns the local MCP server on or off and sets its port. A taken port comes back as `error` in the state, not as a rejection. */

@@ -57,6 +57,15 @@ pub struct LogGroup {
     pub changes: Vec<Change>,
 }
 
+/// The first log row of a record, see `Project::first_write`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FirstWrite {
+    pub ts: i64,
+    pub created: bool,
+    /// `None` for a row from before authors were tracked.
+    pub actor: Option<Actor>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LogFilter {
     pub actor_id: Option<Uuid>,
@@ -168,6 +177,23 @@ impl Project {
             out.push(read_change(r)?);
         }
         Ok(out)
+    }
+
+    /// The first logged change to one record: who made it, when (Unix ms) and whether it created
+    /// the record. `None` when the record has no log row (it came with an import of the file).
+    pub fn first_write(&self, target: Uuid) -> Result<Option<FirstWrite>, StoreError> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT ts, op, actor_kind, actor_id, actor_name FROM change_log              WHERE target_id = ?1 ORDER BY id LIMIT 1",
+        )?;
+        let mut rows = st.query([target.to_string()])?;
+        let Some(r) = rows.next()? else {
+            return Ok(None);
+        };
+        Ok(Some(FirstWrite {
+            ts: r.get(0)?,
+            created: ChangeOp::parse(&r.get::<_, String>(1)?)? == ChangeOp::Create,
+            actor: read_actor(r.get(2)?, r.get(3)?, r.get(4)?)?,
+        }))
     }
 
     /// Every logged change to one record, oldest first.

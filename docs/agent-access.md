@@ -195,6 +195,33 @@ revisions and censuses. Two tools serve it.
 - `remove_own_citation` (inputs: the batch, `citation`, `reason`) takes back a citation the agent created itself, in this batch or an earlier one, that nobody has changed since. It removes only that citation and its links to persons, events, names and notes; the source stays. A research note on each person or family that held it records what was removed and why. A citation the owner, an import or another connection made is refused. The batch undoes it and the citation comes back with its links.
 - `merge_people` (inputs: the batch, `keep_id`, `merge_id`, `reason`) merges a duplicate person into the person kept, in one undoable step. Everything of the merged person moves to `keep_id`: family links as child and partner (the same couple in two families becomes one family), events, all names (as alternative names), notes, citations, pictures with their regions, godparent links in both directions and numbers; the merged person is removed. Merge only when the evidence is clear (the same parents or spouse, matching dates), give it in `reason` (required; it goes into the change log and a research note on the kept person), and list doubtful pairs in the report instead. Refused, with the reason, when the ids are equal or unknown, when one is an ancestor of the other, when the recorded sexes differ (unless one is unknown), when the two are partners of one family, when `merge_id` is the home person, or when anyone would count as alive who counted as dead; if either counted as dead the result counts as dead. The answer counts what moved and lists conflicts to look at, such as two birth dates kept as two events. 
 
+### Cleaning up empty and parentless families
+
+`remove_own_empty_family` and `remove_own_child_link` reach only what the agent made itself. Families the owner or an earlier
+batch made, such as a family with no partners holding children who also belong to their real parents' family, or a family with
+one partner and no children, are cleaned up with three tools:
+
+- `list_empty_families` (input: optional `kind`: `parentless`, `singlePartner` or `empty`; `offset`, `limit`) is read only. It lists
+  families with no partners (with children, or with none) and families with one partner and no children. For each: the id, the
+  partners, the children (each with `otherParentFamilies` and `hasOtherFamily`: whether it is also a child in a family that has at
+  least one partner), the counts of notes, citations and media, the events, who made the family and when from the change log
+  (`origin`: owner, agent or copy; absent for a family that came with an imported file), `removable` and `blockers` (why
+  `remove_empty_family` would refuse it), `needsNotesTo` and `suggestedNotesTo`.
+- `remove_empty_family` (inputs: the batch, `family_id`, `reason`, and `notes_to` when the family holds anything) removes a
+  family of any author in the agent's batch, so the batch undo brings back the family, its child links and its notes. With no
+  partners the child links go with it (each child gets a research note); the family's notes, citations and pictures move to
+  `notes_to`, a partner or a child of it. Refused, with the reason, when: the family has two partners; it has one partner and
+  children (a real single-parent family); any child would be left with no parent family (a child must keep another family
+  with at least one partner, so nobody is cut off from the family tree); the family has events (a marriage and the like); the
+  reason is empty; the family holds notes, citations or pictures and `notes_to` is missing or is not a member.
+- `remove_child_from_family` (inputs: the batch, `family_id`, `child_id`, `reason`) removes one child link of any author, and only
+  when the child keeps at least one other family that has at least one partner. A research note on the child records the family
+  and the reason. A family left with no partners and no children stays: `remove_empty_family` takes it away.
+
+Both writes are in the change log with the reason (the group label is `Remove empty family: <reason>`), never change whether
+anyone counts as alive or dead (a flip is refused), and are undone with the batch. The owner has the same list in Settings,
+under Empty families, with Open and Delete (after a confirmation); Delete is one undo step (Ctrl+Z).
+
 ### Places on the map
 
 The Map shows an event only when its place has coordinates. An agent can give a place its point with the tool
