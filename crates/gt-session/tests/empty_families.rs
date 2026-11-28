@@ -164,9 +164,13 @@ fn the_list_sorts_families_by_kind_and_says_what_blocks_them() {
         f6.blockers
     );
 
+    assert_eq!(f6.blocker_codes[0].code, "child_would_be_orphaned");
+    assert!(f6.blocker_codes[0].name.is_some());
+
     let f10 = row(w.f10);
     assert_eq!(f10.events.len(), 1);
     assert!(!f10.removable && f10.blockers[0].contains("events"));
+    assert_eq!(f10.blocker_codes[0].code, "has_events");
 
     let empty = rows
         .iter()

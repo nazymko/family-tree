@@ -56,7 +56,8 @@ pub use command::{
 pub use command::{MapCorner, MapLayerInput};
 pub use dto::*;
 pub use empty_families::{
-    EmptyFamilyChildDto, EmptyFamilyDto, EmptyFamilyEventDto, EmptyFamilyKind, EmptyFamilyOrigin,
+    EmptyFamilyBlocker, EmptyFamilyChildDto, EmptyFamilyDto, EmptyFamilyEventDto, EmptyFamilyKind,
+    EmptyFamilyOrigin,
 };
 pub use error::{ApiError, ErrorCode};
 pub use field_diff::{FieldChangeDto, person_field_changes, record_field_changes};

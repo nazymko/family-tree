@@ -36,6 +36,18 @@
     empty: 'kindEmpty',
   };
 
+  const WHY = {
+    two_partners: 'whyTwoPartners',
+    parent_with_children: 'whyParentWithChildren',
+    has_events: 'whyHasEvents',
+    child_would_be_orphaned: 'whyChildOrphaned',
+    needs_notes_to: 'whyNeedsNotesTo',
+  } as const;
+  const why = (b: { code: string; name: string | null }) => {
+    const key = WHY[b.code as keyof typeof WHY];
+    return key ? t(`emptyFamilies.${key}`, { name: b.name ?? '' }) : b.code;
+  };
+
   const names = (list: { name: string }[]) => list.map((p) => p.name || '?').join(', ');
 
   /** Who takes over the family's notes, citations and pictures when it is removed. */
@@ -92,7 +104,7 @@
               <span class="hint">{t(`emptyFamilies.${BY[f.origin.by as keyof typeof BY] ?? 'by_owner'}`, { name: f.origin.name ?? '' })}</span>
             {/if}
             {#if !f.removable}
-              <span class="why" data-testid="empty-family-blocked">{t('emptyFamilies.blocked', { why: f.blockers.join(' ') })}</span>
+              <span class="why" data-testid="empty-family-blocked">{t('emptyFamilies.blocked', { why: f.blockerCodes.map(why).join(' ') })}</span>
             {/if}
           </div>
           <div class="actions">

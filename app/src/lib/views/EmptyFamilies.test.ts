@@ -43,7 +43,7 @@ describe('EmptyFamilies', () => {
     expect(text.some((x) => x.includes('Nobody in it'))).toBe(true);
     expect(text.some((x) => x.includes('One partner, no children'))).toBe(true);
     const blocked = rows.find((r) => r.textContent?.includes('No parents listed'))!;
-    expect(within(blocked).getByTestId('empty-family-blocked')).toHaveTextContent('no parent family');
+    expect(within(blocked).getByTestId('empty-family-blocked')).toHaveTextContent('would be left with no parent family');
     expect(within(blocked).getByRole('button', { name: 'Delete' })).toBeDisabled();
     expect(within(blocked).getByRole('button', { name: 'Open' })).toBeEnabled();
   });

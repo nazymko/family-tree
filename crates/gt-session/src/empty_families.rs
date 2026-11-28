@@ -60,6 +60,16 @@ pub struct EmptyFamilyEventDto {
     pub date: Option<String>,
 }
 
+/// One reason a family cannot be removed, as a code the screen words in its own language.
+/// Codes: `two_partners`, `parent_with_children`, `has_events`, `child_would_be_orphaned`
+/// (`name` is the child), `needs_notes_to` (it holds things and has nobody to take them).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct EmptyFamilyBlocker {
+    pub code: String,
+    pub name: Option<String>,
+}
+
 /// Who made the family and when, from the change log.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -92,6 +102,8 @@ pub struct EmptyFamilyDto {
     pub removable: bool,
     /// Why it would be refused, in plain words; empty when `removable`.
     pub blockers: Vec<String>,
+    /// The same reasons as codes, for the screen to translate.
+    pub blocker_codes: Vec<EmptyFamilyBlocker>,
     /// The family holds notes, citations or pictures: they move to `notes_to`.
     pub needs_notes_to: bool,
     /// A member to give as `notes_to`: the partner, else the first child.
@@ -196,43 +208,62 @@ impl Session {
 
     /// The reasons `fam` cannot be removed, whatever `notes_to` is; empty when it can.
     pub(crate) fn removal_blockers(&self, fam: &Family) -> Vec<String> {
+        self.removal_blocker_items(fam)
+            .into_iter()
+            .map(|(_, text)| text)
+            .collect()
+    }
+
+    /// The same reasons, each as a code plus its English sentence (for agents).
+    pub(crate) fn removal_blocker_items(&self, fam: &Family) -> Vec<(EmptyFamilyBlocker, String)> {
         let mut out = Vec::new();
+        let item = |code: &str, name: Option<String>| EmptyFamilyBlocker {
+            code: code.into(),
+            name,
+        };
         let partners = usize::from(fam.partner1.is_some()) + usize::from(fam.partner2.is_some());
         if partners == 2 {
-            out.push(
+            out.push((
+                item("two_partners", None),
                 "The family has two partners: it is a real couple, not an empty family.".into(),
-            );
+            ));
         }
         if partners == 1 && !fam.children.is_empty() {
-            out.push(
+            out.push((
+                item("parent_with_children", None),
                 "The family has one partner and children: it is a real single-parent family."
                     .into(),
-            );
+            ));
         }
         if !family_events(&self.tree, fam.common.id).is_empty() {
-            out.push(
+            out.push((
+                item("has_events", None),
                 "The family has events (a marriage or the like). Move them to a person first, or \
                  leave the family."
                     .into(),
-            );
+            ));
         }
         if partners == 0 {
             for c in &fam.children {
                 if other_parent_families(&self.tree, fam.common.id, c.person) == 0 {
-                    out.push(format!(
-                        "{} would be left with no parent family: removing the link would cut \
-                         them off from the родовід.",
-                        self.plain_name(c.person)
+                    let name = self.plain_name(c.person);
+                    out.push((
+                        item("child_would_be_orphaned", Some(name.clone())),
+                        format!(
+                            "{name} would be left with no parent family: removing the link would \
+                             cut them off from the родовід."
+                        ),
                     ));
                 }
             }
         }
         if holds_things(fam) && members(fam).is_empty() {
-            out.push(
+            out.push((
+                item("needs_notes_to", None),
                 "The family holds notes, citations or pictures and has no partner or child to \
                  move them to."
                     .into(),
-            );
+            ));
         }
         out
     }
@@ -289,7 +320,8 @@ impl Session {
                     created: w.created,
                 })
             });
-            let blockers = self.removal_blockers(fam);
+            let (blocker_codes, blockers): (Vec<_>, Vec<_>) =
+                self.removal_blocker_items(fam).into_iter().unzip();
             rows.push(EmptyFamilyDto {
                 id,
                 kind: k,
@@ -302,6 +334,7 @@ impl Session {
                 origin,
                 removable: blockers.is_empty(),
                 blockers,
+                blocker_codes,
                 needs_notes_to: holds_things(fam),
                 suggested_notes_to: members(fam).first().copied(),
             });

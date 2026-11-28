@@ -41,6 +41,7 @@ export * from './DraftPerson';
 export * from './EdgeKindDto';
 export * from './EditCommand';
 export * from './EditResult';
+export * from './EmptyFamilyBlocker';
 export * from './EmptyFamilyChildDto';
 export * from './EmptyFamilyDto';
 export * from './EmptyFamilyEventDto';
