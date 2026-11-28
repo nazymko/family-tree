@@ -9,6 +9,7 @@ pub mod chart;
 pub mod command;
 pub mod dates;
 pub mod dto;
+pub mod empty_families;
 pub mod error;
 pub mod family_view;
 pub mod field_diff;
@@ -41,9 +42,9 @@ mod web_links;
 
 pub use agent::{
     AGENT_AUDIO_MAX, AGENT_FILE_MAX, AGENT_PDF_MAX, AgentCtx, AgentFile, AgentWrite,
-    EventCorrection, NameCorrection, PLACE_MERGE_MAX, PLACE_NAMES_MAX, PeopleMergeCounts,
-    PeopleMergeOutcome, PlaceEdit, PlaceMergeOutcome, VerifiedEvidence, check_agent_file,
-    check_agent_path, prepare_agent_file,
+    EmptyFamilyRemoval, EventCorrection, NameCorrection, PLACE_MERGE_MAX, PLACE_NAMES_MAX,
+    PeopleMergeCounts, PeopleMergeOutcome, PlaceEdit, PlaceMergeOutcome, VerifiedEvidence,
+    check_agent_file, check_agent_path, prepare_agent_file,
 };
 pub use command::{
     CitationArg, CitationInput, CitationPatch, CloneOf, DeleteImpact, DraftFamily, DraftPerson,
@@ -54,6 +55,9 @@ pub use command::{
 };
 pub use command::{MapCorner, MapLayerInput};
 pub use dto::*;
+pub use empty_families::{
+    EmptyFamilyChildDto, EmptyFamilyDto, EmptyFamilyEventDto, EmptyFamilyKind, EmptyFamilyOrigin,
+};
 pub use error::{ApiError, ErrorCode};
 pub use field_diff::{FieldChangeDto, person_field_changes, record_field_changes};
 pub use log::{

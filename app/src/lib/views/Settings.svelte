@@ -9,6 +9,7 @@
   import Banner from '../ui/Banner.svelte';
   import AgentAccessSettings from './AgentAccessSettings.svelte';
   import AboutSection from './AboutSection.svelte';
+  import EmptyFamilies from './EmptyFamilies.svelte';
   import { getApi, getPlatform } from '../api/context';
   import { settings } from '../state/settings.svelte';
   import { t, LANGUAGES } from '../i18n';
@@ -181,6 +182,7 @@
   {:else}
     <AgentAccessSettings />
   {/if}
+  <EmptyFamilies />
   <AboutSection />
 </section>
 

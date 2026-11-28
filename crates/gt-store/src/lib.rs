@@ -17,7 +17,7 @@ mod project;
 mod save;
 mod search;
 
-pub use authors::{Actor, Batch, LogFilter, LogGroup, LogMeta, LogPerson, ReviewScope};
+pub use authors::{Actor, Batch, FirstWrite, LogFilter, LogGroup, LogMeta, LogPerson, ReviewScope};
 pub use backup::BackupReason;
 pub use collation::COLLATION_NAME;
 pub use edit::{Change, ChangeOp, ChangeSet, HistoryEntry, Record, RecordKind};

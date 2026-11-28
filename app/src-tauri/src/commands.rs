@@ -7,13 +7,13 @@ use crate::state::{AppState, no_project};
 use gt_session::{
     ApiError, AttachResult, BatchDto, ChartLocation, ChartMeta, ChartRequest, ChartWindow,
     CitationDto, CopySizeDto, CopyZipDto, DatePreview, DayOrder, EditCommand, EditResult,
-    ErrorCode, ExifSuggestion, ExportOptions, FamilyDto, FamilyViewDto, HistoryEntry,
-    ImportProgress, ImportReportDto, ImportRequest, LocationDto, LocationKind, LocationWarningDto,
-    LogAgentDto, LogFilterDto, LogRowDto, MediaDto, MergePreviewDto, MergeResultDto, OutlineItem,
-    OwnerRef, Page, PersonDetail, PersonQuery, PersonRow, PlaceOption, PrivacyPreview, ProjectInfo,
-    RecentProject, RecordHomeDto, RecordRefDto, Rect, RelinkResult, ReviewScopeDto, SearchHitDto,
-    Session, Settings, SettingsPatch, SourceDto, TraceDraftState, TraceImageInfo, UndoReport,
-    UndoState, WholeMeta,
+    EmptyFamilyDto, ErrorCode, ExifSuggestion, ExportOptions, FamilyDto, FamilyViewDto,
+    HistoryEntry, ImportProgress, ImportReportDto, ImportRequest, LocationDto, LocationKind,
+    LocationWarningDto, LogAgentDto, LogFilterDto, LogRowDto, MediaDto, MergePreviewDto,
+    MergeResultDto, OutlineItem, OwnerRef, Page, PersonDetail, PersonQuery, PersonRow, PlaceOption,
+    PrivacyPreview, ProjectInfo, RecentProject, RecordHomeDto, RecordRefDto, Rect, RelinkResult,
+    ReviewScopeDto, SearchHitDto, Session, Settings, SettingsPatch, SourceDto, TraceDraftState,
+    TraceImageInfo, UndoReport, UndoState, WholeMeta,
 };
 use gt_store::{BackupReason, LocationWarning, Project};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -81,6 +81,8 @@ command_list!(
     locate_records,
     undo_change_group,
     undo_change_batch,
+    list_empty_families,
+    remove_empty_family,
     history,
     parse_date,
     suggest_places,
@@ -588,6 +590,23 @@ pub fn undo_change_group(state: State<'_, AppState>, group: Uuid) -> ApiResult<U
 #[tauri::command(async)]
 pub fn undo_change_batch(state: State<'_, AppState>, batch: Uuid) -> ApiResult<UndoReport> {
     state.with_session(|s| s.undo_batch(batch))
+}
+
+/// The empty and parentless families, for the clean-up list.
+#[tauri::command(async)]
+pub fn list_empty_families(state: State<'_, AppState>) -> ApiResult<Vec<EmptyFamilyDto>> {
+    state.with_session(|s| s.list_empty_families(None))
+}
+
+/// Removes an empty or parentless family; one undo step. Its notes, citations and pictures move to
+/// `notes_to`, a partner or a child.
+#[tauri::command(async)]
+pub fn remove_empty_family(
+    state: State<'_, AppState>,
+    family: Uuid,
+    notes_to: Option<Uuid>,
+) -> ApiResult<EditResult> {
+    state.with_session(|s| s.remove_empty_family_as_owner(family, notes_to))
 }
 
 // ------------------------------------------------------------ lookups

@@ -143,6 +143,15 @@ impl Session {
         }
     }
 
+    /// Puts an owner's change set on the undo stack as the newest step and clears redo.
+    pub(crate) fn push_undo(&mut self, cs: ChangeSet) {
+        self.edit.undo.push(cs);
+        if self.edit.undo.len() > MAX_UNDO {
+            self.edit.undo.remove(0);
+        }
+        self.edit.redo.clear();
+    }
+
     /// Plans, stores and applies one command of the owner; it becomes the newest undo step and
     /// clears redo.
     pub fn apply(&mut self, cmd: EditCommand) -> Result<EditResult, ApiError> {

@@ -156,6 +156,14 @@ fn write_needs_batch() {
             "remove_own_citation",
             json!({"citation": id, "reason": "x"}),
         ),
+        (
+            "remove_empty_family",
+            json!({"family_id": id, "reason": "x"}),
+        ),
+        (
+            "remove_child_from_family",
+            json!({"family_id": id, "child_id": id, "reason": "x"}),
+        ),
     ];
     for (tool, args) in writes {
         let message = call_err(&host, tool, args);
@@ -1492,6 +1500,9 @@ fn only_the_tools_named_here_can_write() {
             "update_place",
             "merge_places",
             "merge_people",
+            // Cleaning up empty and parentless families of any author, in the agent's batch.
+            "remove_empty_family",
+            "remove_child_from_family",
         ]
     );
 }
